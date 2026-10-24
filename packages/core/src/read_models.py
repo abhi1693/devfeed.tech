@@ -28,9 +28,15 @@ EventKind = Literal[
 
 
 class ReadModelSnapshot(BaseModel):
-    status: Literal["fresh", "stale", "refreshing", "rebuilding"]
+    status: Literal["fresh", "stale", "refreshing", "catching_up", "rebuilding"]
     generated_at: datetime | None = None
     generation: str | None = None
+    policy_version: str | None = None
+    article_generation: int | None = Field(default=None, ge=0)
+    catalog_generation: int | None = Field(default=None, ge=0)
+    catalog_revision: list[list[str]] | None = None
+    catalog_target_revision: list[list[str]] | None = None
+    catalog_lag_seconds: float | None = Field(default=None, ge=0)
     lag_seconds: float | None = Field(default=None, ge=0)
 
 

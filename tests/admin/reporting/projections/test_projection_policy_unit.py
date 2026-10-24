@@ -22,6 +22,12 @@ from tests.support.article_readiness import processing_case as processing_case
 from tests.support.source_readiness import NOW, source
 
 
+def snapshot_reads(session, *, kind=None, event=None, due=None, catalog=None):
+    session.scalar.side_effect = [event, due] if kind == "source" else [due]
+    if kind != "source":
+        session.execute.return_value.one.return_value = (event, catalog)
+
+
 @pytest.mark.parametrize("available", [False, True])
 def test_board_cold_start_returns_retry_hint_without_starting_projection_work(available):
     session = Mock(spec=Session)
@@ -73,12 +79,14 @@ def test_snapshot_status_explains_rebuild_or_the_oldest_pending_transition(
     session = Mock(spec=Session)
     session.in_transaction.return_value = True
     session.get.return_value = ReadModelState(name="pipeline", payload=payload, updated_at=NOW)
-    session.scalar.side_effect = [event, due]
+    snapshot_reads(session, event=event, due=due)
     monkeypatch.setattr(reads, "utcnow", lambda: NOW)
 
     generation, snapshot = reads.serving_projection(session)
 
-    assert generation == payload["serving_policy"] and snapshot.generation == generation
+    assert generation == payload["serving_policy"]
+    assert snapshot.generation == f"{generation}:0" and snapshot.policy_version == generation
+    assert snapshot.article_generation == 0
     assert snapshot.status == status and snapshot.generated_at == NOW - timedelta(minutes=1)
     assert snapshot.lag_seconds == (60 if due else 30 if event else 0)
     session.add.assert_not_called()
@@ -98,7 +106,7 @@ def test_legacy_snapshot_uses_global_timestamp_then_persisted_state_time(
     session.get.return_value = ReadModelState(
         name="pipeline", payload=payload, updated_at=NOW - timedelta(minutes=2)
     )
-    session.scalar.side_effect = [None, None]
+    snapshot_reads(session, kind=kind)
     monkeypatch.setattr(reads, "utcnow", lambda: NOW)
     assert reads.serving_projection(session, kind=kind)[1].generated_at == NOW - timedelta(
         minutes=1 if global_timestamp else 2
@@ -122,20 +130,22 @@ def test_catalog_refresh_keeps_source_freshness_independent_of_article_work(
             "token": "refresh-token",
             "revision": [["tags", "current-revision"]],
             "started_at": (NOW - timedelta(seconds=90)).isoformat(),
+            "progress_at": (NOW - timedelta(seconds=3)).isoformat(),
         },
     }
     session = Mock(spec=Session)
     session.in_transaction.return_value = True
     session.get.return_value = ReadModelState(name="pipeline", payload=payload, updated_at=NOW)
-    session.scalar.side_effect = [None, None]
+    snapshot_reads(session, kind=kind)
     monkeypatch.setattr(reads, "utcnow", lambda: NOW)
 
     _, snapshot = reads.serving_projection(session, kind=kind)
 
     assert snapshot.status == (
-        "rebuilding" if full_backfill else "fresh" if kind == "source" else "refreshing"
+        "rebuilding" if full_backfill else "fresh" if kind == "source" else "catching_up"
     )
-    assert snapshot.lag_seconds == (0 if kind == "source" else 90)
+    assert snapshot.lag_seconds == (0 if kind == "source" else 3)
+    assert snapshot.catalog_lag_seconds == (None if kind == "source" else 90)
     assert snapshot.generated_at == NOW - (
         timedelta(seconds=2)
         if kind == "source"
@@ -156,10 +166,16 @@ def test_board_pending_events_and_timers_are_scoped_to_the_requested_kind(monkey
         payload={"serving_policy": policy, "target_policy": policy, "backfill_complete": True},
         updated_at=NOW,
     )
-    session.scalar.side_effect = [NOW - timedelta(seconds=30), NOW - timedelta(seconds=60)]
+    snapshot_reads(
+        session, kind=kind, event=NOW - timedelta(seconds=30), due=NOW - timedelta(seconds=60)
+    )
     monkeypatch.setattr(reads, "utcnow", lambda: NOW)
     _, snapshot = reads.serving_projection(session, kind=kind)
-    pending, transitions = [call.args[0].compile().params for call in session.scalar.call_args_list]
+    if kind == "source":
+        pending = session.scalar.call_args_list[0].args[0].compile().params
+    else:
+        pending = session.execute.call_args.args[0].compile().params
+    transitions = session.scalar.call_args_list[-1].args[0].compile().params
     event_kinds = next(set(value) for value in pending.values() if isinstance(value, list))
     timed_kinds = next(set(value) for value in transitions.values() if isinstance(value, list))
     assert "policy" in event_kinds
@@ -168,7 +184,8 @@ def test_board_pending_events_and_timers_are_scoped_to_the_requested_kind(monkey
         assert not {"article", "backfill_article", "catalog", "source_fanout"} & event_kinds
         assert timed_kinds == {"source", "candidate"}
     else:
-        assert {"article", "backfill_article", "catalog", "source_fanout"} <= event_kinds
+        assert {"article", "backfill_article", "source_fanout"} <= event_kinds
+        assert "catalog" not in event_kinds
         assert not {"source", "candidate", "backfill_source", "backfill_candidate"} & event_kinds
         assert timed_kinds == {"article"}
     assert snapshot.status == "refreshing" and snapshot.lag_seconds == 60
@@ -190,12 +207,96 @@ def test_idle_board_requires_recent_publisher_verification(monkeypatch, kind, pu
         },
         updated_at=NOW - timedelta(seconds=publisher_age),
     )
-    session.scalar.side_effect = [None, None]
+    snapshot_reads(session, kind=kind)
     monkeypatch.setattr(reads, "utcnow", lambda: NOW)
     _, snapshot = reads.serving_projection(session, kind=kind)
     assert snapshot.status == ("stale" if publisher_age > 60 else "fresh")
     assert snapshot.generated_at == NOW - timedelta(days=1)
     assert snapshot.lag_seconds == max(0, publisher_age)
+
+
+@pytest.mark.parametrize("blocked_by", [None, "publisher", "event", "timer", "progress", "legacy"])
+def test_continuous_catalog_coverage_has_its_own_age_without_hiding_operational_lag(
+    monkeypatch, blocked_by
+):
+    policy = reads.pipeline_policy_version()
+    completed = [["tags", "completed-tags"], ["topics", "completed-topics"]]
+    target = [["tags", "next-tags"], ["topics", "next-topics"]]
+    refresh = {
+        "token": "active-scan",
+        "revision": target,
+        "started_at": (NOW - timedelta(hours=2)).isoformat(),
+        "progress_at": (NOW - timedelta(seconds=2)).isoformat(),
+    }
+    if blocked_by == "progress":
+        refresh["progress_at"] = (NOW - timedelta(seconds=61)).isoformat()
+    elif blocked_by == "legacy":
+        refresh.pop("progress_at")
+    session = Mock(spec=Session)
+    session.in_transaction.return_value = True
+    session.get.return_value = ReadModelState(
+        name="pipeline",
+        payload={
+            "serving_policy": policy,
+            "target_policy": policy,
+            "backfill_complete": True,
+            "article_generation": 42,
+            "catalog_generation": 8,
+            "catalog_revision": completed,
+            "catalog_target_revision": target,
+            "catalog_refresh": refresh,
+        },
+        updated_at=NOW - timedelta(seconds=61 if blocked_by == "publisher" else 0),
+    )
+    snapshot_reads(
+        session,
+        event=NOW - timedelta(seconds=61) if blocked_by == "event" else None,
+        due=NOW - timedelta(seconds=61) if blocked_by == "timer" else None,
+    )
+    monkeypatch.setattr(reads, "utcnow", lambda: NOW)
+
+    serving, snapshot = reads.serving_projection(session, kind="article")
+
+    assert serving == policy and snapshot.policy_version == policy
+    assert snapshot.generation == f"{policy}:42" and snapshot.article_generation == 42
+    assert snapshot.catalog_generation == 8 and snapshot.catalog_revision == completed
+    assert snapshot.catalog_target_revision == target and snapshot.catalog_lag_seconds == 7200
+    assert snapshot.status == ("catching_up" if blocked_by is None else "stale")
+    assert snapshot.lag_seconds == (
+        2 if blocked_by is None else 7200 if blocked_by == "legacy" else 61
+    )
+
+
+@pytest.mark.parametrize("age", [5, 61])
+@pytest.mark.parametrize("recent_completion", [False, True])
+def test_queued_catalog_work_must_start_within_the_operational_budget(
+    monkeypatch, age, recent_completion
+):
+    policy = reads.pipeline_policy_version()
+    session = Mock(spec=Session)
+    session.in_transaction.return_value = True
+    session.get.return_value = ReadModelState(
+        name="pipeline",
+        payload={
+            "serving_policy": policy,
+            "target_policy": policy,
+            "backfill_complete": True,
+            **(
+                {"catalog_progress_at": (NOW - timedelta(seconds=2)).isoformat()}
+                if recent_completion
+                else {}
+            ),
+        },
+        updated_at=NOW,
+    )
+    snapshot_reads(session, catalog=NOW - timedelta(seconds=age))
+    monkeypatch.setattr(reads, "utcnow", lambda: NOW)
+
+    _, snapshot = reads.serving_projection(session, kind="article")
+
+    operational_age = 2 if recent_completion else age
+    assert snapshot.status == ("catching_up" if operational_age <= 60 else "stale")
+    assert snapshot.lag_seconds == operational_age and snapshot.catalog_lag_seconds == age
 
 
 def current_card(processing_case, *, published=False):

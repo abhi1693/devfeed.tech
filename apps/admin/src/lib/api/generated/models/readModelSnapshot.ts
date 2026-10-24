@@ -8,8 +8,14 @@
 import type { ReadModelSnapshotStatus } from './readModelSnapshotStatus';
 
 export interface ReadModelSnapshot {
+  article_generation?: number | null;
+  catalog_generation?: number | null;
+  catalog_lag_seconds?: number | null;
+  catalog_revision?: string[][] | null;
+  catalog_target_revision?: string[][] | null;
   generated_at?: string | null;
   generation?: string | null;
   lag_seconds?: number | null;
+  policy_version?: string | null;
   status: ReadModelSnapshotStatus;
 }

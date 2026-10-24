@@ -468,7 +468,7 @@ def test_refresh_worker_isolates_failed_panel_and_rollup_then_publishes_later_cl
     monkeypatch, rollup_fails
 ):
     factory, calls = object(), []
-    claims = iter([("sources", 7, uuid.uuid4()), ("daily", 7, uuid.uuid4()), None])
+    claims = iter([("sources", 7, uuid.uuid4(), 1), ("daily", 7, uuid.uuid4(), 1), None])
 
     def rollup(*args):
         calls.append("rollup")
@@ -494,28 +494,36 @@ def test_refresh_worker_isolates_failed_panel_and_rollup_then_publishes_later_cl
     monkeypatch.setattr(
         projections,
         "publish_report",
-        lambda factory, claim, result, now: published.append((claim[0], result.days)) or True,
+        lambda factory, claim, result, now, *, policy_version: (
+            published.append((claim[0], result.days, policy_version)) or True
+        ),
     )
     monkeypatch.setattr(projections, "utcnow", lambda: NOW)
 
     assert projections.refresh_overview_projections(factory, now=NOW, limit=4) == 1
     assert calls == ["rollup", "seed", "sources", "daily"]
-    assert failures == [("sources", TimeoutError)] and published == [("daily", 7)]
+    assert failures == [("sources", TimeoutError)]
+    assert published == [("daily", 7, projections.report_policy_version())]
 
 
 def test_refresh_worker_obeys_batch_bound_even_when_claims_keep_arriving(monkeypatch):
     calls = []
     monkeypatch.setattr(overview_processing, "refresh_processing_facts", lambda *_: False)
     monkeypatch.setattr(projections, "seed_refreshes", lambda *_: pytest.fail("seeding disabled"))
-    monkeypatch.setattr(projections, "claim_refresh", lambda *_: ("daily", 7, uuid.uuid4()))
+    monkeypatch.setattr(projections, "claim_refresh", lambda *_: ("daily", 7, uuid.uuid4(), 1))
     monkeypatch.setattr(
         projections,
         "calculate_report",
         lambda *args: panels.OverviewPanel(generated_at=NOW, days=7),
     )
-    monkeypatch.setattr(projections, "publish_report", lambda *args: calls.append(args[1]) or False)
+    monkeypatch.setattr(
+        projections,
+        "publish_report",
+        lambda *args, policy_version: calls.append((args[1], policy_version)) or False,
+    )
     assert projections.refresh_overview_projections(object(), limit=2, now=NOW, seed=False) == 0
     assert len(calls) == 2  # Lost publication ownership does not count as a published report.
+    assert all(version == projections.report_policy_version() for _, version in calls)
 
 
 @pytest.mark.parametrize("limit", [0, 101])

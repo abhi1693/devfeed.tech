@@ -65,7 +65,7 @@ Dependency metadata is additive and does not change lifecycle policy or require
 a schema migration. The first catalog refresh conservatively includes existing
 saved cards without metadata and records their dependencies as they are evaluated;
 it does not require another population-wide rebuild. Catalog refreshes retain
-completed coverage and report `refreshing`, independently of true policy rebuilds.
+completed coverage and report `catching_up`, independently of true policy rebuilds.
 Article and source views track their own last card-update times and relevant queued work; article catalog
 refreshes do not mark source views rebuilding. Publisher inactivity still marks
 saved views stale. The admin UI checks response age separately from the displayed
@@ -79,8 +79,10 @@ One board response uses a read-only repeatable-read transaction for counts and
 cards. Source groups for all stages share one aggregate and windowed page query.
 Workers normalize article search fields with PostgreSQL once, retaining separate
 field boundaries and literal punctuation behavior; GETs do not normalize the
-entire population. Pagination retains its existing live offset semantics. `snapshot.generation`
-identifies a policy, not an immutable historical pagination snapshot. Publication,
+entire population. Pagination retains its existing live offset semantics. Article
+`snapshot.generation` identifies the serving policy and a monotonically increasing
+committed article observation; source generations retain their policy identity.
+Neither is an immutable historical pagination snapshot. Publication,
 retries, and source advancement still lock and validate authoritative records.
 Item detail endpoints continue to load current authoritative evidence.
 
@@ -95,10 +97,40 @@ results survive Redis loss, failed refreshes, and API restart.
 Processing charts use maintained daily job facts and active counts. Blocker reports
 aggregate exact classifications from pipeline projections, preserving overlapping
 counts and recovery targets. Reports can publish after complete entity coverage
-while catalog catchup continues; saved dependency metadata keeps those reports
-marked refreshing, or rebuilding for a policy change. Event lag over 60 seconds
-defers new blocker publication.
-Responses expose calculation time, policy generation, freshness status, and lag.
+while catalog catchup continues. Each calculation records the observed article
+generation, policy, completed catalog-pass counter/revision, and latest observed
+catalog target. Counts and bounded revision-bearing targets come from that same
+database snapshot. A completed catalog pass is a coverage watermark: batches use
+the catalog current when evaluated, so it does not promise that all cards used one
+historical taxonomy revision. During a scan or a queued successor, results remain
+explicitly `catching_up`; they are never labelled catalog-complete or `fresh`.
+
+The operational freshness budget is 60 seconds. `lag_seconds` covers unapplied
+article/source-fanout/policy events, due transitions, publisher inactivity, and the
+time since an active catalog scan last committed a page. A queued scan must also
+start within this budget. These conditions defer blocker publication when over
+budget. `catalog_lag_seconds` separately measures unfinished catalog work from its
+queued/active start; a large progressing scan can exceed 60 seconds without
+starving reports. At the default one-report-per-cycle, report work remains bounded
+by the finite group/range demand queue. The report worker requests known snapshots
+again at age 60 seconds; scheduling/SQL time is additional, so this is a refresh
+target, not a hard latency SLA under saturation. Exceeding it is visible as stale
+or refreshing saved data. Unavailable initial coverage remains a structured 503;
+incompatible coverage remains rebuilding. Source freshness is independent of
+article catalog scans.
+
+Expected dependency waits retry after five seconds and reset the failure counter;
+actual calculation errors retain persistent exponential cooldowns up to 900
+seconds. An expired report lease cannot publish. Publication retains the policy
+captured before calculation and rejects policy changes, older article observations,
+and older calculation timestamps without requiring equality with a moving current
+article generation. The latter would recreate starvation under ingestion. Reads
+retain the saved generation identity, age operational/catalog lag separately, and
+never relabel an older report as a newly observed generation. A failed refresh
+keeps the last complete result marked stale. Recovery actions still lock and check
+the live editorial revision and evaluate current authoritative policy.
+
+Responses expose calculation time, observed generation, freshness status, and lag.
 Report calculations use read-only repeatable-read transactions so a concurrent
 policy cutover cannot mix a serving pointer with another generation's rows.
 
@@ -166,6 +198,18 @@ do not accept this revision; release preparation must plan that compatibility
 boundary. Do not assume an automatic zero-downtime schema rollout. Downgrade drops
 derived state and its queue; keep capture enabled during backfill. This application
 PR does not change production images, pooler roles, or Fleet workloads.
+
+The catalog/report generation fix adds JSON state metadata and the `catching_up`
+snapshot status without a migration or population-wide policy rebuild. Deploy the
+pipeline worker before or with the report worker; an existing active scan is
+stale until its first committed page records progress. Report policy `overview-v4`
+requests replacement saved documents through the existing bounded demand queue.
+Deploy regenerated admin clients/UI with the API to display the new status.
+Rolling back to `overview-v3` retains last saved documents, which older readers
+mark rebuilding until older workers replace them. It does not require deleting
+derived rows. After deployment compare matched workload windows for publication
+age, catalog progress/lag, report retries, latency, and write amplification; complete
+native ARM64 PostgreSQL 17 validation before claiming production capacity.
 
 ## Reproducible scale checks
 
