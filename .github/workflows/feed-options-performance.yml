@@ -64,3 +64,92 @@ jobs:
           path: reports/feed-options-benchmark/
           if-no-files-found: error
           retention-days: 30
+  report:
+    name: Publish feed-options scale results
+    needs: measure
+    if: >-
+      always() && !cancelled() && github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: feed-options-scale-report-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # No checkout: benchmark artifacts are read as data, never executed.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          name: feed-options-scale-${{ github.run_attempt }}
+          path: report
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          MEASUREMENT_RESULT: ${{ needs.measure.result }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- devfeed-feed-options-scale -->';
+            const pr = context.payload.pull_request;
+            const current = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
+            if (current.data.state !== 'open' || current.data.head.sha !== pr.head.sha) return;
+            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const commit = sha => `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${sha}`;
+            const attempt = Number(process.env.GITHUB_RUN_ATTEMPT);
+            const measurement = process.env.MEASUREMENT_RESULT;
+            const read = (file, limit) => {
+              const stat = fs.lstatSync(file);
+              if (!stat.isFile() || stat.size > limit) throw new Error('Invalid report file');
+              return fs.readFileSync(file, 'utf8');
+            };
+            let summary, complete = false;
+            try {
+              const result = JSON.parse(read('report/results.json', 5000000));
+              if (result.candidate_sha !== pr.head.sha || result.baseline_sha !== pr.base.sha) {
+                throw new Error('Benchmark belongs to different revisions');
+              }
+              summary = read('report/summary.md', 50000).trim();
+              if (!summary) throw new Error('Empty benchmark summary');
+              const cases = result.cases;
+              const matrixComplete = Array.isArray(cases) && cases.length > 0 &&
+                cases.every(row => row?.equivalent === true) &&
+                (!Object.hasOwn(result, 'expected_cases') ||
+                  (Number.isSafeInteger(result.expected_cases) &&
+                    result.expected_cases > 0 && cases.length === result.expected_cases));
+              complete = typeof result.completed_at === 'string' &&
+                Number.isFinite(Date.parse(result.completed_at)) && matrixComplete;
+            } catch (error) {
+              core.warning(`Unable to load benchmark results: ${error.message}`);
+              summary = null;
+            }
+            const passed = measurement === 'success' && complete && summary !== null;
+            const status = passed ? 'COMPLETE' : summary ? 'PARTIAL / FAILED RUN' : 'RESULTS UNAVAILABLE';
+            const lines = [marker,
+              `<!-- devfeed-feed-options-scale-run:${context.runId}:${attempt} -->`,
+              '### Feed-options scale comparison', '', `**${status}** · measurement job: **${measurement}**.`, '',
+              `Baseline: [${pr.base.sha.slice(0, 12)}](${commit(pr.base.sha)}) · Candidate: [${pr.head.sha.slice(0, 12)}](${commit(pr.head.sha)})`, '',
+              `[Full SQL plans, timing samples and job logs](${url}) · attempt ${attempt}`, ''];
+            if (!passed) {
+              lines.push(summary
+                ? 'The run did not complete successfully. Results below are partial evidence and do not establish a passing full benchmark.'
+                : 'No matching benchmark summary could be loaded. Inspect the measurement job and artifact logs; this is not a passing benchmark.', '');
+            }
+            if (summary) lines.push(summary);
+            const body = lines.join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {...context.repo, issue_number: pr.number});
+            const previous = comments.find(comment => comment.user.type === 'Bot' && comment.body?.startsWith(marker));
+            const priorRun = previous?.body.match(/<!-- devfeed-feed-options-scale-run:(\d+):(\d+) -->/);
+            if (priorRun && (Number(priorRun[1]) > Number(context.runId) ||
+                (Number(priorRun[1]) === Number(context.runId) && Number(priorRun[2]) > attempt))) return;
+            const latest = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
+            if (latest.data.state !== 'open' || latest.data.head.sha !== pr.head.sha) return;
+            if (previous) {
+              await github.rest.issues.updateComment({...context.repo, comment_id: previous.id, body});
+            } else {
+              await github.rest.issues.createComment({...context.repo, issue_number: pr.number, body});
+            }
+            if (measurement === 'success' && !passed) {
+              core.setFailed('Successful benchmark job has missing or incomplete results');
+            }

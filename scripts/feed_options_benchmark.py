@@ -281,48 +281,194 @@ def plan_metrics(plans):
     )
 
 
-def write_report(output, report):
-    (output / "results.json").write_text(json.dumps(report, indent=2))
-    lines = [
-        "# Feed-options source-facet benchmark",
-        "",
-        f"Host: {report['architecture']}; PostgreSQL: {report['postgres_version']}.",
-        f"Baseline: `{report['baseline_sha']}`; candidate: `{report['candidate_sha']}`.",
-        "",
-        "Warm-cache medians for actual route calls, validation and JSON serialization. "
-        "Application CPU is request-thread CPU. Both versions share one repeatable-read "
-        "snapshot per pair; order alternates. EXPLAIN runs after both timed calls.",
-        "",
-        "| Articles | Case | Ingestion | Baseline ms | Candidate ms | CPU base/head ms | "
-        "Source SQL base/head ms | Origin loops base/head | Hits base/head | "
-        "Temp writes base/head |",
-        "|---:|---|---|---:|---:|---|---|---|---|---|",
+def improvement(before, after):
+    if not before:
+        return "0.0%" if not after else "n/a (zero baseline)"
+    return f"{(before - after) / before * 100:+.1f}%"
+
+
+def paired_improvement(case):
+    values = [
+        (sample["baseline"]["wall_ms"] - sample["candidate"]["wall_ms"])
+        / sample["baseline"]["wall_ms"]
+        * 100
+        for sample in case["samples"]
+        if sample["baseline"]["wall_ms"]
     ]
-    for case in report["cases"]:
-        base, head = case["baseline"], case["candidate"]
-        bp, hp = case["plan_metrics"]["baseline"], case["plan_metrics"]["candidate"]
-        lines.append(
-            f"| {case['rows']} | {case['case']} | {case['concurrent_ingestion']} | "
-            f"{base['wall_ms']:.2f} | {head['wall_ms']:.2f} | "
-            f"{base['application_cpu_ms']:.2f}/{head['application_cpu_ms']:.2f} | "
-            f"{bp['source_sql_ms']:.2f}/{hp['source_sql_ms']:.2f} | "
-            f"{bp['origin_probe_loops']}/{hp['origin_probe_loops']} | "
-            f"{bp['shared_hit_blocks']}/{hp['shared_hit_blocks']} | "
-            f"{bp['temp_written_blocks']}/{hp['temp_written_blocks']} |"
+    return statistics.median(values) if values else None
+
+
+def case_label(case):
+    names = {
+        "broad_english": "English",
+        "all_languages": "All languages",
+        "rare_language": "Rare language",
+        "absent_language": "Absent language",
+        "rare_kind": "Minority content type",
+        "filtered_combination": "Topic + tag",
+        "selective_search": "Search",
+        "generic_broad_english": "English, generic plan",
+        "generic_rare_language": "Rare language, generic plan",
+    }
+    name = names.get(case["case"], case["case"])
+    ingestion = ", ingestion" if case["concurrent_ingestion"] else ", idle"
+    return f"{case['rows']:,} / {name}{ingestion}"
+
+
+def report_markdown(report):
+    cases = report["cases"]
+    matched = sum(case["equivalent"] for case in cases)
+    expected = report.get("expected_cases", len(cases))
+    complete = bool(report.get("completed_at")) and matched == len(cases) == expected
+    status = "COMPLETE" if complete else "PARTIAL — unfinished run"
+    pairs = sum(len(case["samples"]) for case in cases)
+    lines = [
+        f"## Feed options benchmark: {status}",
+        "",
+        f"**{matched}/{expected} scenarios returned identical public JSON; "
+        f"{pairs} timed before/after pairs.**",
+        f"Native architecture: `{report['architecture']}`; PostgreSQL "
+        f"`{report['postgres_version']}`. "
+        f"Before `{report['baseline_sha'][:8]}` → after `{report['candidate_sha'][:8]}`.",
+        "",
+        "**Improvement = (before − after) / before × 100. + means less time/work; − means more.**",
+        "",
+        "### Default English: full options call",
+        "",
+        "| Workload | Before | After | Improvement |",
+        "| --- | ---: | ---: | ---: |",
+    ]
+    largest = max((case["rows"] for case in cases), default=0)
+
+    def latency_row(case):
+        before, after = case["baseline"]["wall_ms"], case["candidate"]["wall_ms"]
+        return (
+            f"| {case_label(case)} | {before:,.2f} ms | {after:,.2f} ms | "
+            f"{improvement(before, after)} |"
         )
+
+    for case in cases:
+        if case["case"] == "broad_english" and (
+            not case["concurrent_ingestion"] or case["rows"] == largest
+        ):
+            lines.append(latency_row(case))
+    default = next(
+        (
+            case
+            for case in cases
+            if case["rows"] == largest
+            and case["case"] == "broad_english"
+            and not case["concurrent_ingestion"]
+        ),
+        None,
+    )
+    if default:
+        bp, hp = default["plan_metrics"]["baseline"], default["plan_metrics"]["candidate"]
+        lines += [
+            "",
+            f"### Source work at {largest:,} articles, default English",
+            "",
+            "| Metric | Before | After | Improvement |",
+            "| --- | ---: | ---: | ---: |",
+        ]
+        metrics = [
+            ("Source SQL replay", bp["source_sql_ms"], hp["source_sql_ms"], "ms"),
+            ("Origin lookups", bp["origin_probe_loops"], hp["origin_probe_loops"], "count"),
+            ("Article lookups", bp["article_probe_loops"], hp["article_probe_loops"], "count"),
+            ("Buffer hits", bp["shared_hit_blocks"], hp["shared_hit_blocks"], "count"),
+            (
+                "Temporary blocks written",
+                bp["temp_written_blocks"],
+                hp["temp_written_blocks"],
+                "count",
+            ),
+            (
+                "Request CPU",
+                default["baseline"]["application_cpu_ms"],
+                default["candidate"]["application_cpu_ms"],
+                "ms",
+            ),
+        ]
+        for label, before, after, unit in metrics:
+            b, a = (
+                (f"{before:,.2f} ms", f"{after:,.2f} ms")
+                if unit == "ms"
+                else (f"{before:,}", f"{after:,}")
+            )
+            lines.append(f"| {label} | {b} | {a} | {improvement(before, after)} |")
+    slower = [
+        case
+        for case in cases
+        if case["candidate"]["wall_ms"] - case["baseline"]["wall_ms"] > 5
+        and case["candidate"]["wall_ms"] > case["baseline"]["wall_ms"] * 1.1
+    ]
+    if slower:
+        lines += [
+            "",
+            "### Slower medians: inspect these results",
+            "",
+            "| Workload | Before | After | Improvement |",
+            "| --- | ---: | ---: | ---: |",
+        ]
+        for case in slower:
+            lines.append(latency_row(case))
+        lines.append("")
+        for case in slower:
+            paired = paired_improvement(case)
+            if paired is not None:
+                verdict = (
+                    "Inconclusive: paired samples disagree with the independent medians."
+                    if paired > -5
+                    else "Paired samples also show a slowdown; investigate before merging."
+                )
+                lines.append(
+                    f"- **{case_label(case)}:** median paired improvement {paired:+.1f}%. "
+                    f"{verdict} Raw negative deltas above are retained."
+                )
+    ingestion = next(
+        (
+            item
+            for item in report.get("ingestion", [])
+            if item["rows"] == largest and item["concurrent"]
+        ),
+        None,
+    )
+    if ingestion:
+        writes = sum(batch.get("articles", 0) for batch in ingestion["batches"])
+        errors = sum("error" in batch for batch in ingestion["batches"])
+        lines += [
+            "",
+            f"**Concurrent ingestion at {largest:,} articles:** "
+            f"{writes:,} additional articles committed; {errors} errors.",
+        ]
     lines += [
         "",
-        "Every reported pair returned identical public JSON. Full SQL/plans include "
-        "actual loops, sort widths, buffers, temporary reads/writes and WAL. "
-        "Dataset metadata and shared mixed-workload ingestion commits are in results.json.",
+        "<details>",
+        f"<summary>All {len(cases)} route scenarios: "
+        "before, after and signed improvement</summary>",
         "",
-        "This is an isolated synthetic database benchmark, not production latency or "
-        "an HTTP/cache/load-capacity test. Historical bulk loading bypasses USER triggers "
-        "with FKs/indexes enabled; measured ingestion executes all migrated triggers. "
-        "Ingestion metrics describe contention shared by both revisions, not a separate "
-        "before/after write-amplification experiment. No index/schema change is proposed.",
+        "| Workload | Before | After | Improvement |",
+        "| --- | ---: | ---: | ---: |",
+        *(latency_row(case) for case in cases),
+        "",
+        "</details>",
+        "",
+        "Warmed query medians include SQL, ORM hydration, validation and JSON serialization. "
+        "Each pair shares a read-only snapshot; order alternates. Source SQL metrics come "
+        "from later EXPLAIN replay with supplied binds, separately from route timings and "
+        "the exact prepared plans. This is synthetic evidence, not production HTTP p95.",
+        "",
+        "Unchanged content-type probes can still dominate absent-language requests; "
+        "no speedup is claimed for every filter. Historical fixture loading bypasses USER "
+        "triggers with FKs/indexes retained; measured ingestion runs migrated triggers. "
+        "Shared ingestion measures contention, not before/after write amplification or capacity.",
     ]
-    (output / "summary.md").write_text("\n".join(lines) + "\n")
+    return "\n".join(lines) + "\n"
+
+
+def write_report(output, report):
+    (output / "results.json").write_text(json.dumps(report, indent=2))
+    (output / "summary.md").write_text(report_markdown(report))
 
 
 def ingest(engine, sources, start, stop, result):
@@ -388,6 +534,7 @@ def main():
         ).hexdigest(),
         candidate_dirty=bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
         prepare_threshold=0,
+        expected_cases=sum(14 if rows < 100000 else 18 for rows in args.rows),
         plan_evidence="EXPLAIN ANALYZE replay with supplied binds after paired timings; "
         "not a capture of the exact server-prepared execution plan",
         cases=[],

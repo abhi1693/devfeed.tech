@@ -15,6 +15,13 @@ Use an otherwise idle native ARM64 host and native PostgreSQL 17. The PR's
 and publishes the full matrix as an artifact and job summary. Local x86 runs are
 diagnostic evidence and cannot establish ARM64 performance.
 
+The workflow also updates a Bot-authored PR comment with before/after tables and
+signed percentage improvements: positive means less time or work, negative means
+more. Slower medians remain visible alongside paired measurements, and the full
+scenario table is expandable. Comments identify the measured commits and run;
+partial or unavailable results are labelled explicitly. Older runs cannot replace
+newer results, and human-authored comments are preserved.
+
 Create a new disposable database named **exactly**
 `feed_options_benchmark_test`, exposed on `127.0.0.1`. The harness refuses a
 non-loopback target, another database name, an existing public schema, or a
