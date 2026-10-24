@@ -90,7 +90,8 @@ unrelated jobs. Report/comment jobs still wait for their own producers.
 Sonar retains its eleven actual coverage-producer and availability-output
 dependencies. It does not consume reader, admin-browser, or live-browser reports,
 so those jobs do not delay coverage analysis. `CI required` still waits for the
-strict reader gate and every original final check. Release images keep their
-original prerequisite gates; depending on `CI required` there would introduce a
-cycle. The scheduling changes add no inter-worker dependencies and remove no
-coverage, release, or final-merge gate.
+strict reader gate and every original final check. The separate [release workflow](release.md)
+requires that exact commit’s successful master CI attempt before building and publishing
+release images. Tag runs reuse the master reader proof rather than repeating the matrix.
+The scheduling changes add no inter-worker dependencies and remove no coverage or
+final-merge gate.
