@@ -255,6 +255,8 @@ def prepare_queue(factory, *, batch, now, backlog):
             job.status = "running" if index < 4 else "queued"
             job.available_at = now + timedelta(days=1)
             job.lease_until = now + timedelta(days=1) if index < 4 else None
+            job.lease_token = job.id if index < 4 else None
+            job.dispatched_at = now if index < 4 else None
             job.finished_at = None
     return identifiers
 
