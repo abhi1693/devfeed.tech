@@ -155,19 +155,138 @@ def test_token_activity_counts_all_recorded_job_types_on_utc_finish_day(database
         assert data.token_activity[-1].unreported_runs == 2
 
 
+@pytest.mark.parametrize("timezone", ["Pacific/Auckland", "Pacific/Honolulu"])
+def test_token_activity_keeps_exact_completion_boundaries_statuses_and_durations(
+    database, timezone
+):
+    start = START + timedelta(hours=12)
+    midnight = START + timedelta(days=1)
+    end = START + timedelta(days=3)
+    # The middle idle day and midnight endpoint must survive UTC bucketing even
+    # when the database session's local date differs from the completion date.
+    cases = [
+        ("succeeded", start - timedelta(microseconds=1), {"totalTokens": 999}, 1000),
+        ("succeeded", start, {"totalTokens": 10}, 1),
+        ("failed", midnight - timedelta(microseconds=1), {"totalTokens": 20}, 2),
+        ("succeeded", midnight, {"totalTokens": 30}, 3),
+        ("failed", midnight, {"attempts": {"1": {"totalTokens": 999}}}, 4),
+        ("succeeded", end, {"totalTokens": 0}, 5),
+        ("failed", end, {"totalTokens": "invalid"}, 6),
+        ("succeeded", end + timedelta(microseconds=1), {"totalTokens": 999}, 1000),
+        ("queued", midnight, {"totalTokens": 999}, 1000),
+        ("running", midnight, {"totalTokens": 999}, 1000),
+        ("succeeded", None, {"totalTokens": 999}, 1000),
+        ("failed", None, {"totalTokens": 999}, 1000),
+    ]
+    with database.begin() as session:
+        for kind, scale in (("article", 1), ("topic", 10), ("research", 100)):
+            for status, finished, usage, duration in cases:
+                shared = dict(
+                    status=status,
+                    created_at=start - timedelta(days=30),
+                    finished_at=finished,
+                    usage=usage,
+                    duration_ms=duration * scale,
+                )
+                # Independent targets allow deliberately inconsistent queued and
+                # running completion timestamps without violating active-job keys.
+                if kind == "article":
+                    content = article()
+                    session.add(content)
+                    session.flush()
+                    session.add(ArticleAnalysisJob(article_id=content.id, **shared))
+                else:
+                    draft = proposal()
+                    session.add(draft)
+                    session.flush()
+                    if kind == "topic":
+                        session.add(topic_job(proposal_id=draft.id, **shared))
+                    else:
+                        parent = topic_job(proposal_id=draft.id, status="succeeded")
+                        session.add(parent)
+                        session.flush()
+                        session.add(
+                            ResearchVerificationJob(id=parent.id, relationships=False, **shared)
+                        )
+    with database() as session:
+        session.execute(
+            text("SELECT set_config('TimeZone', :timezone, true)"), {"timezone": timezone}
+        )
+        points, duration = automation.analysis_token_activity(session, start, end)
+        instant, instant_duration = automation.analysis_token_activity(session, end, end)
+        empty, empty_duration = automation.analysis_token_activity(
+            session, end + timedelta(days=1), end + timedelta(days=2)
+        )
+
+    assert [point.date for point in points] == [
+        "2026-09-03",
+        "2026-09-04",
+        "2026-09-05",
+        "2026-09-06",
+    ]
+    for point in points[:2]:
+        assert point.article_analysis == point.topic_analysis == point.research_verification == 30
+    assert [(point.reported_runs, point.unreported_runs) for point in points] == [
+        (6, 0),
+        (3, 3),
+        (0, 0),
+        (3, 3),
+    ]
+    assert all(
+        point.article_analysis == point.topic_analysis == point.research_verification == 0
+        for point in points[2:]
+    )
+    assert duration == 21 * (1 + 10 + 100)
+    assert [point.model_dump() for point in instant] == [points[-1].model_dump()]
+    assert instant_duration == 11 * (1 + 10 + 100)
+    assert [point.date for point in empty] == ["2026-09-07", "2026-09-08"]
+    assert all(
+        point.article_analysis
+        == point.topic_analysis
+        == point.research_verification
+        == point.reported_runs
+        == point.unreported_runs
+        == 0
+        for point in empty
+    )
+    assert empty_duration == 0
+
+
 @pytest.mark.parametrize("kind", ["article", "topic", "research"])
 def test_token_activity_bounds_malformed_usage_without_changing_counts_or_duration(database, kind):
-    values = [0, 12, "0007", "9" * 18, "9" * 19, "9" * 20000, -1, 1.5, True, None, {}, []]
+    values = [
+        0,
+        12,
+        "0007",
+        *(["9" * 18] * 10),
+        "0" * 18,
+        "9" * 19,
+        "9" * 20000,
+        -1,
+        1.5,
+        True,
+        None,
+        {},
+        [],
+        "",
+        " 12",
+        "12 ",
+        "+12",
+        "1e3",
+        "１２",
+    ]
+    usages = [{"totalTokens": value, "irrelevant": "body" * 8000} for value in values]
+    usages.extend([{}, {"attempts": {"1": {"totalTokens": 999}}}, None, [], "17", 17])
     with database.begin() as session:
         content, draft = article(), proposal()
         session.add_all([content, draft])
         session.flush()
-        for index, value in enumerate(values):
+        for index, usage in enumerate(usages):
             shared = dict(
                 status="failed" if index % 2 else "succeeded",
                 finished_at=START,
                 duration_ms=index + 1,
-                usage={"totalTokens": value, "irrelevant": "body" * 8000},
+                usage=usage,
             )
             if kind == "article":
                 session.add(ArticleAnalysisJob(article_id=content.id, **shared))
@@ -189,10 +308,10 @@ def test_token_activity_bounds_malformed_usage_without_changing_counts_or_durati
                 "research": "research_verification",
             }[kind],
         )
-        == 10**18 - 1 + 19
+        == 10 * (10**18 - 1) + 19
     )
-    assert points[0].reported_runs == 4 and points[0].unreported_runs == len(values) - 4
-    assert duration == sum(range(1, len(values) + 1))
+    assert points[0].reported_runs == 14 and points[0].unreported_runs == len(usages) - 14
+    assert duration == sum(range(1, len(usages) + 1))
     assert all(point.reported_runs == point.unreported_runs == 0 for point in points[1:])
 
 
