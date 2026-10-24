@@ -41,7 +41,7 @@ export async function checkDefaultAll(page, base, output, requests) {
       expected,
     );
     assert.deepEqual(await page.locator(".article-card h2").allTextContents(), expected, label);
-    const selected = page.locator('.feed-toolbar a[aria-current="page"]');
+    const selected = page.locator('.feed-toolbar:visible a[aria-current="page"]');
     assert.equal(
       await selected.textContent(),
       kind === "article" ? "Articles" : kind === "tutorial" ? "Tutorials" : "All",
@@ -70,12 +70,15 @@ export async function checkDefaultAll(page, base, output, requests) {
       await page.reload();
       await check(null, `${width} ${entry}: default reload`);
       await page
-        .locator(".feed-toolbar")
+        .locator(".feed-toolbar:visible")
         .getByRole("link", { name: "Articles", exact: true })
         .click();
       await page.waitForURL((url) => (url.hash ? url.hash.slice(1) : url.pathname) === "/articles");
       await check("article", `${width} ${entry}: explicit Articles`);
-      await page.locator(".feed-toolbar").getByRole("link", { name: "All", exact: true }).click();
+      await page
+        .locator(".feed-toolbar:visible")
+        .getByRole("link", { name: "All", exact: true })
+        .click();
       await page.waitForURL((url) => (url.hash ? url.hash.slice(1) : url.pathname) === "/latest");
       await check(null, `${width} ${entry}: switching back to All`);
       await page.goBack();
@@ -91,7 +94,10 @@ export async function checkDefaultAll(page, base, output, requests) {
     await check("tutorial", `${width}: explicit typed route`);
     await page.reload();
     await check("tutorial", `${width}: typed route reload`);
-    await page.locator(".feed-toolbar").getByRole("link", { name: "All", exact: true }).click();
+    await page
+      .locator(".feed-toolbar:visible")
+      .getByRole("link", { name: "All", exact: true })
+      .click();
     await check(null, `${width}: typed route clears back to All`);
     const invitation = page.getByRole("button", { name: "Not now", exact: true });
     if (await invitation.isVisible()) await invitation.click();
