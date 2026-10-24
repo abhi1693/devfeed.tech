@@ -313,15 +313,15 @@ def test_future_fixed_baseline_must_still_prove_complete_healthy_publication(cha
     assert render(before, artifact(fixed=True))[0] != "passed"
 
 
-def cli(tmp_path, *, job_result="success", changes=None, output=None, metadata=None):
+def cli(tmp_path, *, job_result="success", changes=None, extra_args=()):
     reports = tmp_path / "reports"
     reports.mkdir(exist_ok=True)
     for side, fixed in (("baseline", False), ("candidate", True)):
         path = reports / f"{side}.json"
         if not path.exists():
             path.write_text(json.dumps(artifact(fixed=fixed)))
-    output = output or tmp_path / "summary.md"
-    metadata = metadata or tmp_path / "metadata.json"
+    output = reports / "summary.md"
+    metadata = reports / "summary.json"
     environment = {
         **os.environ,
         "BASE_SHA": BASE_SHA,
@@ -334,15 +334,11 @@ def cli(tmp_path, *, job_result="success", changes=None, output=None, metadata=N
         [
             sys.executable,
             str(SCRIPT),
-            "--reports",
-            str(reports),
-            "--output",
-            str(output),
-            "--metadata",
-            str(metadata),
             "--job-result",
             job_result,
+            *extra_args,
         ],
+        cwd=tmp_path,
         env=environment,
         text=True,
         capture_output=True,
@@ -367,6 +363,43 @@ def test_cli_writes_a_hash_bound_to_exact_head_run_and_attempt(tmp_path):
     }
     assert BASE_SHA[:12] in output.read_text()
     assert HEAD_SHA[:12] in output.read_text()
+    assert output == tmp_path / "reports/summary.md"
+    assert metadata == tmp_path / "reports/summary.json"
+    assert not (tmp_path / "summary.md").exists()
+    assert not (tmp_path / "metadata.json").exists()
+
+
+@pytest.mark.parametrize("option", ["--reports", "--output", "--metadata"])
+def test_cli_rejects_user_supplied_paths_without_writing_outputs(tmp_path, option):
+    arbitrary = tmp_path / "arbitrary-path"
+    result, output, metadata = cli(tmp_path, extra_args=(option, str(arbitrary)))
+    assert result.returncode != 0
+    assert "unrecognized arguments" in result.stderr
+    assert option in result.stderr
+    assert not arbitrary.exists()
+    assert not output.exists()
+    assert not metadata.exists()
+
+
+@pytest.mark.parametrize("destination", ["reports", "summary.md", "summary.json"])
+def test_cli_rejects_symlink_paths_without_overwriting_outside_files(tmp_path, destination):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    originals = {name: f"preserve {name}\n" for name in ("summary.md", "summary.json")}
+    for name, content in originals.items():
+        (outside / name).write_text(content)
+    reports = workspace / "reports"
+    if destination == "reports":
+        reports.symlink_to(outside, target_is_directory=True)
+    else:
+        reports.mkdir()
+        (reports / destination).symlink_to(outside / destination)
+    result, _output, _metadata = cli(workspace)
+    assert result.returncode != 0
+    assert "ordinary files in the fixed reports directory" in result.stderr
+    assert {name: (outside / name).read_text() for name in originals} == originals
 
 
 @pytest.mark.parametrize("job_result", ["failure", "cancelled"])
@@ -406,13 +439,11 @@ def test_cli_requires_unambiguous_source_identity(tmp_path, changes):
 
 @pytest.mark.parametrize("destination", ["summary", "metadata"])
 def test_cli_fails_when_a_required_output_cannot_be_written(tmp_path, destination):
-    occupied = tmp_path / "occupied"
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    occupied = reports / ("summary.md" if destination == "summary" else "summary.json")
     occupied.mkdir()
-    result, _output, metadata = cli(
-        tmp_path,
-        output=occupied if destination == "summary" else None,
-        metadata=occupied if destination == "metadata" else None,
-    )
+    result, _output, metadata = cli(tmp_path)
     assert result.returncode != 0
     assert not metadata.is_file()
 

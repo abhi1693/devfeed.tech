@@ -219,6 +219,8 @@ and one updated PR comment show Before / After / Delta (+/-) tables for report
 publication, readiness errors, recovery time, CPU, and temporary database writes.
 The comment links the exact commits, run attempt, raw JSON, and SQL plans. Missing
 or partial results fail the check and appear as unavailable rather than zero.
+The renderer reads and writes fixed artifact paths inside the workspace's `reports/`
+directory; it does not accept caller-selected output paths.
 Baseline starvation is a successful reproduction, not healthy report serving;
 additional candidate work must be considered when interpreting CPU and I/O.
 

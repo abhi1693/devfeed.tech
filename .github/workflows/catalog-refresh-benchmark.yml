@@ -43,7 +43,9 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 5s --health-retries 20
     env:
-      DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://postgres:disposable@127.0.0.1:5432/devfeed_catalog_base_test
+      DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://postgres@127.0.0.1:5432/devfeed_catalog_base_test
+      # libpq supplies the isolated service's test-only password outside the URL.
+      PGPASSWORD: disposable
       DEVFEED_TEST_REDIS_URL: redis://127.0.0.1:6379/15
       BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -115,7 +117,7 @@ jobs:
         if: always() && !cancelled() && steps.clone-fixture.outcome == 'success'
         working-directory: candidate
         run: |
-          DEVFEED_TEST_DATABASE_URL=postgresql+psycopg://postgres:disposable@127.0.0.1:5432/devfeed_catalog_head_test \
+          DEVFEED_TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:5432/devfeed_catalog_head_test \
             .venv/bin/python scripts/profile_catalog_refresh.py --expect fixed --require-native-arm64 \
             --batch 200 --batches 20 --age-refresh-seconds 61 --output ../reports/candidate.json
       - name: Summarize before, after, and signed changes
@@ -124,8 +126,7 @@ jobs:
           MEASUREMENT_RESULT: ${{ job.status }}
         run: |
           report_status=0
-          python3 candidate/scripts/ci/catalog_refresh_report.py --reports reports \
-            --output reports/summary.md --metadata reports/summary.json \
+          python3 candidate/scripts/ci/catalog_refresh_report.py \
             --job-result "$MEASUREMENT_RESULT" || report_status=$?
           cat reports/summary.md >> "$GITHUB_STEP_SUMMARY"
           exit "$report_status"

@@ -349,9 +349,6 @@ def render(before, after, *, job_result, base_sha, head_sha):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--reports", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--metadata", type=Path, required=True)
     parser.add_argument("--job-result", choices=("success", "failure", "cancelled"), required=True)
     args = parser.parse_args()
     run_id, attempt = os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_RUN_ATTEMPT", "")
@@ -363,15 +360,19 @@ def main():
         or any(re.fullmatch(r"[a-f0-9]{40}", sha) is None for sha in (base, head))
     ):
         parser.error("Explicit run ID, positive attempt, and exact base/head SHAs are required")
+    directory = Path("reports")
+    output = directory / "summary.md"
+    metadata = directory / "summary.json"
+    if directory.is_symlink() or output.is_symlink() or metadata.is_symlink():
+        parser.error("Report artifacts must use ordinary files in the fixed reports directory")
     sides = []
     for name in ("baseline", "candidate"):
-        document, error = read_document(args.reports / f"{name}.json")
+        document, error = read_document(directory / f"{name}.json")
         sides.append(summarize(document, error))
     status, markdown = render(*sides, job_result=args.job_result, base_sha=base, head_sha=head)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(markdown)
-    args.metadata.parent.mkdir(parents=True, exist_ok=True)
-    args.metadata.write_text(
+    directory.mkdir(parents=True, exist_ok=True)
+    output.write_text(markdown)
+    metadata.write_text(
         json.dumps(
             {
                 "schema": 1,
