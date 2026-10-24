@@ -222,7 +222,8 @@ def test_topic_discovery_uses_early_exit_on_production_sized_links(database):
     assert reports["after"]["buffers"] < reports["before"]["buffers"]
 
 
-def test_retention_protects_pending_articles_and_topic_verification(database):
+@pytest.mark.parametrize("verification_status", ["queued", "running"])
+def test_retention_protects_pending_articles_and_topic_verification(database, verification_status):
     import uuid
 
     from devfeed_core.models import ResearchVerificationJob, TopicAnalysisJob, TopicProposal
@@ -279,7 +280,15 @@ def test_retention_protects_pending_articles_and_topic_verification(database):
             protected.append(jobs[1].id)
             if label == "verification":
                 session.add(
-                    ResearchVerificationJob(id=jobs[0].id, status="queued", relationships=False)
+                    ResearchVerificationJob(
+                        id=jobs[0].id,
+                        status=verification_status,
+                        relationships=False,
+                        lease_token=uuid.uuid4() if verification_status == "running" else None,
+                        lease_until=utcnow() + timedelta(minutes=5)
+                        if verification_status == "running"
+                        else None,
+                    )
                 )
     assert prune_job_payloads(database) == 1
     with database() as session:
@@ -289,10 +298,13 @@ def test_retention_protects_pending_articles_and_topic_verification(database):
 
 
 def test_retention_skips_locked_history_and_bounds_batches(database, monkeypatch):
+    from devfeed_core import job_retention
     from devfeed_core.config import get_settings
 
     monkeypatch.setenv("DEVFEED_JOB_PAYLOAD_PRUNE_BATCH_SIZE", "1")
     get_settings.cache_clear()
+    now = utcnow()
+    monkeypatch.setattr(job_retention, "utcnow", lambda: now)
     old = utcnow() - timedelta(days=40)
     with database.begin() as session:
         _, article, _ = seed(session)
@@ -314,11 +326,20 @@ def test_retention_skips_locked_history_and_bounds_batches(database, monkeypatch
         locker.scalar(
             select(ArticleAnalysisJob).where(ArticleAnalysisJob.id == oldest).with_for_update()
         )
+        # Preselection itself is bounded: a locked first candidate consumes this
+        # page's budget, then the next persisted page reaches the second row.
+        assert prune_job_payloads(database) == 0
+        now += timedelta(seconds=31)
         assert prune_job_payloads(database) == 1
         with database() as session:
             assert session.get(ArticleAnalysisJob, oldest).input_snapshot
             assert session.get(ArticleAnalysisJob, second).input_snapshot == {}
+    # The skipped row is retried after the current bounded pass finishes.
+    now += timedelta(seconds=31)
+    assert prune_job_payloads(database) == 0
+    now += timedelta(hours=1, seconds=1)
     assert prune_job_payloads(database) == 1
+    now += timedelta(seconds=31)
     assert prune_job_payloads(database) == 0
 
 

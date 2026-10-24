@@ -244,9 +244,7 @@ def test_shutdown_closes_every_owned_pool_and_forgets_closed_clients_after_failu
         cache.close_cache()
 
 
-def test_retention_removes_selected_payloads_and_step_outputs_but_preserves_audit_identity(
-    monkeypatch,
-):
+def test_retention_removes_selected_payloads_and_step_outputs_but_preserves_audit_identity():
     from datetime import timedelta
 
     stamp = NOW - timedelta(days=40)
@@ -345,15 +343,8 @@ def test_retention_removes_selected_payloads_and_step_outputs_but_preserves_audi
         (row.id, row.input_hash, row.result.copy(), row.status, row.finished_at)
         for row in (article, research)
     ]
-    session, factory = MagicMock(), MagicMock()
-    factory.begin.return_value.__enter__.return_value = session
-    session.scalars.side_effect = [
-        SimpleNamespace(all=lambda: [article]),
-        SimpleNamespace(all=lambda: [research]),
-    ]
-    monkeypatch.setattr(job_retention, "get_settings", lambda: configuration())
-    monkeypatch.setattr(job_retention, "utcnow", lambda: NOW)
-    assert job_retention.prune_job_payloads(factory) == 2
+    for row in (article, research):
+        job_retention._prune_payload(row, NOW)
     for row, before in zip((article, research), identities, strict=True):
         assert (row.id, row.input_hash, row.result, row.status, row.finished_at) == before
         assert row.input_snapshot == {} and row.inputs_pruned_at == NOW

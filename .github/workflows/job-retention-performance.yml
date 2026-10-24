@@ -1,0 +1,160 @@
+name: Analysis retention performance
+
+on:
+  pull_request:
+    paths:
+      - packages/core/src/job_retention.py
+      - packages/core/src/models.py
+      - packages/core/src/config.py
+      - migrations/versions/0035_job_payload_retention.py
+      - scripts/job_retention_benchmark.py
+      - scripts/ci/job-retention-report.mjs
+      - scripts/ci/job-retention-report.test.mjs
+      - .github/workflows/job-retention-performance.yml
+  workflow_dispatch:
+    inputs:
+      baseline_ref:
+        description: Git revision to compare against
+        type: string
+        default: master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: retention-performance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: Retention at 100k and 250k articles (ARM64 PostgreSQL 17)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17.11-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
+        env:
+          POSTGRES_USER: benchmark
+          POSTGRES_PASSWORD: disposable-benchmark-only
+          POSTGRES_DB: retention_benchmark_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U benchmark -d retention_benchmark_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26.12.1"
+          package-manager-cache: false
+      - name: Test retention report
+        run: node --test scripts/ci/job-retention-report.test.mjs
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.5"
+          enable-cache: true
+      - name: Install benchmark application
+        run: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
+      - name: Compare retention with concurrent ingestion
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.baseline_ref || 'master' }}
+          DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://benchmark:disposable-benchmark-only@127.0.0.1:5432/retention_benchmark_test
+        run: |
+          uname -a
+          lscpu
+          df -h
+          git show "$BASE_SHA:packages/core/src/job_retention.py" > "$RUNNER_TEMP/baseline-job-retention.py"
+          for articles in 100000 250000; do
+            uv run --locked --no-sync --no-build python scripts/job_retention_benchmark.py \
+              --articles "$articles" --baseline-file "$RUNNER_TEMP/baseline-job-retention.py" \
+              --output "reports/retention/$articles.json"
+          done
+      - name: Format retention report
+        if: always() && !cancelled()
+        run: node scripts/ci/job-retention-report.mjs reports/retention reports/retention/summary.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: retention-arm64-postgresql17-${{ github.run_attempt }}
+          path: reports/retention/
+          if-no-files-found: error
+          retention-days: 30
+
+  report:
+    name: Update retention results comment
+    needs: benchmark
+    if: >-
+      always() && !cancelled() && github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'renovate[bot]' && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        id: artifact
+        continue-on-error: true
+        with:
+          name: retention-arm64-postgresql17-${{ github.run_attempt }}
+          path: report
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          BENCHMARK_RESULT: ${{ needs.benchmark.result }}
+          ARTIFACT_RESULT: ${{ steps.artifact.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- devfeed-job-retention-benchmark -->';
+            const pr = context.payload.pull_request;
+            const current = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
+            if (current.data.head.sha !== pr.head.sha) return;
+            let report = {complete: false, body: 'Results unavailable: the report artifact is missing or invalid.'};
+            try {
+              if (process.env.ARTIFACT_RESULT !== 'success') throw new Error('Artifact unavailable');
+              const file = fs.lstatSync('report/summary.json');
+              if (!file.isFile() || file.size === 0 || file.size > 100000) throw new Error('Invalid report file');
+              const parsed = JSON.parse(fs.readFileSync('report/summary.json', 'utf8'));
+              if (typeof parsed.complete !== 'boolean' || typeof parsed.body !== 'string' || !parsed.body.trim() || parsed.body.length > 50000) throw new Error('Invalid summary');
+              report = parsed;
+            } catch {
+              // Keep the explicit failed fallback when an artifact cannot be trusted.
+            }
+            const complete = process.env.BENCHMARK_RESULT === 'success' && report.complete;
+            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/attempts/${process.env.GITHUB_RUN_ATTEMPT}`;
+            const commit = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${pr.head.sha}`;
+            const body = `${marker}\n### Analysis retention benchmark · ${complete ? '✅ Complete' : '❌ Failed or incomplete'}\n\n[Run and raw reports](${url}) · attempt ${process.env.GITHUB_RUN_ATTEMPT} · commit [${pr.head.sha.slice(0, 12)}](${commit})\n\nBenchmark job: ${process.env.BENCHMARK_RESULT}.\n\n${report.body}`;
+            fs.writeFileSync('retention-comment.md', body);
+            await core.summary.addRaw(body).write();
+            const comments = await github.paginate(github.rest.issues.listComments, {...context.repo, issue_number: pr.number});
+            const owned = comments.filter(c => c.body?.startsWith(marker) && (c.user.login === context.repo.owner || c.user.type === 'Bot'));
+            const previous = owned.find(c => c.user.login === context.repo.owner) ?? owned[0];
+            if (previous) {
+              if (previous.body !== body) {
+                try {
+                  await github.rest.issues.updateComment({...context.repo, comment_id: previous.id, body});
+                } catch (error) {
+                  throw new Error(`Cannot update retention comment ${previous.id}; no replacement comment was created: ${error.message}`);
+                }
+              }
+              core.info(`Updated retention comment ${previous.id} (${previous.user.login})`);
+            } else {
+              const created = await github.rest.issues.createComment({...context.repo, issue_number: pr.number, body});
+              core.info(`Created retention comment ${created.data.id}`);
+            }
+            if (!complete) core.setFailed('Retention benchmark failed or reports are incomplete');
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: retention-comment-${{ github.run_attempt }}
+          path: retention-comment.md
+          if-no-files-found: ignore
+          retention-days: 30

@@ -9,7 +9,7 @@ from alembic.config import Config
 from devfeed_core.config import get_settings
 from devfeed_core.db import get_engine, session_factory
 from devfeed_core.logging import JsonFormatter, QueuedStderrHandler
-from devfeed_core.models import Base, Tag
+from devfeed_core.models import Base, JobPayloadRetention, Tag, utcnow
 from redis import Redis
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
@@ -170,6 +170,12 @@ def database(integration_environment, monkeypatch, rss_bytes):
     with get_engine().begin() as connection:
         names = ", ".join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
         connection.execute(text(f"TRUNCATE TABLE {names} CASCADE"))
+        # Migration 0035 creates durable cadence rows. Restore their initial
+        # state after truncation, as a newly provisioned database would have.
+        connection.execute(
+            JobPayloadRetention.__table__.insert(),
+            [{"kind": kind, "next_run_at": utcnow()} for kind in ("article", "topic")],
+        )
     redis = Redis.from_url(get_settings().redis_url)
     redis.flushdb()
     yield session_factory()

@@ -202,6 +202,9 @@ class Settings(BaseSettings):
     relationship_research_max_pending: int = Field(default=4, ge=1, le=50)
     job_payload_retention_days: int = Field(default=30, ge=7, le=3650)
     job_payload_prune_batch_size: int = Field(default=100, ge=1, le=1000)
+    job_payload_scan_batch_size: int = Field(default=1000, ge=1, le=5000)
+    job_payload_page_interval_seconds: int = Field(default=30, ge=1, le=3600)
+    job_payload_sweep_interval_seconds: int = Field(default=3600, ge=60, le=86400)
 
     automation_batch_size: int = Field(default=50, ge=1, le=500)
     ai_compact_article_prompts: bool = False

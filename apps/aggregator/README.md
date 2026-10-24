@@ -81,6 +81,47 @@ Missing content and uncertain classifications remain reviewable. Roll out the ar
 before the scheduler so recovery runs use the corrected extractor and validator. Update the
 admin API and admin interface with that release for the corresponding blocker descriptions.
 
+## Analysis payload retention
+
+The scheduler maintains one durable sweep per article/topic analysis history. Ordinary
+ticks read two checkpoint rows; only a due sweep reads job history. Each page first reads
+up to `DEVFEED_JOB_PAYLOAD_SCAN_BATCH_SIZE` old successful unpruned identities (1,000 by
+default), then checks review/provenance/verification protections for those identities.
+It redacts at most `DEVFEED_JOB_PAYLOAD_PRUNE_BATCH_SIZE` payloads per history (100 by
+default). Job rows, results, hashes and accounting remain; only duplicate input payloads,
+article catalogs and specialist output bodies are removed.
+
+The checkpoint advances through protected rows as well as removable rows. Full pages
+continue after `DEVFEED_JOB_PAYLOAD_PAGE_INTERVAL_SECONDS` (30 seconds); an exhausted
+sweep starts again after `DEVFEED_JOB_PAYLOAD_SWEEP_INTERVAL_SECONDS` (one hour).
+`DEVFEED_JOB_PAYLOAD_RETENTION_DAYS` remains 30 days. The age cutoff is fixed for each
+sweep so new completions cannot extend a pass indefinitely; increasing retention days
+immediately tightens that cutoff on a resumed page. A row completed late behind
+the cursor, a locked row, or a newly eligible reviewed row is reconsidered next sweep.
+Revisit delay therefore includes the remaining full pass and its cooldown.
+
+Each page locks its checkpoint and commits payload rewrites and progress together.
+Concurrent schedulers skip an owned page; a crash or timeout rolls it back for retry.
+The page uses a two-second statement timeout, 100-millisecond lock timeout and
+five-second transaction timeout on PostgreSQL 17+. Review/provenance rows are locked
+before checking protections, and history locks skip active work.
+New foreign-key references from ingestion can still use the locked parent; writes
+to its review/provenance fields remain serialized. Queued, running,
+failed, leased and young jobs remain intact, as does each subject's latest retained
+successful result, even if a newer attempt failed. Pending article/proposal reviews,
+current article provenance, queued/running research verification and pending relation
+proposals also retain their evidence.
+
+At defaults the maximum redaction rate is 288,000 jobs per history per day before
+scheduler delay and contention. A pass over permanently protected history examines
+at most 1,000 identities per history every 30 seconds. Monitor committed checkpoint
+progress and `job_payload_retention_page` counts, database latency/WAL and ingestion
+freshness under the deployed workload. These are capacity limits, not a measured
+production throughput guarantee. Increase budgets only after representative measurement;
+changing intervals affects subsequent committed pages. Reducing retention days applies
+on the next sweep; increasing them also protects inputs during the current sweep.
+See [migration and rollback](../../migrations/README.md#analysis-payload-retention-0035).
+
 ## Personal feed preparation
 
 The scheduler runs a lightweight recommendation dispatcher independently of its
