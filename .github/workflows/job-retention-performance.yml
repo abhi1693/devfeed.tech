@@ -118,15 +118,27 @@ jobs:
             const current = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
             if (current.data.head.sha !== pr.head.sha) return;
             let report = {complete: false, body: 'Results unavailable: the report artifact is missing or invalid.'};
+            let descriptor;
             try {
               if (process.env.ARTIFACT_RESULT !== 'success') throw new Error('Artifact unavailable');
-              const file = fs.lstatSync('report/summary.json');
+              descriptor = fs.openSync('report/summary.json', fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+              const file = fs.fstatSync(descriptor);
               if (!file.isFile() || file.size === 0 || file.size > 100000) throw new Error('Invalid report file');
-              const parsed = JSON.parse(fs.readFileSync('report/summary.json', 'utf8'));
+              const buffer = Buffer.alloc(100001);
+              let length = 0;
+              let count;
+              do {
+                count = fs.readSync(descriptor, buffer, length, buffer.length - length, null);
+                length += count;
+              } while (count !== 0 && length < buffer.length);
+              if (length === 0 || length > 100000) throw new Error('Invalid report size');
+              const parsed = JSON.parse(buffer.toString('utf8', 0, length));
               if (typeof parsed.complete !== 'boolean' || typeof parsed.body !== 'string' || !parsed.body.trim() || parsed.body.length > 50000) throw new Error('Invalid summary');
               report = parsed;
             } catch {
               // Keep the explicit failed fallback when an artifact cannot be trusted.
+            } finally {
+              if (descriptor !== undefined) fs.closeSync(descriptor);
             }
             const complete = process.env.BENCHMARK_RESULT === 'success' && report.complete;
             const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/attempts/${process.env.GITHUB_RUN_ATTEMPT}`;

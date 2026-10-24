@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { readRetentionReports, retentionSummary } from "./job-retention-report.mjs";
+import {
+  readBoundedReport,
+  readRetentionReports,
+  retentionSummary,
+} from "./job-retention-report.mjs";
 
 const marker = "<!-- devfeed-job-retention-benchmark -->";
 const workflow = readFileSync(
@@ -149,6 +153,107 @@ test("CLI reads actual report files and writes artifact plus job summary", () =>
   );
 });
 
+test("report reader keeps the opened inode when the pathname is replaced after fstat", () => {
+  const directory = mkdtempSync(join(tmpdir(), "retention-replacement-"));
+  const path = join(directory, "report.json");
+  const replacement = join(directory, "replacement.json");
+  writeFileSync(path, "original");
+  writeFileSync(replacement, "replacement");
+  const open = fs.openSync;
+  const stat = fs.fstatSync;
+  let opened;
+  const openMock = mock.method(fs, "openSync", (file, flags) => {
+    assert.equal(file, path);
+    assert.equal(flags, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    opened = open(file, flags);
+    return opened;
+  });
+  const statMock = mock.method(fs, "fstatSync", (descriptor) => {
+    assert.equal(descriptor, opened);
+    const result = stat(descriptor);
+    fs.renameSync(replacement, path);
+    return result;
+  });
+  try {
+    assert.equal(readBoundedReport(path, 32), "original");
+    assert.throws(() => stat(opened), { code: "EBADF" });
+  } finally {
+    openMock.mock.restore();
+    statMock.mock.restore();
+    assert.equal(readFileSync(path, "utf8"), "replacement");
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("report reader caps growth after fstat and closes descriptors on validation and IO errors", () => {
+  for (const scenario of [
+    "growth",
+    "shrink",
+    "stat-error",
+    "read-error",
+    "empty",
+    "oversize",
+    "directory",
+  ]) {
+    const directory = mkdtempSync(join(tmpdir(), "retention-bounded-"));
+    const path = scenario === "directory" ? directory : join(directory, "report.json");
+    if (scenario !== "directory")
+      writeFileSync(
+        path,
+        scenario === "empty" ? "" : scenario === "oversize" ? "x".repeat(33) : "safe",
+      );
+    const open = fs.openSync;
+    const stat = fs.fstatSync;
+    let opened;
+    const openMock = mock.method(fs, "openSync", (file, flags) => {
+      opened = open(file, flags);
+      return opened;
+    });
+    const statMock = mock.method(fs, "fstatSync", (descriptor) => {
+      if (scenario === "stat-error") throw new Error("Stat failed");
+      const result = stat(descriptor);
+      if (scenario === "growth") writeFileSync(path, "x".repeat(33));
+      if (scenario === "shrink") writeFileSync(path, "");
+      return result;
+    });
+    const readMock =
+      scenario === "read-error"
+        ? mock.method(fs, "readSync", () => {
+            throw new Error("Read failed");
+          })
+        : undefined;
+    try {
+      assert.throws(() => readBoundedReport(path, 32), /Invalid report|Stat failed|Read failed/);
+      assert.throws(() => stat(opened), { code: "EBADF" });
+    } finally {
+      openMock.mock.restore();
+      statMock.mock.restore();
+      readMock?.mock.restore();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("report reader handles partial reads and rejects missing files and symlinks before opening", () => {
+  const directory = mkdtempSync(join(tmpdir(), "retention-partial-"));
+  const path = join(directory, "report.json");
+  const link = join(directory, "link.json");
+  writeFileSync(path, "safe data");
+  symlinkSync(path, link);
+  const read = fs.readSync;
+  const readMock = mock.method(fs, "readSync", (descriptor, buffer, offset, length, position) =>
+    read(descriptor, buffer, offset, Math.min(length, 2), position),
+  );
+  try {
+    assert.equal(readBoundedReport(path, 32), "safe data");
+    assert.throws(() => readBoundedReport(link, 32), { code: "ELOOP" });
+    assert.throws(() => readBoundedReport(join(directory, "missing.json"), 32), { code: "ENOENT" });
+  } finally {
+    readMock.mock.restore();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 function publication(options = {}) {
   const state = {
     comments: options.comments ?? [],
@@ -156,6 +261,8 @@ function publication(options = {}) {
     updates: [],
     failures: [],
     logs: [],
+    opened: 0,
+    closed: 0,
   };
   const context = {
     repo: { owner: "abhi1693", repo: "devfeed.tech" },
@@ -164,12 +271,44 @@ function publication(options = {}) {
     runId: 123,
   };
   let body = JSON.stringify({ complete: true, body: "Measured Before / After tables" });
-  const fs = {
-    lstatSync() {
-      if (options.missing) throw new Error("Sensitive internal detail");
-      return { isFile: () => !options.symlink, size: options.size ?? body.length };
+  let openedBody;
+  let position;
+  const filesystem = {
+    constants: fs.constants,
+    openSync(path, flags) {
+      assert.equal(path, "report/summary.json");
+      assert.equal(
+        flags,
+        fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+      );
+      if (options.missing || options.symlink) throw new Error("Sensitive internal detail");
+      state.opened++;
+      openedBody = Buffer.from(options.invalid ? "not JSON" : body);
+      position = 0;
+      return 0;
     },
-    readFileSync: () => (options.invalid ? "not JSON" : body),
+    fstatSync(descriptor) {
+      assert.equal(descriptor, 0);
+      if (options.statError) throw new Error("Sensitive internal detail");
+      const size = options.size ?? openedBody.length;
+      if (options.growth) openedBody = Buffer.alloc(100001, 32);
+      if (options.shrink) openedBody = Buffer.alloc(0);
+      if (options.replacement) body = JSON.stringify({ complete: true, body: "Replaced pathname" });
+      return { isFile: () => !options.notFile, size };
+    },
+    readSync(descriptor, buffer, offset, length, at) {
+      assert.equal(descriptor, 0);
+      assert.equal(at, null);
+      if (options.readError) throw new Error("Sensitive internal detail");
+      const count = Math.min(openedBody.length - position, length, options.chunkBytes ?? length);
+      openedBody.copy(buffer, offset, position, position + count);
+      position += count;
+      return count;
+    },
+    closeSync(descriptor) {
+      assert.equal(descriptor, 0);
+      state.closed++;
+    },
     writeFileSync: (_path, contents) => (state.body = contents),
   };
   const core = {
@@ -209,7 +348,7 @@ function publication(options = {}) {
   };
   const run = () =>
     new AsyncFunction("require", "context", "github", "core", "process", source)(
-      () => fs,
+      () => filesystem,
       context,
       github,
       core,
@@ -239,6 +378,7 @@ test("publisher updates the owner-authored existing marker and leaves other repo
   assert.match(owner.body, /✅ Complete/);
   assert.match(owner.body, /runs\/123\/attempts\/2/);
   assert.match(owner.body, new RegExp(`/commit/${sha}`));
+  assert.equal(state.closed, state.opened);
 });
 
 test("publisher creates once then updates the same bot comment on subsequent measurements", async () => {
@@ -265,6 +405,11 @@ test("publisher surfaces failed or incomplete runs instead of leaving stale succ
     { size: 0 },
     { size: 100001 },
     { artifact: "failure" },
+    { notFile: true },
+    { statError: true },
+    { readError: true },
+    { growth: true },
+    { shrink: true },
   ]) {
     const owner = {
       id: 6383637610,
@@ -277,6 +422,7 @@ test("publisher surfaces failed or incomplete runs instead of leaving stale succ
     assert.match(state.body, /❌ Failed or incomplete/);
     assert.doesNotMatch(state.body, /Old success|Sensitive internal detail/);
     assert.equal(state.failures.length, 1);
+    assert.equal(state.closed, state.opened);
   }
   for (const summary of [
     { complete: false, body: "Only 100k finished" },
@@ -292,11 +438,21 @@ test("publisher surfaces failed or incomplete runs instead of leaving stale succ
   }
 });
 
+test("publisher reads only its opened descriptor despite pathname replacement and partial IO", async () => {
+  const { state, run } = publication({ replacement: true, chunkBytes: 7 });
+  await run();
+  assert.match(state.body, /Measured Before \/ After tables/);
+  assert.doesNotMatch(state.body, /Replaced pathname/);
+  assert.equal(state.opened, 1);
+  assert.equal(state.closed, 1);
+});
+
 test("publisher refuses a newer PR head and never creates a replacement after denied PATCH", async () => {
   const stale = publication({ stale: true, missing: true });
   await stale.run();
   assert.equal(stale.state.body, undefined);
   assert.equal(stale.state.creates.length + stale.state.updates.length, 0);
+  assert.equal(stale.state.opened, 0);
   const forbidden = publication({
     forbidden: true,
     comments: [{ id: 6383637610, body: marker, user: { type: "User", login: "abhi1693" } }],
@@ -306,6 +462,7 @@ test("publisher refuses a newer PR head and never creates a replacement after de
     /Cannot update retention comment 6383637610; no replacement/,
   );
   assert.equal(forbidden.state.creates.length, 0);
+  assert.equal(forbidden.state.closed, 1);
 });
 
 test("write-token job cannot execute PR code and remains restricted to trusted same-repository PRs", () => {

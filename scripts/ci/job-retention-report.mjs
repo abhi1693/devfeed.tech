@@ -1,4 +1,4 @@
-import { appendFileSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import fs, { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -133,13 +133,34 @@ function dataset(data, articles) {
   ].join("\n");
 }
 
+export function readBoundedReport(path, maximumBytes) {
+  const descriptor = fs.openSync(
+    path,
+    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+  );
+  try {
+    const stat = fs.fstatSync(descriptor);
+    if (!stat.isFile() || stat.size === 0 || stat.size > maximumBytes)
+      throw new Error("Invalid report file");
+    const buffer = Buffer.alloc(maximumBytes + 1);
+    let length = 0;
+    let count;
+    do {
+      count = fs.readSync(descriptor, buffer, length, buffer.length - length, null);
+      length += count;
+    } while (count !== 0 && length < buffer.length);
+    if (length === 0 || length > maximumBytes) throw new Error("Invalid report size");
+    return buffer.toString("utf8", 0, length);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
 export function readRetentionReports(directory) {
   return sizes.map((articles) => {
     try {
       const path = join(directory, `${articles}.json`);
-      const stat = lstatSync(path);
-      if (!stat.isFile() || stat.size > 20000000) throw new Error("Invalid report file");
-      return { articles, data: JSON.parse(readFileSync(path, "utf8")) };
+      return { articles, data: JSON.parse(readBoundedReport(path, 20000000)) };
     } catch {
       return { articles, error: "Report missing or invalid" };
     }
