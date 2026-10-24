@@ -1,7 +1,8 @@
-"""Compare historical topic reports on an explicitly disposable local PostgreSQL 17.
+"""Compare historical topic reports on an explicitly disposable local PostgreSQL 17+.
 
 Run migrations first. --seed requires an empty database and never truncates data.
 --baseline-root selects a clean checkout of the previous report implementation.
+--require-postgres-major pins comparisons to a specific PostgreSQL major release.
 All measured ingestion writes roll back. Only the projection trigger is temporarily
 disabled, in short committed transactions, for the legacy concurrency comparison.
 """
@@ -56,6 +57,16 @@ def validate_database(value):
             "Use an explicitly local PostgreSQL *_test database without routing overrides"
         )
     return url
+
+
+def validate_server_version(value, *, required_major=None):
+    major = int(value) // 10000
+    if major < 17:
+        raise ValueError("Topic report profiling requires PostgreSQL 17 or newer")
+    if required_major is not None and major != required_major:
+        raise ValueError(
+            f"This comparison requires PostgreSQL {required_major}; connected server is {major}"
+        )
 
 
 def report_functions(root, label):
@@ -405,11 +416,14 @@ def main():
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--writes", type=int, default=200)
     parser.add_argument("--require-improvement", action="store_true")
+    parser.add_argument("--require-postgres-major", type=int)
     args = parser.parse_args()
     try:
         url = validate_database(os.environ["DEVFEED_TEST_DATABASE_URL"])
     except (KeyError, ValueError) as error:
         parser.error(str(error))
+    if args.require_postgres_major is not None and args.require_postgres_major < 17:
+        parser.error("--require-postgres-major must be 17 or newer")
     runs = args.runs if args.runs is not None else max(6000, args.articles * 6 // 100)
     if not (
         10 <= args.articles <= 1000000
@@ -451,8 +465,12 @@ def main():
                 .mappings()
                 .one()
             )
-            if not str(output["server"]["version_num"]).startswith("17"):
-                parser.error("This production comparison requires PostgreSQL 17")
+            try:
+                validate_server_version(
+                    output["server"]["version_num"], required_major=args.require_postgres_major
+                )
+            except ValueError as error:
+                parser.error(str(error))
         if args.seed:
             output["seed"] = seed(engine, args.articles, runs, args.history_bytes)
         with engine.connect() as connection:

@@ -3,6 +3,7 @@
 import json
 import sys
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from devfeed_core.inference_metrics import inference_charts
@@ -51,6 +52,74 @@ def test_profiler_accepts_explicit_local_disposable_database(host):
 
 
 @pytest.mark.parametrize(
+    "version,required_major",
+    [("170000", None), ("170011", 17), ("180000", None), ("180001", 18), ("190001", None)],
+)
+def test_profiler_accepts_supported_servers_and_matching_explicit_major(version, required_major):
+    profile.validate_server_version(version, required_major=required_major)
+
+
+@pytest.mark.parametrize(
+    "version,required_major,message",
+    [
+        ("160011", None, "17 or newer"),
+        ("90624", None, "17 or newer"),
+        ("180000", 17, "requires PostgreSQL 17"),
+        ("170011", 18, "requires PostgreSQL 18"),
+    ],
+)
+def test_profiler_rejects_unsupported_servers_and_explicit_major_mismatch(
+    version, required_major, message
+):
+    with pytest.raises(ValueError, match=message):
+        profile.validate_server_version(version, required_major=required_major)
+
+
+def test_cli_checks_explicit_server_major_before_seeding_or_profiling(
+    monkeypatch, tmp_path, capsys
+):
+    server = {"version": "PostgreSQL 18", "default_work_mem": "4MB", "version_num": "180000"}
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def execute(self, _statement):
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(one=lambda: server))
+
+    disposed = []
+    engine = SimpleNamespace(connect=Connection, dispose=lambda: disposed.append(True))
+    monkeypatch.setenv("DEVFEED_TEST_DATABASE_URL", "postgresql://test@localhost/devfeed_test")
+    monkeypatch.setattr(profile, "create_engine", lambda *_args, **_kw: engine)
+    monkeypatch.setattr(profile, "seed", lambda *_args: pytest.fail("Seeded mismatched server"))
+    monkeypatch.setattr(profile, "report_sample", lambda *_a, **_kw: pytest.fail("Profiled server"))
+    output = tmp_path / "profile.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "topic-profiler",
+            "--baseline-root",
+            str(profile.ROOT),
+            "--output",
+            str(output),
+            "--seed",
+            "--require-postgres-major",
+            "17",
+        ],
+    )
+    with pytest.raises(SystemExit) as error:
+        profile.main()
+    assert error.value.code == 2
+    assert "requires PostgreSQL 17; connected server is 18" in capsys.readouterr().err
+    assert not output.exists()
+    assert disposed == [True]
+
+
+@pytest.mark.parametrize(
     "options",
     [
         ["--articles", "9"],
@@ -90,6 +159,29 @@ def test_cli_rejects_unbounded_work_before_loading_code_or_connecting(
     assert error.value.code == 2
     assert "profiling bounds" in capsys.readouterr().err
     assert not (tmp_path / "result.json").exists()
+
+
+def test_cli_rejects_unsupported_required_major_before_connecting(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("DEVFEED_TEST_DATABASE_URL", "postgresql://test@localhost/devfeed_test")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "topic-profiler",
+            "--baseline-root",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "profile.json"),
+            "--require-postgres-major",
+            "16",
+        ],
+    )
+    monkeypatch.setattr(profile, "create_engine", lambda *_a, **_kw: pytest.fail("Opened database"))
+    monkeypatch.setattr(profile, "report_functions", lambda *_a: pytest.fail("Loaded report code"))
+    with pytest.raises(SystemExit) as error:
+        profile.main()
+    assert error.value.code == 2
+    assert "--require-postgres-major must be 17 or newer" in capsys.readouterr().err
 
 
 def fixture_snapshot(session):

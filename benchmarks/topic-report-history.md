@@ -31,7 +31,7 @@ state JSON size 20,511 bytes, median 22,131 and p95 35,444 bytes. These cardinal
 describe that observation, rather than a continuously refreshed production count.
 
 `scripts/profile_topic_reports.py` uses migrated, empty, explicitly local
-PostgreSQL 17 databases ending in `_test`. It refuses libpq routing overrides and
+PostgreSQL 17+ databases ending in `_test`. It refuses libpq routing overrides and
 never reads the checkout's `.env` or truncates fixture tables. The benchmark uses
 ordinary article, inference and decision triggers during seeding. Each run has
 approximately 20 KiB of incompressible unrelated evidence, plus one to five ordered
@@ -81,8 +81,9 @@ uv run --locked --no-sync python -m scripts.profile_topic_reports \
 ```
 
 The path-filtered `Topic report history profile` pull-request workflow uses a native
-`ubuntu-24.04-arm` runner and an immutable PostgreSQL 17.11 image. It has read-only
-repository permissions and no deployment or production credentials. Local AMD64
+`ubuntu-24.04-arm` runner and an immutable PostgreSQL 17.11 image, explicitly requiring
+major version 17 with `--require-postgres-major 17`. Profiling has read-only repository
+permissions and no deployment or production credentials. Local AMD64
 smoke measurements validate the harness; they do not establish native ARM64 speed.
 When the pull-request base still uses historical JSON expansion, the workflow
 requires lower concurrent report and topic SQL runtime, zero topic SQL temporary
@@ -90,6 +91,14 @@ writes, and complete overlap between reports and the paced writer phase. Later c
 against their current base and retain exact output parity without requiring every
 change to make the already normalized queries faster again. Full phase
 elapsed time includes identical writer pacing and is not a report latency metric.
+
+Each run publishes separate 100,000- and 300,000-article before/after tables with
+signed deltas in its job summary and summary artifact. Same-repository pull requests
+also receive one updated bot comment. The publishing job executes no checkout or
+artifact code, validates the current attempt's JSON as data, and checks the current
+PR head before writing. Forks retain the summary and artifact. Failed jobs and
+missing or incomplete artifacts are reported explicitly instead of reusing a prior
+attempt's passing measurement.
 
 After deployment, compare fresh `pg_stat_statements` deltas under matched report
 windows and concurrency: calls, total execution time, temporary blocks per call and
