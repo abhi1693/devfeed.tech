@@ -148,9 +148,12 @@ def execution(command, monkeypatch):
 
     def git(arguments, **kwargs):
         assert kwargs["cwd"] == command.root
-        if arguments[:2] == ["git", "show"]:
-            assert arguments[2] == f"{BASELINE}:apps/api/src/feed.py"
-            return "baseline code"
+        if arguments == ["git", "--no-replace-objects", "cat-file", "--batch"]:
+            revision = kwargs["input"]
+            if revision == f"{BASELINE}^{{commit}}\n".encode():
+                return f"{BASELINE} commit 6\ncommit\n".encode()
+            assert revision == f"{BASELINE}:apps/api/src/feed.py\n".encode()
+            return f"{'d' * 40} blob 13\nbaseline code\n".encode()
         if arguments[:2] == ["git", "status"]:
             return b""
         assert arguments == ["git", "rev-parse", "HEAD"]
@@ -353,3 +356,54 @@ def test_load_feed_uses_the_exact_revision_file(tmp_path):
     source = tmp_path / "revision.py"
     source.write_text("def feed_options(): return {'revision': 'baseline'}\n")
     assert benchmark.load_feed(source, "fixture_revision")() == {"revision": "baseline"}
+
+
+@pytest.mark.parametrize(
+    "payload,expected_type,message",
+    [
+        (b"missing\n", "commit", "valid commit object header"),
+        (b"a" * 40 + b" missing\n", "commit", "valid commit object header"),
+        (b"a" * 40 + b" commit 1", "commit", "valid commit object header"),
+        (b"z" * 40 + b" commit 1\nx\n", "commit", "valid commit object header"),
+        (b"a" * 40 + b" blob 1\nx\n", "commit", "valid commit object header"),
+        (b"a" * 40 + b" commit -1\n\n", "commit", "valid commit object header"),
+        (b"a" * 40 + b" commit unknown\nx\n", "commit", "valid commit object header"),
+        (b"a" * 40 + b" commit 2\nx\n", "commit", "length"),
+        (b"a" * 40 + b" blob 1\nx", "blob", "length"),
+        (b"a" * 40 + b" blob 1\nx\nextra", "blob", "length"),
+        (b"a" * 40 + b" blob 1\nxx", "blob", "length"),
+    ],
+)
+def test_git_object_rejects_missing_malformed_and_truncated_responses(
+    monkeypatch, payload, expected_type, message
+):
+    monkeypatch.setattr(benchmark.subprocess, "check_output", lambda *args, **kwargs: payload)
+    with pytest.raises(RuntimeError, match=message):
+        benchmark.git_object(BASELINE, expected_type)
+
+
+@pytest.mark.parametrize("content", [b"", "def feed_options(): return 'café'\n".encode()])
+def test_git_object_reads_exact_blob_bytes_using_constant_arguments(monkeypatch, content):
+    sha = "c" * 40
+    response = f"{sha} blob {len(content)}\n".encode() + content + b"\n"
+    process = Mock(return_value=response)
+    monkeypatch.setattr(benchmark.subprocess, "check_output", process)
+    assert benchmark.git_object(f"{BASELINE}:apps/api/src/feed.py", "blob") == (sha, content)
+    process.assert_called_once_with(
+        ["git", "--no-replace-objects", "cat-file", "--batch"],
+        input=f"{BASELINE}:apps/api/src/feed.py\n".encode(),
+        cwd=benchmark.ROOT,
+    )
+
+
+def test_main_records_git_returned_commit_provenance(command, execution, monkeypatch):
+    command.argv.extend(["--rows", "2000", "--repeats", "1"])
+    resolved = "c" * 40
+    objects = Mock(side_effect=[(resolved, b"commit body"), ("d" * 40, b"baseline code")])
+    monkeypatch.setattr(benchmark, "git_object", objects)
+    benchmark.main()
+    result = json.loads((command.output / "results.json").read_text())
+    assert result["baseline_sha"] == resolved
+    assert result["baseline_sha"] != BASELINE
+    assert objects.call_args_list[0].args == (f"{BASELINE}^{{commit}}", "commit")
+    assert objects.call_args_list[1].args == (f"{resolved}:apps/api/src/feed.py", "blob")

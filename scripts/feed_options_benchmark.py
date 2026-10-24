@@ -500,6 +500,30 @@ def commit_sha(value):
     return value
 
 
+def git_object(revision, expected_type):
+    # Revisions are data on stdin, never Git options. Read provenance from Git's
+    # object header rather than copying CLI input into the benchmark report.
+    payload = subprocess.check_output(
+        ["git", "--no-replace-objects", "cat-file", "--batch"],
+        input=(revision + "\n").encode(),
+        cwd=ROOT,
+    )
+    header, separator, body = payload.partition(b"\n")
+    fields = header.split()
+    if (
+        not separator
+        or len(fields) != 3
+        or not re.fullmatch(rb"[0-9a-f]{40}", fields[0])
+        or fields[1] != expected_type.encode()
+        or not fields[2].isdigit()
+    ):
+        raise RuntimeError(f"Git did not return a valid {expected_type} object header")
+    size = int(fields[2])
+    if len(body) != size + 1 or body[size:] != b"\n":
+        raise RuntimeError("Git object length does not match its header")
+    return fields[0].decode("ascii"), body[:size]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline-ref", required=True, type=commit_sha)
@@ -520,10 +544,9 @@ def main():
     if not output.is_relative_to(ROOT / "reports"):
         parser.error("Output must stay in this checkout's reports directory")
     output.mkdir(parents=True, exist_ok=True)
-    baseline_sha = args.baseline_ref
-    baseline = subprocess.check_output(
-        ["git", "show", f"{baseline_sha}:apps/api/src/feed.py"], cwd=ROOT, text=True
-    )
+    baseline_sha, _ = git_object(f"{args.baseline_ref}^{{commit}}", "commit")
+    _, baseline_content = git_object(f"{baseline_sha}:apps/api/src/feed.py", "blob")
+    baseline = baseline_content.decode("utf-8")
     report = dict(
         started_at=datetime.now(UTC).isoformat(),
         architecture=platform.machine(),
