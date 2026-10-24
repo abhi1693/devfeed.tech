@@ -3,6 +3,7 @@
 Run migrations first. --seed requires an empty database and never truncates data.
 --baseline-root selects a clean checkout of the previous report implementation.
 --require-postgres-major pins comparisons to a specific PostgreSQL major release.
+--output creates a new JSON artifact below the current directory's reports folder.
 All measured ingestion writes roll back. Only the projection trigger is temporarily
 disabled, in short committed transactions, for the legacy concurrency comparison.
 """
@@ -19,6 +20,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -67,6 +69,45 @@ def validate_server_version(value, *, required_major=None):
         raise ValueError(
             f"This comparison requires PostgreSQL {required_major}; connected server is {major}"
         )
+
+
+def report_output_path(destination):
+    root = Path.cwd().resolve() / "reports"
+    resolved = destination.resolve()
+    if ".." in destination.parts or not resolved.is_relative_to(root):
+        raise ValueError("Output must remain within the current directory's reports folder")
+    if resolved.suffix != ".json":
+        raise ValueError("Output must be a JSON artifact with a .json extension")
+    absolute = destination.absolute()
+    if any(parent.is_symlink() for parent in (absolute, *absolute.parents)):
+        raise ValueError("Output and its parent directories must not be symlinks")
+    if resolved.exists():
+        raise ValueError("Output already exists; choose a new artifact filename")
+    return resolved
+
+
+def write_profile_output(destination, data):
+    output = report_output_path(destination)
+    content = json.dumps(data, indent=2) + "\n"
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    # Anchor every child lookup to an opened directory. A parent replaced by a
+    # symlink after validation cannot redirect artifact creation outside reports.
+    with ExitStack() as descriptors:
+        directory = os.open(Path.cwd().resolve(), directory_flags)
+        descriptors.callback(os.close, directory)
+        for name in output.relative_to(Path.cwd().resolve()).parts[:-1]:
+            with suppress(FileExistsError):
+                os.mkdir(name, mode=0o700, dir_fd=directory)
+            directory = os.open(name, directory_flags, dir_fd=directory)
+            descriptors.callback(os.close, directory)
+        descriptor = os.open(
+            output.name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=directory,
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as artifact:
+            artifact.write(content)
 
 
 def report_functions(root, label):
@@ -434,6 +475,10 @@ def main():
         and 1 <= args.writes <= 1000
     ):
         parser.error("Fixture and concurrency sizes exceed supported profiling bounds")
+    try:
+        args.output = report_output_path(args.output)
+    except (OSError, RuntimeError, ValueError) as error:
+        parser.error(str(error))
     functions = {
         "legacy": report_functions(args.baseline_root.resolve(), "legacy"),
         "facts": report_functions(ROOT, "facts"),
@@ -548,8 +593,7 @@ def main():
             ),
         }
         output["complete"] = True
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps(output, indent=2) + "\n")
+        write_profile_output(args.output, output)
         print(
             json.dumps(
                 {

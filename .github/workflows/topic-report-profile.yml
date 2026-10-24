@@ -23,21 +23,7 @@ jobs:
       max-parallel: 2
       matrix:
         articles: [100000, 300000]
-    services:
-      postgres:
-        image: postgres:17.11@sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe
-        env:
-          POSTGRES_USER: topic_profile
-          POSTGRES_PASSWORD: topic_profile
-          POSTGRES_DB: topic_profile_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U topic_profile -d topic_profile_test"
-          --health-interval 5s --health-timeout 5s --health-retries 12
     env:
-      DEVFEED_DATABASE_URL: postgresql+psycopg://topic_profile:topic_profile@127.0.0.1:5432/topic_profile_test
-      DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://topic_profile:topic_profile@127.0.0.1:5432/topic_profile_test
       DEVFEED_REDIS_URL: redis://127.0.0.1:6379/15
       OTEL_SDK_DISABLED: "true"
     steps:
@@ -61,9 +47,60 @@ jobs:
           cache-dependency-glob: candidate/uv.lock
       - name: Install profiling dependencies
         run: sh candidate/scripts/ci/python-bootstrap.sh candidate --editable --all-packages
+      - name: Start the disposable database with random credentials
+        run: |
+          python3 - <<'PY'
+          import os
+          import secrets
+          import subprocess
+          import tempfile
+          import time
+
+          password = secrets.token_hex(32)
+          database_url = (
+              f"postgresql+psycopg://topic_profile:{password}"
+              "@127.0.0.1:5432/topic_profile_test"
+          )
+          print(f"::add-mask::{password}", flush=True)
+          print(f"::add-mask::{database_url}", flush=True)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as environment:
+              environment.write(f"DEVFEED_DATABASE_URL={database_url}\n")
+              environment.write(f"DEVFEED_TEST_DATABASE_URL={database_url}\n")
+          with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as secret:
+              secret.write("POSTGRES_USER=topic_profile\n")
+              secret.write(f"POSTGRES_PASSWORD={password}\n")
+              secret.write("POSTGRES_DB=topic_profile_test\n")
+          try:
+              subprocess.run(
+                  [
+                      "docker", "run", "--detach", "--name", "topic-report-postgres",
+                      "--publish", "127.0.0.1:5432:5432", "--env-file", secret.name,
+                      "postgres:17.11@sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe",
+                  ],
+                  check=True,
+                  stdout=subprocess.DEVNULL,
+              )
+          finally:
+              os.unlink(secret.name)
+          for _ in range(60):
+              ready = subprocess.run(
+                  [
+                      "docker", "exec", "topic-report-postgres", "pg_isready",
+                      "-h", "127.0.0.1", "-U", "topic_profile", "-d", "topic_profile_test",
+                  ],
+                  check=False,
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+              )
+              if ready.returncode == 0:
+                  break
+              time.sleep(2)
+          else:
+              raise RuntimeError("Disposable PostgreSQL did not become ready within 120 seconds")
+          PY
       - name: Migrate the disposable database
         working-directory: candidate
-        run: uv run --locked --no-sync alembic upgrade head
+        run: uv run --locked --no-sync --no-build alembic upgrade head
       - name: Verify native ARM64 and profile historical reports
         working-directory: candidate
         env:
@@ -74,18 +111,21 @@ jobs:
           if rg -q jsonb_array_elements ../baseline/packages/core/src/topic_decision_metrics.py; then
             PROFILE_GATE_ARGS+=(--require-improvement)
           fi
-          uv run --locked --no-sync python -m scripts.profile_topic_reports \
+          uv run --locked --no-sync --no-build python -m scripts.profile_topic_reports \
             --baseline-root ../baseline --seed --articles "$PROFILE_ARTICLES" \
             --require-postgres-major 17 \
             "${PROFILE_GATE_ARGS[@]}" \
-            --output ../reports/topic-reports.json
+            --output reports/topic-reports.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: topic-reports-${{ matrix.articles }}-arm64-${{ github.run_attempt }}
-          path: reports/
+          path: candidate/reports/
           if-no-files-found: error
           retention-days: 30
+      - name: Remove the disposable database
+        if: always()
+        run: docker rm --force topic-report-postgres
   report-tests:
     name: Test topic profile summary
     runs-on: ubuntu-24.04

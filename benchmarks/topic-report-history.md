@@ -77,8 +77,13 @@ for migrations, and export the same URL as `DEVFEED_TEST_DATABASE_URL` for profi
 uv run --locked --no-sync alembic upgrade head
 uv run --locked --no-sync python -m scripts.profile_topic_reports \
   --baseline-root /path/to/baseline --seed --articles 100000 \
-  --output /path/outside/repository/topic-reports.json
+  --output reports/topic-reports.json
 ```
+
+Output must be a new `.json` artifact under the invocation's `reports/` directory.
+Absolute paths inside that directory also work. Traversal components, symlink files
+or directories, and existing destinations are rejected before database work. Choose
+a new filename for each local run; artifact creation never overwrites an earlier report.
 
 The path-filtered `Topic report history profile` pull-request workflow uses a native
 `ubuntu-24.04-arm` runner and an immutable PostgreSQL 17.11 image, explicitly requiring

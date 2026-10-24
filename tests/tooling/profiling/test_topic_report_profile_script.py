@@ -1,8 +1,11 @@
 """The topic profiler bounds disposable work and measures the actual report SQL."""
 
 import json
+import os
+import stat
 import sys
 from datetime import timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -17,6 +20,150 @@ from scripts import profile_topic_reports as profile
 def clear_libpq_routes(monkeypatch):
     for name in ("PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE"):
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.parametrize(
+    "destination",
+    [
+        "outside.json",
+        "../escape.json",
+        "reports/../../escape.json",
+        "reports/sub/../escape.json",
+        "reports/report.txt",
+    ],
+)
+def test_output_rejects_traversal_outside_paths_and_non_json_artifacts(
+    monkeypatch, tmp_path, destination
+):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match="reports folder|.json extension"):
+        profile.report_output_path(Path(destination))
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("absolute", [False, True])
+def test_output_creates_private_json_inside_reports_without_overwriting(
+    monkeypatch, tmp_path, absolute
+):
+    monkeypatch.chdir(tmp_path)
+    relative = Path("reports/nested/topic-reports.json")
+    output = tmp_path / relative
+    destination = output if absolute else relative
+    assert profile.report_output_path(destination) == output
+    profile.write_profile_output(destination, {"complete": True})
+    assert json.loads(output.read_text()) == {"complete": True}
+    assert output.read_text().endswith("\n")
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600
+    with pytest.raises(ValueError, match="already exists"):
+        profile.write_profile_output(destination, {"replaced": True})
+    assert json.loads(output.read_text()) == {"complete": True}
+
+
+@pytest.mark.parametrize("kind", ["file", "directory", "symlink", "parent-symlink"])
+def test_output_rejects_existing_files_directories_and_symlinks(monkeypatch, tmp_path, kind):
+    monkeypatch.chdir(tmp_path)
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    output = reports / "profile.json"
+    if kind == "file":
+        output.write_text("Retain the earlier report")
+    elif kind == "directory":
+        output.mkdir()
+    elif kind == "symlink":
+        original = reports / "original.json"
+        original.write_text("Retain the earlier report")
+        output.symlink_to(original)
+    else:
+        original = reports / "original"
+        original.mkdir()
+        (reports / "alias").symlink_to(original, target_is_directory=True)
+        output = reports / "alias" / "profile.json"
+    with pytest.raises(ValueError, match="already exists|must not be symlinks"):
+        profile.write_profile_output(output, {"replaced": True})
+    if kind == "file":
+        assert output.read_text() == "Retain the earlier report"
+    elif kind == "symlink":
+        assert original.read_text() == "Retain the earlier report"
+    elif kind == "parent-symlink":
+        assert not (original / "profile.json").exists()
+
+
+def test_output_cannot_follow_a_parent_replaced_after_validation(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "reports" / "nested" / "profile.json"
+    output.parent.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    validate = profile.report_output_path
+
+    def swap_directory(destination):
+        validated = validate(destination)
+        output.parent.rmdir()
+        output.parent.symlink_to(outside, target_is_directory=True)
+        return validated
+
+    monkeypatch.setattr(profile, "report_output_path", swap_directory)
+    with pytest.raises(OSError):
+        profile.write_profile_output(output, {"complete": True})
+    assert not (outside / "profile.json").exists()
+
+
+@pytest.mark.parametrize("symlink", [False, True])
+def test_output_exclusive_creation_preserves_a_target_added_after_validation(
+    monkeypatch, tmp_path, symlink
+):
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "reports" / "profile.json"
+    victim = tmp_path / "earlier.json"
+    victim.write_text("Retain the existing file")
+    original_open = os.open
+
+    def competing_open(path, flags, mode=0o777, *, dir_fd=None):
+        if path == output.name and flags & os.O_EXCL:
+            if symlink:
+                os.symlink(victim, path, dir_fd=dir_fd)
+            else:
+                descriptor = original_open(
+                    path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=dir_fd
+                )
+                with os.fdopen(descriptor, "w") as earlier:
+                    earlier.write("Retain the earlier report")
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", competing_open)
+    with pytest.raises(FileExistsError):
+        profile.write_profile_output(output, {"replaced": True})
+    assert victim.read_text() == "Retain the existing file"
+    assert output.read_text() == (
+        "Retain the existing file" if symlink else "Retain the earlier report"
+    )
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_cli_rejects_invalid_output_before_loading_code_or_opening_database(
+    monkeypatch, tmp_path, capsys, existing
+):
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "reports" / "existing.json" if existing else tmp_path / "outside.json"
+    if existing:
+        output.parent.mkdir()
+        output.write_text("Retain the earlier report")
+    monkeypatch.setenv("DEVFEED_TEST_DATABASE_URL", "postgresql://test@localhost/devfeed_test")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["topic-profiler", "--baseline-root", str(profile.ROOT), "--output", str(output)],
+    )
+    monkeypatch.setattr(
+        profile, "report_functions", lambda *_args: pytest.fail("Loaded report code")
+    )
+    monkeypatch.setattr(profile, "create_engine", lambda *_a, **_kw: pytest.fail("Opened database"))
+    with pytest.raises(SystemExit) as error:
+        profile.main()
+    assert error.value.code == 2
+    assert "Output" in capsys.readouterr().err
+    if existing:
+        assert output.read_text() == "Retain the earlier report"
 
 
 @pytest.mark.parametrize(
@@ -96,7 +243,8 @@ def test_cli_checks_explicit_server_major_before_seeding_or_profiling(
     monkeypatch.setattr(profile, "create_engine", lambda *_args, **_kw: engine)
     monkeypatch.setattr(profile, "seed", lambda *_args: pytest.fail("Seeded mismatched server"))
     monkeypatch.setattr(profile, "report_sample", lambda *_a, **_kw: pytest.fail("Profiled server"))
-    output = tmp_path / "profile.json"
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "reports" / "profile.json"
     monkeypatch.setattr(
         sys,
         "argv",
@@ -278,7 +426,8 @@ def test_cli_preserves_facts_and_restores_projection_after_concurrent_samples(
     profile.seed(engine, articles=10, runs=10, history_bytes=64)
     with database() as session:
         before = fixture_snapshot(session)
-    output = tmp_path / "profile.json"
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "reports" / "profile.json"
     monkeypatch.setattr(
         sys,
         "argv",
