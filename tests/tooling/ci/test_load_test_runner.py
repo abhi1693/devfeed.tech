@@ -24,6 +24,14 @@ spec.loader.exec_module(runner)
 SCRAM_VERIFIER = "SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVk:c2VydmVy"
 
 
+@pytest.fixture
+def report_output(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "reports/loadtest"
+    output.mkdir(parents=True)
+    return output
+
+
 def test_pooler_uses_server_scram_verifier_without_forcing_a_backend_user(tmp_path):
     database = Mock()
     database.execute.return_value.fetchone.return_value = {"scram_verifier": SCRAM_VERIFIER}
@@ -73,6 +81,89 @@ def test_report_paths_support_nested_workspace_reports_and_existing_directories(
     output.mkdir(parents=True)
     supplied = output if absolute else Path("reports/performance/base-0")
     assert runner.report_directory(supplied) == output
+
+
+@pytest.mark.parametrize("seed", ["-1", "4294967296", "294 --users 200", "--host=elsewhere"])
+def test_invalid_journey_seeds_fail_before_creating_reports_or_resources(
+    monkeypatch, tmp_path, capsys, seed
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runner.sys, "argv", ["load-test.py", f"--journey-seed={seed}"])
+    docker = Mock()
+    monkeypatch.setattr(runner, "docker", docker)
+
+    with pytest.raises(SystemExit) as error:
+        runner.main()
+
+    assert error.value.code == 2
+    assert "journey" in capsys.readouterr().err
+    docker.assert_not_called()
+    assert not (tmp_path / "reports").exists()
+
+
+@pytest.mark.parametrize("name", ["metadata.json", "pooler-after.json", "runtime-diagnostics.json"])
+def test_json_reports_replace_regular_files_with_private_permissions(report_output, name):
+    path = report_output / name
+    path.write_text("previous report")
+    path.chmod(0o644)
+
+    runner.write_json_report(report_output, name, {"complete": True})
+
+    assert json.loads(path.read_text()) == {"complete": True}
+    assert path.stat().st_mode & 0o077 == 0
+
+
+@pytest.mark.parametrize("name", ["metadata.json", "pooler-after.json", "runtime-diagnostics.json"])
+@pytest.mark.parametrize("target_exists", [False, True])
+def test_json_report_writes_reject_symlinks_even_after_preflight(
+    report_output, tmp_path, name, target_exists
+):
+    runner.validate_report_artifacts(report_output)
+    target = tmp_path / "outside.json"
+    if target_exists:
+        target.write_text("unchanged")
+    path = report_output / name
+    path.symlink_to(target)
+
+    with pytest.raises(OSError):
+        runner.write_json_report(report_output, name, {"complete": True})
+
+    assert path.is_symlink()
+    assert target.read_text() == "unchanged" if target_exists else not target.exists()
+
+
+@pytest.mark.parametrize("outside_directory", [False, True])
+def test_json_report_writes_cannot_escape_the_report_directory(
+    report_output, tmp_path, outside_directory
+):
+    directory = tmp_path if outside_directory else report_output
+    name = "metadata.json" if outside_directory else "../outside.json"
+
+    with pytest.raises(ValueError):
+        runner.write_json_report(directory, name, {"complete": True})
+
+    assert not (tmp_path / "metadata.json").exists()
+    assert not (report_output.parent / "outside.json").exists()
+
+
+@pytest.mark.parametrize("name", ["metadata.json", "api.log", "final.json"])
+@pytest.mark.parametrize("target_exists", [False, True])
+def test_known_report_symlinks_fail_before_docker(
+    monkeypatch, report_output, tmp_path, name, target_exists
+):
+    target = tmp_path / "outside.json"
+    if target_exists:
+        target.write_text("unchanged")
+    (report_output / name).symlink_to(target)
+    monkeypatch.setattr(runner.sys, "argv", ["load-test.py"])
+    docker = Mock()
+    monkeypatch.setattr(runner, "docker", docker)
+
+    with pytest.raises(OSError, match="symbolic link"):
+        runner.main()
+
+    docker.assert_not_called()
+    assert target.read_text() == "unchanged" if target_exists else not target.exists()
 
 
 @pytest.mark.parametrize(
@@ -327,8 +418,11 @@ def measurement_sample(phase, clock, *, elapsed=0, calls=0):
     }
 
 
-def test_measurement_records_live_samples_and_excludes_warmup_cost(monkeypatch, tmp_path):
-    phase_file, output = tmp_path / "measurement.json", tmp_path / "runtime.json"
+def test_measurement_records_live_samples_and_excludes_warmup_cost(
+    monkeypatch, tmp_path, report_output
+):
+    phase_file = report_output / "measurement.json"
+    output = report_output / "runtime-diagnostics.json"
     clock = [0.0]
     process = Mock(pid=123, returncode=0)
     process.poll.side_effect = lambda: 0 if clock[0] >= 12 else None
@@ -377,7 +471,7 @@ def test_measurement_records_live_samples_and_excludes_warmup_cost(monkeypatch, 
 
 @pytest.mark.parametrize("failure", ["watchdog", "telemetry", "incomplete"])
 def test_load_failures_retain_partial_diagnostics_and_stop_owned_process(
-    monkeypatch, tmp_path, failure
+    monkeypatch, tmp_path, report_output, failure
 ):
     clock = [0.0]
     process = Mock(pid=123, returncode=7)
@@ -387,7 +481,7 @@ def test_load_failures_retain_partial_diagnostics_and_stop_owned_process(
     monkeypatch.setattr(
         runner.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
     )
-    output = tmp_path / "runtime.json"
+    output = report_output / "runtime-diagnostics.json"
 
     def capture(pid, phase):
         if failure == "telemetry":
@@ -421,7 +515,7 @@ def test_load_failures_retain_partial_diagnostics_and_stop_owned_process(
 
 
 def test_load_watchdog_force_kills_uncooperative_process_and_retains_diagnostics(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, report_output
 ):
     clock = [0.0]
     process = Mock(pid=123)
@@ -432,7 +526,7 @@ def test_load_watchdog_force_kills_uncooperative_process_and_retains_diagnostics
     monkeypatch.setattr(
         runner.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
     )
-    output = tmp_path / "runtime.json"
+    output = report_output / "runtime-diagnostics.json"
 
     with pytest.raises(subprocess.TimeoutExpired):
         runner.run_measured_load(
@@ -456,9 +550,11 @@ def test_load_watchdog_force_kills_uncooperative_process_and_retains_diagnostics
     assert report["samples"][0]["phase"]["phase"] == "starting"
 
 
-@pytest.mark.parametrize("outcome", ["success", "retained", "failed"])
+@pytest.mark.parametrize(
+    ("outcome", "journey_seed"), [("success", 294), ("retained", 0), ("failed", 0xFFFFFFFF)]
+)
 def test_disposable_run_wires_equal_measurement_and_diagnostics_and_cleans_only_owned_resources(
-    monkeypatch, tmp_path, outcome
+    monkeypatch, tmp_path, outcome, journey_seed
 ):
     import psycopg
 
@@ -487,7 +583,7 @@ def test_disposable_run_wires_equal_measurement_and_diagnostics_and_cleans_only_
             "--warmup-seconds",
             "15",
             "--journey-seed",
-            "294",
+            str(journey_seed),
             "--output",
             str(output),
         ],
@@ -559,7 +655,7 @@ def test_disposable_run_wires_equal_measurement_and_diagnostics_and_cleans_only_
             "--spawn-rate": "4.0",
             "--measurement-seconds": "60",
             "--warmup-seconds": "15",
-            "--journey-seed": "294",
+            "--journey-seed": str(journey_seed),
             "--phase-file": str(output / "measurement.json"),
             "--run-time": "199",
         }.items():
@@ -593,7 +689,7 @@ def test_disposable_run_wires_equal_measurement_and_diagnostics_and_cleans_only_
     assert metadata["locust_version"] == "isolated-locust-version"
     loadtest_version.assert_called_once_with("locust")
     assert (metadata["journey_seed"], metadata["warmup_seconds"], metadata["seconds"]) == (
-        294,
+        journey_seed,
         15,
         60,
     )

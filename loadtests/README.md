@@ -52,6 +52,9 @@ select a subdirectory there, using a relative or absolute path; paths or symlink
 that escape that folder are rejected before the runner creates resources. Run
 from the repository root for the examples below. Repeating a run replaces its
 reports, but an existing `database-statistics.json` symlink is rejected.
+Known report and log filenames must not be symlinks. The runner's JSON reports
+are written through file descriptors that reject symlinks and enforce owner-only
+read/write permissions, including when replacing an existing report.
 
 Compare uncached database pressure with a normal cache-enabled run **sequentially**
 on the same otherwise idle machine, with separate report directories:
@@ -75,8 +78,9 @@ Each disposable run waits for every user to finish bootstrap, warms the workload
 for 15 seconds, then parks all users between journeys. At that barrier it resets
 statistics, each user's random streams and bootstrap cursor/article state before
 releasing the users for the full requested `--seconds` measurement. A fixed
-`--journey-seed` (default 294) controls separate per-user journey, resource and
-think-time streams. Different response times can change how many journeys finish,
+`--journey-seed` (default 294, an integer from 0 through 4,294,967,295) controls
+separate per-user journey, resource and think-time streams. Different response
+times can change how many journeys finish,
 but cannot change the next journey chosen by another user. `--warmup-seconds`
 changes the warmup duration. Bootstrap, warmup and request-draining failures still
 fail the run; a watchdog cannot produce a successful shortened measurement.

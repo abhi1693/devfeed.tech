@@ -44,6 +44,18 @@ DIAGNOSTIC_STATEMENTS = (
     "pg_stat_database",
     "pg_stat_clear_snapshot",
 )
+JSON_REPORTS = {"metadata.json", "pooler-after.json", "runtime-diagnostics.json"}
+EXTERNAL_REPORTS = {
+    "setup.log",
+    "api.log",
+    "final.json",
+    "measurement.json",
+    "reader_stats.csv",
+    "reader_stats_history.csv",
+    "reader_failures.csv",
+    "reader_exceptions.csv",
+    "reader.html",
+}
 
 
 def process_statistics(pid, proc_root=Path("/proc")):
@@ -194,7 +206,7 @@ def run_measured_load(command, *, env, cwd, timeout, phase_file, output, capture
         raise
     finally:
         stop_load_process(process)
-        output.write_text(json.dumps(report, indent=2, default=str) + "\n")
+        write_json_report(output.parent, output.name, report)
 
 
 def docker(*args):
@@ -235,6 +247,27 @@ def report_directory(destination: Path) -> Path:
     if not resolved.is_relative_to(root):
         raise ValueError("Output must remain within the current directory's reports folder")
     return resolved
+
+
+def validate_report_artifacts(output):
+    for name in JSON_REPORTS | EXTERNAL_REPORTS:
+        if (output / name).is_symlink():
+            raise OSError(f"Report artifact must not be a symbolic link: {name}")
+
+
+def write_json_report(output, name, report):
+    if name not in JSON_REPORTS:
+        raise ValueError("Unsupported JSON report name")
+    directory = report_directory(output)
+    descriptor = os.open(
+        directory / name,
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+        0o600,
+    )
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        os.fchmod(stream.fileno(), 0o600)
+        json.dump(report, stream, indent=2, default=str)
+        stream.write("\n")
 
 
 def statistics_report(output: Path):
@@ -322,6 +355,9 @@ def main():
         parser.error("Use 100..10000 rows")
     if not 1 <= args.warmup_seconds <= 300:
         parser.error("Use 1..300 warmup seconds")
+    journey_seed = int(args.journey_seed)
+    if not 0 <= journey_seed <= 0xFFFFFFFF:
+        parser.error("Use a journey seed from 0 through 4294967295")
     args.app_root = args.app_root.resolve()
     args.app_python = args.app_python.absolute()
     try:
@@ -329,6 +365,7 @@ def main():
     except ValueError as error:
         parser.error(str(error))
     args.output.mkdir(parents=True, exist_ok=True)
+    validate_report_artifacts(args.output)
     containers, processes, connections = [], [], []
     password = secrets.token_hex(32)
     network = None
@@ -464,7 +501,7 @@ def main():
                 )
                 metadata = {
                     "protocol_version": "reader-load-v2",
-                    "journey_seed": args.journey_seed,
+                    "journey_seed": journey_seed,
                     "warmup_seconds": args.warmup_seconds,
                     "started_at": datetime.now(UTC).isoformat(),
                     "locust_version": version("locust"),
@@ -502,7 +539,7 @@ def main():
                         )
                     },
                 }
-                (args.output / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+                write_json_report(args.output, "metadata.json", metadata)
                 pooler = psycopg.connect(
                     host="127.0.0.1",
                     port=proxy_port,
@@ -544,7 +581,7 @@ def main():
                         "--warmup-seconds",
                         str(args.warmup_seconds),
                         "--journey-seed",
-                        str(args.journey_seed),
+                        str(journey_seed),
                         "--phase-file",
                         str(phase_file),
                         "--stop-timeout",
@@ -568,7 +605,7 @@ def main():
                 # Record server/client ownership after requests finish, while the
                 # API remains alive: retained local pools would pin idle clients.
                 pools = pooler.execute("SHOW POOLS", prepare=False).fetchall()
-                (args.output / "pooler-after.json").write_text(json.dumps(pools, indent=2) + "\n")
+                write_json_report(args.output, "pooler-after.json", pools)
                 retained = any(
                     row["database"] == "devfeed_load_test"
                     and any(row[key] for key in ("cl_active", "cl_waiting", "sv_active"))
