@@ -101,6 +101,36 @@ jobs:
             --reuse-fixture --scale "$PROFILE_SCALE" --ticks 5 --batch 50 --ingest-per-tick 10 \
             --history-bytes 8192 --label candidate --assert-bounded \
             --output reports/scheduler-rechecks/candidate.json
+      - name: Check matched populations and publish comparison
+        env:
+          PROFILE_ARTICLES: ${{ matrix.articles }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('reports/scheduler-rechecks')
+          base = json.loads((root / 'baseline.json').read_text())
+          candidate = json.loads((root / 'candidate.json').read_text())
+          assert base['dataset'] == candidate['dataset'], 'Fixture populations differ'
+          for result in (base, candidate):
+              assert result['complete'] and result['checkpoint_before_workload']
+              assert not result['below_production_population']
+              assert result['hardware']['architecture'] == 'aarch64'
+              plan = result['plans']['scheduler_due_candidates']['plan'][0]['Plan']
+              assert plan['Actual Rows'] == result['workload']['batch'], 'Due plan was empty'
+              assert all(not tick['publisher_deleted_rows'] for tick in result['ticks'])
+          assert not candidate['bounded_failures']
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('| Articles | Metric | Base | Candidate |\n| --- | --- | ---: | ---: |\n')
+              for key in ('workload_seconds', 'application_cpu_seconds'):
+                  summary.write(f"| {os.environ['PROFILE_ARTICLES']} | {key} | {base[key]:.3f} | {candidate[key]:.3f} |\n")
+              for key in ('calls', 'wal_records', 'wal_fpi', 'wal_bytes', 'temp_blks_written'):
+                  before, after = base['postgres_workload_delta'][key], candidate['postgres_workload_delta'][key]
+                  summary.write(f"| {os.environ['PROFILE_ARTICLES']} | {key} | {before} | {after} |\n")
+              summary.write('\nIdentical populations; no retention cleanup; checkpoint precedes each workload.\n')
+          PY
       - name: Upload measurements and query plans
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
