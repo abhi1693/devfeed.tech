@@ -246,7 +246,11 @@ test("the automatic summary reports signed improvements and positive ingestion/W
   assert.match(body, /Ingestion median[^\n]+\+25\.0%/);
   assert.match(body, /WAL snapshot[^\n]+\+50\.0%/);
   assert.match(body, new RegExp(sha));
-  assert.match(body, /https:\/\/github\.com\/example\/devfeed\.tech\/actions\/runs\/12345/);
+  assert.ok(
+    body.includes(
+      "[Workflow, artifacts and full plans](https://github.com/example/devfeed.tech/actions/runs/12345)",
+    ),
+  );
   assert.equal(fixture.calls.creates.length, 1);
   assert.equal(fixture.calls.updates.length, 0);
   assert.equal(fixture.calls.failures.length, 0);
