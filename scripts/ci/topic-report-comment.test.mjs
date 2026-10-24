@@ -93,6 +93,8 @@ function committedProfiles({ slower = true } = {}) {
     };
     const facts = structuredClone(legacy);
     facts.operations.append.median_ms = slower ? 1.5 : 0.5;
+    facts.elapsed_seconds = slower ? 4.5 : 2.5;
+    facts.application_thread_cpu_seconds = slower ? 1.5 : 0.75;
     facts.wal_bytes = 2048;
     facts.wal_full_page_images = 2;
     return {
@@ -380,6 +382,26 @@ test("lower sampled committed latency still makes no overall production claim", 
     /do not measure full ingestion-pipeline capacity or establish an overall production benefit/,
   );
   assert.doesNotMatch(body, /\*\*PASS\b/);
+});
+
+test("committed phase time and thread CPU overhead stay visible alongside rollback diagnostics", async () => {
+  const fixture = harness();
+  changeArtifacts(fixture, (data) => {
+    data.durable_writes = committedProfiles();
+  });
+  const body = await fixture.run();
+  assert.match(
+    body,
+    /Committed lifecycle phase \| 3\.000 s \| 4\.500 s[^\n]+\+1\.500 s[^\n]+-50\.0%/,
+  );
+  assert.match(body, /Application thread CPU \| 1\.000 s \| 1\.500 s[^\n]+\+0\.500 s[^\n]+-50\.0%/);
+  assert.match(body, /Concurrent report diagnostics use paced writers and roll back/);
+  assert.match(body, /Committed lifecycle samples include COMMIT/);
+  assert.match(
+    body,
+    /phase elapsed time and application thread CPU compare fixed logical work, not pipeline capacity/,
+  );
+  assert.doesNotMatch(body, /every transaction ends with rollback|\*\*PASS\b/);
 });
 
 test("one measured fixture cannot verify writes for a second fixture without committed evidence", async () => {

@@ -364,14 +364,17 @@ jobs:
                     initial.operations[operation].median_ms, final.operations[operation].median_ms, 'ms');
                 }
                 row('All committed operations p95', initial.p95_ms, final.p95_ms, 'ms');
+                row('Committed lifecycle phase', initial.elapsed_seconds, final.elapsed_seconds, 's');
+                row('Application thread CPU', initial.application_thread_cpu_seconds, final.application_thread_cpu_seconds, 's');
                 row('Committed writes WAL snapshot', initial.wal_bytes / 1024, final.wal_bytes / 1024, 'KiB');
                 lines.push('', `WAL full-page images: ${number(initial.wal_full_page_images, 0)} → ` +
                   `${number(final.wal_full_page_images, 0)}. WAL is a server-wide snapshot sensitive to full-page images and background activity; it is not a stable amplification ratio.`);
               }
             }
             lines.push('', 'Before = PR base; after = tested commit. 🔺 marks increased cost. ' +
-              'Writers are paced and every transaction ends with rollback: their phase includes SQL and sleeps, not continuous SQL overlap or durable-commit throughput. ' +
-              'CPU is application process CPU. Statement WAL uses a server-wide LSN delta including AFTER triggers/background activity; unequal full-page images prevent a stable WAL-amplification estimate. ' +
+              'Concurrent report diagnostics use paced writers and roll back; that phase includes SQL and sleeps, not continuous SQL overlap or durable-commit throughput. ' +
+              'Committed lifecycle samples include COMMIT; phase elapsed time and application thread CPU compare fixed logical work, not pipeline capacity. ' +
+              'Concurrent diagnostic CPU is application process CPU. Statement WAL uses a server-wide LSN delta including AFTER triggers/background activity; unequal full-page images prevent a stable WAL-amplification estimate. ' +
               'Topic SQL replay totals come from separate EXPLAIN executions after each timed report. Backfill excludes migration DDL and lock waits. ' +
               'Committed topic measurements include commit latency; they do not measure full ingestion-pipeline capacity or establish an overall production benefit.');
             const body = lines.join('\n');
