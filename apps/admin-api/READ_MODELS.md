@@ -213,6 +213,15 @@ native ARM64 PostgreSQL 17 validation before claiming production capacity.
 
 ## Reproducible scale checks
 
+The `Catalog refresh scale` workflow compares base and head commits on one native
+ARM64 PostgreSQL 17 runner using cloned 150,000-article fixtures. Its job summary
+and one updated PR comment show Before / After / Delta (+/-) tables for report
+publication, readiness errors, recovery time, CPU, and temporary database writes.
+The comment links the exact commits, run attempt, raw JSON, and SQL plans. Missing
+or partial results fail the check and appear as unavailable rather than zero.
+Baseline starvation is a successful reproduction, not healthy report serving;
+additional candidate work must be considered when interpreting CPU and I/O.
+
 `scripts/profile_read_models.py` refuses non-local databases, database names without
 the `_test` suffix, and Redis databases other than local database 15. `--seed`
 replaces only the explicitly configured disposable database. Fixtures contain no
