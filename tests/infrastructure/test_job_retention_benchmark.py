@@ -36,6 +36,8 @@ def test_benchmark_runs_both_histories_to_convergence_with_real_plans_and_ingest
             "128",
             "--cadence-interval-seconds",
             "0.05",
+            "--cadence-payload-bytes",
+            "4096",
         ],
     )
     monkeypatch.setenv("DEVFEED_TEST_DATABASE_URL", settings.database_url)
@@ -57,6 +59,10 @@ def test_benchmark_runs_both_histories_to_convergence_with_real_plans_and_ingest
     assert report["articles"] == 1000
     assert report["jobs_per_kind"] == 3700
     assert report["payload_bytes"] == 128
+    assert report["cadence_payload_bytes"] == 4096
+    assert report["cadence_article_usage_output_bytes"] == 16384
+    assert report["cadence_topic_usage_bytes"] == 1024
+    assert report["cadence_subjects_per_kind"] == 1000
     assert "PostgreSQL 17." in report["postgres_version"]
     assert len(report["phases"]) == 12
     for implementation in ("baseline", "current"):

@@ -256,7 +256,13 @@ def latest_only(engine):
 def seed_cadence_backlog(engine, subjects, payload_bytes):
     rng = random.Random(298)
     payload = "".join(rng.choices(string.ascii_letters + string.digits, k=payload_bytes))
-    parameters = {"subjects": min(subjects, 1000), "payload": payload, "anchor": ANCHOR}
+    parameters = {
+        "subjects": min(subjects, 1000),
+        "payload": payload,
+        "anchor": ANCHOR,
+        "usage_output": "".join(rng.choices(string.ascii_letters + string.digits, k=16384)),
+        "topic_usage": "".join(rng.choices(string.ascii_letters + string.digits, k=1024)),
+    }
     with engine.begin() as connection:
         connection.execute(text("SET LOCAL session_replication_role = replica"))
         for model, prefix in ((ArticleAnalysisJob, "article"), (TopicAnalysisJob, "topic")):
@@ -275,6 +281,9 @@ def seed_cadence_backlog(engine, subjects, payload_bytes):
                 columns.update(
                     article_id="md5('article-' || i)::uuid",
                     catalog_snapshot="jsonb_build_object('catalog', CAST(:payload AS text))",
+                    usage="jsonb_build_object('article_steps', jsonb_build_object('overview', "
+                    "jsonb_build_object('status', 'succeeded', 'output', "
+                    "jsonb_build_object('summary', CAST(:usage_output AS text)))))",
                 )
             else:
                 columns.update(
@@ -283,6 +292,7 @@ def seed_cadence_backlog(engine, subjects, payload_bytes):
                     input_hash="md5(i::text)",
                     requested_by="'{}'::jsonb",
                     prompt_version="'cadence'",
+                    usage="jsonb_build_object('retained_metadata', CAST(:topic_usage AS text))",
                 )
             generated(
                 connection,
@@ -673,6 +683,7 @@ def main():
     parser.add_argument("--backlog-pages", type=int, default=50)
     parser.add_argument("--payload-bytes", type=int, default=4096)
     parser.add_argument("--cadence-interval-seconds", type=float, default=15)
+    parser.add_argument("--cadence-payload-bytes", type=int, default=65536)
     args = parser.parse_args()
     if args.cadence_interval_seconds <= 0:
         parser.error("--cadence-interval-seconds must be positive")
@@ -714,6 +725,10 @@ def main():
         "articles": args.articles,
         "jobs_per_kind": args.articles * 17 // 10 + 2000,
         "payload_bytes": args.payload_bytes,
+        "cadence_payload_bytes": args.cadence_payload_bytes,
+        "cadence_article_usage_output_bytes": 16384,
+        "cadence_topic_usage_bytes": 1024,
+        "cadence_subjects_per_kind": min(args.articles, 1000),
         "application_architecture": platform.machine(),
         "postgres_version": version,
         "postgres_settings": settings,
@@ -756,7 +771,7 @@ def main():
         result["phases"][f"{name}_ordinary_ticks_no_writer"] = measure(
             engine, factory, module, 20, clock_step=0, concurrent=False
         )
-        seed_cadence_backlog(engine, args.articles, args.payload_bytes)
+        seed_cadence_backlog(engine, args.articles, args.cadence_payload_bytes)
         result["phases"][f"{name}_deployed_cadence"] = measure(
             engine,
             factory,

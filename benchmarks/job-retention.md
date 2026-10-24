@@ -13,6 +13,27 @@ successes. These are age-eligible inputs, not a claim that every payload can be
 pruned. Production was PostgreSQL 17.11 on aarch64. No production plans were
 executed with `ANALYZE` and no production data or configuration was changed.
 
+A bounded read-only 1% page sample of terminal unpruned production jobs
+(up to 1,000 rows per history) found these physical stored-byte distributions:
+
+| History and field | Sample rows | p50 bytes | p95 bytes |
+| --- | ---: | ---: | ---: |
+| Article input | 996 | 1,861 | 5,988 |
+| Article catalog | 996 | 9,645 | 21,506 |
+| Article usage | 996 | 744 | 4,671 |
+| Topic input | 1,000 | 26,690 | 27,580 |
+| Topic usage | 1,000 | 379 | 672 |
+
+These are `pg_column_size` values, including compression effects, from 24 October
+2026. No source JSON was fetched or exported. Page sampling and the row cap can
+bias distributions; these are payload-sizing observations rather than population
+percentiles. The 4 KiB fixed-cardinality fixture is deliberately smaller than
+production's median topic input and article catalog so both large datasets fit
+modest disposable disks. The separate 64 KiB cadence subset conservatively
+exceeds the observed stored p95 values, including article specialist outputs.
+It does not claim every job in the full history contains 64 KiB evidence, or that
+stored sizes establish the uncompressed JSON CPU cost.
+
 The deterministic fixture has 1.7 jobs per article and per topic subject, plus
 2,000 failed runs for one subject in each history. Most subjects have one run,
 some have two and 10% have six. It includes failed jobs, queued jobs, running
@@ -33,7 +54,9 @@ The phases are:
   ingestion, followed by twenty ordinary calls without the writer.
 - Five scheduler ticks at the deployed 15-second interval, for 75 seconds with
   concurrent ingestion. Preparation adds 4,000 old duplicate jobs to the existing
-  full-size history and resets maintenance due time. The baseline runs five pages;
+  full-size history and resets maintenance due time. This separate subset uses
+  64 KiB input snapshots, 64 KiB article catalogs, 16 KiB article specialist
+  outputs and 1 KiB retained topic usage metadata. The baseline runs five pages;
   the candidate runs three due pages at its 30-second maintenance interval.
   Per-call latency and ingestion p95/p99 are reported together with the differing
   prune counts and CPU/WAL cost.
@@ -102,8 +125,10 @@ uv run --locked --no-sync --no-build python scripts/job_retention_benchmark.py \
 ```
 
 Repeat with `--articles 250000`. Keep the default
-`--cadence-interval-seconds 15` for performance evidence. The smoke regression
-uses `0.05` seconds while preserving 15-second logical scheduler ticks to test
+`--cadence-interval-seconds 15 --cadence-payload-bytes 65536` for performance
+evidence. The smoke regression
+uses `0.05` seconds and 4 KiB cadence inputs while preserving 15-second logical
+scheduler ticks to test
 state transitions quickly. The script upgrades and truncates the disposable
 database, including all application tables; give it a dedicated instance and
 superuser role for fixture preparation. Keep raw reports untracked or download
