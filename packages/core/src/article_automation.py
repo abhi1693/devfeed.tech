@@ -4,7 +4,7 @@ import uuid
 from datetime import timedelta
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import lazyload
+from sqlalchemy.orm import defer, lazyload
 
 from devfeed_core.ai_content import eligible_article, eligible_articles
 from devfeed_core.analysis import (
@@ -227,22 +227,22 @@ def _prepare_article_candidates(factory, identifier):
         )
         if article is None:
             return None
-        job = session.scalar(
-            select(ArticleAnalysisJob)
+        analysis_status = session.scalar(
+            select(ArticleAnalysisJob.status)
             .where(ArticleAnalysisJob.article_id == identifier)
             .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id.desc())
             .limit(1)
         )
-        enrichment = session.scalar(
-            select(ArticleEnrichmentJob)
+        enrichment_status = session.scalar(
+            select(ArticleEnrichmentJob.status)
             .where(ArticleEnrichmentJob.article_id == identifier)
             .order_by(ArticleEnrichmentJob.created_at.desc(), ArticleEnrichmentJob.id.desc())
             .limit(1)
         )
         if (
-            (job is not None and job.status in {"queued", "running"})
-            or (enrichment is not None and enrichment.status in {"queued", "running"})
-            or (job is None and enrichment is None)
+            analysis_status in {"queued", "running"}
+            or enrichment_status in {"queued", "running"}
+            or (analysis_status is None and enrichment_status is None)
         ):
             return None
         snapshot = source_snapshot(article, session.get(ArticleContent, identifier))
@@ -290,6 +290,12 @@ def _schedule_article_automation(factory) -> dict[str, int]:
             # Workers acquire job -> source -> article -> taxonomy. Use the same order.
             job = session.scalar(
                 select(ArticleAnalysisJob)
+                .options(
+                    defer(ArticleAnalysisJob.input_snapshot),
+                    defer(ArticleAnalysisJob.catalog_snapshot),
+                    defer(ArticleAnalysisJob.result),
+                    defer(ArticleAnalysisJob.usage),
+                )
                 .where(ArticleAnalysisJob.article_id == identifier)
                 .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id.desc())
                 .limit(1)

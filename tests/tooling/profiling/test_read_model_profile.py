@@ -3,6 +3,7 @@
 import asyncio
 import importlib.util
 import sys
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -23,6 +24,12 @@ SPEC = importlib.util.spec_from_file_location(
 profile = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = profile
 SPEC.loader.exec_module(profile)
+
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+try:
+    import profile_scheduler_rechecks as scheduler_profile
+finally:
+    sys.path.pop(0)
 
 
 @pytest.mark.parametrize(
@@ -94,6 +101,74 @@ def test_full_scale_exceeds_recorded_production_population():
         if table != "active_articles":
             assert counts[table] >= baseline
     assert profile.percentile([4, 1, 3, 2], 0.95) == 4
+
+
+def test_scheduler_profile_100k_history_and_backlog_exceed_fresh_production():
+    args = SimpleNamespace(scale=2 / 3, ticks=5, batch=50, ingest_per_tick=10, history_bytes=8192)
+    counts = scheduler_profile.validate_arguments(args)
+    assert counts["articles"] == 100000
+    for name, production in scheduler_profile.PRODUCTION_2026_10_24.items():
+        if name not in {"queued_analysis", "running_analysis"}:
+            assert counts[name] >= production, name
+    for field, value in (
+        ("ticks", 0),
+        ("batch", 51),
+        ("ingest_per_tick", 0),
+        ("history_bytes", 127),
+        ("scale", 0.001),
+    ):
+        with pytest.raises(ValueError):
+            scheduler_profile.validate_arguments(SimpleNamespace(**(vars(args) | {field: value})))
+
+
+def test_scheduler_profile_rejects_card_amplification_and_missing_ingestion():
+    tick = {
+        "tick": 1,
+        "outcome": {"articles_checked": 50, "articles_published": 0, "articles_rejected": 0},
+        "cohort_events": 0,
+        "hydration": {"cohort_ids": 0},
+        "ingested": 10,
+        "ingested_projected": 10,
+        "ingestion_overlapped_scheduler": True,
+        "active_analysis_unchanged": True,
+        "cohort_clock_visible": True,
+        "cohort_retry_transition_correct": True,
+    }
+    assert scheduler_profile.bounded_failures([tick], batch=50, ingest_per_tick=10) == []
+    broken = tick | {
+        "cohort_events": 50,
+        "hydration": {"cohort_ids": 50},
+        "ingested_projected": 0,
+        "active_analysis_unchanged": False,
+    }
+    failures = scheduler_profile.bounded_failures([broken], batch=50, ingest_per_tick=10)
+    assert failures == [
+        {
+            "tick": 1,
+            "reasons": [
+                "clock-only rechecks generated card events or hydration",
+                "genuine concurrent ingestion was not projected",
+                "active analysis lease, retry, or identity changed",
+            ],
+        }
+    ]
+
+
+def test_scheduler_profile_captures_due_query_and_clock_trigger_plans():
+    assert (
+        scheduler_profile.classify_plan(
+            "SELECT articles.id FROM articles ORDER BY articles.automation_next_check_at",
+            "scheduler",
+        )
+        == "scheduler_due_candidates"
+    )
+    assert (
+        scheduler_profile.classify_plan(
+            "UPDATE articles SET automation_next_check_at=%(value)s", "scheduler"
+        )
+        == "scheduler_clock_update"
+    )
+    assert scheduler_profile.classify_plan("SELECT 1", "scheduler") is None
 
 
 @pytest.mark.parametrize(

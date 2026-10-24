@@ -1,0 +1,113 @@
+name: Scheduler recheck scale
+on:
+  pull_request:
+    paths:
+      - .github/workflows/scheduler-recheck-scale.yml
+      - scripts/profile_scheduler_rechecks.py
+      - scripts/profile_read_models.py
+      - packages/core/src/article_automation.py
+      - packages/core/src/article_lifecycle.py
+      - packages/core/src/read_models.py
+      - apps/admin-api/src/pipeline_projection.py
+      - migrations/versions/**
+  workflow_dispatch: null
+permissions:
+  contents: read
+concurrency:
+  group: scheduler-recheck-scale-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  compare:
+    name: Scheduler rechecks / ${{ matrix.articles }} articles (ARM64 PostgreSQL 17)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - articles: 100000
+            scale: "0.6666666666666666"
+          - articles: 150000
+            scale: "1"
+    defaults:
+      run:
+        working-directory: candidate
+    env:
+      DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://profile:profile@127.0.0.1:5432/scheduler_profile_test
+      DEVFEED_TEST_REDIS_URL: redis://127.0.0.1:6379/15
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: candidate
+          persist-credentials: false
+      - name: Check out comparison base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          path: baseline
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.5"
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
+      - name: Start isolated native services
+        run: |
+          test "$(uname -m)" = aarch64
+          mkdir -p reports/scheduler-rechecks
+          docker run -d --name scheduler-profile-postgres --shm-size=1g \
+            -p 127.0.0.1:5432:5432 \
+            -e POSTGRES_USER=profile -e POSTGRES_PASSWORD=profile \
+            -e POSTGRES_DB=scheduler_profile_test \
+            postgres:17.11-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb \
+            -c shared_preload_libraries=pg_stat_statements \
+            -c pg_stat_statements.track=all -c track_io_timing=on \
+            -c shared_buffers=512MB -c work_mem=8MB
+          docker run -d --name scheduler-profile-redis -p 127.0.0.1:6379:6379 \
+            redis:8-alpine@sha256:0bf6577d7774e592b29d093e3ac9390eb91e13d72c21e506afce736de5e0eeb0
+          for attempt in $(seq 1 60); do
+            if docker exec scheduler-profile-postgres pg_isready -U profile -d scheduler_profile_test &&
+               docker exec scheduler-profile-redis redis-cli ping; then break; fi
+            if [ "$attempt" -eq 60 ]; then exit 1; fi
+            sleep 1
+          done
+          docker exec scheduler-profile-postgres uname -m
+          test "$(docker exec scheduler-profile-postgres uname -m)" = aarch64
+          docker exec scheduler-profile-postgres psql -U profile -d scheduler_profile_test \
+            -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements'
+      - name: Install locked applications and identical measurement harness
+        run: |
+          uv sync --all-packages --locked
+          cp scripts/profile_scheduler_rechecks.py ../baseline/scripts/profile_scheduler_rechecks.py
+          uv sync --all-packages --locked --project ../baseline
+      - name: Measure base application
+        working-directory: baseline
+        env:
+          PROFILE_SCALE: ${{ matrix.scale }}
+        run: |
+          uv run --locked --no-sync python scripts/profile_scheduler_rechecks.py \
+            --seed --scale "$PROFILE_SCALE" --ticks 5 --batch 50 --ingest-per-tick 10 \
+            --history-bytes 8192 --label baseline \
+            --output ../candidate/reports/scheduler-rechecks/baseline.json
+      - name: Measure candidate and enforce bounded clock maintenance
+        env:
+          PROFILE_SCALE: ${{ matrix.scale }}
+        run: |
+          uv run --locked --no-sync python scripts/profile_scheduler_rechecks.py \
+            --seed --scale "$PROFILE_SCALE" --ticks 5 --batch 50 --ingest-per-tick 10 \
+            --history-bytes 8192 --label candidate --assert-bounded \
+            --output reports/scheduler-rechecks/candidate.json
+      - name: Upload measurements and query plans
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scheduler-rechecks-${{ matrix.articles }}-arm64-${{ github.run_attempt }}
+          path: candidate/reports/scheduler-rechecks/
+          if-no-files-found: error
+      - name: Remove disposable services
+        if: always()
+        run: docker rm -f scheduler-profile-postgres scheduler-profile-redis
