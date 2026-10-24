@@ -4,6 +4,9 @@ on:
     paths:
       - .github/workflows/scheduler-recheck-scale.yml
       - scripts/profile_scheduler_rechecks.py
+      - scripts/render_scheduler_recheck_report.cjs
+      - tests/scheduler-recheck-report.test.cjs
+      - tests/scheduler-scale-workflow.test.cjs
       - scripts/profile_read_models.py
       - packages/core/src/article_automation.py
       - packages/core/src/article_lifecycle.py
@@ -55,6 +58,8 @@ jobs:
           version: "0.13.5"
           enable-cache: true
           cache-dependency-glob: "**/uv.lock"
+      - name: Test comparison report
+        run: node --test tests/scheduler-recheck-report.test.cjs tests/scheduler-scale-workflow.test.cjs
       - name: Start isolated native services
         run: |
           test "$(uname -m)" = aarch64
@@ -101,36 +106,38 @@ jobs:
             --reuse-fixture --scale "$PROFILE_SCALE" --ticks 5 --batch 50 --ingest-per-tick 10 \
             --history-bytes 8192 --label candidate --assert-bounded \
             --output reports/scheduler-rechecks/candidate.json
-      - name: Check matched populations and publish comparison
+      - name: Render measured comparison, including failures
+        if: always()
         env:
           PROFILE_ARTICLES: ${{ matrix.articles }}
+          PROFILE_RESULT: ${{ job.status }}
+          PROFILE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PROFILE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
         run: |
+          mkdir -p reports/scheduler-rechecks
           python - <<'PY'
           import json
           import os
           from pathlib import Path
 
-          root = Path('reports/scheduler-rechecks')
-          base = json.loads((root / 'baseline.json').read_text())
-          candidate = json.loads((root / 'candidate.json').read_text())
-          assert base['dataset'] == candidate['dataset'], 'Fixture populations differ'
-          for result in (base, candidate):
-              assert result['complete'] and result['checkpoint_before_workload']
-              assert not result['below_production_population']
-              assert result['hardware']['architecture'] == 'aarch64'
-              plan = result['plans']['scheduler_due_candidates']['plan'][0]['Plan']
-              assert plan['Actual Rows'] == result['workload']['batch'], 'Due plan was empty'
-              assert all(not tick['publisher_deleted_rows'] for tick in result['ticks'])
-          assert not candidate['bounded_failures']
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-              summary.write('| Articles | Metric | Base | Candidate |\n| --- | --- | ---: | ---: |\n')
-              for key in ('workload_seconds', 'application_cpu_seconds'):
-                  summary.write(f"| {os.environ['PROFILE_ARTICLES']} | {key} | {base[key]:.3f} | {candidate[key]:.3f} |\n")
-              for key in ('calls', 'wal_records', 'wal_fpi', 'wal_bytes', 'temp_blks_written'):
-                  before, after = base['postgres_workload_delta'][key], candidate['postgres_workload_delta'][key]
-                  summary.write(f"| {os.environ['PROFILE_ARTICLES']} | {key} | {before} | {after} |\n")
-              summary.write('\nIdentical populations; no retention cleanup; checkpoint precedes each workload.\n')
+          context = {key: os.environ[key] for key in (
+              'PROFILE_ARTICLES', 'PROFILE_RESULT', 'PROFILE_HEAD_SHA', 'PROFILE_BASE_SHA',
+              'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT',
+          )}
+          Path('reports/scheduler-rechecks/context.json').write_text(json.dumps(context))
           PY
+          node scripts/render_scheduler_recheck_report.cjs \
+            --articles "$PROFILE_ARTICLES" --directory reports/scheduler-rechecks \
+            --output reports/scheduler-rechecks/comment.md \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --head-sha "$PROFILE_HEAD_SHA" --base-sha "$PROFILE_BASE_SHA" \
+            --conclusion "$PROFILE_RESULT"
+      - name: Publish job summary
+        if: always()
+        run: |
+          if [ -f reports/scheduler-rechecks/comment.md ]; then
+            cat reports/scheduler-rechecks/comment.md >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Upload measurements and query plans
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -141,3 +148,88 @@ jobs:
       - name: Remove disposable services
         if: always()
         run: docker rm -f scheduler-profile-postgres scheduler-profile-redis
+  report:
+    name: Report / Scheduler scale PR comment
+    needs: compare
+    if: >-
+      always() && !cancelled() && github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # No checkout: benchmark artifacts are read as data, never executable code.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          pattern: scheduler-rechecks-*-arm64-*
+          path: report
+          merge-multiple: false
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SCALE_RESULT: ${{ needs.compare.result }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- devfeed-scheduler-recheck-scale -->';
+            const pr = context.payload.pull_request;
+            const current = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
+            if (current.data.head.sha !== pr.head.sha || current.data.base.sha !== pr.base.sha) return;
+            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const result = process.env.SCALE_RESULT === 'success' ? 'PASS' : 'FAIL / incomplete';
+            const statusLine = value => `**${value}** · native ARM64 · PostgreSQL 17.11 · 5 × 50 rechecks + 50 concurrent ingests per dataset.`;
+            const sections = [marker, '### Scheduler recheck scale results', '', statusLine(result), '',
+              '**Improvement:** positive = less work or time; negative = regression. Before and after use identical historical populations.', ''];
+            const names = fs.existsSync('report') ? fs.readdirSync('report') : [];
+            const flat = fs.existsSync('report/context.json');
+            let missing = false;
+            for (const articles of [100000, 150000]) {
+              try {
+                // A report-only or failed-job rerun may reuse a successful matrix member.
+                // Always select its newest attempt in this run; never fall back past a bad report.
+                const pattern = new RegExp(`^scheduler-rechecks-${articles}-arm64-(\\d+)$`);
+                const matches = names.map(name => ({name, attempt: Number(pattern.exec(name)?.[1])}))
+                  .filter(item => Number.isSafeInteger(item.attempt) && item.attempt > 0 &&
+                    item.attempt <= Number(process.env.GITHUB_RUN_ATTEMPT))
+                  .sort((a, b) => b.attempt - a.attempt);
+                if (!flat && !matches.length) throw new Error('Missing artifact');
+                const selected = flat ? null : matches[0];
+                const root = flat ? 'report' : `report/${selected.name}`;
+                const raw = fs.readFileSync(`${root}/context.json`, 'utf8');
+                if (raw.length > 4000) throw new Error('Oversized context');
+                const metadata = JSON.parse(raw);
+                const artifactAttempt = flat ? Number(metadata.GITHUB_RUN_ATTEMPT) : selected.attempt;
+                if (!Number.isSafeInteger(artifactAttempt) || artifactAttempt < 1 ||
+                    artifactAttempt > Number(process.env.GITHUB_RUN_ATTEMPT)) throw new Error('Invalid attempt');
+                if (metadata.PROFILE_HEAD_SHA !== pr.head.sha || metadata.PROFILE_BASE_SHA !== pr.base.sha ||
+                    metadata.GITHUB_RUN_ID !== String(context.runId) ||
+                    metadata.GITHUB_RUN_ATTEMPT !== String(artifactAttempt) ||
+                    metadata.PROFILE_ARTICLES !== String(articles)) throw new Error('Wrong source or attempt');
+                const summary = fs.readFileSync(`${root}/comment.md`, 'utf8');
+                if (!summary.trim() || summary.length > 25000) throw new Error('Invalid summary');
+                sections.push(summary, '');
+              } catch {
+                missing = true;
+                sections.push(`#### ${articles.toLocaleString('en-US')} articles`, '',
+                  '**Results unavailable:** the measurement or report failed. No speedup is claimed; inspect the linked job logs.', '');
+              }
+            }
+            sections.push(`Head: ${pr.head.sha} · base: ${pr.base.sha}`, '',
+              `[Measurements, query plans and job logs](${url}) · attempt ${process.env.GITHUB_RUN_ATTEMPT}`, '',
+              'Synthetic warmed scheduler/publisher workload; not production p95. Production reference: 92,581 articles on 2026-10-24. No deployment is performed.');
+            if (missing) sections[3] = statusLine('FAIL / incomplete');
+            const body = sections.join('\n');
+            await core.summary.addRaw(body).write();
+            const comments = await github.paginate(github.rest.issues.listComments, {...context.repo, issue_number: pr.number});
+            const previous = comments.find(comment => comment.user.type === 'Bot' && comment.body?.startsWith(marker));
+            const latest = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
+            if (latest.data.head.sha !== pr.head.sha || latest.data.base.sha !== pr.base.sha) return;
+            if (previous) {
+              await github.rest.issues.updateComment({...context.repo, comment_id: previous.id, body});
+            } else {
+              await github.rest.issues.createComment({...context.repo, issue_number: pr.number, body});
+            }
+            if (missing) core.setFailed('A scale measurement artifact is missing or invalid');

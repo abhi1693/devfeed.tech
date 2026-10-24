@@ -36,6 +36,15 @@ reuses that corpus after removing only the harness's measured ingested articles
 and resetting projections. Both warm the measured cards before timing. The base
 always runs first; corpus identity and article count are checked before reuse.
 
+Each run publishes one persistent PR comment covering both dataset sizes. Tables
+show before, after, signed absolute delta and percentage improvement: a positive
+improvement means less time or work, while a negative value exposes a regression.
+The report includes SQL, buffer, temporary-write and WAL counters as well as
+clock-only events and card hydration. Failed, incomplete or mismatched
+measurements are labeled unavailable rather than reported as a speedup. Reruns
+update the same comment; source SHAs and artifact links identify the measurement.
+The comment job reads artifacts as data without checking out or executing PR code.
+
 For a local run, set explicitly local `DEVFEED_TEST_DATABASE_URL` and
 `DEVFEED_TEST_REDIS_URL`. The database name must end in `_test`; Redis must use
 database 15. PostgreSQL needs `shared_preload_libraries=pg_stat_statements`,
