@@ -75,7 +75,14 @@ export function retentionBaselineReady(selector) {
   const rows = [...document.querySelectorAll(selector)].filter((row) => row.checkVisibility());
   return (
     rows.length === 25 &&
-    rows.every((row) => row.querySelector(".engagement-count")) &&
+    rows.every((row) => {
+      // Compact rows render bookmarks without the like/open counters used by
+      // Stacked and Grid. Guest bookmarks are links; member buttons enable only
+      // after their engagement record has loaded.
+      if (!row.matches(".article-list-row")) return row.querySelector(".engagement-count");
+      const bookmark = row.querySelector(".bookmark-button");
+      return bookmark?.matches("a[href]") || (bookmark?.matches("button") && !bookmark.disabled);
+    }) &&
     !document.querySelector(".reader-loading-placeholder") &&
     document.fonts.status === "loaded"
   );
