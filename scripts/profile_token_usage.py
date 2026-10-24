@@ -10,10 +10,12 @@ import hashlib
 import json
 import os
 import platform
+import stat
 import statistics
 import subprocess
 import threading
 import time
+from contextlib import ExitStack, contextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,8 @@ MODELS = (
     ("topic_analysis", TopicAnalysisJob),
     ("research_verification", ResearchVerificationJob),
 )
+REPORT_NAME = "reports/token-usage/profile.json"
+ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_VOLUME: dict[str, Any] = {
     "observed_at": "2026-10-24T10:05:40Z",
     "articles": 92598,
@@ -473,15 +477,47 @@ def measure(engine, days, mode, repeats, container, rate):
     }
 
 
-def main():
+@contextmanager
+def report_directory():
+    """Open checkout-owned directories without following links, including rename races."""
+    with ExitStack() as descriptors:
+        directory = os.open(ROOT, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        descriptors.callback(os.close, directory)
+        for component in ("reports", "token-usage"):
+            with suppress(FileExistsError):
+                os.mkdir(component, mode=0o700, dir_fd=directory)
+            directory = os.open(
+                component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory
+            )
+            descriptors.callback(os.close, directory)
+        yield directory
+
+
+def write_report(output):
+    with report_directory() as directory:
+        descriptor = os.open(
+            "profile.json",
+            os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+            0o600,
+            dir_fd=directory,
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ValueError("Report output must be a regular file with one link")
+            os.fchmod(stream.fileno(), 0o600)
+            stream.truncate(0)
+            stream.write(json.dumps(output, indent=2, default=str) + "\n")
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", action="store_true")
     parser.add_argument("--articles", nargs="+", type=int, default=[100000, 300000])
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--ingestion-rate", type=int, default=20)
     parser.add_argument("--postgres-container")
-    parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     url = make_url(os.environ["DEVFEED_TEST_DATABASE_URL"])
     if (
         url.get_backend_name() != "postgresql"
@@ -505,8 +541,8 @@ def main():
         "production_volume": PRODUCTION_VOLUME,
         "scales": [],
     }
-    args.output.parent.mkdir(parents=True, exist_ok=True)
     try:
+        write_report(output)
         with engine.connect() as connection:
             assert (
                 connection.exec_driver_sql("SELECT current_database()").scalar_one() == url.database
@@ -545,7 +581,7 @@ def main():
                             args.ingestion_rate,
                         )
                     )
-                    args.output.write_text(json.dumps(output, indent=2, default=str) + "\n")
+                    write_report(output)
                     print(
                         f"{count} articles / {days} days / {mode}: "
                         + " / ".join(

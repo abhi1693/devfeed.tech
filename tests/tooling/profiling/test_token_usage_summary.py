@@ -3,8 +3,10 @@
 import copy
 import importlib.util
 import json
-import subprocess
+import os
+import runpy
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -86,6 +88,29 @@ def render(data, outcome="success", **context):
         run_url=context.get("run_url", RUN),
         outcome=outcome,
     )
+
+
+def run_cli(monkeypatch, directory, *, outcome="success", extra_args=()):
+    monkeypatch.chdir(directory)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--head-sha",
+            HEAD,
+            "--run-url",
+            RUN,
+            "--outcome",
+            outcome,
+            *extra_args,
+        ],
+    )
+    try:
+        summary.main()
+    except SystemExit as error:
+        return error.code
+    return 0
 
 
 def test_complete_success_lists_every_case_resource_units_and_evidence():
@@ -234,13 +259,18 @@ def test_malformed_schema_is_reported_without_crashing(invalid):
 
 
 @pytest.mark.parametrize("contents", [None, "not json", "{", b"\xff"])
-def test_missing_and_malformed_files_create_readable_incomplete_report(tmp_path, contents):
-    artifact = tmp_path / "profile.json"
+def test_missing_and_malformed_files_create_readable_incomplete_report(
+    tmp_path, monkeypatch, contents
+):
+    directory = tmp_path / "reports/token-usage"
+    directory.mkdir(parents=True)
+    artifact = directory / "profile.json"
     if isinstance(contents, bytes):
         artifact.write_bytes(contents)
     elif contents is not None:
         artifact.write_text(contents)
-    result = summary.render(artifact, head_sha=HEAD, run_url=RUN, outcome="success")
+    assert run_cli(monkeypatch, tmp_path) == 1
+    result = (directory / "summary.md").read_text()
     assert result.startswith("**INCOMPLETE")
     assert "Profile artifact is missing, unreadable or malformed" in result
     assert "| 100,000 | 1d | custom | n/a | n/a | n/a |" in result
@@ -259,50 +289,122 @@ def test_duplicate_or_unexpected_matrix_entries_are_incomplete():
     assert "Benchmark run link unavailable" in result
 
 
-def test_cli_writes_result_to_requested_file_without_database_dependencies(tmp_path):
-    artifact = tmp_path / "profile.json"
-    output = tmp_path / "summary.md"
+def test_cli_writes_result_to_fixed_file_without_database_dependencies(tmp_path, monkeypatch):
+    directory = tmp_path / "reports/token-usage"
+    directory.mkdir(parents=True)
+    artifact = directory / "profile.json"
+    output = directory / "summary.md"
     artifact.write_text(json.dumps(profile()))
-    subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            "--profile",
-            str(artifact),
-            "--output",
-            str(output),
-            "--head-sha",
-            HEAD,
-            "--run-url",
-            RUN,
-            "--outcome",
-            "success",
-        ],
-        check=True,
-    )
+    output.write_text("previous comment" * 1000)
+    assert run_cli(monkeypatch, tmp_path) == 0
     assert output.read_text().startswith("**PASS")
+    assert "previous comment" not in output.read_text()
+
+
+def test_script_entrypoint_reads_and_writes_only_fixed_artifact_names(tmp_path, monkeypatch):
+    directory = tmp_path / "reports/token-usage"
+    directory.mkdir(parents=True)
+    (directory / "profile.json").write_text(json.dumps(profile()))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [str(SCRIPT), "--head-sha", HEAD, "--run-url", RUN, "--outcome", "success"],
+    )
+    runpy.run_path(str(SCRIPT), run_name="__main__")
+    assert (directory / "summary.md").read_text().startswith("**PASS")
 
 
 @pytest.mark.parametrize("outcome,verdict", [("success", "INCOMPLETE"), ("failure", "FAIL")])
-def test_cli_persists_unsuccessful_summary_before_exiting_nonzero(tmp_path, outcome, verdict):
-    artifact = tmp_path / "missing-profile.json"
-    output = tmp_path / "summary.md"
-    process = subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            "--profile",
-            str(artifact),
-            "--output",
-            str(output),
-            "--head-sha",
-            HEAD,
-            "--run-url",
-            RUN,
-            "--outcome",
-            outcome,
-        ],
-        check=False,
-    )
-    assert process.returncode == 1
+def test_cli_persists_unsuccessful_summary_before_exiting_nonzero(
+    tmp_path, monkeypatch, outcome, verdict
+):
+    output = tmp_path / "reports/token-usage/summary.md"
+    assert run_cli(monkeypatch, tmp_path, outcome=outcome) == 1
     assert output.read_text().startswith(f"**{verdict}")
+
+
+@pytest.mark.parametrize("option", ["--profile", "--output"])
+def test_cli_rejects_arbitrary_filesystem_paths(tmp_path, monkeypatch, option):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep")
+    assert run_cli(monkeypatch, tmp_path, extra_args=(option, str(outside))) == 2
+    assert outside.read_text() == "keep"
+    assert not (tmp_path / "reports").exists()
+
+
+@pytest.mark.parametrize("component", ["reports", "reports/token-usage"])
+def test_cli_rejects_symlinks_in_report_directory(tmp_path, monkeypatch, component):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    link = tmp_path / component
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(outside, target_is_directory=True)
+    assert run_cli(monkeypatch, tmp_path) == 2
+    assert not list(outside.iterdir())
+
+
+@pytest.mark.parametrize("kind", ["symlink", "hardlink", "directory", "fifo"])
+def test_output_cannot_redirect_or_block_writes(tmp_path, monkeypatch, kind):
+    directory = tmp_path / "reports/token-usage"
+    directory.mkdir(parents=True)
+    outside = tmp_path / "outside.md"
+    outside.write_text("keep")
+    output = directory / "summary.md"
+    if kind == "symlink":
+        output.symlink_to(outside)
+    elif kind == "hardlink":
+        output.hardlink_to(outside)
+    elif kind == "directory":
+        output.mkdir()
+    else:
+        os.mkfifo(output)
+    assert run_cli(monkeypatch, tmp_path) == 2
+    assert outside.read_text() == "keep"
+
+
+@pytest.mark.parametrize("kind", ["symlink", "directory", "fifo", "oversized"])
+def test_unsafe_profile_files_produce_incomplete_evidence(tmp_path, monkeypatch, kind):
+    directory = tmp_path / "reports/token-usage"
+    directory.mkdir(parents=True)
+    artifact = directory / "profile.json"
+    if kind == "symlink":
+        outside = tmp_path / "outside.json"
+        outside.write_text(json.dumps(profile()))
+        artifact.symlink_to(outside)
+    elif kind == "directory":
+        artifact.mkdir()
+    elif kind == "fifo":
+        os.mkfifo(artifact)
+    else:
+        monkeypatch.setattr(summary, "MAX_PROFILE_BYTES", 8)
+        artifact.write_bytes(b" " * 9)
+    assert run_cli(monkeypatch, tmp_path) == 1
+    assert (directory / "summary.md").read_text().startswith("**INCOMPLETE")
+
+
+def test_input_read_stays_bounded_if_profile_grows_after_size_check(tmp_path, monkeypatch):
+    monkeypatch.setattr(summary, "MAX_PROFILE_BYTES", 8)
+    artifact = tmp_path / "profile.json"
+    artifact.write_bytes(b" " * 9)
+    actual_fstat = os.fstat
+
+    def outdated_size(descriptor):
+        metadata = actual_fstat(descriptor)
+        return SimpleNamespace(st_mode=metadata.st_mode, st_size=0)
+
+    monkeypatch.setattr(summary.os, "fstat", outdated_size)
+    descriptor = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        assert summary.read_profile(descriptor) is None
+    finally:
+        os.close(descriptor)
+
+
+@pytest.mark.parametrize("field,value", [("insert_and_finish", 4), ("completed_during_report", 4)])
+def test_inconsistent_writer_counts_cannot_pass(field, value):
+    data = profile()
+    data["scales"][0]["reports"][0]["strategies"]["current"]["ingestion"][0][field] = value
+    result = render(data)
+    assert result.startswith("**INCOMPLETE")
+    assert "writer measurements missing or invalid" in result

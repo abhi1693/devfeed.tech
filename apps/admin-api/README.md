@@ -86,9 +86,13 @@ To reproduce the before/after comparison on a migrated disposable local PostgreS
 
 ```bash
 DEVFEED_TEST_DATABASE_URL=postgresql+psycopg://.../devfeed_token_profile_test \
-  uv run python scripts/profile_token_usage.py --seed --articles 100000 300000 \
-    --output /tmp/devfeed-token-profile.json
+  uv run --locked --no-sync --no-build python scripts/profile_token_usage.py \
+    --seed --articles 100000 300000
 ```
+
+The profiler writes `reports/token-usage/profile.json` in the checkout. The summary
+renderer reads that artifact and writes `reports/token-usage/summary.md`; neither tool
+accepts arbitrary file paths, and report paths must not be symlinks.
 
 `--seed` replaces articles, proposals and their dependent histories. Remote hosts,
 connection routing overrides and database names without `_test` are refused. The tool
@@ -117,7 +121,9 @@ concurrent writer. Use an isolated container for that measurement.
 The `Token usage performance` PR workflow runs the complete comparison on native
 ARM64 PostgreSQL 17 and retains its JSON evidence and Markdown summary for 30 days.
 The job summary shows before/after tables with signed improvements; same-repository
-PRs also receive one updated results comment. Positive percentages mean improvement,
+PRs also update one existing performance comment shared with the reader API comparison.
+The two jobs preserve each other's sections and serialize comment updates. Positive
+percentages in the token benchmark mean improvement,
 negative percentages mean regression, and missing or failed evidence cannot report a
 pass. The comment includes validation totals and writer-latency caveats, with resource
 and production-volume details available to expand. Forks retain the artifact and job

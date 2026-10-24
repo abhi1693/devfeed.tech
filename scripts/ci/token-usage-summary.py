@@ -4,9 +4,11 @@ import argparse
 import html
 import json
 import math
+import os
 import re
+import stat
 import statistics
-from pathlib import Path
+from contextlib import ExitStack, suppress
 from typing import Any
 from urllib.parse import urlparse
 
@@ -24,6 +26,7 @@ CHECKS = (
     "buffer_accesses_not_amplified",
     "runtime_within_noise_allowance",
 )
+MAX_PROFILE_BYTES = 5 * 1024 * 1024
 
 
 def mapping(value: Any) -> dict:
@@ -428,30 +431,82 @@ def build_summary(
     return "\n".join(lines) + "\n"
 
 
-def render(profile: Path, *, head_sha: str, run_url: str, outcome: str) -> str:
+def render(contents: str | None, *, head_sha: str, run_url: str, outcome: str) -> str:
     try:
-        data = json.loads(profile.read_text())
+        data = json.loads(contents) if contents is not None else None
+        if contents is None:
+            raise ValueError("Profile unavailable")
         error = None
-    except (OSError, UnicodeError, ValueError):
+    except ValueError:
         data, error = {}, "Profile artifact is missing, unreadable or malformed."
     return build_summary(data, head_sha=head_sha, run_url=run_url, outcome=outcome, error=error)
 
 
+def read_profile(directory: int) -> str | None:
+    """Read only the regular profile file inside the already-open report directory."""
+    try:
+        descriptor = os.open(
+            "profile.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
+        )
+        with os.fdopen(descriptor, "rb") as profile:
+            metadata = os.fstat(profile.fileno())
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > MAX_PROFILE_BYTES:
+                return None
+            contents = profile.read(MAX_PROFILE_BYTES + 1)
+            if len(contents) > MAX_PROFILE_BYTES:
+                return None
+            return contents.decode("utf-8")
+    except (OSError, UnicodeError):
+        return None
+
+
+def write_summary(directory: int, contents: str) -> None:
+    # Check before truncating: a preexisting symlink or hard link must not let
+    # an artifact redirect the output into a different file.
+    descriptor = os.open(
+        "summary.md",
+        os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+        0o644,
+        dir_fd=directory,
+    )
+    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+        metadata = os.fstat(output.fileno())
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise ValueError("Summary output must be a regular file with one link")
+        output.truncate(0)
+        output.write(contents)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--head-sha", required=True)
     parser.add_argument("--run-url", required=True)
     parser.add_argument(
         "--outcome", choices=("success", "failure", "skipped", "cancelled"), required=True
     )
     args = parser.parse_args()
-    summary = render(
-        args.profile, head_sha=args.head_sha, run_url=args.run_url, outcome=args.outcome
-    )
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(summary)
+    try:
+        # Every component and filename is fixed. Directory descriptors and
+        # O_NOFOLLOW keep artifact symlinks from escaping reports/token-usage.
+        with ExitStack() as files:
+            directory = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
+            files.callback(os.close, directory)
+            for component in ("reports", "token-usage"):
+                with suppress(FileExistsError):
+                    os.mkdir(component, dir_fd=directory)
+                directory = os.open(
+                    component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory
+                )
+                files.callback(os.close, directory)
+            summary = render(
+                read_profile(directory),
+                head_sha=args.head_sha,
+                run_url=args.run_url,
+                outcome=args.outcome,
+            )
+            write_summary(directory, summary)
+    except (OSError, ValueError) as error:
+        parser.exit(2, f"Cannot safely access reports/token-usage: {error}\n")
     if not summary.startswith("**PASS"):
         raise SystemExit(1)
 
