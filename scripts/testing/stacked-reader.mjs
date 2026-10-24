@@ -552,16 +552,32 @@ export async function checkStackedTouchReader(page, target, output) {
       );
     if (output) {
       await mkdir(dirname(output), { recursive: true });
+      // Capture the viewport containing the measured controls. Chromium's
+      // captureBeyondViewport path can reset an extension renderer's pointer
+      // emulation, changing the device under test before the actual taps.
       await page.screenshot({
         path: `${output}-320-touch.png`,
         animations: "disabled",
-        fullPage: true,
+        fullPage: false,
       });
     }
     assert.equal(
       await page.evaluate(() => matchMedia("(pointer: coarse)").matches),
       true,
       "The native touch context preserves its pointer through layout and capture",
+    );
+    assert.ok(
+      await firstRow
+        .locator(".article-stacked-actions a, .article-stacked-actions button")
+        .evaluateAll(
+          (elements) =>
+            elements.length >= 4 &&
+            elements.every((element) => {
+              const bounds = element.getBoundingClientRect();
+              return bounds.width >= 44 && bounds.height >= 44;
+            }),
+        ),
+      "Row actions retain their 44px touch targets after evidence capture",
     );
     await firstRow.locator(".article-stacked-title").tap();
     const preview = page.getByRole("dialog", { name: "Article preview", exact: true });

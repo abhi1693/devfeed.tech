@@ -99,6 +99,45 @@ def test_next_transition_ignores_active_running_and_already_due_work():
     assert projections._next_transition([None, due, running], NOW) is None
 
 
+def test_clock_synchronization_reads_only_ordered_scalar_article_clocks_and_keeps_tombstones():
+    waiting, complete, deleted, source_id = [uuid.uuid4() for _ in range(4)]
+    rows = [
+        {"kind": "article", "entity_id": identifier, "state": state, "payload": {}}
+        for identifier, state in (
+            (waiting, "waiting"),
+            (complete, "complete"),
+            (deleted, "waiting"),
+        )
+    ]
+    source_row = {"kind": "source", "entity_id": source_id, "payload": {"untouched": True}}
+    rows.append(source_row)
+    statements = []
+
+    def execute(statement):
+        statements.append(statement)
+        return SimpleNamespace(all=lambda: [(waiting, NOW), (complete, NOW)])
+
+    projections._synchronize_article_clocks(SimpleNamespace(execute=execute), rows)
+
+    assert len(statements) == 1
+    statement = str(statements[0].compile(dialect=postgresql.dialect()))
+    assert statement.startswith("SELECT articles.id, articles.automation_next_check_at")
+    assert "ORDER BY articles.id FOR SHARE OF articles NOWAIT" in statement
+    assert "article_analysis_jobs" not in statement
+    assert [row["entity_id"] for row in rows] == [waiting, complete, source_id]
+    assert rows[0]["payload"]["next_check_at"] == NOW.isoformat().replace("+00:00", "Z")
+    assert rows[1]["payload"]["next_check_at"] is None
+    assert rows[2] is source_row
+
+
+def test_source_only_publication_never_reads_article_clocks():
+    def forbidden(_):
+        pytest.fail("Source-only publication touched article clocks")
+
+    rows = [{"kind": "source", "entity_id": uuid.uuid4()}]
+    projections._synchronize_article_clocks(SimpleNamespace(execute=forbidden), rows)
+
+
 @pytest.mark.parametrize(
     "state",
     [
