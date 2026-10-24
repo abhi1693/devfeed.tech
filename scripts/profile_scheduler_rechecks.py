@@ -114,6 +114,7 @@ class Recorder:
     def __init__(self, engine):
         self.queries = Counter()
         self.written_cards = Counter()
+        self.deleted_cards = Counter()
         self.plans = {}
         self.engine = engine
 
@@ -127,6 +128,8 @@ class Recorder:
     def after(self, connection, cursor, statement, parameters, context, executemany):
         if statement.lower().startswith("insert into pipeline_projections"):
             self.written_cards[PHASE.get()] += max(0, cursor.rowcount)
+        if statement.lower().startswith("delete from pipeline_projections"):
+            self.deleted_cards[PHASE.get()] += max(0, cursor.rowcount)
 
     def __enter__(self):
         event.listen(self.engine, "before_cursor_execute", self.before)
@@ -137,12 +140,26 @@ class Recorder:
         event.remove(self.engine, "before_cursor_execute", self.before)
         event.remove(self.engine, "after_cursor_execute", self.after)
 
-    def explain(self, *, identifier, next_check):
+    def explain(self, *, identifiers, next_check):
         results = {}
         for label, (statement, parameters) in self.plans.items():
             # EXPLAIN ANALYZE runs writes too; always roll the sample back.
             with self.engine.connect() as connection, connection.begin() as transaction:
                 connection.exec_driver_sql("SET LOCAL statement_timeout='30s'")
+                if label == "scheduler_due_candidates":
+                    cutoff = next(
+                        value
+                        for key, value in parameters.items()
+                        if key.startswith("automation_next_check_at")
+                    )
+                    # Timed ticks advanced these clocks. Restore the measured
+                    # cohort in this rollback-only transaction so the plan
+                    # executes against due rows rather than an empty post-tick set.
+                    connection.execute(
+                        update(models.Article)
+                        .where(models.Article.id.in_(identifiers))
+                        .values(automation_next_check_at=cutoff)
+                    )
                 plan = connection.exec_driver_sql(
                     "EXPLAIN (ANALYZE, BUFFERS, WAL, FORMAT JSON) " + statement, parameters
                 ).scalar_one()
@@ -164,7 +181,7 @@ class Recorder:
                 text("EXPLAIN (ANALYZE, BUFFERS, WAL, FORMAT JSON) " + statement),
                 {
                     "next_check": next_check,
-                    "identifier": identifier,
+                    "identifier": identifiers[0],
                     "policies": [state.get("target_policy"), state.get("serving_policy")],
                 },
             ).scalar_one()
@@ -186,6 +203,8 @@ def statement_totals(engine):
                    coalesce(sum(shared_blks_written),0)::bigint AS shared_blks_written,
                    coalesce(sum(temp_blks_read),0)::bigint AS temp_blks_read,
                    coalesce(sum(temp_blks_written),0)::bigint AS temp_blks_written,
+                   coalesce(sum(wal_records),0)::bigint AS wal_records,
+                   coalesce(sum(wal_fpi),0)::bigint AS wal_fpi,
                    coalesce(sum(wal_bytes),0)::bigint AS wal_bytes
             FROM pg_stat_statements
             WHERE dbid = (SELECT oid FROM pg_database WHERE datname=current_database())
@@ -261,6 +280,27 @@ def prepare_queue(factory, *, batch, now, backlog):
     return identifiers
 
 
+def reset_workload(factory, *, articles):
+    """Reuse only this harness's historical corpus, removing its measured writes."""
+    with factory.begin() as session:
+        known = session.scalar(
+            select(models.Article.canonical_url).where(
+                models.Article.id == fixture.fixture_id("articles", 1)
+            )
+        )
+        measured = models.Article.canonical_url.startswith(
+            "https://publisher.example/scheduler-profile/"
+        )
+        historical = session.scalar(
+            select(func.count()).select_from(models.Article).where(~measured)
+        )
+        if known != "https://publisher.example/articles/1" or historical != articles:
+            raise ValueError("Fixture reuse requires this harness's matching historical corpus")
+        session.execute(text("SET LOCAL statement_timeout='0'"))
+        session.execute(models.Article.__table__.delete().where(measured))
+        session.execute(text("TRUNCATE pipeline_projections,read_model_events,read_model_states"))
+
+
 def active_jobs(factory, identifiers):
     with factory() as session:
         return [
@@ -308,8 +348,10 @@ def prepare_projections(factory, identifiers, now):
                    'waiting',title,discovered_at,discovered_at,
                    CASE WHEN publication_status='published' THEN published_to_feed_at END,
                    false,NULL,:now FROM articles
+            WHERE publication_status <> 'published' OR published_to_feed_at IS NULL
+               OR published_to_feed_at >= :cutoff
         """),
-            {"policy": policy, "now": now},
+            {"policy": policy, "now": now, "cutoff": now - timedelta(days=7)},
         )
         set_state(
             session,
@@ -456,6 +498,7 @@ def run_ticks(factory, engine, *, ticks, batch, ingest_per_tick, identifiers, no
                 recorder.written_cards.copy(),
             )
             previous_hydration = hydration.copy()
+            previous_deletes = recorder.deleted_cards.copy()
             started = threading.Event()
             writer = pool.submit(
                 ingest, factory, tick=tick, count=ingest_per_tick, now=at, started=started
@@ -510,6 +553,7 @@ def run_ticks(factory, engine, *, ticks, batch, ingest_per_tick, identifiers, no
                 "hydration": dict(hydration - previous_hydration),
                 "sql_statements": dict(recorder.queries - previous_queries),
                 "publisher_upsert_rows": dict(recorder.written_cards - previous_writes),
+                "publisher_deleted_rows": dict(recorder.deleted_cards - previous_deletes),
                 "active_analysis_unchanged": active_jobs(factory, identifiers) == initial_jobs,
                 **cohort_visibility(factory, identifiers),
             }
@@ -534,6 +578,8 @@ def bounded_failures(ticks, *, batch, ingest_per_tick):
             reasons.append("ingestion did not overlap scheduler work")
         if not tick["active_analysis_unchanged"]:
             reasons.append("active analysis lease, retry, or identity changed")
+        if tick.get("publisher_deleted_rows", {}).get("publisher", 0):
+            reasons.append("unrelated retention cleanup entered the measured workload")
         if not tick["cohort_clock_visible"] or not tick["cohort_retry_transition_correct"]:
             reasons.append("current recheck clock or durable retry transition is incorrect")
         if reasons:
@@ -544,6 +590,7 @@ def bounded_failures(ticks, *, batch, ingest_per_tick):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", action="store_true")
+    parser.add_argument("--reuse-fixture", action="store_true")
     parser.add_argument("--scale", type=float, default=1)
     parser.add_argument("--ticks", type=int, default=5)
     parser.add_argument("--batch", type=int, default=50)
@@ -553,6 +600,8 @@ def main():
     parser.add_argument("--assert-bounded", action="store_true")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
+    if args.seed and args.reuse_fixture:
+        parser.error("--seed and --reuse-fixture are mutually exclusive")
     try:
         url = fixture.validate_targets(
             os.environ["DEVFEED_TEST_DATABASE_URL"], os.environ["DEVFEED_TEST_REDIS_URL"]
@@ -622,6 +671,9 @@ def main():
         if args.seed:
             output["seed"] = fixture.seed_fixture(engine, counts, history_bytes=args.history_bytes)
             checkpoint("seed")
+        elif args.reuse_fixture:
+            reset_workload(factory, articles=counts["articles"])
+            output["fixture_reused"] = True
         now = datetime.now(UTC)
         identifiers = prepare_queue(
             factory, batch=args.batch, now=now, backlog=max(args.batch, int(12000 * args.scale))
@@ -630,13 +682,24 @@ def main():
             output["warmup_scheduler"] = article_automation.schedule_article_automation(factory)
         prepare_projections(factory, identifiers, now)
         output["projection_setup"] = (
-            "Synthetic placeholder cards preserve full article index cardinality; "
+            "Synthetic placeholder cards preserve retained article index cardinality; "
             "the measured waiting cohort and every measured ingest use real card derivation. "
             "This excludes full-population backfill performance."
         )
         started = time.perf_counter()
         output["initial_publisher_events"] = drain_at(factory, now)
         output["initial_publisher_seconds"] = time.perf_counter() - started
+        with factory() as session:
+            expired = session.scalar(
+                select(func.count())
+                .select_from(models.PipelineProjection)
+                .where(
+                    models.PipelineProjection.stage.in_(("published", "rejected")),
+                    models.PipelineProjection.terminal_at < now - timedelta(days=7),
+                )
+            )
+            if expired:
+                raise RuntimeError("Fixture warmup left unrelated expired projection cleanup")
         output["dataset"] = fixture.dataset_counts(factory)
         with factory() as session:
             for status in ("queued", "running"):
@@ -652,6 +715,19 @@ def main():
         }
         output["resources"] = fixture.dataset_resources(factory)
         checkpoint("prepared")
+        # Own disposable instance only. Normalize the initial checkpoint phase
+        # and retain full-page-image counters instead of inferring WAL savings.
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+            timeout = connection.scalar(text("SHOW statement_timeout"))
+            connection.execute(text("SET statement_timeout='0'"))
+            try:
+                connection.execute(text("CHECKPOINT"))
+            finally:
+                connection.execute(
+                    text("SELECT set_config('statement_timeout',:timeout,false)"),
+                    {"timeout": timeout},
+                )
+        output["checkpoint_before_workload"] = True
         before = statement_totals(engine)
         started, cpu = time.perf_counter(), time.process_time()
         output["ticks"], recorder = run_ticks(
@@ -668,7 +744,7 @@ def main():
         after = statement_totals(engine)
         output["postgres_workload_delta"] = {key: after[key] - before[key] for key in before}
         output["plans"] = recorder.explain(
-            identifier=identifiers[0], next_check=now + timedelta(hours=1)
+            identifiers=identifiers, next_check=now + timedelta(hours=1)
         )
         output["bounded_failures"] = bounded_failures(
             output["ticks"], batch=args.batch, ingest_per_tick=args.ingest_per_tick

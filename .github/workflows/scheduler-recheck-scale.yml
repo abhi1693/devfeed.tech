@@ -98,7 +98,7 @@ jobs:
           PROFILE_SCALE: ${{ matrix.scale }}
         run: |
           uv run --locked --no-sync python scripts/profile_scheduler_rechecks.py \
-            --seed --scale "$PROFILE_SCALE" --ticks 5 --batch 50 --ingest-per-tick 10 \
+            --reuse-fixture --scale "$PROFILE_SCALE" --ticks 5 --batch 50 --ingest-per-tick 10 \
             --history-bytes 8192 --label candidate --assert-bounded \
             --output reports/scheduler-rechecks/candidate.json
       - name: Upload measurements and query plans

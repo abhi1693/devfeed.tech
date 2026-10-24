@@ -31,13 +31,17 @@ still pass through the durable job request and recovery paths.
 The `Scheduler recheck scale` workflow runs on native `ubuntu-24.04-arm` with a
 pinned PostgreSQL 17.11 image. It runs the same measurement harness against the PR
 base and candidate, at 100,000 and 150,000 articles. Each application uses its own
-locked environment. Each run replaces the same disposable fixture and warms the
-measured cards before timing; the base always runs first.
+locked environment. The base seeds the disposable historical corpus; the candidate
+reuses that corpus after removing only the harness's measured ingested articles
+and resetting projections. Both warm the measured cards before timing. The base
+always runs first; corpus identity and article count are checked before reuse.
 
 For a local run, set explicitly local `DEVFEED_TEST_DATABASE_URL` and
 `DEVFEED_TEST_REDIS_URL`. The database name must end in `_test`; Redis must use
 database 15. PostgreSQL needs `shared_preload_libraries=pg_stat_statements`,
-`pg_stat_statements.track=all` and `track_io_timing=on`. The harness disables
+`pg_stat_statements.track=all` and `track_io_timing=on`.
+The profiling role needs permission to create the extension and run `CHECKPOINT`
+on this disposable instance. The harness disables
 checkout `.env` loading and refuses routing overrides. **`--seed` replaces the
 configured disposable database contents.** Keep integration tests on a separate
 database because their fixtures truncate tables.
@@ -52,13 +56,16 @@ uv run --locked --no-sync python scripts/profile_scheduler_rechecks.py \
 
 Use `--scale 1` for 150,000 articles. To compare another checkout, copy this script
 into that checkout's `scripts/` directory and run it with that checkout's locked
-dependencies against a freshly seeded disposable database. Use `--label baseline`
-and omit `--assert-bounded` to record the previous behavior.
+dependencies. Seed the base with `--seed --label baseline`, omitting
+`--assert-bounded`; then run the candidate with `--reuse-fixture` instead of
+`--seed`. Reuse refuses an unrecognized corpus or a different article count.
 
 The fixture includes historical jobs, reviews, taxonomy links and 8 KiB retained
 evidence. Unrelated saved cards are seeded to establish realistic table/index
-cardinality; the measured cohort and newly ingested articles use real card
-derivation. Five repeated batches of 50 queued/running checks execute alongside
+cardinality after normal seven-day retention; the measured cohort and newly
+ingested articles use real card derivation. Expired published placeholders are
+excluded before warmup, and measured retention deletes fail the workload gate.
+Five repeated batches of 50 queued/running checks execute alongside
 ten real feed-entry writes per batch. The harness advances the clock between
 batches, preserves job identities and retry/lease metadata, and drains the actual
 incremental publisher.
@@ -66,7 +73,10 @@ incremental publisher.
 Artifacts contain application runtime/CPU, SQL counts, event and hydration counts,
 publisher upsert counts (excluding trigger clock patches), top-level PostgreSQL
 statement-statistic deltas, and rollback-only
-`EXPLAIN (ANALYZE, BUFFERS, WAL, FORMAT JSON)` plans. Candidate assertions enforce
+`EXPLAIN (ANALYZE, BUFFERS, WAL, FORMAT JSON)` plans. A checkpoint precedes each
+timed workload, and WAL record/full-page-image counters are recorded separately.
+Due-query plans restore the checked cohort's due clocks in a rollback-only
+transaction so their execution includes due rows. Candidate assertions enforce
 the batch limit, zero clock-only events/full-card hydration, visible current
 clocks, unchanged active execution state, and publication of genuine ingestion
 events. Functional integration tests separately cover completion races, policy
@@ -87,7 +97,9 @@ rebuild amplification.
 
 ## Deployment and rollback
 
-Upgrade the database to 0035 before starting the candidate publisher. It changes
+Pause the previous pipeline publisher, upgrade the database to 0035, and then
+start the candidate publisher. The previous publisher lacks clock synchronization
+and must not publish detached cards after the trigger changes. The migration changes
 only article trigger definitions and adds a trigger function; it does not rewrite
 historical articles or backfill card evidence. Existing events remain valid and
 drain normally. DDL briefly acquires a table lock, so use the normal migration

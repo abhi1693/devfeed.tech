@@ -3,16 +3,19 @@
 import asyncio
 import importlib.util
 import sys
+from datetime import timedelta
 from types import SimpleNamespace
 
 import httpx
 import pytest
 from devfeed_core.models import (
+    Article,
     ArticleAnalysisJob,
     ArticleContent,
     PipelineProjection,
     ReadModelEvent,
     Tag,
+    utcnow,
 )
 from sqlalchemy import func, select
 
@@ -152,6 +155,90 @@ def test_scheduler_profile_rejects_card_amplification_and_missing_ingestion():
             ],
         }
     ]
+    assert scheduler_profile.bounded_failures(
+        [tick | {"publisher_deleted_rows": {"publisher": 200}}], batch=50, ingest_per_tick=10
+    ) == [{"tick": 1, "reasons": ["unrelated retention cleanup entered the measured workload"]}]
+
+
+@pytest.mark.integration
+def test_scheduler_fixture_reuse_preserves_history_and_refuses_unrecognized_corpus(database):
+    now = utcnow()
+    identifier = profile.fixture_id("articles", 1)
+    with database.begin() as session:
+        session.add_all(
+            [
+                Article(
+                    id=identifier,
+                    canonical_url="https://publisher.example/articles/1",
+                    url_hash="historical",
+                    title="Historical fixture",
+                ),
+                Article(
+                    canonical_url="https://publisher.example/scheduler-profile/0/1",
+                    url_hash="measured",
+                    title="Measured ingestion",
+                ),
+            ]
+        )
+        session.flush()
+        session.add(ArticleAnalysisJob(article_id=identifier, input_snapshot={"retained": True}))
+    scheduler_profile.prepare_projections(database, [identifier], now)
+    with pytest.raises(ValueError, match="matching historical corpus"):
+        scheduler_profile.reset_workload(database, articles=2)
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(Article)) == 2
+    scheduler_profile.reset_workload(database, articles=1)
+    with database() as session:
+        assert list(session.scalars(select(Article.id))) == [identifier]
+        assert session.scalar(select(ArticleAnalysisJob)).input_snapshot == {"retained": True}
+        assert session.scalar(select(func.count()).select_from(PipelineProjection)) == 0
+        assert session.scalar(select(func.count()).select_from(ReadModelEvent)) == 0
+
+
+@pytest.mark.integration
+def test_scheduler_fixture_excludes_expired_cards_before_warmup_and_replays_due_plans(database):
+    now = utcnow()
+    identifier = profile.fixture_id("articles", 1)
+    future = now + timedelta(hours=1)
+    with database.begin() as session:
+        session.add(
+            Article(
+                id=identifier,
+                canonical_url="https://publisher.example/articles/1",
+                url_hash="pending",
+                title="Pending fixture",
+                automation_next_check_at=future,
+            )
+        )
+        for age in (1, 8):
+            session.add(
+                Article(
+                    canonical_url=f"https://publisher.example/articles/published/{age}",
+                    url_hash=f"published-{age}",
+                    title="Published fixture",
+                    review_status="approved",
+                    publication_status="published",
+                    published_to_feed_at=now - timedelta(days=age),
+                )
+            )
+    scheduler_profile.prepare_projections(database, [identifier], now)
+    engine = database.kw["bind"]
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(PipelineProjection)) == 2
+    recorder = scheduler_profile.Recorder(engine)
+    recorder.plans["scheduler_due_candidates"] = (
+        "SELECT articles.id FROM articles WHERE articles.automation_next_check_at "
+        "<= %(automation_next_check_at_1)s ORDER BY articles.automation_next_check_at LIMIT 1",
+        {"automation_next_check_at_1": now - timedelta(seconds=1)},
+    )
+    plans = recorder.explain(identifiers=[identifier], next_check=now + timedelta(hours=2))
+    assert plans["scheduler_due_candidates"]["plan"][0]["Plan"]["Actual Rows"] == 1
+    with database() as session:
+        assert session.get(Article, identifier).automation_next_check_at == future
+        payload = session.scalar(
+            select(PipelineProjection.payload).where(PipelineProjection.entity_id == identifier)
+        )
+        assert "next_check_at" not in payload
 
 
 def test_scheduler_profile_captures_due_query_and_clock_trigger_plans():
