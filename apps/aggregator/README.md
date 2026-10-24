@@ -95,7 +95,8 @@ The checkpoint advances through protected rows as well as removable rows. Full p
 continue after `DEVFEED_JOB_PAYLOAD_PAGE_INTERVAL_SECONDS` (30 seconds); an exhausted
 sweep starts again after `DEVFEED_JOB_PAYLOAD_SWEEP_INTERVAL_SECONDS` (one hour).
 `DEVFEED_JOB_PAYLOAD_RETENTION_DAYS` remains 30 days. The age cutoff is fixed for each
-sweep so new completions cannot extend a pass indefinitely. A row completed late behind
+sweep so new completions cannot extend a pass indefinitely; increasing retention days
+immediately tightens that cutoff on a resumed page. A row completed late behind
 the cursor, a locked row, or a newly eligible reviewed row is reconsidered next sweep.
 Revisit delay therefore includes the remaining full pass and its cooldown.
 
@@ -115,8 +116,9 @@ at most 1,000 identities per history every 30 seconds. Monitor committed checkpo
 progress and `job_payload_retention_page` counts, database latency/WAL and ingestion
 freshness under the deployed workload. These are capacity limits, not a measured
 production throughput guarantee. Increase budgets only after representative measurement;
-changing intervals affects subsequent committed pages, while an in-progress sweep
-retains its original cutoff. See [migration and rollback](../../migrations/README.md#analysis-payload-retention-0035).
+changing intervals affects subsequent committed pages. Reducing retention days applies
+on the next sweep; increasing them also protects inputs during the current sweep.
+See [migration and rollback](../../migrations/README.md#analysis-payload-retention-0035).
 
 ## Personal feed preparation
 

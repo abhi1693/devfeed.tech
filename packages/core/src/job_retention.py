@@ -109,8 +109,10 @@ def _prune_payload(job, now):
 
 
 def _prune_page(session, model, state, now, settings):
-    if state.cutoff is None:
-        state.cutoff = now - timedelta(days=settings.job_payload_retention_days)
+    current_cutoff = now - timedelta(days=settings.job_payload_retention_days)
+    # Freeze the upper age boundary so arrivals cannot extend a sweep. A restart
+    # with a longer retention policy must immediately protect younger evidence.
+    state.cutoff = current_cutoff if state.cutoff is None else min(state.cutoff, current_cutoff)
     columns = (model.article_id,) if model is ArticleAnalysisJob else (model.proposal_id,)
     page_query = (
         select(model.id, model.finished_at, *columns)

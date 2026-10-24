@@ -241,6 +241,39 @@ def test_interrupted_page_rolls_back_payload_and_checkpoint_before_restart(
     assert job_retention.prune_job_payloads(database) == 1
 
 
+@pytest.mark.parametrize("kind", ["article", "topic"])
+def test_restart_with_longer_retention_protects_the_remaining_payloads_in_an_active_sweep(
+    database, retention, monkeypatch, kind
+):
+    policy = configuration(job_payload_scan_batch_size=5, job_payload_prune_batch_size=1)
+    monkeypatch.setattr(job_retention, "get_settings", lambda: policy)
+    with database.begin() as session:
+        model, _, jobs = history(session, retention, kind=kind, statuses=("succeeded",) * 4)
+        identifiers = [job.id for job in jobs]
+    assert job_retention.prune_job_payloads(database) == 1
+    with database() as session:
+        state = session.get(JobPayloadRetention, kind)
+        assert state.cutoff == retention.now - timedelta(days=30)
+        assert state.cursor_id == identifiers[0]
+
+    # A restarted scheduler uses the new age policy even while resuming a pass
+    # whose durable checkpoint was created under the shorter retention period.
+    policy.job_payload_retention_days = 365
+    retention.now += timedelta(seconds=31)
+    assert job_retention.prune_job_payloads(database) == 0
+    with database() as session:
+        rows = [session.get(model, identifier) for identifier in identifiers]
+        assert rows[0].input_snapshot == {}
+        assert all(row.input_snapshot and row.inputs_pruned_at is None for row in rows[1:])
+        state = session.get(JobPayloadRetention, kind)
+        assert state.cutoff is state.cursor_finished_at is state.cursor_id is None
+        assert state.next_run_at == retention.now + timedelta(hours=1)
+    due(database, retention, kind)
+    assert job_retention.prune_job_payloads(database) == 0
+    with database() as session:
+        assert all(session.get(model, identifier).input_snapshot for identifier in identifiers[1:])
+
+
 def test_transaction_timeout_rolls_back_flushed_payload_and_checkpoint_then_recovers(
     database, retention, caplog
 ):

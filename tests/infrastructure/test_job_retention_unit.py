@@ -79,3 +79,13 @@ def test_resumed_page_keeps_the_original_age_cutoff():
     settings = configuration(job_payload_scan_batch_size=1)
     assert job_retention._prune_page(session, ArticleAnalysisJob, state, NOW, settings) == 0
     assert state.cutoff == cutoff
+
+
+def test_longer_retention_tightens_the_cutoff_of_a_resumed_page():
+    state = JobPayloadRetention(kind="article", next_run_at=NOW, cutoff=NOW - timedelta(days=30))
+    session = MagicMock()
+    page = [Candidate(uuid.uuid4(), NOW - timedelta(days=400), uuid.uuid4())]
+    session.execute.side_effect = [Mock(all=lambda: page), Mock(all=lambda: [])]
+    settings = configuration(job_payload_retention_days=365, job_payload_scan_batch_size=1)
+    assert job_retention._prune_page(session, ArticleAnalysisJob, state, NOW, settings) == 0
+    assert state.cutoff == NOW - timedelta(days=365)
