@@ -95,7 +95,7 @@ def run_comment(tmp_path, scenario="success"):
                 else "catalog-refresh-arm64-2",
                 "stale": scenario == "stale",
                 "lateStale": scenario == "late-stale",
-                "previous": scenario in {"previous", "human"},
+                "previous": scenario in {"previous", "human", "report-rerun", "flat-rerun"},
                 "human": scenario == "human",
                 "nonregular": scenario == "nonregular",
                 "oversizedMetadata": scenario == "oversized-metadata",
@@ -164,7 +164,10 @@ def run_comment(tmp_path, scenario="success"):
 )
 def test_comment_publishes_signed_results_and_updates_only_the_bot_comment(tmp_path, scenario):
     calls = run_comment(tmp_path, scenario)
-    assert len(calls) == 1 and calls[0][0] == ("update" if scenario == "previous" else "create")
+    updates_existing = scenario in {"previous", "report-rerun", "flat-rerun"}
+    assert len(calls) == 1 and calls[0][0] == ("update" if updates_existing else "create")
+    if updates_existing:
+        assert calls[0][1]["comment_id"] == 7
     body = calls[0][1]["body"]
     assert "**PASS**" in body and "| Before | After | Delta |" in body
     assert "0/40 | 40/40 | +40" in body and "+26.69 s" in body

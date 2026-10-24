@@ -233,6 +233,7 @@ jobs:
               (measuredAttempt ? ` · measurement attempt ${measuredAttempt}` : ' · measurement unavailable'));
             const body = lines.join('\n');
             const comments = await github.paginate(github.rest.issues.listComments, {...context.repo, issue_number: pr.number});
+            // Reuse the same results comment across commits and report-only reruns.
             const previous = comments.find(comment => comment.user.type === 'Bot' && comment.body?.startsWith(marker));
             const latest = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
             if (latest.data.head.sha !== pr.head.sha) return;
