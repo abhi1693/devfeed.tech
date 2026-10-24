@@ -180,7 +180,7 @@ class Smoke:
             self.run(CONTRACTS["migrate"]["command"])
             self.run(["python", "/fleet/runtime.py", "retained"])
             print(
-                "PASS native packaged Alembic 0033 -> 0034 and Fleet migration hook; "
+                "PASS native packaged Alembic 0033 -> current schema and Fleet migration hook; "
                 "retained article/account"
             )
         else:
