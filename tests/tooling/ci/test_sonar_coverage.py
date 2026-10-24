@@ -167,6 +167,7 @@ def test_generated_duplication_policy_uses_only_shared_generator_output_conventi
         "scripts/ci/unit_shards.py",
         "scripts/ci/coverage_report.py",
         "scripts/ci/api_contracts.py",
+        "scripts/profile_publication_reports.py",
     ],
 )
 def test_handwritten_product_migration_and_generator_code_keeps_all_quality_checks(source):

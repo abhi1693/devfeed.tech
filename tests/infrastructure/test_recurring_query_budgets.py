@@ -294,19 +294,33 @@ def recurring_query_data(database):
             """INSERT INTO article_origins(id,article_id,source_id,entry_key,original_url,
                 source_metadata)
                 SELECT gen_random_uuid(),md5('a'||i)::uuid,md5('s'||(1+i%1261))::uuid,i::text,
-                    'https://article.test/'||i,'{}'::jsonb FROM generate_series(1,60340) i""",
+                    'https://article.test/'||i,'{}'::jsonb FROM generate_series(
+                        CAST(:batch_start AS integer),CAST(:batch_end AS integer)) i""",
             """INSERT INTO article_tags(article_id,tag_id)
                 SELECT md5('a'||i)::uuid,md5('t'||(1+(i*10+j)%34074))::uuid
-                FROM generate_series(1,60340) i CROSS JOIN generate_series(1,10) j""",
+                FROM generate_series(
+                    CAST(:batch_start AS integer),CAST(:batch_end AS integer)) i
+                CROSS JOIN generate_series(1,10) j""",
             """INSERT INTO article_reviews(id,article_id,action,revision,automation,created_at)
                 SELECT gen_random_uuid(),a.id,CASE WHEN j=1 THEN 'publish' ELSE 'approve' END,j,
                     CASE WHEN i%31=0 AND j=2 THEN '{}'::jsonb
                     ELSE jsonb_build_object('policy','synthetic','context',repeat(md5(i::text),9))
                     END,coalesce(a.published_to_feed_at,a.discovered_at)-interval '1 minute'
-                FROM generate_series(1,60340) i JOIN articles a ON a.id=md5('a'||i)::uuid
+                FROM generate_series(
+                    CAST(:batch_start AS integer),CAST(:batch_end AS integer)) i
+                JOIN articles a ON a.id=md5('a'||i)::uuid
                 CROSS JOIN generate_series(1,3) j WHERE j<=2 OR i<=33000""",
         ):
-            connection.execute(text(sql), {"now": NOW})
+            # Keep the full relationship/review cardinalities and every FK/outbox
+            # trigger, while bounding setup statements just like article inserts.
+            for batch_start in range(1, 60341, 1000):
+                connection.execute(
+                    text(sql),
+                    {
+                        "batch_start": batch_start,
+                        "batch_end": min(batch_start + 999, 60340),
+                    },
+                )
         for table in (
             "articles",
             "sources",
