@@ -233,7 +233,7 @@ def test_completed_token_series_keeps_idle_days_and_combines_all_three_job_kinds
     assert points[2].reported_runs == 2 and duration == 275
 
 
-def test_completed_token_query_reads_each_usage_once_into_bounded_materialized_values():
+def test_completed_token_query_streams_bounded_usage_with_once_per_row_validation():
     from sqlalchemy.dialects import postgresql
 
     statements = []
@@ -246,18 +246,34 @@ def test_completed_token_query_reads_each_usage_once_into_bounded_materialized_v
         SimpleNamespace(execute=execute), NOW - timedelta(days=7), NOW
     )
     assert len(statements) == 1
+    for branch in statements[0].selects:
+        usage = branch.get_final_froms()[0]
+        raw_usage = usage.element.get_final_froms()[0]
+        # Keep the computed date visible across both projection boundaries;
+        # grouping a timestamp expression loses its daily cardinality estimate.
+        projected_day = branch.selected_columns["date"].element
+        assert getattr(projected_day, "table", None) is usage
+        assert getattr(usage.element.selected_columns["date"], "table", None) is raw_usage
+        assert len(usage.c) == len(raw_usage.c) == 3
+        assert "finished_at" not in usage.c and "finished_at" not in raw_usage.c
+        assert "raw_tokens" not in usage.c
     sql = str(statements[0].compile(dialect=postgresql.dialect()))
-    assert sql.count("AS MATERIALIZED") == 3
+    # Literal OFFSET 0 fences preserve both streaming projections in generic
+    # plans, without introducing a materialized working set or runtime limits.
+    assert sql.count("OFFSET 0") == 6
+    assert "MATERIALIZED" not in sql
     for table in ("article_analysis_jobs", "topic_analysis_jobs", "research_verification_jobs"):
         assert sql.count(f"{table}.usage ->>") == 1
         assert f"{table}.finished_at >=" in sql
         assert f"{table}.finished_at <=" in sql
         assert f"{table}.status IN" in sql
     assert sql.count("left(") == 3
+    assert sql.count("CASE WHEN") == 3
 
 
 @pytest.mark.parametrize(
-    "published,automatic,median,percent", [(0, 0, None, None), (3, 2, 120.0, 66.7)]
+    "published,automatic,median,percent",
+    [(0, 0, None, None), (4, 0, None, 0.0), (3, 2, 120.0, 66.7), (6, 1, 0.0, 16.7)],
 )
 def test_publication_metrics_distinguish_empty_history_from_zero_automatic_publication(
     published, automatic, median, percent
@@ -271,6 +287,71 @@ def test_publication_metrics_distinguish_empty_history_from_zero_automatic_publi
         "automatic_publication_percent": percent,
         "median_ingestion_to_publication_seconds": median,
     }
+
+
+def test_publication_query_keeps_narrow_review_probes_out_of_aggregate_filters():
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.sql import visitors
+    from sqlalchemy.sql.elements import FunctionFilter
+    from sqlalchemy.sql.selectable import Exists, Select
+
+    start = NOW - timedelta(days=7)
+    statement = automation._publication_automation_query(start, NOW)
+    compiled = statement.compile(dialect=postgresql.dialect())
+    sql = str(compiled)
+    # WHERE EXISTS can become semi/anti joins; EXISTS inside aggregate FILTER
+    # forces repeated per-publication subplans and recreates buffer amplification.
+    aggregate_filters = [
+        clause for clause in visitors.iterate(statement) if isinstance(clause, FunctionFilter)
+    ]
+    assert aggregate_filters
+    assert all(
+        not any(isinstance(clause, Exists) for clause in visitors.iterate(aggregate.criterion))
+        for aggregate in aggregate_filters
+    )
+    assert "article_reviews.action = 'publish'" in sql
+    assert "article_reviews.automation != '{}'::jsonb" in sql
+    assert "article_reviews.automation = '{}'::jsonb" in sql
+    assert start in compiled.params.values() and NOW in compiled.params.values()
+    review_projections = [
+        column.key
+        for select in visitors.iterate(statement)
+        if isinstance(select, Select)
+        for column in select.selected_columns
+        if getattr(getattr(column, "table", None), "name", None) == "article_reviews"
+    ]
+    assert review_projections and set(review_projections) == {"article_id"}
+
+
+def test_publication_window_remains_planner_visible_in_cached_prepared_queries():
+    from sqlalchemy import DateTime
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.sql import visitors
+    from sqlalchemy.sql.elements import BindParameter
+
+    start = NOW - timedelta(days=7)
+    statement = automation._publication_automation_query(start, NOW)
+    other = automation._publication_automation_query(start - timedelta(days=1), NOW)
+    assert statement._generate_cache_key().key == other._generate_cache_key().key
+    bounds = [
+        clause
+        for clause in visitors.iterate(statement)
+        if isinstance(clause, BindParameter) and clause.literal_execute
+    ]
+    assert {bound.value for bound in bounds} == {start, NOW}
+    assert all(isinstance(bound.type, DateTime) and bound.type.timezone for bound in bounds)
+    rendered = statement.compile(
+        dialect=postgresql.dialect(), compile_kwargs={"render_postcompile": True}
+    )
+    assert start not in rendered.params.values() and NOW not in rendered.params.values()
+    assert set(rendered.params.values()) == {0.5}
+    assert "POSTCOMPILE" not in str(rendered)
+    # SQLAlchemy may reuse the compiled expression; PostgreSQL still receives
+    # each window's timestamps rather than unknown generic-plan parameters.
+    rendered_other = other.compile(
+        dialect=postgresql.dialect(), compile_kwargs={"render_postcompile": True}
+    )
+    assert str(rendered) != str(rendered_other)
 
 
 @pytest.mark.parametrize("projected", [False, True])

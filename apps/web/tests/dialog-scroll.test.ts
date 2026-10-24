@@ -53,3 +53,38 @@ it("does not restore stale coordinates after a preview closes before the next br
   expect(scroll).toHaveBeenCalledOnce();
   expect(document.body.style.overflow).toBe("");
 });
+
+it("retains the modal entry position when native scrolling arrives after the first frame", () => {
+  vi.stubGlobal("scrollX", 0);
+  vi.stubGlobal("scrollY", 2408);
+  let nextFrame: FrameRequestCallback | undefined;
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    nextFrame = callback;
+    return 1;
+  });
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  const scroll = vi.spyOn(window, "scrollTo").mockImplementation((options) => {
+    vi.stubGlobal("scrollX", (options as ScrollToOptions).left);
+    vi.stubGlobal("scrollY", (options as ScrollToOptions).top);
+  });
+
+  const release = lockDialogScroll();
+  try {
+    nextFrame!(0);
+    scroll.mockClear();
+    vi.stubGlobal("scrollY", 2411);
+    window.dispatchEvent(new Event("scroll"));
+    expect(window.scrollY).toBe(2408);
+    expect(scroll).toHaveBeenCalledOnce();
+    // A correction produces another scroll event; an unchanged position needs no write.
+    window.dispatchEvent(new Event("scroll"));
+    expect(scroll).toHaveBeenCalledOnce();
+  } finally {
+    release();
+  }
+
+  vi.stubGlobal("scrollY", 2600);
+  window.dispatchEvent(new Event("scroll"));
+  expect(window.scrollY).toBe(2600);
+  expect(scroll).toHaveBeenCalledOnce();
+});

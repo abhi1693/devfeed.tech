@@ -7,7 +7,7 @@ on:
       - scripts/ci/topic-report-comment.test.mjs
       - packages/core/src/topic_decision_metrics.py
       - packages/core/src/inference_metrics.py
-      - migrations/versions/0035_topic_decision_calls.py
+      - migrations/versions/*_topic_decision_calls.py
 permissions:
   contents: read
 concurrency:

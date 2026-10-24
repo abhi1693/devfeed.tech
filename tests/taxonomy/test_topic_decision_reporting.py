@@ -10,12 +10,23 @@ from datetime import UTC, datetime, timedelta, timezone
 from threading import Barrier, Event
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from devfeed_core.inference_metrics import inference_charts
-from devfeed_core.models import TopicDecisionRun, TopicProposal
+from devfeed_core.models import (
+    Article,
+    PipelineProjection,
+    ReadModelEvent,
+    TopicDecisionRun,
+    TopicProposal,
+)
+from devfeed_core.read_models import set_state
 from devfeed_core.topic_decision_metrics import decision_metrics
-from sqlalchemy import event, text
+from sqlalchemy import delete, event, text
+
+from tests.support.paths import REPO_ROOT
 
 pytestmark = pytest.mark.integration
 START = datetime(2026, 10, 20, tzinfo=UTC)
@@ -544,7 +555,7 @@ def test_source_deletion_and_transactional_truncate_remove_call_facts(database, 
 
 
 def test_migration_backfill_matches_live_projection_and_downgrade_preserves_json(database):
-    migration = importlib.import_module("migrations.versions.0035_topic_decision_calls")
+    migration = importlib.import_module("migrations.versions.0036_topic_decision_calls")
     calls = [
         call("draft", START - timedelta(days=1), 10),
         call("draft", START, 20, escalated=True),
@@ -582,6 +593,77 @@ def test_migration_backfill_matches_live_projection_and_downgrade_preserves_json
                 calls
             )
         transaction.rollback()
+
+
+def test_topic_migration_round_trip_keeps_scheduler_clock_capture_and_source_history(database):
+    config = Config(str(REPO_ROOT / "alembic.ini"))
+    capture_sql = text("""SELECT tgname, pg_get_triggerdef(oid) FROM pg_trigger
+        WHERE tgrelid='articles'::regclass
+        AND tgname IN ('read_model_changed','read_model_article_clock_changed') ORDER BY tgname""")
+    with database.begin() as session:
+        proposal_id = add_run(session, [call(tokens=10), call(tokens=20)])
+        article = Article(
+            canonical_url=f"https://publisher.example/migration/{proposal_id}",
+            url_hash=proposal_id.hex,
+            title="Keep the scheduler clock during topic rollback",
+            automation_next_check_at=START,
+        )
+        session.add(article)
+        session.flush()
+        article_id = article.id
+        set_state(session, "pipeline", {"target_policy": "retained", "serving_policy": "retained"})
+        session.add(
+            PipelineProjection(
+                policy_version="retained",
+                kind="article",
+                entity_id=article_id,
+                payload={"next_check_at": START.isoformat(), "title": article.title},
+                stage="analysis",
+                state="waiting",
+                created_at=START,
+                activity_at=START,
+                evaluated_at=START,
+            )
+        )
+        session.flush()
+        session.execute(delete(ReadModelEvent))
+        retained_triggers = session.execute(capture_sql).all()
+        assert len(retained_triggers) == 2
+        source_state = copy.deepcopy(session.get(TopicDecisionRun, proposal_id).state)
+        expected_facts = facts(session, proposal_id)
+    try:
+        command.downgrade(config, "0035")
+        with database.begin() as session:
+            assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0035"
+            assert session.scalar(text("SELECT to_regclass('topic_decision_calls')")) is None
+            assert session.execute(capture_sql).all() == retained_triggers
+            assert session.get(TopicDecisionRun, proposal_id).state == source_state
+            clock = START + timedelta(hours=1)
+            session.execute(
+                text("UPDATE articles SET automation_next_check_at=:clock WHERE id=:id"),
+                {"clock": clock, "id": article_id},
+            )
+            assert session.scalar(text("SELECT count(*) FROM read_model_events")) == 0
+            card = session.get(PipelineProjection, ("retained", "article", article_id))
+            assert datetime.fromisoformat(card.payload["next_check_at"]) == clock
+            assert card.evaluated_at == START
+        command.upgrade(config, "head")
+        with database.begin() as session:
+            assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0036"
+            assert facts(session, proposal_id) == expected_facts
+            assert session.get(TopicDecisionRun, proposal_id).state == source_state
+            assert session.execute(capture_sql).all() == retained_triggers
+            clock = START + timedelta(hours=2)
+            session.execute(
+                text("UPDATE articles SET automation_next_check_at=:clock WHERE id=:id"),
+                {"clock": clock, "id": article_id},
+            )
+            card = session.get(PipelineProjection, ("retained", "article", article_id))
+            assert datetime.fromisoformat(card.payload["next_check_at"]) == clock
+            assert card.evaluated_at == START
+            assert session.scalar(text("SELECT count(*) FROM read_model_events")) == 0
+    finally:
+        command.upgrade(config, "head")
 
 
 @pytest.fixture
@@ -641,7 +723,7 @@ def test_migration_retries_source_lock_admission_without_blocking_reverse_order_
     isolated_reporting_schema, flushed
 ):
     engine, schema, original_head = isolated_reporting_schema
-    migration = importlib.import_module("migrations.versions.0035_topic_decision_calls")
+    migration = importlib.import_module("migrations.versions.0036_topic_decision_calls")
     started = Event()
     migration_pid = []
 
@@ -687,7 +769,7 @@ def test_downgrade_retries_all_table_locks_without_blocking_existing_work(
     isolated_reporting_schema, blocker
 ):
     engine, schema, original_head = isolated_reporting_schema
-    migration = importlib.import_module("migrations.versions.0035_topic_decision_calls")
+    migration = importlib.import_module("migrations.versions.0036_topic_decision_calls")
     with engine.begin() as connection:
         connection.execute(text(f"SET LOCAL search_path TO {schema}"))
         with Operations.context(MigrationContext.configure(connection)):

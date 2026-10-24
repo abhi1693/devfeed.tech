@@ -39,6 +39,48 @@ RESULT_LABELS = {
     "NO MATERIAL CHANGE": "Within threshold",
     "ERROR": "**Error**",
 }
+PROTOCOL = {"protocol_version": "reader-load-v2", "journey_seed": 294, "warmup_seconds": 15}
+
+
+def protocol_value_matches(value, expected):
+    if type(expected) in (int, float):
+        return type(value) in (int, float) and math.isfinite(value) and value == expected
+    return type(value) is type(expected) and value == expected
+
+
+def validate_measurement(metadata, measurement):
+    """Compare complete measured windows, after every reader finishes warmup."""
+    if not isinstance(measurement, dict) or measurement.get("phase") != "finished":
+        raise ValueError("Missing or incomplete measurement phase")
+    if any(
+        not protocol_value_matches(metadata.get(field), value) for field, value in PROTOCOL.items()
+    ):
+        raise ValueError("Missing or incompatible reader workload protocol")
+    for field, requested in (
+        *PROTOCOL.items(),
+        ("users", metadata["users"]),
+        ("measurement_seconds", metadata["seconds"]),
+        ("ready_users", metadata["users"]),
+    ):
+        if not protocol_value_matches(measurement.get(field), requested):
+            raise ValueError("Mismatched requested and completed measurement protocol")
+    for field, minimum in (
+        ("warmup_completed_seconds", metadata["warmup_seconds"]),
+        ("measured_seconds", metadata["seconds"]),
+    ):
+        value = measurement.get(field)
+        if type(value) not in (int, float) or not math.isfinite(value) or value < minimum:
+            raise ValueError("Warmup or measurement window did not finish")
+    times = [
+        datetime.fromisoformat(measurement[field])
+        for field in ("warmup_started_at", "warmup_finished_at", "started_at", "finished_at")
+    ]
+    if any(value.utcoffset() is None for value in times) or times != sorted(times):
+        raise ValueError("Unverifiable measurement phase timestamps")
+    if (times[1] - times[0]).total_seconds() < metadata["warmup_seconds"] or (
+        times[3] - times[2]
+    ).total_seconds() < metadata["seconds"]:
+        raise ValueError("Measurement phase timestamps do not cover the full requested windows")
 
 
 def classify(base, head):
@@ -75,7 +117,9 @@ def report(runs, base_sha, head_sha):
         "",
         "Three independent GitHub-hosted ARM64 runners, each measuring base and PR "
         "sequentially with alternating order and isolated resources for every sample. "
-        "16 users, 60 seconds/run, 1,000 synthetic articles, cache off, five PgBouncer slots.",
+        "16 users, completed bootstrap and 15 seconds of warmup before each full 60-second "
+        "measurement, fixed journey seed 294, 1,000 synthetic articles, cache off, "
+        "five PgBouncer slots.",
         "",
     ]
     problems = []
@@ -249,6 +293,7 @@ def report(runs, base_sha, head_sha):
 def collect(directory, base_sha, head_sha):
     runs = {}
     metadata = {}
+    measurements = {}
     expected = {
         "users": 16,
         "spawn_rate": 4,
@@ -287,8 +332,11 @@ def collect(directory, base_sha, head_sha):
                 item["exit_code"] = code
                 runs[key] = item
                 metadata[key] = meta
+                measurement = json.loads((root / "measurement.json").read_text())
+                validate_measurement(meta, measurement)
+                measurements[key] = measurement
             except (OSError, ValueError, KeyError, TypeError):
-                runs[key] = {"invalid": True, "exit_code": None}
+                runs.setdefault(key, {}).update(invalid=True, exit_code=None)
     runners = []
     for index in range(3):
         keys = (f"base-{index}", f"head-{index}")
@@ -314,6 +362,15 @@ def collect(directory, base_sha, head_sha):
             first, second = starts if index % 2 == 0 else starts[::-1]
             if first >= second:
                 raise ValueError("Invalid alternating execution order")
+            phases = [measurements[key] for key in keys]
+            phase_starts = [datetime.fromisoformat(phase["warmup_started_at"]) for phase in phases]
+            if any(
+                start < requested for start, requested in zip(phase_starts, starts, strict=True)
+            ):
+                raise ValueError("Warmup phase precedes the run it belongs to")
+            first_phase = phases[0 if index % 2 == 0 else 1]
+            if datetime.fromisoformat(first_phase["finished_at"]) > second:
+                raise ValueError("Paired measurement windows overlap")
             runners.append(base["runner_name"])
         except (KeyError, TypeError, ValueError):
             for key in keys:

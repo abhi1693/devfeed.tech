@@ -98,7 +98,7 @@ jobs:
             reports/coverage/summary.md
           if-no-files-found: error
   python-loadtest:
-    name: Unit / Loadtest histogram contracts (ARM64)
+    name: Unit / Loadtest workload contracts (ARM64)
     uses: abhi1693/actions/.github/workflows/python-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       runs-on: ubuntu-24.04-arm
@@ -109,7 +109,8 @@ jobs:
       test-command: |
         mkdir -p reports/coverage/python-loadtest
         COVERAGE_FILE=reports/coverage/python-loadtest/coverage.db \
-          uv run --locked --no-sync --no-build coverage run --source=loadtests loadtests/test_histogram.py
+          uv run --locked --no-sync --no-build coverage run --source=loadtests \
+            -m unittest discover -s loadtests -p 'test_*.py'
       test-results-path: reports/
       test-results-name: python-loadtest-arm64-${{ github.run_attempt }}
   coverage-report:

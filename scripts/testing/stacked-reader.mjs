@@ -488,6 +488,22 @@ async function checkStackedGeometry(page, width) {
   return snapshot;
 }
 
+export async function settleStackedTouchScroll(page) {
+  const moved = await page.evaluate(() => {
+    const moved = scrollX !== 0 || scrollY !== 0;
+    if (moved) window.scrollTo(0, 0);
+    return moved;
+  });
+  if (moved)
+    await page.waitForFunction(() => {
+      const saved = history.state?.readerScroll;
+      return Array.isArray(saved) && saved[0] === 0 && saved[1] === 0 && scrollY === 0;
+    });
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+}
+
 /** Measure and activate the real reader in a context created with hasTouch: true. */
 export async function checkStackedTouchReader(page, target, output) {
   await page.setViewportSize({ width: 320, height: 1000 });
@@ -499,13 +515,15 @@ export async function checkStackedTouchReader(page, target, output) {
     await page.evaluate(() => navigator.maxTouchPoints > 0),
     "The fixture is initialized with native touch input",
   );
-  // Chromium extension navigation resets the primary pointer while preserving
-  // native touch capability. Initialize this renderer after the route is ready;
-  // the hasTouch context continues to own emulation across viewport/capture work.
-  const cdp =
-    new URL(page.url()).protocol === "chrome-extension:"
-      ? await page.context().newCDPSession(page)
-      : null;
+  const extension = new URL(page.url()).protocol === "chrome-extension:";
+  if (extension) {
+    // Appearance leaves the extension scrolled. Its delayed scroll persistence
+    // calls history.replaceState, which resets Chromium's emulated pointer even
+    // after the destination is visible. Settle that real navigation work before
+    // initializing the touch renderer, rather than changing it during capture.
+    await settleStackedTouchScroll(page);
+  }
+  const cdp = extension ? await page.context().newCDPSession(page) : null;
   try {
     if (cdp)
       await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
@@ -552,16 +570,30 @@ export async function checkStackedTouchReader(page, target, output) {
       );
     if (output) {
       await mkdir(dirname(output), { recursive: true });
+      // Preserve the measured viewport while capturing the controls used below.
       await page.screenshot({
         path: `${output}-320-touch.png`,
         animations: "disabled",
-        fullPage: true,
+        fullPage: false,
       });
     }
     assert.equal(
       await page.evaluate(() => matchMedia("(pointer: coarse)").matches),
       true,
       "The native touch context preserves its pointer through layout and capture",
+    );
+    assert.ok(
+      await firstRow
+        .locator(".article-stacked-actions a, .article-stacked-actions button")
+        .evaluateAll(
+          (elements) =>
+            elements.length >= 4 &&
+            elements.every((element) => {
+              const bounds = element.getBoundingClientRect();
+              return bounds.width >= 44 && bounds.height >= 44;
+            }),
+        ),
+      "Row actions retain their 44px touch targets after evidence capture",
     );
     await firstRow.locator(".article-stacked-title").tap();
     const preview = page.getByRole("dialog", { name: "Article preview", exact: true });

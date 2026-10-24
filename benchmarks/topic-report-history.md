@@ -14,12 +14,13 @@ write handles that run's calls, with no global rollup or separate refresh schedu
 Report time filters use the fact timestamp index, while completed proposal usage
 joins all lifetime facts for proposals reviewed in the requested window.
 
-Migration `0035` installs the projection, backfills existing runs and creates the
-indexes atomically. Its bounded lock admission waits at most 30 seconds before a
-retryable failure. Once admitted, backfill/index creation pauses proposal and run
-writes while allowing ordinary reads. The current application requires schema
-`0035`; rollback application code together with the schema. Downgrade removes the
-derived facts while preserving source JSON, allowing a later upgrade to rebuild it.
+Migration `0036` follows the scheduler clock migration `0035`, installs the topic
+projection, backfills existing runs and creates the indexes atomically. Its bounded
+lock admission waits at most 30 seconds before a retryable failure. Once admitted,
+backfill/index creation pauses proposal and run writes while allowing ordinary reads.
+The current application requires schema `0036`; rollback application code together
+with the schema. Downgrading to `0035` removes the derived topic facts while preserving
+source JSON and the scheduler clock changes, allowing a later upgrade to rebuild the facts.
 Downgrade briefly takes exclusive table locks, waiting for active readers and
 writers before removing the trigger and projection; schedule it during a quiet
 period.

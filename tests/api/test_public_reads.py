@@ -22,6 +22,7 @@ from devfeed_api import (
 from devfeed_api.latest import diverse_ids
 from devfeed_core.analysis import AnalysisResult
 from devfeed_core.article_lifecycle import derive_publication_readiness
+from devfeed_core.config import get_settings
 from devfeed_core.models import Tag, Topic, TopicRelation
 from devfeed_core.schemas import ArticleOut, FeedPage, SourcePublicOut, TagPublicOut
 from devfeed_core.topics import TopicOut
@@ -191,7 +192,20 @@ def test_relation_response_keeps_approved_evidence_and_public_peer_shape(monkeyp
 
 @pytest.mark.parametrize("filtered", [False, True])
 def test_feed_facets_sort_available_types_and_serialize_approved_sources(monkeypatch, filtered):
-    current = publisher()
+    monkeypatch.setattr(get_settings(), "image_public_url", "https://images.example.test")
+    current = publisher(
+        logo_url="https://publisher.example/logo.svg",
+        managed_logo={
+            "original_key": "sources/original.webp",
+            "variants": [
+                {"width": 96, "key": "sources/96.webp"},
+                {"width": 32, "key": "sources/32.webp"},
+                {"width": 64, "key": "sources/64.webp"},
+            ],
+        },
+        review_note="Private editorial explanation",
+        submitted_by={"email": "private@example.test"},
+    )
     with public_api(monkeypatch) as api:
         if filtered:
             api.session.execute.return_value.one.return_value = (["tutorial", "news"], [current.id])
@@ -216,8 +230,13 @@ def test_feed_facets_sort_available_types_and_serialize_approved_sources(monkeyp
         response = api.client.get("/v1/feed/options", params=params)
         assert response.status_code == 200
         assert response.json()["content_types"] == ["news", "tutorial"]
-        assert response.json()["sources"][0]["id"] == str(current.id)
-        assert "approval_status" not in response.json()["sources"][0]
+        [output] = response.json()["sources"]
+        assert output == SourcePublicOut.model_validate(current).model_dump(mode="json")
+        assert set(output) == set(SourcePublicOut.model_fields)
+        assert output["logo_url"] == "https://images.example.test/sources/64.webp"
+        assert [item["width"] for item in output["logo_variants"]] == [32, 64, 96]
+        assert "Private editorial explanation" not in response.text
+        assert "private@example.test" not in response.text
 
 
 @pytest.mark.parametrize("sort", ["oldest", "most_liked"])
