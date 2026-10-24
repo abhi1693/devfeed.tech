@@ -364,6 +364,13 @@ async function checkExactByteLimits() {
   assert.deepEqual(JSON.parse(overflow.body.toString()), { detail: "Request too large" });
   assert.equal(overflow.headers.connection, "close");
   assert.equal(requests.length, overflowBefore);
+  const actualOverflow = await rawRequest(resource, "POST", {
+    body: Buffer.concat([exact, Buffer.from(" ")]),
+  });
+  assert.equal(actualOverflow.status, 413);
+  assert.deepEqual(JSON.parse(actualOverflow.body.toString()), { detail: "Request too large" });
+  assert.equal(actualOverflow.headers.connection, "close");
+  assert.equal(requests.length, overflowBefore);
   console.log(
     "Reader body limits: exact ordinary/avatar/placement byte boundaries, ASCII/UTF-8 declared and chunked overflow, dedicated placement validation passed.",
   );
@@ -433,6 +440,9 @@ async function rawRequest(resource, method, { body, headers: extraHeaders = {}, 
       if (body !== undefined) {
         upload.write(body);
         upload.end();
+      } else if (uploadHeaders.has("content-length")) {
+        // Exercise declared-size rejection before any body is uploaded.
+        upload.flushHeaders();
       } else {
         // This first chunk is deliberately followed by no end() call.
         upload.write('{"incomplete-private-fixture":');

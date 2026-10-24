@@ -40,6 +40,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import (
     BigInteger,
+    DateTime,
     String,
     and_,
     case,
@@ -614,13 +615,30 @@ def automation_blocker_rows(session, article_ids):
 
 
 def _publication_automation_query(start, now):
-    cutoff = (
-        ArticleReview.article_id == Article.id,
-        ArticleReview.created_at <= Article.published_to_feed_at,
+    # Keep cohort selectivity visible to prepared generic plans, which otherwise
+    # estimate an unknown date range as small and return to per-article probes.
+    # SQLAlchemy caches the statement and renders these values with its typed
+    # literal processor only at execution; other parameters remain bound.
+    start_bound = literal(start, type_=DateTime(timezone=True), literal_execute=True)
+    now_bound = literal(now, type_=DateTime(timezone=True), literal_execute=True)
+    publications = (
+        select(Article.id, Article.published_to_feed_at, Article.discovered_at)
+        .where(
+            Article.published_to_feed_at >= start_bound, Article.published_to_feed_at <= now_bound
+        )
+        .cte("publications")
+        .prefix_with("MATERIALIZED")
     )
-    # Fixed predicates match the narrow partial indexes even for prepared generic
-    # plans. Neither evidence JSON nor complete review histories are transferred.
+    # EXISTS in a WHERE clause can become a semi-join: unlike probes inside the
+    # aggregate FILTER, PostgreSQL can scan narrow evidence indexes once for a
+    # broad report, or stop at the first match for a selective cohort. Semi/anti
+    # joins retain one row per publication even with repeated review facts.
+    # Fixed predicates match the partial indexes for prepared generic plans too.
     empty = literal_column("'{}'::jsonb", type_=JSONB)
+    cutoff = (
+        ArticleReview.article_id == publications.c.id,
+        ArticleReview.created_at <= publications.c.published_to_feed_at,
+    )
     automatic = (
         select(ArticleReview.article_id)
         .where(
@@ -633,13 +651,32 @@ def _publication_automation_query(start, now):
     manual = (
         select(ArticleReview.article_id).where(*cutoff, ArticleReview.automation == empty).exists()
     )
-    return select(
-        func.count(),
-        func.count().filter(automatic, ~manual),
-        func.percentile_cont(0.5)
-        .within_group(func.extract("epoch", Article.published_to_feed_at - Article.discovered_at))
-        .filter(Article.published_to_feed_at >= Article.discovered_at),
-    ).where(Article.published_to_feed_at >= start, Article.published_to_feed_at <= now)
+    totals = (
+        select(
+            func.count().label("published"),
+            func.percentile_cont(0.5)
+            .within_group(
+                func.extract(
+                    "epoch", publications.c.published_to_feed_at - publications.c.discovered_at
+                )
+            )
+            .filter(publications.c.published_to_feed_at >= publications.c.discovered_at)
+            .label("median"),
+        )
+        .select_from(publications)
+        .subquery("publication_totals")
+    )
+    autonomous = (
+        select(func.count().label("automatic"))
+        .select_from(publications)
+        .where(automatic, ~manual)
+        .subquery("autonomous_publications")
+    )
+    return (
+        select(totals.c.published, autonomous.c.automatic, totals.c.median)
+        .select_from(totals)
+        .join(autonomous, true())
+    )
 
 
 def publication_automation(session, start, now):
