@@ -336,16 +336,48 @@ describe("workflow feedback", () => {
     expect(adminSourceReview).toHaveBeenCalled();
   });
   it("reports queued work as requested, not completed", async () => {
+    let resolveReadiness!: (value: Awaited<ReturnType<typeof adminSourcePipelineDetail>>) => void;
+    vi.mocked(adminSourcePipelineDetail).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveReadiness = resolve;
+      }),
+    );
     vi.mocked(adminSourceFetch).mockResolvedValueOnce({ id: "job-1" } as Awaited<
       ReturnType<typeof adminSourceFetch>
     >);
     withAdmin(
       <ResourceWorkflow identity={{ resource: "sources", id: "source-1" }} action="fetch" />,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Queue fetch" }));
+    const queueFetch = (await screen.findByRole("button", {
+      name: "Queue fetch",
+    })) as HTMLButtonElement;
+    expect(queueFetch.disabled).toBe(true);
+    fireEvent.click(queueFetch);
+    expect(adminSourceFetch).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+    await act(async () => {
+      resolveReadiness(
+        sourceDetail({
+          ...sourceCard,
+          id: "source-1",
+          source_id: "source-1",
+          key: "source:source-1",
+          stage: "review",
+          state: "ready",
+          can_approve: true,
+          can_ingest: true,
+        }),
+      );
+    });
+    await waitFor(() => expect(queueFetch.disabled).toBe(false));
+    fireEvent.click(queueFetch);
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith("Feed fetch requested", expect.any(Object)),
     );
+    expect(toast.success).toHaveBeenCalledTimes(1);
+    expect(adminSourceFetch).toHaveBeenCalledExactlyOnceWith("source-1", {
+      headers: { "X-CSRF-Token": "test-csrf" },
+    });
     expect(router.replace).toHaveBeenCalledWith("/jobs/ingestion/job-1");
   });
   it("retains failed decisions and validation without a success or redirect", async () => {
