@@ -12,6 +12,7 @@ def upgrade():
     # ORM flushes can update runs before proposals, even when row locks were taken
     # in the opposite order. Release both admission locks whenever either is busy;
     # never hold one source lock while waiting for a writer to release the other.
+    # Exclude run row lockers too: backfill's foreign-key checks acquire row locks.
     # Reads continue; source writes pause once both locks are held through commit.
     op.execute("""DO $body$
         DECLARE deadline timestamptz := clock_timestamp() + interval '30 seconds';
@@ -19,7 +20,7 @@ def upgrade():
           LOOP
             BEGIN
               LOCK TABLE topic_proposals IN SHARE MODE NOWAIT;
-              LOCK TABLE topic_decision_runs IN SHARE ROW EXCLUSIVE MODE NOWAIT;
+              LOCK TABLE topic_decision_runs IN EXCLUSIVE MODE NOWAIT;
               EXIT;
             EXCEPTION WHEN lock_not_available THEN
               IF clock_timestamp() >= deadline THEN RAISE; END IF;

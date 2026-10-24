@@ -584,7 +584,10 @@ def test_migration_backfill_matches_live_projection_and_downgrade_preserves_json
         transaction.rollback()
 
 
-def test_migration_retries_source_lock_admission_without_blocking_reverse_order_writer(database):
+@pytest.mark.parametrize("flushed", [False, True])
+def test_migration_retries_source_lock_admission_without_blocking_reverse_order_writer(
+    database, flushed
+):
     migration = importlib.import_module("migrations.versions.0035_topic_decision_calls")
     with database() as session:
         engine = session.get_bind()
@@ -629,7 +632,9 @@ def test_migration_retries_source_lock_admission_without_blocking_reverse_order_
         with engine.connect() as writer, writer.begin(), ThreadPoolExecutor(max_workers=1) as pool:
             writer.execute(text(f"SET LOCAL search_path TO {schema}"))
             writer.execute(text("SET LOCAL lock_timeout = '2s'"))
-            writer.execute(text("UPDATE topic_decision_runs SET state=state"))
+            writer.execute(text("SELECT * FROM topic_decision_runs FOR UPDATE"))
+            if flushed:
+                writer.execute(text("UPDATE topic_decision_runs SET state=state"))
             task = pool.submit(upgrade)
             try:
                 assert started.wait(timeout=5)
@@ -649,6 +654,7 @@ def test_migration_retries_source_lock_admission_without_blocking_reverse_order_
                     pytest.fail("Migration did not release its partial locks and retry admission")
                 # This is the ORM's run -> proposal flush order. It must finish
                 # while migration admission retries, rather than forming a cycle.
+                writer.execute(text("UPDATE topic_decision_runs SET state=state"))
                 writer.execute(text("UPDATE topic_proposals SET reviewed_at=reviewed_at"))
             finally:
                 writer.rollback()
