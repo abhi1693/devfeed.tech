@@ -202,6 +202,9 @@ def prepare_queue(factory, *, batch, now, backlog):
     """Prepare a fixed pending cohort; historical payloads and triggers stay intact."""
     identifiers = [fixture.fixture_id("articles", 20 + 40 * index) for index in range(batch)]
     with factory.begin() as session:
+        # Fixture-wide setup is outside the bounded scheduler workload. Keep the
+        # application's per-statement budget for the measured ticks themselves.
+        session.execute(text("SET LOCAL statement_timeout='0'"))
         session.execute(
             update(models.ArticleAnalysisJob)
             .where(models.ArticleAnalysisJob.status.in_(("queued", "running")))
@@ -290,6 +293,7 @@ def prepare_projections(factory, identifiers, now):
 
     policy = pipeline_policy_version()
     with factory.begin() as session:
+        session.execute(text("SET LOCAL statement_timeout='0'"))
         session.execute(text("TRUNCATE pipeline_projections, read_model_events, read_model_states"))
         session.execute(
             text("""
