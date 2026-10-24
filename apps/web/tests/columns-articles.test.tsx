@@ -414,7 +414,7 @@ it("retries and paginates one failed column without reloading its neighbor", asy
   ).toBeTruthy();
 });
 
-it("masks private recommendations during an ordinary history check and loads updated confirmed column data", async () => {
+it("masks private recommendations during history checks and retains articles until credentials change", async () => {
   const updatedPrivate = { ...privateOnly, title: "Updated private recommendation" };
   const updatedPublic = { ...publicOnly, title: "Updated public article" };
   let revalidated = false;
@@ -439,6 +439,13 @@ it("masks private recommendations during an ordinary history check and loads upd
   expect(screen.getByRole("link", { name: publicOnly.title })).toBe(publicTitle);
   revalidated = true;
   await complete({ ...user });
+  expect(await screen.findByRole("link", { name: privateOnly.title })).toBe(privateTitle);
+  expect(screen.getByRole("link", { name: publicOnly.title })).toBe(publicTitle);
+  expect(api.reads.filter(({ kind }) => kind === "recommended")).toHaveLength(1);
+  expect(api.reads.filter(({ kind }) => kind === "latest")).toHaveLength(1);
+  const renew = api.deferAuth();
+  fireEvent(window, new PopStateEvent("popstate"));
+  await renew({ ...user, csrf_token: "renewed-session" });
   const refreshedPrivate = await screen.findByRole("link", { name: updatedPrivate.title });
   await screen.findByRole("link", { name: updatedPublic.title });
   expect(screen.queryByRole("link", { name: privateOnly.title })).toBeNull();

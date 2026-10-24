@@ -466,13 +466,14 @@ def write_summary(directory: int, contents: str) -> None:
     descriptor = os.open(
         "summary.md",
         os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
-        0o644,
+        0o600,
         dir_fd=directory,
     )
     with os.fdopen(descriptor, "w", encoding="utf-8") as output:
         metadata = os.fstat(output.fileno())
         if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
             raise ValueError("Summary output must be a regular file with one link")
+        os.fchmod(output.fileno(), 0o600)
         output.truncate(0)
         output.write(contents)
 

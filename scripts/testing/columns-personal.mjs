@@ -129,6 +129,39 @@ export async function checkPersonalColumns(
     for (const { id } of personal)
       await workspace.locator(`[data-column-id="${id}"] .article-stacked-row`).first().waitFor();
 
+    // Returning to a background tab revalidates preferences without losing reading position.
+    const retainedFeed = workspace
+      .locator(`[data-column-id="${personal[0].id}"] .article-stacked-row`)
+      .first();
+    const retainedNode = await retainedFeed.elementHandle();
+    const scrollport = workspace.locator(
+      `[data-column-id="${personal[0].id}"] div[aria-label^="Articles in "]`,
+    );
+    const scrollTop = await scrollport.evaluate((node) => {
+      node.scrollTop = 200;
+      return node.scrollTop;
+    });
+    assert.ok(scrollTop > 0, "The fixture column has a reading position to retain");
+    const readsBeforeFocus = columnReads();
+    await page.clock.setFixedTime(Date.now() + 120_000);
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await wait(() => columnReads() > readsBeforeFocus, "Resume revalidates column preferences");
+    await page.locator('[aria-label="Columns workspace"][aria-busy="false"]').waitFor();
+    assert.equal(
+      await retainedNode.evaluate((node) => node.isConnected),
+      true,
+      "Resume retains the loaded column articles",
+    );
+    assert.equal(
+      await scrollport.evaluate((node) => node.scrollTop),
+      scrollTop,
+      "Resume retains the column scroll position",
+    );
+    await retainedNode.dispose();
+
     // A retained preview return reauthorizes silently. A label-only auth change must
     // keep the pending order save and its confirmed preference state alive.
     const authPattern = /\/api\/v1\/user\/auth\/me(?:\?|$)/;

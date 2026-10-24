@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import runpy
+import stat
 import sys
 from types import SimpleNamespace
 
@@ -296,9 +297,11 @@ def test_cli_writes_result_to_fixed_file_without_database_dependencies(tmp_path,
     output = directory / "summary.md"
     artifact.write_text(json.dumps(profile()))
     output.write_text("previous comment" * 1000)
+    output.chmod(0o644)
     assert run_cli(monkeypatch, tmp_path) == 0
     assert output.read_text().startswith("**PASS")
     assert "previous comment" not in output.read_text()
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600
 
 
 def test_script_entrypoint_reads_and_writes_only_fixed_artifact_names(tmp_path, monkeypatch):
@@ -313,6 +316,7 @@ def test_script_entrypoint_reads_and_writes_only_fixed_artifact_names(tmp_path, 
     )
     runpy.run_path(str(SCRIPT), run_name="__main__")
     assert (directory / "summary.md").read_text().startswith("**PASS")
+    assert stat.S_IMODE((directory / "summary.md").stat().st_mode) == 0o600
 
 
 @pytest.mark.parametrize("outcome,verdict", [("success", "INCOMPLETE"), ("failure", "FAIL")])

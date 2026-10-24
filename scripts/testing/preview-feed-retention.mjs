@@ -71,6 +71,40 @@ function requestCounts(requests) {
   return counts;
 }
 
+export function retentionBaselineReady(selector) {
+  const rows = [...document.querySelectorAll(selector)].filter((row) => row.checkVisibility());
+  return (
+    rows.length === 25 &&
+    rows.every((row) => row.querySelector(".engagement-count")) &&
+    !document.querySelector(".reader-loading-placeholder") &&
+    document.fonts.status === "loaded"
+  );
+}
+
+/** Capture the baseline after hydration and native scrolling have stopped moving it. */
+export function stableRetentionPosition(node) {
+  return new Promise((resolve, reject) => {
+    const started = performance.now();
+    let stableSince = started;
+    let previous;
+    const measure = () => {
+      const bounds = node.getBoundingClientRect();
+      const position = [bounds.y, bounds.height, scrollY, document.documentElement.scrollHeight];
+      const key = JSON.stringify(position);
+      const now = performance.now();
+      if (key !== previous) {
+        previous = key;
+        stableSince = now;
+      }
+      if (now - stableSince >= 200) resolve(position);
+      else if (now - started >= 5000)
+        reject(new Error(`Retention baseline did not settle: ${key}`));
+      else requestAnimationFrame(measure);
+    };
+    requestAnimationFrame(measure);
+  });
+}
+
 async function previewDuringNativeScroll(page, title, target) {
   await page.bringToFront();
   // Activate the actual link in the first moving browser frame. A driver roundtrip
@@ -120,7 +154,7 @@ export async function checkPreviewFeedRetention(
   page,
   target,
   output,
-  { requests = () => [], baseline = false } = {},
+  { requests = () => [], baseline = false, resumeOnly = false } = {},
 ) {
   const results = [];
   for (const view of ["stacked", "cards", "compact"]) {
@@ -185,8 +219,60 @@ export async function checkPreviewFeedRetention(
     // Keep the trigger clear of the sticky header before recording scroll; Playwright otherwise
     // legitimately scrolls an obscured Stacked title while preparing its click.
     await title.evaluate((node) => node.scrollIntoView({ block: "center", behavior: "instant" }));
-    // Wait for engagement hydration and the initial placeholder's exit transition.
-    await page.waitForTimeout(250);
+    // A fixed delay can record the baseline while a late engagement response or
+    // placeholder exit is still changing row heights on a busy browser runner.
+    await page.waitForFunction(retentionBaselineReady, rowSelector);
+    await title.evaluate(stableRetentionPosition);
+    if (resumeOnly) {
+      const resumedRows = await rows.elementHandles();
+      const resumeBounds = await title.boundingBox();
+      const beforeScroll = await page.evaluate(() => scrollY);
+      const resumeRequestStart = requests().length;
+      const resumeTime = await page.evaluate(() => Date.now() + 120_000);
+      await page.clock.setFixedTime(resumeTime);
+      const resumedAuth = page.waitForResponse((response) =>
+        new URL(response.url()).pathname.endsWith("/user/auth/me"),
+      );
+      await page.evaluate(() => {
+        window.dispatchEvent(new Event("focus"));
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await resumedAuth;
+      await page.waitForTimeout(300);
+      await page.waitForFunction(retentionBaselineReady, rowSelector);
+      const rowCount = await rows.count();
+      const connected = [];
+      for (const row of resumedRows) {
+        connected.push(await row.evaluate((node) => node.isConnected));
+        await row.dispose();
+      }
+      const resumedBounds = await title.boundingBox();
+      results.push({
+        view,
+        retained: connected.filter(Boolean).length,
+        rowCount,
+        readingPositionDelta: resumedBounds ? resumedBounds.y - resumeBounds.y : null,
+        before: { bounds: resumeBounds, scroll: beforeScroll },
+        after: { bounds: resumedBounds, scroll: await page.evaluate(() => scrollY) },
+        requests: requestCounts(requests().slice(resumeRequestStart)),
+      });
+      // Preserve the failing scenario too; assertions previously left no artifact
+      // for the layout that moved, making a race indistinguishable from a regression.
+      if (output) {
+        await mkdir(dirname(output), { recursive: true });
+        await writeFile(output, JSON.stringify(results, null, 2));
+      }
+      assert.equal(rowCount, 25, "Tab resume retains every paginated article");
+      assert.ok(connected.every(Boolean), "Tab resume retains the original article DOM");
+      assert.ok(resumedBounds, "Tab resume retains a visible article title");
+      // Engagement controls can change line height during hydration. Retain the
+      // same article within one text line rather than requiring an identical pixel.
+      assert.ok(
+        Math.abs(resumedBounds.y - resumeBounds.y) <= 24,
+        `Tab resume retains the reading position (${target}, ${view}, before=${resumeBounds.y}, after=${resumedBounds.y})`,
+      );
+      continue;
+    }
     const requestStart = requests().length;
     const countBefore = requestCounts(requests());
     const triggerBounds = await title.boundingBox();
@@ -311,6 +397,10 @@ export async function checkPreviewFeedRetention(
   if (output) {
     await mkdir(dirname(output), { recursive: true });
     await writeFile(output, JSON.stringify(results, null, 2));
+  }
+  if (resumeOnly) {
+    console.log(`Tab resume retention ${target}: ${JSON.stringify(results)}`);
+    return results;
   }
   console.log(
     `Preview retention ${target}: ${JSON.stringify(
