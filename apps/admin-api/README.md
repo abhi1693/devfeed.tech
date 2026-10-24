@@ -95,15 +95,19 @@ connection routing overrides and database names without `_test` are refused. The
 uses actual migrated tables and indexes, two retained article/topic jobs per article,
 180 days of skewed completion history, failed/incomplete jobs, mixed telemetry and
 incompressible 4 KiB provider metadata on every fifth job. The 100,000-article fixture
-has approximately 60,000 article and 160,000 topic completions in a month, exceeding
-the issue's representative production inputs. Research history follows the observed
-252 production rows: 300 and 900 fixture rows. The issue's 44,924 research figure was
-a planner estimate, not a measured row count.
+has approximately 60,000 article and 160,000 topic completions in a month, plus a
+recent article burst. Research histories contain 73,000 and 219,000 jobs. Exact
+read-only production counts at 10:05 UTC on 24 October 2026 were 92,598 articles,
+156,021 article jobs, 159,575 topic jobs and 67,014 research jobs; planner and live-tuple
+statistics are not exact population counts. The profiler records this comparison and
+requires every 100,000+ article fixture to cover production's total histories and
+qualifying 1/7/30-day counts for each job type. Smaller fixtures remain useful for
+checking the full benchmark lifecycle locally.
 
 For 1/7/30 UTC calendar-day windows, the tool checks exact result equality, alternating
 warm samples, fully parameterized custom/generic plans, aggregate group estimates,
 temporary writes and runtime with a noise allowance. It retains raw `EXPLAIN (ANALYZE,
-BUFFERS, SETTINGS)` plans at 4 MiB `work_mem`, JIT enabled and two parallel workers.
+BUFFERS, SETTINGS)` plans at 4 MiB `work_mem`, JIT enabled and up to two parallel workers.
 Concurrent ingestion inserts articles and starts/finishes jobs after the fixed report
 cutoff, preserving comparison results; samples report actual write overlap and latency.
 Reporting-thread CPU is recorded separately from elapsed time. On Linux cgroup v2,
