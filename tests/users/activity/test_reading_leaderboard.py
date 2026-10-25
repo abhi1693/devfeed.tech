@@ -73,19 +73,21 @@ def test_public_top_ten_uses_best_streak_and_distinct_days_with_safe_identity(re
     boards = response.json()
     streaks, days = boards["longest_streak"], boards["reading_days"]
     assert len(streaks) == len(days) == 10
-    assert [row["username"] for row in streaks] == [f"reader-{index:02}" for index in range(10)]
-    assert [row["username"] for row in days] == ["reader-11"] + [
+    assert [row["username"] for row in streaks] == [""] + [
         f"reader-{index:02}" for index in range(9)
+    ]
+    assert [row["username"] for row in days] == ["", "reader-11"] + [
+        f"reader-{index:02}" for index in range(8)
     ]
     for board in (streaks, days):
         assert len({row["username"] for row in board}) == 10
         assert [row["days"] for row in board] == sorted(
             (row["days"] for row in board), reverse=True
         )
-    assert [row["rank"] for row in streaks[:3]] == [1, 1, 3]
-    assert streaks[0]["days"] == 50  # Historical best survives an expired current streak.
-    assert days[0]["username"] == "reader-11" and days[0]["days"] == 200
-    assert set(streaks[0]) == {"username", "display_name", "avatar_url", "days", "rank"}
+    assert [row["rank"] for row in streaks[:4]] == [1, 2, 2, 4]
+    assert streaks[1]["days"] == 50  # Historical best survives an expired current streak.
+    assert days[1]["username"] == "reader-11" and days[1]["days"] == 200
+    assert set(streaks[0]) == {"username", "display_name", "avatar_url", "days", "rank", "position"}
     text = response.text
     for secret in ["private@example.test", "Private provider name", *map(str, identifiers)]:
         assert secret not in text
@@ -96,9 +98,10 @@ def test_public_top_ten_uses_best_streak_and_distinct_days_with_safe_identity(re
 def test_ties_at_cutoff_keep_ten_distinct_readers_and_global_own_rank(readers, database):
     client, _, identifiers = readers
     with database.begin() as session:
-        for account_id in identifiers[:12]:
+        for account_id in identifiers:
             streak = session.get(UserReadingStreak, account_id)
-            streak.longest_days = streak.total_days = 7
+            if streak:
+                streak.longest_days = streak.total_days = 7
 
     boards = client.get("/v1/user/leaderboard").json()
     for board in boards.values():
@@ -112,13 +115,13 @@ def test_ties_at_cutoff_keep_ten_distinct_readers_and_global_own_rank(readers, d
         assert rank["rank"] == 1
 
 
-def test_claiming_username_immediately_includes_active_reader_in_top_ten(readers, database):
+def test_claiming_username_preserves_existing_rank(readers, database):
     client, current, identifiers = readers
     current.user_id, current.subject = str(identifiers[13]), "reader-13"
-    assert client.get("/v1/user/leaderboard/me").json() == {
-        "longest_streak": None,
-        "reading_days": None,
-    }
+    assert all(
+        row["username"] == "" and row["rank"] == 1
+        for row in client.get("/v1/user/leaderboard/me").json().values()
+    )
     with database.begin() as session:
         session.get(UserAccount, identifiers[13]).username = "reader-13"
 
@@ -137,8 +140,8 @@ def test_own_rank_is_global_outside_top_ten_and_checks_identity(readers):
     response = client.get("/v1/user/leaderboard/me")
     assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
     own = response.json()
-    assert own["longest_streak"]["rank"] == 11
-    assert own["reading_days"]["rank"] == 12
+    assert own["longest_streak"]["rank"] == 12
+    assert own["reading_days"]["rank"] == 13
     assert own["longest_streak"]["username"] == "reader-10"
     current.subject = "wrong-owner"
     assert client.get("/v1/user/leaderboard/me").status_code == 401
@@ -161,16 +164,15 @@ def test_privacy_changes_and_deletion_immediately_remove_readers(readers, databa
     with database.begin() as session:
         account = session.get(UserAccount, identifiers[0])
         account.profile = {**account.profile, "visibility": {"public": True}}
-    assert client.get("/v1/user/leaderboard").json()["longest_streak"][0]["username"] == "reader-00"
+    assert client.get("/v1/user/leaderboard").json()["longest_streak"][1]["username"] == "reader-00"
 
 
 def test_empty_and_zero_activity_boards_and_unclaimed_own_rank(readers, database):
     client, current, identifiers = readers
     current.user_id, current.subject = str(identifiers[13]), "reader-13"
-    assert client.get("/v1/user/leaderboard/me").json() == {
-        "longest_streak": None,
-        "reading_days": None,
-    }
+    assert all(
+        row["username"] == "" for row in client.get("/v1/user/leaderboard/me").json().values()
+    )
     with database.begin() as session:
         for account_id in identifiers:
             streak = session.get(UserReadingStreak, account_id)
@@ -185,3 +187,25 @@ def test_public_read_does_not_require_authentication_and_own_rank_does(readers):
     assert client.get("/v1/user/leaderboard").status_code == 200
     # An unconfigured identity provider must not turn private ranks into a public read.
     assert client.get("/v1/user/leaderboard/me").status_code in {401, 503}
+
+
+def test_multiple_unclaimed_readers_keep_distinct_positions_and_private_accounts_hidden(
+    readers, database
+):
+    client, current, identifiers = readers
+    with database.begin() as session:
+        for index in (0, 1, 12):
+            session.get(UserAccount, identifiers[index]).username = None
+        session.get(UserAccount, identifiers[0]).profile = {}
+    current.user_id, current.subject = str(identifiers[1]), "reader-1"
+    boards = client.get("/v1/user/leaderboard").json()
+    own = client.get("/v1/user/leaderboard/me").json()
+    for metric, board in boards.items():
+        assert [row["position"] for row in board] == list(range(1, 11))
+        unclaimed = [row for row in board if row["username"] == ""]
+        assert len(unclaimed) == 3
+        assert own[metric] in unclaimed
+        assert sum(row["position"] == own[metric]["position"] for row in board) == 1
+        assert "Public reader 12" not in str(board)
+    assert any(row["display_name"] is None for row in boards["longest_streak"])
+    assert client.get("/v1/user/profiles/reader-00").status_code == 404

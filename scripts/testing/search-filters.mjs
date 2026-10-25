@@ -128,10 +128,11 @@ export async function checkSearchSecurity(page, target, { relayClick = false } =
     await page
       .getByRole("heading", { name: `Results for “${searchSecurityQuery}”`, exact: true })
       .waitFor();
-    const link = page.getByRole("link", { name: securityTitle, exact: true });
+    const articles = page.getByRole("region", { name: "Articles", exact: true });
+    const link = articles.getByRole("link", { name: securityTitle, exact: true });
     await link.waitFor();
     assert.equal(
-      await page.getByText(securityDescription, { exact: true }).innerText(),
+      await articles.getByText(securityDescription, { exact: true }).innerText(),
       securityDescription,
     );
     assert.equal(
