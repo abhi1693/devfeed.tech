@@ -1,6 +1,7 @@
 export type LeaderboardEntry = {
   rank: number;
-  username: string;
+  position: number;
+  username: string | null;
   display_name: string | null;
   avatar_url: string | null;
   days: number;

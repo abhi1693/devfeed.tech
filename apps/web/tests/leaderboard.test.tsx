@@ -12,11 +12,18 @@ const state = vi.hoisted(() => ({
   sessionRevision: 1,
 }));
 vi.mock("@/components/user-account", () => ({ useUser: () => state }));
-const reader = { rank: 1, username: "reader", display_name: "Reader", avatar_url: null, days: 21 };
+const reader = {
+  position: 1,
+  rank: 1,
+  username: "reader",
+  display_name: "Reader",
+  avatar_url: null,
+  days: 21,
+};
 const publicBoards = { longest_streak: [reader], reading_days: [{ ...reader, days: 63 }] };
 const ownRanks = {
-  longest_streak: { ...reader, rank: 15, username: "mine", days: 4 },
-  reading_days: { ...reader, rank: 12, username: "mine", days: 14 },
+  longest_streak: { ...reader, position: 15, rank: 15, username: "mine", days: 4 },
+  reading_days: { ...reader, position: 12, rank: 12, username: "mine", days: 14 },
 };
 const network = vi.fn();
 beforeEach(() => {
@@ -75,6 +82,7 @@ it.each([1, 10])(
     const entries = Array.from({ length: size }, (_, index) => ({
       ...reader,
       rank: index + 1,
+      position: index + 1,
       username: `reader-${index}`,
     }));
     const mine = entries[size - 1];
@@ -133,9 +141,10 @@ it("keeps the personal footer for a tied rank whose username is outside the disp
   state.user = { user_id: "mine" };
   const entries = Array.from({ length: 10 }, (_, index) => ({
     ...reader,
+    position: index + 1,
     username: `reader-${index}`,
   }));
-  const mine = { ...reader, username: "mine" };
+  const mine = { ...reader, position: 11, username: "mine" };
   network.mockImplementation((url: string) =>
     Promise.resolve(
       Response.json(
@@ -191,7 +200,8 @@ it("recovers a failed public read and distinguishes empty rankings from a failur
 });
 
 it.each([
-  { username: null, published: false, action: "Claim your username" },
+  { username: null, published: false, action: "Make your profile public" },
+  { username: null, published: true, action: "Start reading" },
   { username: "mine", published: false, action: "Make your profile public" },
   { username: "mine", published: true, action: "Start reading" },
 ])("offers $action for an unranked reader", async ({ username, published, action }) => {
@@ -241,3 +251,32 @@ function rankingName(name: string, rank: number, days: number, own: boolean) {
     `^#${rank.toLocaleString("en-US")}\\s*${name}${own ? "\\s*You" : ""}\\s*@.*${days}\\s*days$`,
   );
 }
+
+it("keeps unclaimed readers unlinked and highlights only the signed-in reader", async () => {
+  state.user = { user_id: "mine" };
+  const entries = [
+    { ...reader, position: 1, username: null, display_name: "Unclaimed reader" },
+    { ...reader, position: 2, username: null, display_name: null },
+  ];
+  network.mockImplementation((url: string) =>
+    Promise.resolve(
+      Response.json(
+        url.endsWith("/me")
+          ? { longest_streak: entries[1], reading_days: entries[1] }
+          : { longest_streak: entries, reading_days: entries },
+      ),
+    ),
+  );
+  render(<Leaderboard />);
+  await screen.findAllByText("You");
+  for (const title of ["Longest streak", "Most reading days"]) {
+    const board = screen.getByRole("region", { name: title });
+    const rows = within(board).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(within(board).queryByRole("link")).toBeNull();
+    expect(rows[0].textContent).toContain("Unclaimed reader");
+    expect(rows[0].textContent).not.toContain("You");
+    expect(rows[1].textContent).toContain("ReaderYou");
+    expect(within(board).queryByLabelText(`Your ${title.toLowerCase()} ranking`)).toBeNull();
+  }
+});
