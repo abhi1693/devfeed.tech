@@ -16,6 +16,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 - [#292](https://github.com/abhi1693/devfeed.tech/pull/292) - Preserve loaded articles, Columns scroll positions, open editors, and the reading-streak panel when returning to a browser tab on web, Chrome, and Edge.
 - [#303](https://github.com/abhi1693/devfeed.tech/pull/303) - Keep the reading position stable when opening and closing article previews, including delayed navigation in Edge.
 - [#306](https://github.com/abhi1693/devfeed.tech/pull/306) - Keep overview and blocker reports updating during continuous catalog refreshes, with explicit catching-up status and separate catalog progress.
+- [#308](https://github.com/abhi1693/devfeed.tech/pull/308) - Include public readers with recorded activity in both leaderboards before they claim a username, showing their display name or Reader fallback while keeping private accounts excluded.
 
 ### Upgrade Notes
 
