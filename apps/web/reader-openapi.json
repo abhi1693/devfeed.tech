@@ -1092,6 +1092,11 @@
             ],
             "title": "Display Name"
           },
+          "position": {
+            "minimum": 1.0,
+            "title": "Position",
+            "type": "integer"
+          },
           "rank": {
             "minimum": 1.0,
             "title": "Rank",
@@ -1104,6 +1109,7 @@
         },
         "required": [
           "rank",
+          "position",
           "username",
           "display_name",
           "avatar_url",

@@ -15,6 +15,7 @@ router = APIRouter(prefix="/v1/user/leaderboard", tags=["user-leaderboard"])
 
 class LeaderboardEntry(BaseModel):
     rank: int = Field(ge=1)
+    position: int = Field(ge=1)
     username: str
     display_name: str | None
     avatar_url: str | None
@@ -33,19 +34,21 @@ class MyReadingRanks(BaseModel):
 
 def ranked_readers(metric: InstrumentedAttribute[int]):
     # Missing visibility uses the same public default as profile settings.
-    # Tied totals share a competition rank; username makes the top ten deterministic.
+    # Ties share a competition rank; position identifies rows without exposing account IDs.
     return (
         select(
             UserAccount.id.label("user_id"),
-            UserAccount.username,
+            func.coalesce(UserAccount.username, "").label("username"),
             UserAccount.profile["display_name"].as_string().label("display_name"),
             UserAccount.profile["avatar_url"].as_string().label("avatar_url"),
             metric.label("days"),
+            func.row_number()
+            .over(order_by=(metric.desc(), UserAccount.username, UserAccount.id))
+            .label("position"),
             func.rank().over(order_by=metric.desc()).label("rank"),
         )
         .join(UserReadingStreak, UserReadingStreak.user_id == UserAccount.id)
         .where(
-            UserAccount.username.is_not(None),
             func.coalesce(UserAccount.profile["visibility"]["public"].as_boolean(), true()),
             metric > 0,
         )
@@ -55,7 +58,10 @@ def ranked_readers(metric: InstrumentedAttribute[int]):
 
 def entry(row):
     return LeaderboardEntry.model_validate(
-        {key: row[key] for key in ("rank", "username", "display_name", "avatar_url", "days")}
+        {
+            key: row[key]
+            for key in ("rank", "position", "username", "display_name", "avatar_url", "days")
+        }
     )
 
 
@@ -68,9 +74,7 @@ def leaderboard(session: DB, response: Response):
         ("reading_days", UserReadingStreak.total_days),
     ):
         ranked = ranked_readers(metric)
-        rows = session.execute(
-            select(ranked).order_by(ranked.c.days.desc(), ranked.c.username).limit(10)
-        ).mappings()
+        rows = session.execute(select(ranked).order_by(ranked.c.position).limit(10)).mappings()
         boards[key] = [entry(row) for row in rows]
     return ReadingLeaderboard.model_validate(boards)
 

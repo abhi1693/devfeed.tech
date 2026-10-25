@@ -18,8 +18,9 @@ export const leaderboardProfile = {
 };
 
 const rows = Array.from({ length: 10 }, (_, index) => ({
+  position: index + 1,
   rank: index < 2 ? 1 : index + 1,
-  username: index ? `reader-${index}` : leaderboardProfile.username,
+  username: index === 8 ? "" : index ? `reader-${index}` : leaderboardProfile.username,
   display_name:
     index === 9
       ? "A reader with a very long display name"
@@ -68,38 +69,44 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
     ownReads++;
     return route.fulfill({
       status: mode === "own-error" ? 503 : 200,
-      json: ["unclaimed", "empty"].includes(mode)
-        ? { longest_streak: null, reading_days: null }
-        : mode === "self-only"
-          ? {
-              longest_streak: sparseBoards.longest_streak[0],
-              reading_days: sparseBoards.reading_days[0],
-            }
-          : mode === "mixed"
-            ? {
-                longest_streak: boards.longest_streak[9],
-                reading_days: {
-                  ...mixedBoards.reading_days[0],
-                  username: "own-reader",
-                  display_name: "Your Reader",
-                },
-              }
-            : {
-                longest_streak: {
-                  ...rows[0],
-                  username: "own-reader",
-                  display_name: "Your Reader",
-                  rank: 1521,
-                  days: 12,
-                },
-                reading_days: {
-                  ...rows[0],
-                  username: "own-reader",
-                  display_name: "Your Reader",
-                  rank: 1420,
-                  days: 24,
-                },
-              },
+      json:
+        mode === "empty"
+          ? { longest_streak: null, reading_days: null }
+          : mode === "unclaimed"
+            ? { longest_streak: boards.longest_streak[8], reading_days: boards.reading_days[8] }
+            : mode === "self-only"
+              ? {
+                  longest_streak: sparseBoards.longest_streak[0],
+                  reading_days: sparseBoards.reading_days[0],
+                }
+              : mode === "mixed"
+                ? {
+                    longest_streak: boards.longest_streak[9],
+                    reading_days: {
+                      ...mixedBoards.reading_days[0],
+                      position: 1521,
+                      username: "own-reader",
+                      display_name: "Your Reader",
+                    },
+                  }
+                : {
+                    longest_streak: {
+                      ...rows[0],
+                      position: 1521,
+                      username: "own-reader",
+                      display_name: "Your Reader",
+                      rank: 1521,
+                      days: 12,
+                    },
+                    reading_days: {
+                      ...rows[0],
+                      position: 1521,
+                      username: "own-reader",
+                      display_name: "Your Reader",
+                      rank: 1420,
+                      days: 24,
+                    },
+                  },
     });
   };
   const profileRoute = (route) =>
@@ -120,6 +127,10 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
       .waitFor();
     assert.equal(await streaks.getByRole("listitem").count(), 10);
     assert.equal(await days.getByRole("listitem").count(), 10);
+    const unclaimed = streaks.getByRole("listitem").nth(8);
+    assert.ok((await unclaimed.textContent()).includes("Reader 8"));
+    assert.equal(await unclaimed.getByRole("link").count(), 0);
+    assert.equal(await unclaimed.locator("[tabindex]").count(), 0);
     const headingIcons = page.locator("main h1 svg, main h2 svg");
     await page.emulateMedia({ reducedMotion: "no-preference" });
     assert.ok(
@@ -293,7 +304,11 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
       assert.equal(await streaks.getByRole("listitem").count(), 10);
       mode = "unclaimed";
       await streaks.getByRole("button", { name: "Retry your ranking" }).click();
-      await streaks.getByRole("link", { name: "Claim your username", exact: true }).waitFor();
+      for (const board of [streaks, days]) {
+        await board.getByRole("listitem").nth(8).locator('[data-own="true"]').waitFor();
+        assert.equal(await board.getByRole("listitem").nth(8).getByRole("link").count(), 0);
+        assert.equal(await board.locator("footer").count(), 0);
+      }
     }
   } finally {
     await page.unroute("**/api/v1/leaderboard", publicRoute);

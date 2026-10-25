@@ -99,7 +99,7 @@ export function Leaderboard() {
           {boards.map(({ key, title, Icon }) => {
             const entries = current.value![key];
             const mine = own?.value?.[key];
-            const ownRankListed = entries.some((entry) => entry.username === mine?.username);
+            const ownRankListed = entries.some((entry) => entry.position === mine?.position);
             return (
               <section key={key} className={styles.board} aria-label={title} data-metric={key}>
                 <header>
@@ -111,8 +111,8 @@ export function Leaderboard() {
                 {entries.length ? (
                   <ol className={styles.list} aria-label={`${title} rankings`}>
                     {entries.map((entry) => (
-                      <li key={entry.username}>
-                        <RankingRow entry={entry} own={mine?.username === entry.username} />
+                      <li key={entry.position}>
+                        <RankingRow entry={entry} own={mine?.position === entry.position} />
                       </li>
                     ))}
                   </ol>
@@ -138,17 +138,15 @@ export function Leaderboard() {
                       <p role="status">Loading your ranking…</p>
                     ) : mine ? (
                       <RankingRow entry={mine} own />
-                    ) : profile?.username && profile.visibility?.public ? (
+                    ) : profile && profile.visibility?.public !== false ? (
                       <Link className={styles.action} href="/latest">
                         Start reading
                       </Link>
                     ) : (
                       <Link className={styles.action} href="/settings/profile">
-                        {profileUnavailable
+                        {profileUnavailable || !profile
                           ? "Review your profile"
-                          : profile?.username
-                            ? "Make your profile public"
-                            : "Claim your username"}
+                          : "Make your profile public"}
                       </Link>
                     )}
                   </footer>
@@ -163,13 +161,9 @@ export function Leaderboard() {
 }
 
 function RankingRow({ entry, own = false }: { entry: LeaderboardEntry; own?: boolean }) {
-  const name = entry.display_name || entry.username;
-  return (
-    <Link
-      className={styles.row}
-      href={`/users/${encodeURIComponent(entry.username)}`}
-      data-own={own}
-    >
+  const name = entry.display_name || entry.username || "Reader";
+  const content = (
+    <>
       <span className={styles.rank} data-podium={entry.rank <= 3 ? entry.rank : undefined}>
         {entry.rank <= 3 ? <Medal size={20} aria-hidden="true" /> : null}
         <span>#{entry.rank.toLocaleString("en-US")}</span>
@@ -180,12 +174,25 @@ function RankingRow({ entry, own = false }: { entry: LeaderboardEntry; own?: boo
           {name}
           {own && <small>You</small>}
         </strong>
-        <span>@{entry.username}</span>
+        {entry.username && <span>@{entry.username}</span>}
       </span>
       <span className={styles.score}>
         {entry.days.toLocaleString("en-US")}
         <small>{entry.days === 1 ? "day" : "days"}</small>
       </span>
+    </>
+  );
+  return entry.username ? (
+    <Link
+      className={styles.row}
+      href={`/users/${encodeURIComponent(entry.username)}`}
+      data-own={own}
+    >
+      {content}
     </Link>
+  ) : (
+    <div className={styles.row} data-own={own}>
+      {content}
+    </div>
   );
 }

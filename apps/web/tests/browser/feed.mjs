@@ -2126,6 +2126,39 @@ test("reader sidebar persists and adapts to the viewport", { timeout: 180000 }, 
   );
 });
 
+test(
+  "leaderboard includes unclaimed readers without profile links",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    await withReaderPage(browser, async (page) => {
+      await page.goto(`${origin}/latest`);
+      await page.locator(".article-card").first().waitFor();
+      await mkdir(`${root}/reports/reader-feed`, { recursive: true });
+      await checkLeaderboard(page, `${root}/reports/reader-feed/leaderboard-unclaimed`);
+    });
+  },
+);
+
+test("search security checks use visible article results", { timeout: 180000 }, async (t) => {
+  const { browser, origin } = await createReaderFixture(t);
+  await withReaderPage(browser, async (page) => {
+    const description = searchFixture(searchSecurityQuery).sections.articles.items[0].description;
+    await page.addInitScript((text) => {
+      document.addEventListener("DOMContentLoaded", () => {
+        const retained = document.createElement("p");
+        retained.hidden = true;
+        retained.textContent = text;
+        document.body.append(retained);
+      });
+    }, description);
+    await checkSearchSecurity(
+      page,
+      `${origin}/search?${new URLSearchParams({ q: searchSecurityQuery })}`,
+    );
+  });
+});
+
 test("reader journey works at desktop and mobile sizes", { timeout: 360000 }, async (t) => {
   const { runJourney } = await createReaderFixture(t);
   await runJourney();
