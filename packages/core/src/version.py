@@ -6,8 +6,8 @@ __version__ = version("devfeed-core")
 
 # Schema revisions are not application versions. Advance this when adding a
 # migration required by this application; never change an existing migration.
-SCHEMA_REVISION = "0036"
+SCHEMA_REVISION = "0037"
 
-# Pipeline publication requires the scheduler clock capture in 0035, and topic
-# decision reports require the indexed call facts introduced in 0036.
+# Retention maintenance requires the durable checkpoints added after the scheduler
+# clock and indexed topic decision facts in 0035 and 0036.
 BACKWARD_COMPATIBLE_SCHEMA_REVISIONS: frozenset[str] = frozenset()

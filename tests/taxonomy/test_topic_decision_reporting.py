@@ -24,6 +24,7 @@ from devfeed_core.models import (
 )
 from devfeed_core.read_models import set_state
 from devfeed_core.topic_decision_metrics import decision_metrics
+from devfeed_core.version import SCHEMA_REVISION
 from sqlalchemy import delete, event, text
 
 from tests.support.paths import REPO_ROOT
@@ -688,7 +689,9 @@ def test_topic_migration_round_trip_keeps_scheduler_clock_capture_and_source_his
             assert card.evaluated_at == START
         command.upgrade(config, "head")
         with database.begin() as session:
-            assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0036"
+            assert (
+                session.scalar(text("SELECT version_num FROM alembic_version")) == SCHEMA_REVISION
+            )
             assert facts(session, proposal_id) == expected_facts
             assert session.get(TopicDecisionRun, proposal_id).state == source_state
             assert session.execute(capture_sql).all() == retained_triggers

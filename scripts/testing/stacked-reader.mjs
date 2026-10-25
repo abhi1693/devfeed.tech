@@ -508,7 +508,8 @@ export async function settleStackedTouchScroll(page) {
 export async function checkStackedTouchReader(page, target, output) {
   await page.setViewportSize({ width: 320, height: 1000 });
   await page.goto(target);
-  await setArticleView(page, "stacked", { returnTo: target });
+  // Keep setup from injecting mouse input into the native-touch context.
+  await setArticleView(page, "stacked", { returnTo: target, keyboard: true });
   const firstRow = page.locator(".article-stacked-row:visible").first();
   await firstRow.waitFor();
   assert.ok(
@@ -570,7 +571,8 @@ export async function checkStackedTouchReader(page, target, output) {
       );
     if (output) {
       await mkdir(dirname(output), { recursive: true });
-      // Preserve the measured viewport while capturing the controls used below.
+      // Full-page Chromium capture makes Playwright reapply touch emulation.
+      // Keep the artifact inside the viewport without changing the input under test.
       await page.screenshot({
         path: `${output}-320-touch.png`,
         animations: "disabled",

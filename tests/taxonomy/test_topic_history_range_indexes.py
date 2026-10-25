@@ -31,6 +31,19 @@ def test_latest_old_payload_stays_protected_with_bounded_newer_probe(database):
                     input_snapshot={"record": index},
                 )
                 for index in range(2000)
+            ]
+            + [
+                dict(
+                    topic_id=topic.id,
+                    input_hash="a" * 64,
+                    requested_by={},
+                    prompt_version="test",
+                    status="failed",
+                    created_at=now - timedelta(days=100) + timedelta(seconds=2000 + index),
+                    finished_at=now - timedelta(days=99),
+                    input_snapshot={"failed_record": index},
+                )
+                for index in range(2000)
             ],
         )
     statements = []
@@ -38,7 +51,7 @@ def test_latest_old_payload_stays_protected_with_bounded_newer_probe(database):
         engine = session.get_bind()
 
     def capture(conn, cursor, statement, parameters, context, executemany):
-        if "FROM topic_analysis_jobs" in statement and "FOR UPDATE SKIP LOCKED" in statement:
+        if "FROM topic_analysis_jobs" in statement and "newer" in statement:
             statements.append((statement, parameters))
 
     event.listen(engine, "before_cursor_execute", capture)
@@ -65,13 +78,15 @@ def test_latest_old_payload_stays_protected_with_bounded_newer_probe(database):
                 "EXPLAIN(ANALYZE,BUFFERS,FORMAT JSON) " + statement, parameters
             ).scalar()[0]
             for target in ("topic_id", "proposal_id"):
-                connection.exec_driver_sql(f"DROP INDEX ix_topic_analysis_{target}_newer")
+                connection.exec_driver_sql(
+                    f"DROP INDEX ix_topic_analysis_jobs_{target}_retained_success"
+                )
             before = connection.exec_driver_sql(
                 "EXPLAIN(ANALYZE,BUFFERS,FORMAT JSON) " + statement, parameters
             ).scalar()[0]
         finally:
             transaction.rollback()
-    assert visited(after["Plan"]) < 20
+    assert visited(after["Plan"]) < 20, after
     assert visited(before["Plan"]) >= 2000
     print(
         {
