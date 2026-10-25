@@ -153,6 +153,12 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
   await page.route("**/api/v1/user/leaderboard/me", ownRoute);
   await page.route("**/api/v1/users/leader-reader", profileRoute);
   await page.route("**/api/v1/user/settings/profile", accountProfileRoute);
+  const reload = async () => {
+    await page.reload();
+    // Restoring a signed-in session replaces the guest subtree. Check rows
+    // after that remount so assertions cannot observe the loading state.
+    if (signedIn) await page.getByRole("button", { name: /^User menu:/ }).waitFor();
+  };
   try {
     await page.setViewportSize({ width: 1440, height: 1100 });
     await page.locator(".sidebar").getByRole("link", { name: "Leaderboard", exact: true }).click();
@@ -285,7 +291,7 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
     await page.goto(`${base}/leaderboard`);
     await streaks.getByRole("listitem").first().waitFor();
     mode = "sparse";
-    await page.reload();
+    await reload();
     for (const board of [streaks, days]) {
       await board
         .getByRole("link", { name: /Leading Reader/ })
@@ -300,7 +306,7 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
     }
     await page.screenshot({ path: `${prefix}-sparse.png`, fullPage: true });
     mode = "legacy";
-    await page.reload();
+    await reload();
     for (const board of [streaks, days]) {
       await board.getByRole("link", { name: /handle-only/ }).waitFor();
       assert.equal(
@@ -321,7 +327,7 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
     }
     if (signedIn) {
       mode = "anonymous-own";
-      await page.reload();
+      await reload();
       for (const board of [streaks, days]) {
         const setName = board.getByRole("link", { name: "Set your display name", exact: true });
         await setName.waitFor();
@@ -334,7 +340,7 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
         assert.equal(await board.getByText("Reader", { exact: true }).count(), 0);
       }
       mode = "self-only";
-      await page.reload();
+      await reload();
       await streaks
         .getByRole("link", { name: rankingName("Leading Reader", 1, 365, true), exact: true })
         .waitFor();
@@ -355,7 +361,7 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
       await page.screenshot({ path: `${prefix}-self-only-320.png`, fullPage: true });
       await page.setViewportSize({ width: 1440, height: 1100 });
       mode = "mixed";
-      await page.reload();
+      await reload();
       await streaks
         .getByRole("link", {
           name: rankingName("A reader with a very long display name", 10, 275, true),
@@ -373,11 +379,7 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
       assert.equal(await days.locator('ol a[data-own="true"]').count(), 0);
     }
     mode = "public-error";
-    await page.reload();
-    // Restoring the account replaces the guest subtree. Wait for that remount
-    // before changing the fixture, or its second request can remove the retry
-    // button before Playwright clicks it.
-    if (signedIn) await page.getByRole("button", { name: /^User menu:/ }).waitFor();
+    await reload();
     await page.getByRole("heading", { name: "Leaderboard unavailable" }).waitFor();
     mode = "empty";
     await page.getByRole("button", { name: "Try again", exact: true }).click();
@@ -385,7 +387,7 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
     await page.screenshot({ path: `${prefix}-empty.png`, fullPage: true });
     if (signedIn) {
       mode = "own-error";
-      await page.reload();
+      await reload();
       await streaks.getByRole("button", { name: "Retry your ranking", exact: true }).waitFor();
       assert.equal(await streaks.getByRole("listitem").count(), 10);
       mode = "unclaimed";
