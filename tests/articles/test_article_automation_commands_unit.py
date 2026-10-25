@@ -195,6 +195,74 @@ def test_due_lane_reservations_are_fair_bounded_and_work_conserving(
         assert automation._single_candidate_foreground != prefer_foreground
 
 
+@pytest.mark.parametrize(
+    "prefer_foreground,pages,expected",
+    [
+        (True, [[1, 2], [3, 4]], [1, 3, 2, 4]),
+        (False, [[1, 2], [3, 4]], [3, 1, 4, 2]),
+        (True, [[1], [2, 3], [4]], [1, 2, 3, 4]),
+        (True, [[1, 2], [2, 3], [4]], [1, 3, 2, 4]),
+    ],
+)
+def test_budgeted_due_lanes_interleave_ordered_reservations_without_duplicate_observations(
+    monkeypatch, prefer_foreground, pages, expected
+):
+    from devfeed_core.models import Article
+    from sqlalchemy import select
+
+    session = Mock()
+    session.execute.side_effect = [
+        SimpleNamespace(all=lambda page=page: [(value, True, True) for value in page])
+        for page in pages
+    ]
+    monkeypatch.setattr(automation, "_single_candidate_foreground", prefer_foreground)
+    selected = automation._bounded_due_candidates(session, select(Article.id), 4, interleave=True)
+    assert [row[0] for row in selected] == expected
+    assert len({row[0] for row in selected}) == len(selected) <= 4
+    assert automation._single_candidate_foreground is not prefer_foreground
+
+
+@pytest.mark.parametrize("override,wakes,expected", [(None, True, 7), (3, True, 3), (3, False, 3)])
+def test_article_override_inherits_global_or_changes_only_article_selection(
+    runtime, monkeypatch, override, wakes, expected
+):
+    runtime.settings = runtime.settings.model_copy(
+        update={
+            "automation_batch_size": 7,
+            "article_automation_batch_size": override,
+            "automation_dependency_wakes_enabled": wakes,
+        }
+    )
+    clock = Mock(return_value=0)
+    monkeypatch.setattr(automation, "monotonic", clock)
+    selector = Mock(return_value=[(runtime.article.id, True, True)])
+    monkeypatch.setattr(automation, "_bounded_due_candidates", selector)
+    assert run(runtime)["articles_checked"] == 1
+    assert runtime.settings.automation_batch_size == 7
+    if wakes:
+        assert selector.call_args.args[2] == expected
+        assert selector.call_args.args[1]._limit_clause.value == expected
+        assert selector.call_args.kwargs["interleave"] is (override is not None)
+    else:
+        selector.assert_not_called()
+        assert runtime.read.scalars.call_args.args[0]._limit_clause.value == expected
+    assert clock.call_count == (2 if override is not None and wakes else 0)
+
+
+def test_expired_article_budget_does_not_prepare_lock_or_acknowledge_unprocessed_demand(
+    runtime, monkeypatch
+):
+    runtime.settings = runtime.settings.model_copy(update={"article_automation_batch_size": 3})
+    before = runtime.article.automation_next_check_at
+    prepare = Mock(side_effect=AssertionError("Expired budget cannot start candidate preparation"))
+    monkeypatch.setattr(automation, "_prepare_article_candidates", prepare)
+    monkeypatch.setattr(automation, "monotonic", Mock(side_effect=[0, 40]))
+    assert run(runtime)["articles_checked"] == 0
+    prepare.assert_not_called()
+    runtime.factory.begin.assert_not_called()
+    assert runtime.article.automation_next_check_at == before <= runtime.now
+
+
 def test_current_ready_analysis_passes_evaluation_and_counts_successful_publication(runtime):
     assert derive_processing_readiness(runtime.article, **runtime.facts).stage == "review"
     assert publication_blockers(runtime.article) == ["not_approved"]
@@ -781,7 +849,7 @@ def test_incomplete_current_analysis_waits_for_matching_topic_work_without_rejec
 
 
 def test_source_admission_passes_the_configured_batch_budget_to_review_scheduling(monkeypatch):
-    settings = configuration(automation_batch_size=7)
+    settings = configuration(automation_batch_size=7, article_automation_batch_size=250)
     monkeypatch.setattr(article_automation, "get_settings", lambda: settings)
     schedule = Mock(return_value=3)
     monkeypatch.setattr(source_relevance, "schedule_pending_reviews", schedule)

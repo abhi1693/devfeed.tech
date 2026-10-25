@@ -38,9 +38,9 @@ MAINTENANCE_WAIT_REASONS = (
 )
 
 
-def workload_environment(database_url, redis_url):
+def workload_environment(database_url, redis_url, article_batch_size=None):
     """Run AI admission and automation; only inference execution stays absent."""
-    return {
+    values = {
         "DEVFEED_DATABASE_URL": database_url,
         "DEVFEED_READ_MODEL_DATABASE_URL": database_url,
         "DEVFEED_REDIS_URL": redis_url,
@@ -51,10 +51,38 @@ def workload_environment(database_url, redis_url):
         "DEVFEED_CODEX_MODEL": "benchmark",
         "DEVFEED_CODEX_AUTH_TOKEN": "",
         "DEVFEED_AI_QUOTA_PACING_ENABLED": "false",
+        "DEVFEED_AUTOMATION_BATCH_SIZE": "50",
+        "DEVFEED_AUTOMATION_DEPENDENCY_WAKES_ENABLED": "true",
+        "DEVFEED_ARTICLE_AUTOMATION_CYCLE_SECONDS": "40",
         "DEVFEED_IMAGE_STORAGE_ENABLED": "false",
         "DEVFEED_NOTIFICATIONS_ENABLED": "false",
         "DEVFEED_METRICS_ENABLED": "false",
         "DEVFEED_OTLP_ENDPOINT": "",
+    }
+    if article_batch_size is not None:
+        values["DEVFEED_ARTICLE_AUTOMATION_BATCH_SIZE"] = str(article_batch_size)
+    return values
+
+
+def scheduler_configuration(settings):
+    article_batch = getattr(settings, "article_automation_batch_size", None)
+    wakes = getattr(settings, "automation_dependency_wakes_enabled", False)
+    return {
+        "ai_enabled": settings.ai_enabled,
+        "full_automation": settings.full_automation,
+        "ai_quota_pacing_enabled": settings.ai_quota_pacing_enabled,
+        "codex_endpoint": settings.codex_app_server_url,
+        "codex_model": settings.codex_model,
+        "provider_workers_started": False,
+        "automation_batch_size": settings.automation_batch_size,
+        "article_automation_batch_size": article_batch,
+        "article_automation_effective_batch_size": article_batch or settings.automation_batch_size,
+        "article_automation_cycle_seconds": (
+            getattr(settings, "article_automation_cycle_seconds", None)
+            if article_batch is not None and wakes
+            else None
+        ),
+        "automation_dependency_wakes_enabled": wakes,
     }
 
 
@@ -81,6 +109,10 @@ def worker(kind, log_path):
     with open(log_path, "a", encoding="utf-8") as stream:
         os.dup2(stream.fileno(), 1)
         os.dup2(stream.fileno(), 2)
+        from devfeed_core.config import Settings, get_settings
+
+        Settings.model_config = dict(Settings.model_config, env_file=None)
+        get_settings.cache_clear()
         if kind == "scheduler":
             from devfeed_aggregator.scheduler import run
 
@@ -450,10 +482,14 @@ def automation_backlog(session, now):
     if invalidation is None:
         return result
     progress = func.coalesce(invalidation.progressed_at, invalidation.requested_at)
+    foreground_demand = or_(invalidation.source_id.is_not(None), invalidation.key.like("article:%"))
+    tag_id = getattr(invalidation, "tag_id", None)
+    if tag_id is not None:
+        foreground_demand = or_(foreground_demand, tag_id.is_not(None))
     columns = [func.count().label("automation_invalidations")]
     for lane, condition in (
-        ("foreground", invalidation.source_id.is_not(None)),
-        ("maintenance", invalidation.source_id.is_(None)),
+        ("foreground", foreground_demand),
+        ("maintenance", ~foreground_demand),
     ):
         columns.extend(
             [
@@ -471,20 +507,21 @@ def automation_backlog(session, now):
             timestamp = values.pop(lane + "_" + suffix)
             result[key] = max(0, (now - timestamp).total_seconds()) if timestamp else 0
     result.update(values)
+    cursor_columns = [
+        invalidation.key,
+        invalidation.source_id,
+        invalidation.revision,
+        invalidation.scan_revision,
+        invalidation.after_article_id,
+        invalidation.requested_at,
+        invalidation.progressed_at,
+    ]
+    if tag_id is not None:
+        cursor_columns.append(tag_id)
     result["automation_invalidation_progress"] = [
         dict(row)
         for row in session.execute(
-            select(
-                invalidation.key,
-                invalidation.source_id,
-                invalidation.revision,
-                invalidation.scan_revision,
-                invalidation.after_article_id,
-                invalidation.requested_at,
-                invalidation.progressed_at,
-            )
-            .order_by(invalidation.key)
-            .limit(100)
+            select(*cursor_columns).order_by(invalidation.key).limit(100)
         ).mappings()
     ]
     return result
@@ -514,6 +551,17 @@ def convergence_lanes(state):
     return {"foreground": foreground, "maintenance": maintenance}
 
 
+def observe_convergence(state, completed_at, elapsed):
+    """Only the final uninterrupted empty interval satisfies a lane's deadline."""
+    lanes = convergence_lanes(state)
+    for lane, empty in lanes.items():
+        if not empty:
+            completed_at[lane] = None
+        elif completed_at[lane] is None:
+            completed_at[lane] = elapsed
+    return lanes
+
+
 def convergence_outcome(state, completed_at, limits):
     lanes = convergence_lanes(state)
     results = {
@@ -522,7 +570,7 @@ def convergence_outcome(state, completed_at, limits):
             and completed_at[lane] is not None
             and completed_at[lane] <= limit,
             "limit_seconds": limit,
-            "first_empty_seconds": completed_at[lane],
+            "cleared_at_seconds": completed_at[lane],
             "final_empty": lanes[lane],
         }
         for lane, limit in limits.items()
@@ -584,7 +632,9 @@ def touch_reports(factory):
 
     now = datetime.now(UTC)
     with factory.begin() as session:
-        for group in reports.REPORT_GROUPS:
+        # The publisher seeds the same refresh keys in lexical order. Multi-key
+        # demand transactions must match that order to avoid insert deadlocks.
+        for group in sorted(reports.REPORT_GROUPS):
             for days in (7, 30, 90):
                 touch = getattr(reports, "touch_report_demand", None)
                 if touch is not None:
@@ -788,6 +838,7 @@ def main():
     parser.add_argument("--warmup-seconds", type=int, default=900)
     parser.add_argument("--interval-seconds", type=float, default=5)
     parser.add_argument("--ingest-per-interval", type=int, default=5)
+    parser.add_argument("--article-batch-size", type=int)
     parser.add_argument("--sql-seconds-per-minute", type=float, required=True)
     parser.add_argument("--buffers-per-minute", type=float, required=True)
     parser.add_argument("--wal-bytes-per-minute", type=float, required=True)
@@ -806,6 +857,8 @@ def main():
             os.environ["DEVFEED_TEST_DATABASE_URL"], os.environ["DEVFEED_TEST_REDIS_URL"]
         )
         counts = fixture.fixture_counts(args.scale)
+        if args.article_batch_size is not None and not 1 <= args.article_batch_size <= 500:
+            raise ValueError("Article batch size must be 1..500")
         if not 128 <= args.history_bytes <= 65536 or not 1 <= args.ingest_per_interval <= 100:
             raise ValueError("Invalid history size or ingest count")
         if any(
@@ -843,9 +896,12 @@ def main():
         parser.error(str(error))
     os.environ.update(fixture.AUTH_ENV)
     os.environ.update(fixture.ISOLATED_ENV)
+    os.environ.pop("DEVFEED_ARTICLE_AUTOMATION_BATCH_SIZE", None)
     os.environ.update(
         workload_environment(
-            url.render_as_string(hide_password=False), os.environ["DEVFEED_TEST_REDIS_URL"]
+            url.render_as_string(hide_password=False),
+            os.environ["DEVFEED_TEST_REDIS_URL"],
+            args.article_batch_size,
         )
     )
     from devfeed_core.config import Settings, get_settings
@@ -864,14 +920,7 @@ def main():
         "phases": [],
         "workload": vars(args),
         "qualification": "smoke",
-        "scheduler_configuration": {
-            "ai_enabled": get_settings().ai_enabled,
-            "full_automation": get_settings().full_automation,
-            "ai_quota_pacing_enabled": get_settings().ai_quota_pacing_enabled,
-            "codex_endpoint": get_settings().codex_app_server_url,
-            "codex_model": get_settings().codex_model,
-            "provider_workers_started": False,
-        },
+        "scheduler_configuration": scheduler_configuration(get_settings()),
         "scope": "Production scheduler/publisher loops with concurrent synthetic ingestion and "
         "authenticated ASGI admin/partner readers; no external fetching/inference workers, "
         "OIDC exchange, PgBouncer/proxies or browsers. CPU covers scheduler, publishers and "
@@ -1064,10 +1113,7 @@ def main():
         while True:
             state = backlog(factory)
             elapsed = time.monotonic() - drain_started
-            lanes = convergence_lanes(state)
-            for lane, empty in lanes.items():
-                if empty and completed_at[lane] is None:
-                    completed_at[lane] = elapsed
+            lanes = observe_convergence(state, completed_at, elapsed)
             if all(lanes.values()) and elapsed >= min(5, drain_limit):
                 converged = True
                 break

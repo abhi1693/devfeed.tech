@@ -397,6 +397,10 @@ def test_correction_wal_measurement_includes_after_triggers_and_rolls_back(datab
 def committed_fixture_snapshot(session):
     return {
         **fixture_snapshot(session),
+        "reporting_changes": session.execute(
+            text("""SELECT kind,entity_id,generation,created_at FROM reporting_dirty
+            ORDER BY kind,entity_id""")
+        ).all(),
         "table_counts": {
             table.name: session.scalar(text(f'SELECT count(*) FROM "{table.name}"'))
             for table in profile.models.Base.metadata.sorted_tables

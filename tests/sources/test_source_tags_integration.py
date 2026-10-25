@@ -1,3 +1,4 @@
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
@@ -16,10 +17,12 @@ from devfeed_core.models import (
     ArticleTag,
     Source,
     Tag,
+    Topic,
     utcnow,
 )
 from devfeed_core.source_tags import attach_source_tags, resolve_source_tags
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, event, func, select
+from sqlalchemy.orm import Session
 
 pytestmark = pytest.mark.integration
 
@@ -125,6 +128,97 @@ def test_ingestion_imports_explicit_tags_and_reuses_names_and_aliases(
     with database() as session:
         assert session.scalar(select(func.count()).select_from(Tag)) == 4
         assert session.scalar(select(func.count()).select_from(ArticleTag)) == 4
+
+
+@pytest.mark.parametrize("mode", ["enabled-ai", "duplicate", "manual", "ai", "heuristic"])
+def test_ingestion_loads_full_catalog_only_for_actual_heuristic_classification(
+    database, monkeypatch, mode
+):
+    from devfeed_core.feeds.parser import ParsedFeed
+    from devfeed_core.urls import fingerprint
+
+    source_id = source(database)
+    entries = [
+        feed(["Supplied"], path=str(index), title="Python runtime PostgreSQL engineering").entries[
+            0
+        ]
+        for index in range(2)
+    ]
+    parsed = ParsedFeed(entries, 2, 0)
+    with database.begin() as session:
+        session.add_all(
+            [
+                Topic(
+                    name="Python",
+                    slug="python",
+                    kind="language",
+                    status="active",
+                    keywords=["runtime"],
+                ),
+                Topic(
+                    name="Old runtime",
+                    slug="old-runtime",
+                    kind="language",
+                    status="rejected",
+                    keywords=["runtime"],
+                ),
+                Tag(name="PostgreSQL", slug="postgresql", aliases=[]),
+                Tag(name="Supplied", slug="supplied", aliases=[]),
+            ]
+        )
+        if mode in {"manual", "ai"}:
+            session.add_all(
+                Article(
+                    canonical_url=entry.canonical_url,
+                    url_hash=fingerprint(entry.canonical_url),
+                    title=entry.title,
+                    summary=entry.summary,
+                    metadata_source_type="publisher",
+                    classification_provenance={"origin": mode},
+                )
+                for entry in entries
+            )
+    if mode == "duplicate":
+        monkeypatch.setenv("DEVFEED_AI_ENABLED", "true")
+        get_settings.cache_clear()
+        with database.begin() as session:
+            assert tasks.store_entries(session, source_id, parsed) == 2
+    monkeypatch.setenv("DEVFEED_AI_ENABLED", str(mode == "enabled-ai").lower())
+    get_settings.cache_clear()
+    loads = Counter()
+
+    def observe(statement):
+        if statement.is_select:
+            for column in statement.statement.column_descriptions:
+                for model in (Topic, Tag):
+                    if column["expr"] is model:
+                        loads[model.__name__] += 1
+
+    event.listen(Session, "do_orm_execute", observe)
+    try:
+        with database.begin() as session:
+            assert tasks.store_entries(session, source_id, parsed) == (
+                2 if mode in {"enabled-ai", "heuristic"} else 0
+            )
+    finally:
+        event.remove(Session, "do_orm_execute", observe)
+    assert loads == (Counter(Topic=1, Tag=1) if mode == "heuristic" else Counter())
+    with database() as session:
+        articles = session.scalars(select(Article)).all()
+        assert len(articles) == 2
+        for article in articles:
+            assert {link.topic.slug for link in article.topic_links} == (
+                {"python"} if mode == "heuristic" else set()
+            )
+            assert {tag.slug for tag in article.tags} == (
+                {"supplied", "postgresql"}
+                if mode == "heuristic"
+                else set()
+                if mode == "manual"
+                else {"supplied"}
+            )
+            if mode in {"manual", "ai"}:
+                assert article.classification_provenance == {"origin": mode}
 
 
 def test_repeated_fetch_restores_old_missing_tags_without_recreating_or_reclassifying_articles(

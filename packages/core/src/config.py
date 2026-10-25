@@ -214,6 +214,8 @@ class Settings(BaseSettings):
     job_payload_sweep_interval_seconds: int = Field(default=3600, ge=60, le=86400)
 
     automation_batch_size: int = Field(default=50, ge=1, le=500)
+    article_automation_batch_size: int | None = Field(default=None, ge=1, le=500)
+    article_automation_cycle_seconds: float = Field(default=40, gt=0, le=60)
     ai_compact_article_prompts: bool = False
     # Opt in after a reviewed workflow benchmark; legacy deployments stay stable.
     ai_tiered_routing_enabled: bool = False

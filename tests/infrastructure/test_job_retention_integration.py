@@ -501,13 +501,16 @@ def test_migration_retry_repairs_an_invalid_concurrent_index_and_preserves_check
     config = Config(str(REPO_ROOT / "alembic.ini"))
     index_name = "ix_article_analysis_jobs_article_id_retained_success"
     engine = database.kw["bind"]
+    # Current ORM inserts require the head schema; the history itself must
+    # survive the downgrade and make the interrupted unique build fail.
+    with database.begin() as session:
+        history(session, retention)
     try:
         command.downgrade(config, "0036")
         # Simulate DDL committed by an interrupted concurrent-index migration.
         JobPayloadRetention.__table__.create(engine)
         checkpoint_id = uuid.uuid4()
         with database.begin() as session:
-            history(session, retention)
             session.add(
                 JobPayloadRetention(
                     kind="article",

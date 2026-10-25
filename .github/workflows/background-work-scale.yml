@@ -102,6 +102,7 @@ jobs:
           PROFILE_SCALE: ${{ matrix.scale }}
         run: |
           .venv/bin/python scripts/profile_background_work.py --seed --scale "$PROFILE_SCALE" \
+            --article-batch-size 250 \
             --require-native-arm64 --isolated-database-cluster \
             --sql-seconds-per-minute 60 --buffers-per-minute 10000000 \
             --wal-bytes-per-minute 67108864 --output ../reports/result.json

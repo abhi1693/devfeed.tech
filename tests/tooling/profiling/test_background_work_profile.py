@@ -4,12 +4,15 @@ import copy
 import importlib.util
 import json
 import sys
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from sqlalchemy import Column, DateTime, Integer, MetaData, String, Table, create_engine
+from sqlalchemy.orm import Session
 
 from tests.support.paths import REPO_ROOT
 
@@ -42,6 +45,7 @@ def phase():
             "total_exec_time": 1000,
             "shared_blks_hit": 100,
             "shared_blks_read": 10,
+            "temp_blks_written": 0,
             "wal_bytes": 1000,
         },
         "backlog": {
@@ -153,6 +157,106 @@ def test_actual_ai_automation_is_enabled_while_quota_provider_rpcs_stay_disabled
     provider.assert_not_called()
 
 
+def test_article_capacity_argument_pins_other_budgets_and_records_actual_runtime_configuration(
+    monkeypatch,
+):
+    from devfeed_core.config import Settings
+
+    monkeypatch.setenv("DEVFEED_AUTOMATION_BATCH_SIZE", "500")
+    monkeypatch.setenv("DEVFEED_ARTICLE_AUTOMATION_CYCLE_SECONDS", "60")
+    for key, value in profile.workload_environment(
+        "postgresql+psycopg://test@127.0.0.1/profile_test", "redis://127.0.0.1/15", 250
+    ).items():
+        monkeypatch.setenv(key, value)
+    settings = Settings(_env_file=None)
+    recorded = profile.scheduler_configuration(settings)
+    assert recorded["automation_batch_size"] == 50
+    assert recorded["article_automation_batch_size"] == 250
+    assert recorded["article_automation_effective_batch_size"] == 250
+    assert recorded["article_automation_cycle_seconds"] == 40
+    assert recorded["automation_dependency_wakes_enabled"]
+    for changes in (
+        {"article_automation_batch_size": None},
+        {"automation_dependency_wakes_enabled": False},
+    ):
+        assert (
+            profile.scheduler_configuration(settings.model_copy(update=changes))[
+                "article_automation_cycle_seconds"
+            ]
+            is None
+        )
+    legacy = SimpleNamespace(
+        **{
+            key: getattr(settings, key)
+            for key in (
+                "ai_enabled",
+                "full_automation",
+                "ai_quota_pacing_enabled",
+                "codex_app_server_url",
+                "codex_model",
+                "automation_batch_size",
+            )
+        }
+    )
+    baseline = profile.scheduler_configuration(legacy)
+    assert baseline["article_automation_effective_batch_size"] == 50
+    assert baseline["article_automation_batch_size"] is None
+    assert baseline["article_automation_cycle_seconds"] is None
+    assert not baseline["automation_dependency_wakes_enabled"]
+
+
+@pytest.mark.parametrize("batch", [0, 501])
+def test_invalid_article_capacity_argument_fails_before_opening_services(
+    monkeypatch, capsys, batch
+):
+    monkeypatch.setenv(
+        "DEVFEED_TEST_DATABASE_URL", "postgresql+psycopg://test@127.0.0.1/profile_test"
+    )
+    monkeypatch.setenv("DEVFEED_TEST_REDIS_URL", "redis://127.0.0.1/15")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "profile_background_work.py",
+            "--article-batch-size",
+            str(batch),
+            "--sql-seconds-per-minute",
+            "1",
+            "--buffers-per-minute",
+            "1",
+            "--wal-bytes-per-minute",
+            "1",
+            "--output",
+            "/tmp/unused-background-profile.json",
+        ],
+    )
+    with pytest.raises(SystemExit) as error:
+        profile.main()
+    assert error.value.code == 2
+    assert "Article batch size must be 1..500" in capsys.readouterr().err
+
+
+def test_report_demand_transactions_follow_the_publishers_global_key_order(monkeypatch):
+    from devfeed_admin_api import overview_projection as reports
+
+    monkeypatch.setattr(
+        reports, "REPORT_GROUPS", {"throughput": object(), "attention": object(), "daily": object()}
+    )
+    touched, requested = [], []
+    monkeypatch.setattr(
+        reports, "touch_report_demand", lambda _s, group, days, _n: touched.append((group, days))
+    )
+    monkeypatch.setattr(
+        reports, "request_refresh", lambda _s, group, days, _n: requested.append((group, days))
+    )
+    session, factory = Mock(), Mock()
+    session.get.return_value = None
+    factory.begin.return_value = nullcontext(session)
+    profile.touch_reports(factory)
+    expected = sorted((group, days) for group in reports.REPORT_GROUPS for days in (7, 30, 90))
+    assert requested == touched == expected
+
+
 @pytest.mark.parametrize(
     "key,lane",
     [
@@ -186,6 +290,26 @@ def test_each_convergence_lane_must_finish_inside_its_own_budget(lane):
     assert not result["passed"] and not result["lanes"][lane]["passed"]
     completed[lane] = None
     assert not profile.convergence_outcome({}, completed, limits)["passed"]
+
+
+@pytest.mark.parametrize("regrows", [True, False])
+def test_deferred_work_regrowth_restarts_the_lane_convergence_deadline(regrows):
+    limits = {"foreground": 60, "maintenance": 300}
+    completed = {lane: None for lane in limits}
+    maintenance = {"automation_maintenance_invalidations": 1}
+    profile.observe_convergence(maintenance, completed, 10)
+    assert completed == {"foreground": 10, "maintenance": None}
+    profile.observe_convergence({**maintenance, "fact_events": int(regrows)}, completed, 20)
+    assert completed["foreground"] == (None if regrows else 10)
+    profile.observe_convergence(maintenance, completed, 70)
+    assert profile.observe_convergence({}, completed, 100) == {
+        "foreground": True,
+        "maintenance": True,
+    }
+    result = profile.convergence_outcome({}, completed, limits)
+    assert result["passed"] is not regrows
+    assert result["lanes"]["foreground"]["cleared_at_seconds"] == (70 if regrows else 10)
+    assert result["lanes"]["maintenance"]["cleared_at_seconds"] == 100
 
 
 def test_automation_backlog_keeps_both_due_debt_and_fanout_cursor_progress():
@@ -247,6 +371,87 @@ def test_baseline_automation_backlog_does_not_require_new_models_or_wait_reasons
     assert not result["automation_invalidations_supported"]
     assert result["automation_invalidations"] == 0 and result["automation_foreground_due"] == 4
     assert session.execute.call_count == 1
+
+
+@pytest.mark.parametrize("has_tag_demands", [True, False])
+def test_source_tag_and_deferred_article_wakes_keep_foreground_slo_separate_from_global_families(
+    monkeypatch, has_tag_demands
+):
+    from devfeed_core import models
+
+    metadata = MetaData()
+    articles = Table(
+        "articles",
+        metadata,
+        Column("review_status", String),
+        Column("publication_status", String),
+        Column("automation_next_check_at", DateTime),
+        Column("automation_wait_reason", String),
+    )
+    invalidations = Table(
+        "automation_invalidations",
+        metadata,
+        Column("key", String, primary_key=True),
+        Column("source_id", String),
+        Column("tag_id", String),
+        Column("revision", Integer),
+        Column("scan_revision", Integer),
+        Column("after_article_id", String),
+        Column("requested_at", DateTime),
+        Column("progressed_at", DateTime),
+    )
+    monkeypatch.setattr(models, "Article", SimpleNamespace(**dict(articles.c.items())))
+    invalidation_columns = dict(invalidations.c.items())
+    if not has_tag_demands:
+        invalidation_columns.pop("tag_id")
+    monkeypatch.setattr(models, "AutomationInvalidation", SimpleNamespace(**invalidation_columns))
+    now = datetime(2026, 10, 26)
+    demands = [
+        ("source:one", "one", None, 20),
+        ("article:deferred", None, None, 40),
+        ("all", None, None, 300),
+        ("catalog:topics", None, None, 200),
+        ("catalog:tags", None, None, 100),
+        ("proposals", None, None, 50),
+    ]
+    if has_tag_demands:
+        demands.append(("tag:two", None, "two", 30))
+    engine = create_engine("sqlite://")
+    metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            session.execute(
+                invalidations.insert(),
+                [
+                    {
+                        "key": key,
+                        "source_id": source,
+                        "tag_id": tag,
+                        "revision": 1,
+                        "requested_at": now - timedelta(seconds=age),
+                        "progressed_at": now - timedelta(seconds=age / 10),
+                    }
+                    for key, source, tag, age in demands
+                ],
+            )
+            result = profile.automation_backlog(session, now)
+        assert result["automation_foreground_invalidations"] == (3 if has_tag_demands else 2)
+        assert result["automation_maintenance_invalidations"] == 4
+        assert result["oldest_automation_foreground_invalidation_seconds"] == 40
+        assert result["oldest_automation_maintenance_invalidation_seconds"] == 300
+        assert result["automation_foreground_invalidation_progress_age_seconds"] == 4
+        assert result["automation_maintenance_invalidation_progress_age_seconds"] == 30
+        assert any(
+            row["key"] == "article:deferred" and row["source_id"] is None
+            for row in result["automation_invalidation_progress"]
+        )
+        if has_tag_demands:
+            tag_cursor = next(
+                row for row in result["automation_invalidation_progress"] if row["key"] == "tag:two"
+            )
+            assert tag_cursor["tag_id"] == "two" and tag_cursor["source_id"] is None
+    finally:
+        engine.dispose()
 
 
 def test_worktree_metadata_preserves_untracked_paths_spaces_and_rename_sources(monkeypatch):

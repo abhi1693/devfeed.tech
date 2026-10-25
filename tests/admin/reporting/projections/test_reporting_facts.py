@@ -16,6 +16,7 @@ from devfeed_core.models import (
     ReportingDailyFact,
     ReportingDirty,
     ReportingFactState,
+    ReportingJobFact,
     Source,
     Topic,
     UserAccount,
@@ -28,6 +29,8 @@ from devfeed_core.reporting_facts import (
     require_reporting_facts,
 )
 from sqlalchemy import delete, func, select, text
+
+from tests.support import reporting_jobs
 
 pytestmark = pytest.mark.integration
 NOW = datetime(2026, 10, 25, 12, tzinfo=UTC)
@@ -250,6 +253,192 @@ def test_job_corrections_completion_movement_delete_and_payload_pruning(database
     settle(database)
     points, duration = observe(database, analysis_token_activity, START, NOW)
     assert not any(day.article_analysis for day in points) and duration == 0
+
+
+@pytest.mark.parametrize(
+    "kind", ["article_analysis", "topic_analysis", "research_verification", "ingestion"]
+)
+def test_job_capture_skips_bookkeeping_but_tracks_terminal_edits_retry_and_delete(database, kind):
+    model = KIND_MODELS[kind]
+    values = {} if kind == "ingestion" else {"usage": {"totalTokens": 10}, "duration_ms": 5}
+    with database.begin() as session:
+        job = reporting_jobs.add_reporting_job(session, kind, status="queued", **values)
+        job_id = job.id
+    with database() as session:
+        assert session.get(ReportingDirty, (kind, job_id)) is None
+    settle(database)
+
+    def pending():
+        with database() as session:
+            return session.scalar(
+                select(ReportingDirty.generation).where(
+                    ReportingDirty.kind == kind, ReportingDirty.entity_id == job_id
+                )
+            )
+
+    # Queued inserts, running transitions, lease/attempt telemetry and even a
+    # retained finished_at cannot contribute without a terminal status.
+    assert pending() is None
+    with database.begin() as session:
+        job = session.get(model, job_id)
+        job.status = "running"
+        job.attempts = 2
+        job.lease_token = uuid.uuid4()
+        job.lease_until = NOW
+        job.finished_at = START
+        if kind != "ingestion":
+            job.usage = {"totalTokens": 10, "provider_metadata": {"attempt": 2}}
+            job.duration_ms = 6
+    assert pending() is None
+    with database.begin() as session:
+        session.delete(session.get(model, job_id))
+    assert pending() is None
+    with database.begin() as session:
+        job = reporting_jobs.add_reporting_job(session, kind, status="failed", **values)
+        job_id = job.id
+    assert pending() is None  # A terminal status without finished_at is incomplete.
+    with database.begin() as session:
+        session.get(model, job_id).finished_at = START
+    assert pending() == 1
+    settle(database)
+    with database() as session:
+        fact = session.get(ReportingJobFact, (kind, job_id))
+        assert fact.finished_at == START
+        assert (fact.tokens, fact.duration_ms) == ((None, 0) if kind == "ingestion" else (10, 5))
+
+    if kind != "ingestion":
+        with database.begin() as session:
+            job = session.get(model, job_id)
+            job.usage = {"totalTokens": 10, "provider_metadata": {"attempt": 3}}
+        assert pending() is None
+        with database.begin() as session:
+            job = session.get(model, job_id)
+            job.status = "succeeded"  # Both terminal statuses have the same contribution.
+        assert pending() is None
+        for field, value in (
+            ("usage", {"totalTokens": 25}),
+            ("duration_ms", 9),
+            ("finished_at", NOW),
+        ):
+            with database.begin() as session:
+                setattr(session.get(model, job_id), field, value)
+            assert pending() == 1
+            settle(database)
+            with database() as session:
+                fact = session.get(ReportingJobFact, (kind, job_id))
+                assert getattr(fact, "tokens" if field == "usage" else field) == (
+                    25 if field == "usage" else value
+                )
+            observe(database, analysis_token_activity, START, NOW)
+        points, duration = observe(database, analysis_token_activity, START, NOW)
+        assert sum(getattr(day, kind) for day in points) == 25 and duration == 9
+        assert getattr(points[0], kind) == 0 and getattr(points[-1], kind) == 25
+        with database.begin() as session:
+            session.get(model, job_id).status = "failed"
+        assert pending() is None
+    else:
+        # Source ownership is a report dimension: move both the failure and its day.
+        with database.begin() as session:
+            other = reporting_jobs.add_reporting_job(
+                session, kind, status="succeeded", finished_at=NOW
+            )
+            assert session.get(ReportingDirty, (kind, other.id)) is None
+            other_source_id = other.source_id
+            job = session.get(model, job_id)
+            previous_source_id = job.source_id
+            job.source_id = other_source_id
+        assert pending() == 1
+        settle(database)
+        rows = observe(database, sources_performance, START, NOW)[0]
+        failures = {row.id: row.fetch_failures for row in rows}
+        assert failures[previous_source_id] == 0 and failures[other_source_id] == 1
+        with database.begin() as session:
+            session.get(model, job_id).finished_at = NOW
+        assert pending() == 1
+        settle(database)
+        with database() as session:
+            assert session.get(ReportingJobFact, (kind, job_id)).finished_at == NOW
+        observe(database, sources_performance, START, NOW)
+    with database.begin() as session:
+        session.get(model, job_id).status = "queued"
+    assert pending() == 1  # OLD eligibility must remove the failed contribution.
+    settle(database)
+    with database() as session:
+        assert session.get(ReportingJobFact, (kind, job_id)) is None
+    if kind == "ingestion":
+        assert all(
+            row.fetch_failures == 0 for row in observe(database, sources_performance, START, NOW)[0]
+        )
+    else:
+        points, duration = observe(database, analysis_token_activity, START, NOW)
+        assert sum(getattr(day, kind) for day in points) == 0 and duration == 0
+    with database.begin() as session:
+        session.delete(session.get(model, job_id))
+    assert pending() is None
+    with database.begin() as session:
+        job = reporting_jobs.add_reporting_job(
+            session, kind, status="failed", finished_at=NOW, **values
+        )
+        job_id = job.id
+    assert pending() == 1
+    settle(database)
+    with database.begin() as session:
+        session.delete(session.get(model, job_id))
+    assert pending() == 1
+    settle(database)
+    with database() as session:
+        assert session.get(ReportingJobFact, (kind, job_id)) is None
+    if kind == "ingestion":
+        assert all(
+            row.fetch_failures == 0 for row in observe(database, sources_performance, START, NOW)[0]
+        )
+    else:
+        points, duration = observe(database, analysis_token_activity, START, NOW)
+        assert sum(getattr(day, kind) for day in points) == 0 and duration == 0
+
+
+@pytest.mark.parametrize(
+    "kind", ["article_analysis", "topic_analysis", "research_verification", "ingestion"]
+)
+def test_job_finishing_behind_bootstrap_cursor_is_not_lost(database, kind):
+    model = KIND_MODELS[kind]
+    first, last, behind = (uuid.UUID(int=value) for value in (20, 40, 10))
+    values = {} if kind == "ingestion" else {"usage": {"totalTokens": 7}}
+    with database.begin() as session:
+        for identifier in (first, last):
+            reporting_jobs.add_reporting_job(
+                session, kind, id=identifier, status="failed", finished_at=START, **values
+            )
+    for _ in range(30):
+        refresh_reporting_facts(database, limit=1)
+        with database() as session:
+            state = session.get(ReportingFactState, kind)
+            if state is not None and state.cursor_id == first:
+                assert not state.complete
+                break
+    else:
+        raise AssertionError("Bootstrap did not reach the first job")
+    with database.begin() as session:
+        reporting_jobs.add_reporting_job(session, kind, id=behind, status="queued", **values)
+    with database() as session:
+        assert session.get(ReportingDirty, (kind, behind)) is None
+    with database.begin() as session:
+        job = session.get(model, behind)
+        job.status, job.finished_at = "failed", START
+        session.get(model, first).status = "queued"
+    settle(database)
+    with database() as session:
+        assert set(
+            session.scalars(select(ReportingJobFact.entity_id).where(ReportingJobFact.kind == kind))
+        ) == {behind, last}
+    if kind == "ingestion":
+        assert (
+            sum(row.fetch_failures for row in observe(database, sources_performance, START, NOW)[0])
+            == 2
+        )
+    else:
+        points, _ = observe(database, analysis_token_activity, START, NOW)
+        assert sum(getattr(day, kind) for day in points) == 14
 
 
 def test_partial_start_and_session_timezone_preserve_inclusive_window(database):

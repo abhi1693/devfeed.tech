@@ -112,9 +112,9 @@ def upgrade():
             else "id"
         )
         columns = (
-            "status, finished_at, source_id"
+            "id, status, finished_at, source_id"
             if table == "ingestion_jobs"
-            else "status, finished_at, duration_ms, usage"
+            else "id, status, finished_at, duration_ms, usage"
             if table in JOBS
             else "discovered_at, published_to_feed_at, publication_status, content_type"
             if table == "articles"
@@ -127,7 +127,30 @@ def upgrade():
         for event in ("INSERT", "DELETE", "UPDATE"):
             change = f"UPDATE OF {columns}" if event == "UPDATE" else event
             condition = ""
-            if event == "UPDATE":
+            if table in JOBS:
+                # Facts retain only finished terminal contributions. Bookkeeping
+                # for an ineligible job cannot add, remove or change those facts.
+                # Keep OLD eligibility so retrying a failed run removes its fact.
+                statuses = "'failed'" if table == "ingestion_jobs" else "'succeeded','failed'"
+                previous = f"(OLD.status IN ({statuses}) AND OLD.finished_at IS NOT NULL)"
+                current = f"(NEW.status IN ({statuses}) AND NEW.finished_at IS NOT NULL)"
+                if event == "UPDATE":
+                    changes = [f"{previous} IS DISTINCT FROM {current}"]
+                    changes.extend(
+                        f"OLD.{name} IS DISTINCT FROM NEW.{name}"
+                        for name in columns.split(", ")
+                        if name not in {"status", "usage"}
+                    )
+                    if table != "ingestion_jobs":
+                        changes.append(
+                            "OLD.usage->'totalTokens' IS DISTINCT FROM NEW.usage->'totalTokens'"
+                        )
+                    condition = (
+                        f" WHEN (({previous} OR {current}) AND (" + " OR ".join(changes) + "))"
+                    )
+                else:
+                    condition = f" WHEN ({current if event == 'INSERT' else previous})"
+            elif event == "UPDATE":
                 names = columns.split(", ")
                 condition = (
                     " WHEN ("

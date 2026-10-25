@@ -28,7 +28,7 @@ from devfeed_admin_api.pipeline_projection import project_batch
 logger = logging.getLogger(__name__)
 BACKLOG_SAMPLE_SECONDS = 30
 HEARTBEAT_WAIT_SECONDS = 30
-MAX_DRAIN_BATCHES = 10000
+MAX_DRAIN_BATCHES = 20000
 
 
 def heartbeat_marker(kind):

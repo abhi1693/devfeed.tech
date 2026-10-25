@@ -1,6 +1,7 @@
 import logging
 import time
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 
 from devfeed_core.article_jobs import request_article_enrichment
@@ -41,11 +42,10 @@ logger = logging.getLogger(__name__)
 def store_entries(
     session: Session, source_id: uuid.UUID, parsed: ParsedFeed, *, activity: list | None = None
 ) -> int:
-    topics = session.scalars(select(Topic).where(Topic.status == "active")).all()
     supplied_tags, _ = resolve_source_tags(
         session, (tag for entry in parsed.entries for tag in entry.tags)
     )
-    tags = session.scalars(select(Tag)).all()
+    classification_catalog: tuple[Sequence[Topic], Sequence[Tag]] | None = None
     created = 0
     # Stable lock order across workers importing the same URLs from different feeds.
     for entry in sorted(parsed.entries, key=lambda item: item.canonical_url):
@@ -151,6 +151,12 @@ def store_entries(
             )
         ) in {"ai", "manual"}:
             continue
+        if classification_catalog is None:
+            classification_catalog = (
+                session.scalars(select(Topic).where(Topic.status == "active")).all(),
+                session.scalars(select(Tag)).all(),
+            )
+        topics, tags = classification_catalog
         for topic_id in sorted(classify(entry.title, entry.summary, entry.tags, topics)):
             session.execute(
                 insert(ArticleTopic)

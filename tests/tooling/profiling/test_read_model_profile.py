@@ -165,6 +165,9 @@ def test_scheduler_profile_rejects_card_amplification_and_missing_ingestion():
 
 @pytest.mark.integration
 def test_scheduler_fixture_reuse_preserves_history_and_refuses_unrecognized_corpus(database):
+    from devfeed_core.automation_demands import POLICY_STATE
+    from devfeed_core.read_models import set_state
+
     now = utcnow()
     identifier = profile.fixture_id("articles", 1)
     with database.begin() as session:
@@ -185,7 +188,10 @@ def test_scheduler_fixture_reuse_preserves_history_and_refuses_unrecognized_corp
         )
         session.flush()
         session.add(ArticleAnalysisJob(article_id=identifier, input_snapshot={"retained": True}))
+        set_state(session, POLICY_STATE, {"policy": "observed setup"})
     scheduler_profile.prepare_projections(database, [identifier], now)
+    with database() as session:
+        assert session.get(ReadModelState, POLICY_STATE).payload == {"policy": "observed setup"}
     with pytest.raises(ValueError, match="matching historical corpus"):
         scheduler_profile.reset_workload(database, articles=2)
     with database() as session:
@@ -358,17 +364,29 @@ def test_scheduler_publisher_preserves_simulated_future_retry_deadlines(database
 
 @pytest.mark.integration
 def test_scheduler_cli_profiles_real_seeded_and_reused_workloads(database, monkeypatch, tmp_path):
+    from devfeed_core import article_automation
     from devfeed_core.config import Settings
 
     # Keep the CLI's intentional process-wide configuration local to this test.
     monkeypatch.setattr(os, "environ", os.environ.copy())
     monkeypatch.setattr(Settings, "model_config", Settings.model_config.copy())
+    # Force setup fanout to span many pages, as on the native100k/150k corpus.
+    monkeypatch.setenv("DEVFEED_AUTOMATION_INVALIDATION_BATCH_SIZE", "10")
+    prepared = []
+    prepare = article_automation._prepare_article_candidates
+
+    def candidates(factory, identifier):
+        prepared.append(identifier)
+        return prepare(factory, identifier)
+
+    monkeypatch.setattr(article_automation, "_prepare_article_candidates", candidates)
     # Ordinary integration servers do not preload pg_stat_statements. The native
     # scale workflow covers that sampler; exercise the real workload, SQL recorder
     # and rollback-only plans here without requiring a server restart.
     monkeypatch.setattr(scheduler_profile, "statement_totals", lambda engine: {"calls": 0})
     reports = []
     for mode in ("--seed", "--reuse-fixture"):
+        prepared.clear()
         output = tmp_path / (mode.removeprefix("--") + ".json")
         monkeypatch.setattr(
             sys,
@@ -393,15 +411,20 @@ def test_scheduler_cli_profiles_real_seeded_and_reused_workloads(database, monke
         )
         scheduler_profile.main()
         result = json.loads(output.read_text())
+        assert set(prepared) == {profile.fixture_id("articles", 20 + 40 * i) for i in range(5)}
+        assert len(prepared) == 15  # Five warmup candidates and two measured batches.
         assert result["complete"] and result["checkpoint_before_workload"]
         assert result["bounded_failures"] == []
         assert result["dataset"]["articles"] == 210
+        assert result["automation_setup"]["expanded"] == result["dataset"]["active_articles"]
+        assert result["automation_setup"]["seconds"] > 0
         assert len(result["ticks"]) == 2
         for tick in result["ticks"]:
             assert tick["outcome"]["articles_checked"] == 5
             assert tick["ingested"] == tick["ingested_projected"] == 2
             assert tick["active_analysis_unchanged"]
             assert tick["cohort_clock_visible"] and tick["cohort_retry_transition_correct"]
+            assert tick["hydration"]["article_ids"] == 2
             assert all(
                 tick["sql_statements"][name] > 0 for name in ("scheduler", "publisher", "ingestion")
             )

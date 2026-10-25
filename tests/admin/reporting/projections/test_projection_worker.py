@@ -388,10 +388,13 @@ def test_drain_finishes_backfill_instead_of_one_batch(runtime):
 
 
 def test_report_drain_waits_for_fact_readiness_and_requested_publications(runtime):
+    # The 2x catalog has one million scanned fact identities. Its five
+    # completion pages and 27 requested reports must fit beyond 10,000 batches.
+    cycles = 1_000_000 // 100 + 5 + 27
     runtime.reports.return_value = 0
-    runtime.report_drain.side_effect = [False, False, True]
+    runtime.report_drain.side_effect = [False] * (cycles - 1) + [True]
     worker.run(drain=True, kind="reports")
-    assert runtime.reports.call_count == 3
+    assert runtime.reports.call_count == cycles
     assert runtime.reports.call_args_list[0].kwargs == {
         "limit": 1,
         "now": NOW,
@@ -402,8 +405,9 @@ def test_report_drain_waits_for_fact_readiness_and_requested_publications(runtim
         invocation.kwargs == {"limit": 1, "now": NOW, "seed": False, "fail_fast": True}
         for invocation in runtime.reports.call_args_list[1:]
     )
-    assert runtime.report_drain.call_count == 3
-    assert runtime.waits == [0.25, 0.25]
+    assert runtime.report_drain.call_count == cycles
+    assert len(runtime.waits) == cycles - 1
+    assert all(delay >= 0.25 for delay in runtime.waits)
     assert (runtime.directory / "reports-heartbeat").exists()
 
 

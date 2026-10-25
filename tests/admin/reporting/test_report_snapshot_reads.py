@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from devfeed_admin_api import overview_projection
 from devfeed_admin_api.overview_panel_data import OverviewPanel
-from devfeed_core.models import ReadModelState, ReportRefresh, ReportSnapshot
+from devfeed_core.models import ReadModelState
 from fastapi import HTTPException
 
 NOW = datetime(2026, 10, 21, tzinfo=UTC)
@@ -58,23 +58,19 @@ class SavedReports:
 
             compiled = statement.compile(dialect=postgresql.dialect())
             query = str(compiled)
-            assert "report_snapshots LEFT OUTER JOIN read_model_states" in query
-            assert "read_model_states.name =" in query
-            self.keys.extend([(compiled.params["group_1"], compiled.params["days_1"]), "pipeline"])
-            pipeline = self.pipeline.payload if self.pipeline else None
-            return SimpleNamespace(
-                one_or_none=lambda: (self.stored, pipeline) if self.stored else None
-            )
+            assert "report_snapshots LEFT OUTER JOIN report_refreshes" in query
+            assert 'report_refreshes."group" = report_snapshots."group"' in query
+            assert "report_refreshes.days = report_snapshots.days" in query
+            self.keys.append((compiled.params["group_2"], compiled.params["days_2"]))
+            saved = (self.stored, self.refresh)
+            if "read_model_states" in query:
+                assert "read_model_states.name =" in query
+                self.keys.append("pipeline")
+                saved += (self.pipeline.payload if self.pipeline else None,)
+            return SimpleNamespace(one_or_none=lambda: saved if self.stored else None)
 
     def get(self, model, key):
-        self.keys.append(key)
-        if model is ReportSnapshot:
-            return self.stored
-        if model is ReportRefresh:
-            return self.refresh
-        if model is ReadModelState and key == "pipeline":
-            return self.pipeline
-        pytest.fail("Saved report GET queried a calculation dependency outside pipeline metadata")
+        pytest.fail("Saved report GET added a lookup outside its joined saved metadata")
 
 
 @pytest.fixture

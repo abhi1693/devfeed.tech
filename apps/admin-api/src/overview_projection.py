@@ -212,16 +212,25 @@ def read_report(factory, group, days, model, *, now=None):
         session.execute(text("SET LOCAL statement_timeout = '2s'"))
         session.execute(text("SET LOCAL lock_timeout = '500ms'"))
         touch_report_demand(session, key[0], key[1], now)
-        pipeline = None
-        if group in {"blockers", "overview"}:
-            saved = session.execute(
-                select(ReportSnapshot, ReadModelState.payload)
-                .outerjoin(ReadModelState, ReadModelState.name == "pipeline")
-                .where(ReportSnapshot.group == key[0], ReportSnapshot.days == key[1])
-            ).one_or_none()
-            stored, pipeline = saved if saved is not None else (None, None)
-        else:
-            stored = session.get(ReportSnapshot, key)
+        # Read the saved document and its refresh state in one bounded lookup.
+        # Recording viewer demand must not add another metadata round trip.
+        statement = (
+            select(ReportSnapshot, ReportRefresh)
+            .outerjoin(
+                ReportRefresh,
+                (ReportRefresh.group == ReportSnapshot.group)
+                & (ReportRefresh.days == ReportSnapshot.days),
+            )
+            .where(ReportSnapshot.group == key[0], ReportSnapshot.days == key[1])
+        )
+        dependent = group in {"blockers", "overview"}
+        if dependent:
+            statement = statement.add_columns(ReadModelState.payload).outerjoin(
+                ReadModelState, ReadModelState.name == "pipeline"
+            )
+        saved = session.execute(statement).one_or_none()
+        stored, refresh = saved[:2] if saved is not None else (None, None)
+        pipeline = saved[2] if dependent and saved is not None else None
         age = max(0, (now - stored.generated_at).total_seconds()) if stored else float("inf")
         rebuilding = stored is not None and stored.policy_version != version
         dependency = None
@@ -254,7 +263,6 @@ def read_report(factory, group, days, model, *, now=None):
             )
         ):
             request_refresh(session, key[0], key[1], now)
-        refresh = session.get(ReportRefresh, key)
         if result is None or stored is None:
             raise_after_commit = True
         else:
@@ -273,7 +281,9 @@ def read_report(factory, group, days, model, *, now=None):
             ):
                 status = "stale"
             elif age >= fresh_seconds:
-                status = "refreshing" if refresh is not None else "stale"
+                # An expired report requested refresh above, even if that queue
+                # row did not exist when the saved document was read.
+                status = "refreshing"
             elif catalog_refresh is not None:
                 status = "catching_up"
             else:

@@ -1,5 +1,6 @@
 """Catalog scale evidence accepts complete expected outcomes and rejects partial runs."""
 
+import builtins
 import copy
 import importlib.util
 import json
@@ -166,6 +167,62 @@ def test_native_requirement_is_an_enforced_gate_independent_of_behavior():
     assert profile.gates(qualified, "fixed")["passed"]
 
 
+@pytest.mark.parametrize("missing", ["devfeed_core.reporting_facts", "unexpected_dependency"])
+def test_reporting_fact_preparation_supports_old_subjects_without_hiding_broken_dependencies(
+    monkeypatch, missing
+):
+    original = builtins.__import__
+
+    def import_module(name, *args, **kwargs):
+        if name == "devfeed_core.reporting_facts":
+            raise ModuleNotFoundError(name=missing)
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_module)
+    if missing == "devfeed_core.reporting_facts":
+        assert profile.maintain_reporting_facts(None) == {
+            "supported": False,
+            "processed": 0,
+            "batches": 0,
+        }
+    else:
+        with pytest.raises(ModuleNotFoundError) as error:
+            profile.maintain_reporting_facts(None)
+        assert error.value.name == missing
+
+
+def test_reporting_fact_preparation_advances_empty_kinds_and_keeps_a_finite_budget(monkeypatch):
+    from contextlib import nullcontext
+    from unittest.mock import Mock
+
+    from devfeed_core import reporting_facts
+
+    refresh = Mock(side_effect=[0, 3, 0])
+    require = Mock(
+        side_effect=[reporting_facts.ReportingFactsUnavailable("Initial coverage"), None]
+    )
+    monkeypatch.setattr(reporting_facts, "refresh_reporting_facts", refresh)
+    monkeypatch.setattr(reporting_facts, "require_reporting_facts", require)
+
+    def factory():
+        return nullcontext(object())
+
+    assert profile.maintain_reporting_facts(factory) == {
+        "supported": True,
+        "processed": 3,
+        "batches": 3,
+    }
+    assert refresh.call_count == 3 and require.call_count == 2
+    monkeypatch.setattr(profile, "MAX_FACT_BATCHES", 2)
+    refresh.side_effect, require.side_effect = (
+        [0, 0],
+        reporting_facts.ReportingFactsUnavailable("Still incomplete"),
+    )
+    with pytest.raises(RuntimeError, match="batch budget"):
+        profile.maintain_reporting_facts(factory)
+    assert refresh.call_count == 5
+
+
 def test_sql_evidence_captures_cte_selects_without_explaining_writes():
     cards = table("pipeline_projections", column("entity_id"))
     targets = select(cards.c.entity_id).cte("blocker_targets")
@@ -294,6 +351,9 @@ def test_cli_profiles_real_concurrent_publication_and_preparation(
         output["workload"]["batches"] + 1
     )
     assert output["prepared_retry_timers"]["queued_enrichment_jobs"] > 0
+    preparation = output["reporting_fact_preparation"]
+    assert preparation["result"]["supported"] and preparation["result"]["processed"] > 0
+    assert preparation["result"]["batches"] > 1
     assert output["workload"]["require_native_arm64"] is False
     assert "does not qualify" in output["hardware"]["note"]
     if prepare_only:

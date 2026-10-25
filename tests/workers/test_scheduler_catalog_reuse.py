@@ -359,11 +359,12 @@ def test_catalog_wakes_are_bounded_and_changes_during_a_pass_get_complete_succes
     database, monkeypatch
 ):
     from devfeed_core.automation_demands import expand_automation_demands
-    from devfeed_core.models import AutomationInvalidation, Topic
+    from devfeed_core.models import AutomationInvalidation, Tag, Topic, TopicProposal
 
     enable(monkeypatch, AUTOMATION_BATCH_SIZE=1, AUTOMATION_INVALIDATION_BATCH_SIZE=2)
     with database.begin() as session:
         articles = [seed(session, name=f"Framework{index}")[1] for index in range(5)]
+        session.add(Tag(name="Runtime", slug="runtime"))
         session.flush()
         for article in articles:
             article.automation_next_check_at = utcnow() + timedelta(days=1)
@@ -375,6 +376,9 @@ def test_catalog_wakes_are_bounded_and_changes_during_a_pass_get_complete_succes
             article.id: article.automation_input_revision
             for article in session.scalars(select(Article))
         }
+        assert {
+            demand.after_article_id for demand in session.scalars(select(AutomationInvalidation))
+        } == {identifiers[1]}
         session.add(
             Topic(
                 name="New catalog vocabulary",
@@ -383,6 +387,29 @@ def test_catalog_wakes_are_bounded_and_changes_during_a_pass_get_complete_succes
                 kind="technology",
             )
         )
+        session.add(
+            TopicProposal(
+                batch_id=uuid.uuid4(),
+                slug="new-runtime",
+                action="create",
+                origin="import",
+                source_name="Test",
+                created_by={},
+                proposed={"name": "Runtime", "slug": "new-runtime"},
+            )
+        )
+    assert expand_automation_demands(database, now) == 2
+    with database() as session:
+        # A newly requested family starts behind this pass and cannot share its
+        # partially completed cursor or lose the already covered article prefix.
+        assert session.get(AutomationInvalidation, "proposals").after_article_id is None
+    assert expand_automation_demands(database, now) == 1
+    with database() as session:
+        assert session.get(AutomationInvalidation, "all") is None
+        assert session.get(AutomationInvalidation, "catalog:tags") is None
+        changed = session.get(AutomationInvalidation, "catalog:topics")
+        assert changed.after_article_id is None and changed.scan_revision is None
+        assert session.get(AutomationInvalidation, "proposals").after_article_id is None
     for _ in range(10):
         assert expand_automation_demands(database, now) <= 2
         with database() as session:
@@ -392,8 +419,344 @@ def test_catalog_wakes_are_bounded_and_changes_during_a_pass_get_complete_succes
         pytest.fail("Catalog demand did not converge")
     with database() as session:
         for article in session.scalars(select(Article)):
-            assert article.automation_input_revision > first_revisions[article.id]
+            assert article.automation_input_revision == first_revisions[article.id] + (
+                0 if article.id in identifiers[:2] else 1
+            )
         assert all(session.get(Article, key).automation_next_check_at <= now for key in identifiers)
+
+
+@pytest.mark.parametrize("owner", ["global", "source", "tag"])
+def test_repeated_fanout_coalesces_due_work_and_promotes_only_targeted_maintenance(
+    database, monkeypatch, owner
+):
+    from devfeed_core.automation_demands import _enqueue_policy, expand_automation_demands
+    from devfeed_core.models import ArticleOrigin, ArticleTag, AutomationInvalidation, Source, Tag
+    from sqlalchemy import delete, update
+
+    enable(monkeypatch)
+    now = utcnow()
+    with database.begin() as session:
+        rows = [seed(session, name=f"Framework{index}") for index in range(3)]
+        source_id = rows[0][0].id
+        identifiers = [row[1].id for row in rows]
+        session.execute(update(ArticleOrigin).values(source_id=source_id))
+        tag = Tag(name="Runtime", slug="runtime", auto_link_topic=False)
+        session.add(tag)
+        session.flush()
+        session.add_all(
+            ArticleTag(article_id=identifier, tag_id=tag.id, origin="source")
+            for identifier in identifiers
+        )
+        session.flush()
+        for index, (_, article, _) in enumerate(rows):
+            article.automation_next_check_at = now + timedelta(days=1) if index == 2 else now
+            article.automation_wait_reason = "maintenance" if index == 1 else None
+        tag_id = tag.id
+    _enqueue_policy(database, get_settings())
+    with database.begin() as session:
+        session.execute(delete(AutomationInvalidation))
+        before = {
+            article.id: article.automation_input_revision
+            for article in session.scalars(select(Article))
+        }
+    writes = []
+
+    def record(_connection, cursor, statement, *_):
+        if statement.startswith("UPDATE articles SET") and "automation_input_revision" in statement:
+            writes.append(cursor.rowcount)
+
+    event.listen(get_engine(), "after_cursor_execute", record)
+    try:
+        for wave in range(2):
+            with database.begin() as session:
+                if owner == "global":
+                    session.execute(update(Tag).where(Tag.id == tag_id).values(aliases=[str(wave)]))
+                elif owner == "source":
+                    session.execute(
+                        update(Source)
+                        .where(Source.id == source_id)
+                        .values(publication_policy="preview" if wave == 0 else "auto")
+                    )
+                else:
+                    session.execute(
+                        update(Tag).where(Tag.id == tag_id).values(auto_link_topic=wave == 0)
+                    )
+            assert expand_automation_demands(database, now) == 3
+            with database() as session:
+                for index, identifier in enumerate(identifiers):
+                    article = session.get(Article, identifier)
+                    expected = int(index == 2 or (index == 1 and owner != "global"))
+                    assert article.automation_input_revision == before[identifier] + expected
+                    assert article.automation_next_check_at <= now
+                    assert article.automation_wait_reason == (
+                        "maintenance" if owner == "global" and index in {1, 2} else None
+                    )
+                assert session.scalar(select(AutomationInvalidation.key).limit(1)) is None
+    finally:
+        event.remove(get_engine(), "after_cursor_execute", record)
+    assert writes == [1 if owner == "global" else 2, 0]
+
+
+def test_due_article_evaluation_cannot_hide_a_racing_tag_catalog_wake(database, monkeypatch):
+    from devfeed_core.automation_demands import _enqueue_policy, expand_automation_demands
+    from devfeed_core.models import AutomationInvalidation, Tag
+    from sqlalchemy import delete, update
+
+    enable(monkeypatch)
+    now = utcnow()
+    with database.begin() as session:
+        _, article, _ = seed(session)
+        tag = Tag(name="Runtime", slug="runtime")
+        session.add(tag)
+        session.flush()
+        identifier, tag_id = article.id, tag.id
+        article.automation_next_check_at = now
+    _enqueue_policy(database, get_settings())
+    with database.begin() as session:
+        session.execute(delete(AutomationInvalidation))
+    with database.begin() as evaluator:
+        article = evaluator.scalar(
+            select(Article).where(Article.id == identifier).with_for_update()
+        )
+        with database.begin() as writer:
+            # Tag writes need not take the Topic table lock used by classification.
+            writer.execute(update(Tag).where(Tag.id == tag_id).values(aliases=["new-runtime"]))
+        assert expand_automation_demands(database, now) == 0
+        with database() as observer:
+            demand = observer.get(AutomationInvalidation, "catalog:tags")
+            assert demand.after_article_id is None and demand.scan_revision is None
+        article.automation_next_check_at = now + timedelta(days=1)
+        article.automation_wait_reason = "dependencies"
+    assert expand_automation_demands(database, now) == 1
+    with database() as observer:
+        assert observer.get(Article, identifier).automation_next_check_at <= now
+        assert observer.scalar(select(AutomationInvalidation.key).limit(1)) is None
+
+
+def test_busy_parent_defers_exact_dependency_wakes_and_replays_bounded_foreground_batches(
+    database, monkeypatch
+):
+    from devfeed_core.automation_demands import _enqueue_policy, expand_automation_demands
+    from devfeed_core.models import ArticleOrigin, AutomationInvalidation
+
+    enable(monkeypatch, AUTOMATION_INVALIDATION_BATCH_SIZE=2)
+    now = utcnow()
+    with database.begin() as session:
+        rows = [seed(session, name=f"Deferred{index}") for index in range(6)]
+        session.flush()
+        for _, article, _ in rows:
+            article.automation_next_check_at = now + timedelta(days=1)
+        targets = [row[1].id for row in rows[:5]]
+        untouched = rows[5][1].id
+        owners = [(source.id, article.id) for source, article, _ in rows[:5]]
+    _enqueue_policy(database, get_settings())
+    with database() as session:
+        before = {
+            article.id: article.automation_input_revision
+            for article in session.scalars(select(Article))
+        }
+    with database.begin() as reviewer:
+        list(
+            reviewer.scalars(
+                select(Article.id).where(Article.id.in_(targets)).with_for_update(key_share=True)
+            )
+        )
+        with database.begin() as ingestion:
+            ingestion.execute(text("SET LOCAL lock_timeout='100ms'"))
+            ingestion.add_all(
+                ArticleOrigin(
+                    article_id=article_id,
+                    source_id=source_id,
+                    entry_key=f"deferred-{wave}",
+                    original_url=f"https://example.com/{article_id}",
+                )
+                for source_id, article_id in owners
+                for wave in range(2)
+            )
+        with database() as session:
+            requests = session.scalars(
+                select(AutomationInvalidation).where(
+                    AutomationInvalidation.key.startswith("article:")
+                )
+            ).all()
+            assert len(requests) == 5 and {item.revision for item in requests} == {2}
+        assert expand_automation_demands(database, now) == 0
+        with database() as session:
+            assert all(
+                session.get(Article, identifier).automation_input_revision == before[identifier]
+                and session.get(Article, identifier).automation_next_check_at > now
+                for identifier in targets
+            )
+    for expected in (2, 2, 1):
+        assert expand_automation_demands(database, now) == expected
+    with database() as session:
+        assert not list(
+            session.scalars(
+                select(AutomationInvalidation.key).where(
+                    AutomationInvalidation.key.startswith("article:")
+                )
+            )
+        )
+        # Older global work remains untouched while direct foreground requests drain.
+        assert session.get(AutomationInvalidation, "all").after_article_id is None
+        for identifier in targets:
+            article = session.get(Article, identifier)
+            assert article.automation_input_revision == before[identifier] + 1
+            assert (
+                article.automation_next_check_at <= now and article.automation_wait_reason is None
+            )
+        article = session.get(Article, untouched)
+        assert article.automation_input_revision == before[untouched]
+        assert article.automation_next_check_at > now
+
+
+@pytest.mark.parametrize("state", ["racing-revision", "deleted", "terminal"])
+def test_direct_dependency_acknowledgement_preserves_new_revisions_and_tombstones(
+    database, monkeypatch, state
+):
+    from devfeed_core.automation_demands import expand_automation_demands
+    from devfeed_core.models import AutomationInvalidation
+    from sqlalchemy import delete
+
+    enable(monkeypatch, AUTOMATION_INVALIDATION_BATCH_SIZE=2)
+    now = utcnow()
+    with database.begin() as session:
+        _, article, _ = seed(session)
+        article.automation_next_check_at = now + timedelta(days=1)
+        identifier = article.id
+        key = f"article:{identifier}"
+        session.add(AutomationInvalidation(key=key))
+    with database.begin() as session:
+        if state == "deleted":
+            session.execute(delete(Article).where(Article.id == identifier))
+        elif state == "terminal":
+            session.get(Article, identifier).review_status = "rejected"
+    raced = []
+
+    def change_before_lock(_connection, _cursor, statement, *_):
+        if (
+            state == "racing-revision"
+            and not raced
+            and statement.startswith("SELECT articles.id")
+            and "NOWAIT" in statement
+        ):
+            raced.append(True)
+            with database.begin() as writer:
+                writer.execute(
+                    text("SELECT devfeed_automation_enqueue(NULL,NULL,:key)"), {"key": key}
+                )
+
+    event.listen(get_engine(), "before_cursor_execute", change_before_lock)
+    try:
+        assert expand_automation_demands(database, now) == 1
+    finally:
+        event.remove(get_engine(), "before_cursor_execute", change_before_lock)
+    with database() as session:
+        request = session.get(AutomationInvalidation, key)
+        if state == "racing-revision":
+            assert raced and request.revision == 2 and request.after_article_id is None
+            assert session.get(Article, identifier).automation_wait_reason is None
+        else:
+            assert request is None
+    if state == "racing-revision":
+        assert expand_automation_demands(database, now) == 1
+        with database() as session:
+            assert session.get(AutomationInvalidation, key) is None
+
+
+@pytest.mark.parametrize("commit_first", [False, True])
+def test_independent_catalog_families_capture_commits_without_waiting_for_other_writers(
+    database, commit_first
+):
+    from devfeed_core.models import AutomationInvalidation, Tag, TopicProposal
+    from sqlalchemy import delete
+
+    with database.begin() as session:
+        seed(session)
+        session.add(Tag(name="Routing", slug="routing"))
+        session.add(
+            TopicProposal(
+                batch_id=uuid.uuid4(),
+                slug="python",
+                action="create",
+                origin="import",
+                source_name="Test",
+                created_by={},
+                proposed={"name": "Python", "slug": "python"},
+            )
+        )
+        session.flush()
+        session.execute(delete(AutomationInvalidation))
+    with database() as first:
+        first.execute(text("UPDATE tags SET name='Uncommitted routing'"))
+        with database.begin() as second:
+            second.execute(text("SET LOCAL statement_timeout='500ms'"))
+            second.execute(text("UPDATE topics SET description='Committed topic evidence'"))
+        with database.begin() as third:
+            third.execute(text("SET LOCAL statement_timeout='500ms'"))
+            third.execute(
+                text(
+                    "UPDATE topic_proposals SET proposed=proposed || "
+                    "jsonb_build_object('keywords',jsonb_build_array('runtime'))"
+                )
+            )
+        with database() as observer:
+            assert set(observer.scalars(select(AutomationInvalidation.key))) == {
+                "catalog:topics",
+                "proposals",
+            }
+        first.commit() if commit_first else first.rollback()
+    with database() as observer:
+        assert set(observer.scalars(select(AutomationInvalidation.key))) == {
+            "catalog:topics",
+            "proposals",
+            *({"catalog:tags"} if commit_first else set()),
+        }
+
+
+@pytest.mark.parametrize("held", ["tags", "topics"])
+def test_global_cursor_page_defers_locked_family_before_acknowledging_any_work(
+    database, monkeypatch, held
+):
+    from devfeed_core.automation_demands import expand_automation_demands
+    from devfeed_core.models import AutomationInvalidation, Tag
+
+    enable(monkeypatch, AUTOMATION_INVALIDATION_BATCH_SIZE=1)
+    with database.begin() as session:
+        _, article, _ = seed(session)
+        session.add(Tag(name="Routing", slug="routing"))
+        session.flush()
+        article.automation_next_check_at = utcnow() + timedelta(days=1)
+        session.flush()
+        session.refresh(article, attribute_names=["automation_input_revision"])
+        identifier, revision, due = (
+            article.id,
+            article.automation_input_revision,
+            article.automation_next_check_at,
+        )
+    with database.begin() as writer:
+        writer.execute(text("SET LOCAL statement_timeout='500ms'"))
+        writer.execute(text(f"UPDATE {held} SET name=name || ' changed'"))
+        assert expand_automation_demands(database, utcnow()) == 0
+        with database() as observer:
+            article = observer.get(Article, identifier)
+            assert (article.automation_input_revision, article.automation_next_check_at) == (
+                revision,
+                due,
+            )
+            assert all(
+                demand.after_article_id is None and demand.scan_revision is None
+                for demand in observer.scalars(select(AutomationInvalidation))
+            )
+        # The deferred publisher retained no earlier family lock that can block
+        # the writer's second statement in the opposite family order.
+        other = "topics" if held == "tags" else "tags"
+        writer.execute(text(f"UPDATE {other} SET name=name || ' changed'"))
+    assert expand_automation_demands(database, utcnow()) == 1
+    assert expand_automation_demands(database, utcnow()) == 0
+    with database() as observer:
+        assert observer.get(Article, identifier).automation_next_check_at <= utcnow()
+        assert observer.scalar(select(AutomationInvalidation.key).limit(1)) is None
 
 
 def test_locked_article_defers_demand_page_without_skipping_its_wake(database, monkeypatch):
@@ -402,7 +765,9 @@ def test_locked_article_defers_demand_page_without_skipping_its_wake(database, m
 
     enable(monkeypatch, AUTOMATION_BATCH_SIZE=1, AUTOMATION_INVALIDATION_BATCH_SIZE=2)
     with database.begin() as session:
-        identifier = seed(session)[1].id
+        article = seed(session)[1]
+        article.automation_next_check_at = utcnow() + timedelta(days=1)
+        identifier = article.id
     with database.begin() as editor:
         editor.execute(select(Article.id).where(Article.id == identifier).with_for_update())
         assert expand_automation_demands(database, utcnow()) == 0
@@ -572,7 +937,7 @@ def test_proposal_research_metadata_does_not_invalidate_matching_but_identity_an
             ),
             {"id": identifier},
         )
-        assert session.get(AutomationInvalidation, "all") is not None
+        assert session.get(AutomationInvalidation, "proposals") is not None
         session.execute(delete(AutomationInvalidation))
     with database.begin() as session:
         session.execute(
@@ -583,7 +948,7 @@ def test_proposal_research_metadata_does_not_invalidate_matching_but_identity_an
             ),
             {"id": identifier},
         )
-        assert session.get(AutomationInvalidation, "all") is not None
+        assert session.get(AutomationInvalidation, "proposals") is not None
 
 
 def test_cascaded_article_tag_delete_wakes_its_article(database, monkeypatch):
@@ -668,7 +1033,7 @@ def test_bulk_proposal_update_that_removes_vocabulary_still_invalidates_dependen
                 "SET proposed=jsonb_build_object('name','angular','slug','angular')"
             )
         )
-        assert session.get(AutomationInvalidation, "all") is not None
+        assert session.get(AutomationInvalidation, "proposals") is not None
 
 
 def test_paywall_recovery_plan_limits_latest_history_probes_before_filtering(database, monkeypatch):
@@ -783,6 +1148,8 @@ def test_source_policy_keeps_foreground_demand_alongside_active_catalog_work(dat
     with database() as session:
         assert set(session.scalars(select(AutomationInvalidation.key))) == {
             "all",
+            "catalog:tags",
+            "catalog:topics",
             f"source:{source_id}",
         }
     for _ in range(3):
@@ -791,3 +1158,102 @@ def test_source_policy_keeps_foreground_demand_alongside_active_catalog_work(dat
         article = session.get(Article, identifier)
         assert article.automation_wait_reason is None
         assert article.automation_next_check_at <= utcnow()
+
+
+@pytest.mark.parametrize("override,expected", [(None, 1), (3, 3)])
+def test_article_capacity_override_inherits_or_increases_only_article_observations(
+    database, monkeypatch, override, expected
+):
+    monkeypatch.delenv("DEVFEED_ARTICLE_AUTOMATION_BATCH_SIZE", raising=False)
+    full(monkeypatch, AUTOMATION_BATCH_SIZE=1)
+    if override is not None:
+        monkeypatch.setenv("DEVFEED_ARTICLE_AUTOMATION_BATCH_SIZE", str(override))
+        get_settings.cache_clear()
+    monkeypatch.setattr(article_automation, "expand_automation_demands", lambda *_: 0)
+    with database.begin() as session:
+        for index in range(4):
+            _, article, topic = seed(session, name=f"Capacity{index}")
+            job = ready(session, article, topic)
+            job.status, job.error = "failed", "provider_unavailable"
+    counts = article_automation.schedule_article_automation(database)
+    assert counts["articles_checked"] == expected
+    assert get_settings().automation_batch_size == 1
+    with database() as session:
+        due = session.scalars(
+            select(Article).where(Article.automation_next_check_at <= utcnow())
+        ).all()
+        assert len(due) == 4 - expected
+        assert all(row.automation_evaluated_revision < row.automation_input_revision for row in due)
+
+
+@pytest.mark.parametrize("observations_per_cycle", [1, 2])
+def test_article_deadline_keeps_unprocessed_demand_and_progresses_both_lanes(
+    database, monkeypatch, observations_per_cycle
+):
+    full(
+        monkeypatch,
+        AUTOMATION_BATCH_SIZE=1,
+        ARTICLE_AUTOMATION_BATCH_SIZE=4,
+        ARTICLE_AUTOMATION_CYCLE_SECONDS=observations_per_cycle,
+    )
+    monkeypatch.setattr(article_automation, "expand_automation_demands", lambda *_: 0)
+    monkeypatch.setattr(article_automation, "_single_candidate_foreground", True)
+    lanes = {}
+    with database.begin() as session:
+        due_at = utcnow() - timedelta(minutes=1)
+        for lane in ("foreground", "maintenance"):
+            for index in range(4):
+                _, article, topic = seed(session, name=f"{lane}{index}")
+                job = ready(session, article, topic)
+                job.status, job.error = "failed", "provider_unavailable"
+                session.flush()
+                article.automation_next_check_at = due_at + timedelta(seconds=index)
+                article.automation_wait_reason = "maintenance" if lane == "maintenance" else None
+                lanes[article.id] = lane
+    with database() as session:
+        before = {
+            row.id: (row.automation_input_revision, row.automation_evaluated_revision)
+            for row in session.scalars(select(Article))
+        }
+    clock, observed = [0.0], []
+    prepare = article_automation._prepare_article_candidates
+
+    def timed_prepare(factory, identifier):
+        result = prepare(factory, identifier)
+        observed.append(identifier)
+        clock[0] += 1
+        return result
+
+    monkeypatch.setattr(article_automation, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(article_automation, "_prepare_article_candidates", timed_prepare)
+    for cycle in range(8 // observations_per_cycle):
+        clock[0] = 0
+        start = len(observed)
+        assert (
+            article_automation.schedule_article_automation(database)["articles_checked"]
+            == observations_per_cycle
+        )
+        this_cycle = observed[start:]
+        assert len(set(observed)) == len(observed)
+        if observations_per_cycle == 2:
+            assert {lanes[identifier] for identifier in this_cycle} == {"foreground", "maintenance"}
+        else:
+            assert lanes[this_cycle[0]] == ("foreground" if cycle % 2 == 0 else "maintenance")
+        with database() as session:
+            for row in session.scalars(select(Article)):
+                if row.id not in observed:
+                    assert row.automation_next_check_at <= utcnow()
+                    assert (
+                        row.automation_input_revision,
+                        row.automation_evaluated_revision,
+                    ) == before[row.id]
+    assert len(observed) == 8
+    with database.begin() as session:
+        # A new semantic wake after an observation must still be processed again.
+        session.get(Article, observed[0]).summary = "New authoritative evidence after evaluation"
+    clock[0] = 0
+    assert article_automation.schedule_article_automation(database)["articles_checked"] == 1
+    assert observed[-1] == observed[0]
+    with database() as session:
+        article = session.get(Article, observed[0])
+        assert article.automation_evaluated_revision == article.automation_input_revision

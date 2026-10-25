@@ -16,6 +16,8 @@ document survive restart. A cold range still requests work immediately.
 
 Migration 0039 adds compact report facts and UTC daily buckets. Cheap capture
 triggers record changed identities; the publisher performs bounded reconciliation.
+Job capture covers finished terminal runs, including removal on retry; queued work,
+lease bookkeeping and usage fields other than cumulative tokens do not enqueue facts.
 Each entity's previous contribution is replaced and its old/new delta applied in
 one transaction. Replay and late corrections cannot add the same contribution
 twice. Acknowledgement is fenced against a concurrent writer's generation. Initial
@@ -45,9 +47,18 @@ changes, a real retry/deadline arrives, or the bounded daily reconciliation swee
 Publication still locks and evaluates authoritative records; the demand revision
 does not grant publication authority.
 
+A dependency change that encounters a busy article is retained as an exact
+`article:<uuid>` wake. It remains foreground demand and is retried by the bounded
+publisher, so an ingestion or retention transaction need not wait behind an
+in-flight evaluator or lose the semantic change.
+
 Global catalog ranking can change when vocabulary or catalog size changes. Such
 changes retain a conservative complete pass over eligible articles, advanced by
-bounded keyset pages. Cheap invalidation pages default to 2000 rows, independently
+bounded keyset pages. Independent catalog-family demands share a page when their
+cursors cover the same prefix, without coupling their writer transactions. Each
+page still locks its identities to detect in-flight evaluations, but already-due
+articles keep their revisions and clocks. Source/tag wakes also promote due
+maintenance to foreground. Cheap invalidation pages default to 2000 rows, independently
 of the 50 expensive article evaluations per cycle. Foreground changes and background
 maintenance each reserve half the evaluator batch, with unused capacity available
 to the other lane. Existing maintenance cannot prevent a newly completed job from
@@ -59,6 +70,23 @@ it does not claim that arbitrary catalog changes have constant cost.
 transition itself schedules a bounded wake pass so articles already sleeping are
 not forgotten. `DEVFEED_AUTOMATION_RECONCILE_SECONDS` defaults to 86400. Real retry
 and worker-recovery deadlines remain independent of that fallback interval.
+
+`DEVFEED_ARTICLE_AUTOMATION_BATCH_SIZE` is an optional article-only override in
+1–500; unset inherits `DEVFEED_AUTOMATION_BATCH_SIZE` (default 50). Source admission,
+paywall inspection and other automation families retain their existing caps. With
+the override and dependency wakes enabled, `DEVFEED_ARTICLE_AUTOMATION_CYCLE_SECONDS`
+(default 40, maximum 60) stops the article loop before its next observation after
+that elapsed budget. An observation already running finishes atomically; this is
+a soft clock limit, not an interrupt or statement timeout. Reserved foreground and
+maintenance rows interleave, and their starting lane alternates across cycles.
+Unprocessed rows remain due with their demand revision unacknowledged.
+
+Stage the override separately in the owning Fleet configuration, for example
+`DEVFEED_ARTICLE_AUTOMATION_BATCH_SIZE=250` with
+`DEVFEED_ARTICLE_AUTOMATION_CYCLE_SECONDS=40`; keep the global batch at 50. Compare
+SQL/WAL, writer latency, worker CPU and useful convergence before promotion.
+Turning off dependency wakes also disables the soft deadline; unset the article
+override or restore it to 50 when rolling back to default polling capacity.
 
 ## Work budgets and attribution
 
@@ -80,6 +108,45 @@ publishers and preserve database headroom. A CPU limit may slow catch-up while
 leaving total query work unchanged. Infrastructure sizing must be measured again
 after these changes before editing the owning GitOps deployment.
 
+## Local capacity and ingestion measurements
+
+A focused x86_64 experiment used isolated PostgreSQL 17 with two CPU cores and
+4 GiB memory, 2001 eligible articles, 6000 retained analysis runs, 10,000 active
+topics and 120,000 tags. It exposed ingestion loading every topic/tag ORM object
+even when AI mode skipped the legacy classification using them. Classification
+catalogs now load lazily only when an entry actually requires that classifier;
+explicit feed labels still resolve and attach normally.
+
+Five identical single-entry feed commits compared frozen original and fixed
+ingestion. Writer p95 fell from 2459 to 145 ms, and process CPU for all five commits
+from 11.328 to 0.098 seconds. SQL elapsed time fell from 946 to 198 ms and shared
+buffer accesses from 15,088 to 2389. Statement WAL remained exactly 33,981 bytes.
+Committed article metadata/provenance and queued enrichment rows matched exactly.
+Five samples demonstrate this redundant work and its removal; they do not establish
+a latency SLO.
+
+Two further runs used the actual article cap 250, global cap 50 and 40-second soft
+budget. Each accepted all 20 serial single-entry commits, with one second idle
+after each commit, and checked all 250 articles. Article-evaluator wall time was
+30.34–30.97 seconds and writer p95 181–324 ms. Evaluator thread CPU was 21.59–22.05
+seconds and isolated PostgreSQL CPU 6.69–7.00 seconds per batch. Across these runs
+and two faster writer-burst samples, upper observations were 22.06 evaluator CPU
+seconds/batch, 9.06 PostgreSQL CPU seconds/batch, 8.36 SQL seconds, 391,000 shared
+buffer accesses and 9.39 MiB of WAL-position growth per modeled minute. The latter
+three rates include the production scheduler's 15-second wait. Buffer accesses
+are not physical disk reads, and WAL position includes all work in this isolated
+cluster. These samples do not establish a relative WAL saving or bound deferred
+maintenance; the full drain measures that work.
+
+Adding the 15-second wait to the measured evaluator time implies an optimistic
+3.02–3.06 hours for one pass over 60,000 articles. Source/tag/research scheduling
+and report/pipeline work were excluded, and further catalog edits can add work.
+This is a candidate configuration for native validation, not a full mixed-workload
+or production SLO result. Reproduce the complete 2x native workload with the command
+below, changing `--scale 1` to `--scale 2 --article-batch-size 250`; preparation and
+maintenance convergence make this a long run. Local experiment artifacts remain
+untracked.
+
 ## Sustained validation
 
 `scripts/profile_background_work.py` runs the actual scheduler and both publisher
@@ -100,6 +167,21 @@ unattended phase separately measures ten minutes after the demand lease expires.
 Statement costs
 are interval deltas, restricted to top-level statements to avoid nested-function
 double counting. Buffer reads are not necessarily physical storage reads.
+
+The 2x fixture contains 60,000 eligible historical articles. If every article needs
+one evaluation, the default budget of 50 evaluations per 15-second scheduler tick
+imposes an idealized five-hour pass, before calculation time or foreground traffic.
+Equal-cursor global demands share their fanout page, but this does not increase the
+evaluation allowance or eliminate successor passes after concurrent catalog edits.
+The four-hour maintenance gate therefore remains an expected capacity failure
+under the inherited cap unless measured work reduction proves otherwise. The
+native workflow explicitly requests the optional article cap of 250 for both
+subjects: the old settings ignore it and report their actual cap of 50; the
+candidate reports its actual cap and active clock budget. All other global caps
+stay 50, and SQL/WAL, latency and convergence gates stay unchanged. Keep the change
+in draft until
+the native workload satisfies that gate; a passing lifecycle smoke does not resolve
+this throughput limit.
 
 ```sh
 DEVFEED_TEST_DATABASE_URL=postgresql+psycopg://profile@127.0.0.1:5432/workload_test \
@@ -232,6 +314,10 @@ PY
    request required reports and drain the report queue before promoting dependent
    readers. Initial backfill can take substantially longer under the duty budget;
    inspect oldest pending work and progress, not just pod health.
+   Each operator drain is limited to 20,000 paced cycles, covering the 2x fixture's
+   million fact identities plus completion pages and requested reports. Larger or
+   continuously changing populations can require another run; committed cursors
+   and contributions resume without restarting the backfill.
 4. Compare exact report/lifecycle results and interval SQL, buffers, temp spill,
    WAL, ingestion latency, reader latency and convergence. Promote one workload
    family at a time through Fleet and observe a comparable 24-hour production window.

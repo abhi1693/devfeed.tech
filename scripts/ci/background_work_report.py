@@ -30,7 +30,13 @@ def absolute(candidate, *, candidate_sha=None):
             continue
         costs = {
             field: phase["cost"].get(field)
-            for field in ("total_exec_time", "shared_blks_hit", "shared_blks_read", "wal_bytes")
+            for field in (
+                "total_exec_time",
+                "shared_blks_hit",
+                "shared_blks_read",
+                "temp_blks_written",
+                "wal_bytes",
+            )
         }
         costs["python_cpu_seconds"] = (
             sum(row["cpu_seconds"] for row in phase["processes"].values())
@@ -81,6 +87,7 @@ def compare(baseline, candidate, *, baseline_sha=None, candidate_sha=None):
         "warmup_seconds",
         "interval_seconds",
         "ingest_per_interval",
+        "article_batch_size",
     )
     if any(
         baseline.get("workload", {}).get(key) != candidate.get("workload", {}).get(key)
@@ -101,7 +108,13 @@ def compare(baseline, candidate, *, baseline_sha=None, candidate_sha=None):
         # does not look worse solely because the same work ran in fewer minutes.
         before_factor = 1 if name == "drain" else 60 / before["seconds"]
         after_factor = 1 if name == "drain" else 60 / after["seconds"]
-        for field in ("total_exec_time", "shared_blks_hit", "shared_blks_read", "wal_bytes"):
+        for field in (
+            "total_exec_time",
+            "shared_blks_hit",
+            "shared_blks_read",
+            "temp_blks_written",
+            "wal_bytes",
+        ):
             old = before["cost"][field] * before_factor
             new = after["cost"][field] * after_factor
             if not all(math.isfinite(value) and value >= 0 for value in (old, new)):
@@ -157,19 +170,21 @@ def main():
     args = parser.parse_args()
     if args.absolute_only != (args.baseline is None):
         parser.error("Provide a baseline for comparison, or --absolute-only for one candidate")
+    baseline, candidate = None, {}
     try:
         candidate = json.loads(args.candidate.read_text())
+        baseline = json.loads(args.baseline.read_text()) if args.baseline is not None else None
         result = (
             absolute(candidate, candidate_sha=args.candidate_sha)
             if args.absolute_only
             else compare(
-                json.loads(args.baseline.read_text()),
+                baseline,
                 candidate,
                 baseline_sha=args.baseline_sha,
                 candidate_sha=args.candidate_sha,
             )
         )
-    except (OSError, ValueError, KeyError, TypeError) as error:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
         result = {
             "passed": False,
             "failures": ["Results unavailable: " + type(error).__name__],
@@ -178,15 +193,42 @@ def main():
     lines = [
         "**" + ("PASS" if result["passed"] else "FAIL") + " — Sustained background work**",
         "",
-        *(
-            ["| Phase | Metric (per minute; drain total) | Measured |", "|---|---|---:|"]
-            if args.absolute_only
-            else [
-                "| Phase | Metric (per minute; drain total) | Before | After | Change |",
-                "|---|---|---:|---:|---:|",
-            ]
-        ),
     ]
+    configuration_keys = (
+        "automation_batch_size",
+        "article_automation_batch_size",
+        "article_automation_effective_batch_size",
+        "article_automation_cycle_seconds",
+        "automation_dependency_wakes_enabled",
+    )
+    if isinstance(candidate, dict) and candidate.get("scheduler_configuration"):
+        lines.extend(
+            [
+                "| Scheduler setting | "
+                + ("Candidate |" if args.absolute_only else "Base | Candidate |"),
+                "|---|---:|" if args.absolute_only else "|---|---:|---:|",
+            ]
+        )
+        for key in configuration_keys:
+            after = candidate["scheduler_configuration"].get(key)
+            value = str(after) if after is not None else "unset"
+            if not args.absolute_only:
+                before = (baseline or {}).get("scheduler_configuration", {}).get(key)
+                value = (str(before) if before is not None else "unset") + " | " + value
+            lines.append(f"| {key} | {value} |")
+        lines.append("")
+    lines.extend(
+        [
+            *(
+                ["| Phase | Metric (per minute; drain total) | Measured |", "|---|---|---:|"]
+                if args.absolute_only
+                else [
+                    "| Phase | Metric (per minute; drain total) | Before | After | Change |",
+                    "|---|---|---:|---:|---:|",
+                ]
+            ),
+        ]
+    )
     for phase, metric, before, after, delta in result["rows"]:
         change = f"{delta:+.1f}%" if delta is not None else "n/a"
         lines.append(

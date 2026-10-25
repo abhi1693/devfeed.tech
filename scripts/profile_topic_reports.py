@@ -629,6 +629,7 @@ def _durable_write_phase(engine, iterations, call_count, *, legacy):
                 ("partner_match_jobs", "article"),
                 ("read_model_events", "article"),
                 ("search_events", "articles"),
+                ("reporting_dirty", "article"),
             ):
                 connection.execute(
                     text(f"DELETE FROM {table} WHERE kind=:kind AND entity_id=ANY(:ids)"),

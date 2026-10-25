@@ -77,7 +77,7 @@ def upgrade():
     )
     op.execute("""
     CREATE FUNCTION devfeed_automation_enqueue(
-      source uuid DEFAULT NULL, changed_tag uuid DEFAULT NULL
+      source uuid DEFAULT NULL, changed_tag uuid DEFAULT NULL, family text DEFAULT 'all'
     ) RETURNS void
     LANGUAGE plpgsql AS $$
     BEGIN
@@ -86,7 +86,7 @@ def upgrade():
       INSERT INTO automation_invalidations(key, source_id, tag_id)
         VALUES (CASE WHEN source IS NOT NULL THEN 'source:' || source::text
                      WHEN changed_tag IS NOT NULL THEN 'tag:' || changed_tag::text
-                     ELSE 'all' END, source, changed_tag)
+                     ELSE family END, source, changed_tag)
       ON CONFLICT (key) DO UPDATE SET revision = automation_invalidations.revision + 1;
     END $$
     """)
@@ -94,12 +94,26 @@ def upgrade():
     CREATE FUNCTION devfeed_automation_wake(identifier uuid) RETURNS void
     LANGUAGE plpgsql AS $$
     BEGIN
-      UPDATE articles
-        SET automation_input_revision = automation_input_revision + 1,
-            automation_next_check_at = LEAST(automation_next_check_at, statement_timestamp()),
-            automation_wait_reason = NULL
+      IF identifier IS NULL THEN RETURN; END IF;
+      -- A retention/review NO KEY UPDATE lock intentionally permits ingestion's
+      -- foreign-key KEY SHARE lock. Wake bookkeeping must not strengthen that
+      -- independent writer into a blocked parent UPDATE.
+      PERFORM 1 FROM articles
         WHERE id = identifier AND review_status IN ('pending', 'approved')
-          AND publication_status = 'unpublished';
+          AND publication_status = 'unpublished'
+        FOR NO KEY UPDATE SKIP LOCKED;
+      IF FOUND THEN
+        UPDATE articles
+          SET automation_input_revision = automation_input_revision + 1,
+              automation_next_check_at = LEAST(automation_next_check_at, statement_timestamp()),
+              automation_wait_reason = NULL
+          WHERE id = identifier;
+      ELSIF EXISTS (
+        SELECT 1 FROM articles WHERE id = identifier
+          AND review_status IN ('pending', 'approved') AND publication_status = 'unpublished'
+      ) THEN
+        PERFORM devfeed_automation_enqueue(NULL, NULL, 'article:' || identifier::text);
+      END IF;
     END $$
     """)
     op.execute("""
@@ -165,7 +179,13 @@ def upgrade():
     op.execute("""
     CREATE FUNCTION devfeed_automation_global_changed() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
-      PERFORM devfeed_automation_enqueue(NULL);
+      -- Catalog families already serialize their own revision writers. Sharing
+      -- one queue row would additionally couple independent topic/tag commits.
+      IF TG_TABLE_NAME = 'catalog_revisions' AND TG_OP <> 'TRUNCATE' THEN
+        PERFORM devfeed_automation_enqueue(NULL, NULL, 'catalog:' || NEW.name);
+      ELSE
+        PERFORM devfeed_automation_enqueue(NULL);
+      END IF;
       RETURN NULL;
     END $$
     """)
@@ -196,7 +216,7 @@ def upgrade():
           (SELECT {proposal_columns} FROM old_rows EXCEPT SELECT {proposal_columns} FROM new_rows)
         ) THEN RETURN NULL; END IF;
       END IF;
-      PERFORM devfeed_automation_enqueue(NULL);
+      PERFORM devfeed_automation_enqueue(NULL, NULL, 'proposals');
       RETURN NULL;
     END $$
     """)
@@ -246,7 +266,7 @@ def downgrade():
     for name in ("global", "source", "dependency", "article"):
         op.execute(f"DROP FUNCTION devfeed_automation_{name}_changed()")
     op.execute("DROP FUNCTION devfeed_automation_wake(uuid)")
-    op.execute("DROP FUNCTION devfeed_automation_enqueue(uuid,uuid)")
+    op.execute("DROP FUNCTION devfeed_automation_enqueue(uuid,uuid,text)")
     op.drop_table("automation_invalidations")
     for column in (
         "automation_wait_reason",

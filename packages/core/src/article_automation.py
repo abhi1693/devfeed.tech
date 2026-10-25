@@ -2,6 +2,8 @@
 
 import uuid
 from datetime import timedelta
+from itertools import zip_longest
+from time import monotonic
 
 from sqlalchemy import func, select, true
 from sqlalchemy.orm import defer, lazyload
@@ -59,7 +61,7 @@ SOURCE_ACTOR = "devfeed:source-automation"
 _single_candidate_foreground = True
 
 
-def _bounded_due_candidates(session, statement, batch):
+def _bounded_due_candidates(session, statement, batch, *, interleave=False):
     """Reserve both lanes without exceeding the expensive evaluation budget.
 
     Separate indexed queries avoid walking an old maintenance prefix to locate
@@ -67,24 +69,36 @@ def _bounded_due_candidates(session, statement, batch):
     alternates its first choice; durable due work survives process restart.
     """
     global _single_candidate_foreground
-    if batch == 1:
-        reservations = [(0 if _single_candidate_foreground else 1, 1)]
+    first_lane = 0 if _single_candidate_foreground else 1
+    reservations = [(first_lane, 1)] if batch == 1 else [(0, (batch + 1) // 2), (1, batch // 2)]
+    if batch == 1 or interleave:
         _single_candidate_foreground = not _single_candidate_foreground
-    else:
-        reservations = [(0, (batch + 1) // 2), (1, batch // 2)]
     selected, identifiers = [], set()
+    pages: dict[int, list] = {0: [], 1: []}
 
     def append(rows):
+        added = []
         for row in rows:
             if row[0] not in identifiers:
                 selected.append(row)
                 identifiers.add(row[0])
+                added.append(row)
+        return added
 
     for lane, limit in reservations:
         scoped = statement.where(maintenance_lane() == lane)
         if identifiers:
             scoped = scoped.where(Article.id.not_in(identifiers))
-        append(session.execute(scoped.limit(limit)).all())
+        pages[lane] = append(session.execute(scoped.limit(limit)).all())
+    if interleave:
+        # A deadline may admit only one observation. Alternate the first lane
+        # across cycles as well as interleaving this cycle's reserved rows.
+        selected = [
+            row
+            for pair in zip_longest(pages[first_lane], pages[1 - first_lane])
+            for row in pair
+            if row is not None
+        ]
     if len(selected) < batch:
         scoped = statement.where(Article.id.not_in(identifiers)) if identifiers else statement
         append(session.execute(scoped.limit(batch - len(selected))).all())
@@ -345,7 +359,14 @@ def _schedule_article_automation(factory) -> dict[str, int]:
             Source.enabled.is_(True),
         )
     )
-    dependency_wakes = get_settings().automation_dependency_wakes_enabled
+    settings = get_settings()
+    dependency_wakes = settings.automation_dependency_wakes_enabled
+    batch = settings.article_automation_batch_size or settings.automation_batch_size
+    deadline = (
+        monotonic() + settings.article_automation_cycle_seconds
+        if dependency_wakes and settings.article_automation_batch_size is not None
+        else None
+    )
     with factory() as session:
         statement = (
             select(Article.id)
@@ -355,7 +376,7 @@ def _schedule_article_automation(factory) -> dict[str, int]:
                 Article.automation_next_check_at <= now,
             )
             .order_by(Article.automation_next_check_at, Article.id)
-            .limit(get_settings().automation_batch_size)
+            .limit(batch)
         )
         if dependency_wakes:
             # Bound examined due identities before source/date checks. Otherwise
@@ -363,7 +384,8 @@ def _schedule_article_automation(factory) -> dict[str, int]:
             selected = _bounded_due_candidates(
                 session,
                 statement.add_columns(eligible_articles(), origin.exists()),
-                get_settings().automation_batch_size,
+                batch,
+                interleave=deadline is not None,
             )
         else:
             selected = [
@@ -373,6 +395,8 @@ def _schedule_article_automation(factory) -> dict[str, int]:
                 ).all()
             ]
     for identifier, date_eligible, source_admitted in selected:
+        if deadline is not None and monotonic() >= deadline:
+            break
         prepared = (
             _prepare_article_candidates(factory, identifier)
             if date_eligible and source_admitted

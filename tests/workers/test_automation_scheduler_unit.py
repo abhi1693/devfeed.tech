@@ -380,7 +380,7 @@ def test_demand_pages_progress_and_preserve_changes_for_a_successor_pass(
     page = [uuid.UUID(int=11), uuid.UUID(int=12)] if full_page else [uuid.UUID(int=11)]
     session = Mock()
     session.scalar.side_effect = [True, demand]
-    session.scalars.side_effect = [page, page]
+    session.scalars.side_effect = [*([[]] if not source_page else []), page, page, [demand.key]]
     session.execute.return_value.rowcount = 0 if successor else 1
     factory = ReadFactory(session)
     assert automation_demands.expand_automation_demands(factory, NOW) == len(page)
@@ -402,7 +402,112 @@ def test_demand_pages_progress_and_preserve_changes_for_a_successor_pass(
         assert "maintenance" in saved[0].values()
 
 
-@pytest.mark.parametrize("case", ["busy", "empty", "empty-page", "locked", "database-error"])
+@pytest.mark.parametrize(
+    "full_page,changed", [(True, None), (False, "all"), (False, "catalog:tags")]
+)
+def test_equal_global_cursors_share_one_page_and_acknowledge_each_revision_independently(
+    monkeypatch, full_page, changed
+):
+    monkeypatch.setattr(
+        automation_demands,
+        "get_settings",
+        lambda: configuration(automation_invalidation_batch_size=2),
+    )
+    monkeypatch.setattr(automation_demands, "_enqueue_policy", lambda *_: None)
+    primary = AutomationInvalidation(
+        key="all", revision=3, scan_revision=2, after_article_id=uuid.UUID(int=10)
+    )
+    companion = AutomationInvalidation(
+        key="catalog:tags", revision=7, scan_revision=None, after_article_id=uuid.UUID(int=10)
+    )
+    page = [uuid.UUID(int=11), uuid.UUID(int=12)] if full_page else [uuid.UUID(int=11)]
+    session = Mock()
+    session.scalar.side_effect = [True, primary]
+    session.scalars.side_effect = [[companion], page, page, [primary.key, companion.key]]
+    results = [Mock(rowcount=1)]  # One shared article-page update.
+    for key in ("all", "catalog:tags"):
+        results.append(Mock(rowcount=0 if key == changed else 1))
+        if key == changed:
+            results.append(Mock(rowcount=1))
+    session.execute.side_effect = results
+    assert automation_demands.expand_automation_demands(ReadFactory(session), NOW) == len(page)
+    saved = [call.args[0].compile().params for call in session.execute.call_args_list]
+    assert len(saved) == (3 if full_page else 4)
+    if full_page:
+        assert [item["scan_revision"] for item in saved[1:]] == [2, 7]
+        assert all(item["after_article_id"] == page[-1] for item in saved[1:])
+    else:
+        acknowledged = [item for item in saved[1:] if "revision_1" in item]
+        assert [item["revision_1"] for item in acknowledged] == [2, 7]
+        restarted = [item for item in saved[1:] if "after_article_id" in item]
+        assert len(restarted) == 1
+        assert restarted[0]["key_1"] == changed
+        assert restarted[0]["after_article_id"] is None
+        assert restarted[0]["scan_revision"] is None
+
+
+@pytest.mark.parametrize("case", ["complete", "changed", "deleted", "contended", "vanished"])
+def test_direct_dependency_requests_are_batched_and_replayed_without_scanning_article_history(
+    monkeypatch, case
+):
+    monkeypatch.setattr(
+        automation_demands,
+        "get_settings",
+        lambda: configuration(automation_invalidation_batch_size=2),
+    )
+    monkeypatch.setattr(automation_demands, "_enqueue_policy", lambda *_: None)
+    identifiers = [uuid.UUID(int=1), uuid.UUID(int=2)]
+    demands = [
+        AutomationInvalidation(
+            key=f"article:{identifier}",
+            revision=revision,
+            scan_revision=None,
+            after_article_id=None,
+        )
+        for identifier, revision in zip(identifiers, (3, 7), strict=True)
+    ]
+    session = Mock()
+    session.scalar.side_effect = [True, demands[0]]
+    if case == "vanished":
+        session.scalars.side_effect = [[], []]
+    elif case == "contended":
+        error = OperationalError("busy article", {}, Exception("busy parent"))
+        error.orig.sqlstate = "55P03"
+        session.scalars.side_effect = [demands, error]
+    else:
+        locked = [] if case == "deleted" else identifiers
+        session.scalars.side_effect = [demands, locked, [demand.key for demand in demands]]
+        results = [] if case == "deleted" else [Mock(rowcount=2)]
+        results.append(Mock(rowcount=0 if case == "changed" else 1))
+        if case == "changed":
+            results.append(Mock(rowcount=1))
+        results.append(Mock(rowcount=1))
+        session.execute.side_effect = results
+    processed = automation_demands.expand_automation_demands(ReadFactory(session), NOW)
+    assert processed == (0 if case in {"contended", "vanished"} else 2)
+    if case in {"contended", "vanished"}:
+        session.execute.assert_not_called()
+    else:
+        writes = [call.args[0] for call in session.execute.call_args_list]
+        acknowledged = [statement.compile().params for statement in writes if statement.is_delete]
+        assert [item["revision_1"] for item in acknowledged] == [3, 7]
+        # Even a full direct batch consumes exact requests, never a global cursor.
+        assert [item["key_1"] for item in acknowledged] == [item.key for item in demands]
+        if case != "deleted":
+            params = writes[0].compile().params
+            assert params["id_1"] == identifiers
+            assert params["automation_wait_reason"] is None
+        restarted = [
+            statement.compile().params
+            for statement in writes
+            if statement.is_update and statement.table.name == AutomationInvalidation.__tablename__
+        ]
+        assert len(restarted) == int(case == "changed")
+
+
+@pytest.mark.parametrize(
+    "case", ["busy", "empty", "empty-page", "locked", "locked-queue", "database-error"]
+)
 def test_demand_recovery_defers_contention_without_hiding_database_failures(monkeypatch, case):
     monkeypatch.setattr(automation_demands, "get_settings", lambda: configuration())
     monkeypatch.setattr(automation_demands, "_enqueue_policy", lambda *_: None)
@@ -411,10 +516,13 @@ def test_demand_recovery_defers_contention_without_hiding_database_failures(monk
         key="all", revision=1, scan_revision=None, after_article_id=None
     )
     session.scalar.side_effect = [case != "busy", None if case == "empty" else demand]
-    if case in {"locked", "database-error"}:
+    if case in {"locked", "locked-queue", "database-error"}:
         error = OperationalError("locked", {}, Exception("database unavailable"))
-        error.orig.sqlstate = "55P03" if case == "locked" else "08006"
-        session.scalars.side_effect = error
+        error.orig.sqlstate = "08006" if case == "database-error" else "55P03"
+        page = [uuid.UUID(int=1)]
+        session.scalars.side_effect = (
+            [[], page, page, error] if case == "locked-queue" else [[], error]
+        )
     else:
         session.scalars.return_value = []
     if case == "database-error":
@@ -422,7 +530,7 @@ def test_demand_recovery_defers_contention_without_hiding_database_failures(monk
             automation_demands.expand_automation_demands(ReadFactory(session), NOW)
     else:
         assert automation_demands.expand_automation_demands(ReadFactory(session), NOW) == 0
-    if case in {"busy", "empty", "locked", "database-error"}:
+    if case in {"busy", "empty", "locked", "locked-queue", "database-error"}:
         session.execute.assert_not_called()
 
 
@@ -494,9 +602,15 @@ def test_automation_metrics_distinguish_total_age_from_progress_without_sampling
     )
     session = Mock()
     session.execute.return_value.one.side_effect = [
-        (0, None, None)
+        (0, None, None, 0, None)
         if case in {"empty", "cursor-drained"}
-        else (3, NOW - timedelta(hours=1), NOW - timedelta(seconds=5)),
+        else (
+            3,
+            NOW - timedelta(hours=1),
+            NOW - timedelta(seconds=5),
+            2,
+            NOW - timedelta(seconds=15),
+        ),
         (0, None, 0, None)
         if case == "empty"
         else (2, NOW - timedelta(seconds=10), 5, NOW - timedelta(hours=2)),
@@ -517,12 +631,14 @@ def test_automation_metrics_distinguish_total_age_from_progress_without_sampling
         queue_empty = case in {"empty", "cursor-drained"}
         assert [call.args for call in pending.set.call_args_list] == [
             (0 if queue_empty else 3, {"kind": "automation-invalidations"}),
+            (0 if queue_empty else 2, {"kind": "automation-direct-invalidations"}),
             (0 if case == "empty" else 2, {"kind": "automation-foreground"}),
             (0 if case == "empty" else 5, {"kind": "automation-maintenance"}),
         ]
         assert [call.args for call in oldest.set.call_args_list] == [
             (0 if queue_empty else 3600.0, {"kind": "automation-invalidations"}),
             (0 if queue_empty else 5.0, {"kind": "automation-invalidation-progress"}),
+            (0 if queue_empty else 15.0, {"kind": "automation-direct-invalidations"}),
             (0 if case == "empty" else 10.0, {"kind": "automation-foreground"}),
             (0 if case == "empty" else 7200.0, {"kind": "automation-maintenance"}),
         ]

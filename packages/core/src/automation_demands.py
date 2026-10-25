@@ -8,8 +8,9 @@ import logging
 import time
 from contextlib import contextmanager
 from datetime import timedelta
+from uuid import UUID
 
-from sqlalchemy import and_, case, delete, func, literal_column, select, update
+from sqlalchemy import case, delete, func, literal_column, or_, select, true, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm.attributes import flag_modified
@@ -38,6 +39,8 @@ MAINTENANCE_WAIT_REASONS = (
     "source_admission",
     "content_date_deferred",
 )
+GLOBAL_DEMAND_KEYS = ("all", "catalog:topics", "catalog:tags", "proposals")
+DIRECT_DEMAND_PREFIX = "article:"
 
 
 def maintenance_lane():
@@ -100,6 +103,17 @@ def _expand_automation_demands(factory, now):
             demand = session.scalar(
                 select(AutomationInvalidation)
                 .order_by(
+                    case(
+                        (
+                            or_(
+                                AutomationInvalidation.key.startswith(DIRECT_DEMAND_PREFIX),
+                                AutomationInvalidation.source_id.is_not(None),
+                                AutomationInvalidation.tag_id.is_not(None),
+                            ),
+                            0,
+                        ),
+                        else_=1,
+                    ),
                     func.coalesce(
                         AutomationInvalidation.progressed_at, AutomationInvalidation.requested_at
                     ),
@@ -109,8 +123,44 @@ def _expand_automation_demands(factory, now):
             )
             if demand is None:
                 return 0
-            revision = demand.scan_revision or demand.revision
-            if demand.source_id is None and demand.tag_id is None:
+            demands = [demand]
+            direct = demand.key.startswith(DIRECT_DEMAND_PREFIX)
+            if direct:
+                demands = list(
+                    session.scalars(
+                        select(AutomationInvalidation)
+                        .where(AutomationInvalidation.key.startswith(DIRECT_DEMAND_PREFIX))
+                        .order_by(
+                            func.coalesce(
+                                AutomationInvalidation.progressed_at,
+                                AutomationInvalidation.requested_at,
+                            ),
+                            AutomationInvalidation.key,
+                        )
+                        .limit(settings.automation_invalidation_batch_size)
+                    )
+                )
+                page = [UUID(item.key.removeprefix(DIRECT_DEMAND_PREFIX)) for item in demands]
+            elif demand.source_id is None and demand.tag_id is None:
+                # Independent writer families share work only when their durable
+                # cursors cover the exact same prefix. A new request behind an
+                # active pass keeps its own complete coverage. Do not lock queue
+                # rows before acquiring the article page's NOWAIT locks.
+                demands.extend(
+                    session.scalars(
+                        select(AutomationInvalidation)
+                        .where(
+                            AutomationInvalidation.key.in_(GLOBAL_DEMAND_KEYS),
+                            AutomationInvalidation.key != demand.key,
+                            AutomationInvalidation.source_id.is_(None),
+                            AutomationInvalidation.tag_id.is_(None),
+                            AutomationInvalidation.after_article_id.is_not_distinct_from(
+                                demand.after_article_id
+                            ),
+                        )
+                        .order_by(AutomationInvalidation.key)
+                    )
+                )
                 # The partial identity index bounds the eligible population;
                 # historical published/rejected articles are never enumerated.
                 identifiers = select(Article.id).where(
@@ -136,17 +186,19 @@ def _expand_automation_demands(factory, now):
                     .distinct()
                 )
                 identity = ArticleTag.article_id
-            if demand.after_article_id is not None:
-                identifiers = identifiers.where(identity > demand.after_article_id)
-            page = list(
-                session.scalars(
-                    identifiers.order_by(identity).limit(
-                        settings.automation_invalidation_batch_size
+            if not direct:
+                if demand.after_article_id is not None:
+                    identifiers = identifiers.where(identity > demand.after_article_id)
+                page = list(
+                    session.scalars(
+                        identifiers.order_by(identity).limit(
+                            settings.automation_invalidation_batch_size
+                        )
                     )
                 )
-            )
+            locked = []
             if page:
-                list(
+                locked = list(
                     session.scalars(
                         select(Article.id)
                         .where(Article.id.in_(page))
@@ -154,50 +206,62 @@ def _expand_automation_demands(factory, now):
                         .with_for_update(of=Article, nowait=True)
                     )
                 )
-                foreground = and_(Article.automation_next_check_at <= now, maintenance_lane() == 0)
+            # A writer can hold one family row before changing another. Never
+            # wait while ACKing shared pages in a different statement order.
+            list(
+                session.scalars(
+                    select(AutomationInvalidation.key)
+                    .where(AutomationInvalidation.key.in_([item.key for item in demands]))
+                    .order_by(AutomationInvalidation.key)
+                    .with_for_update(nowait=True)
+                )
+            )
+            if locked:
+                global_demand = not direct and demand.source_id is None and demand.tag_id is None
+                wake = true() if direct else Article.automation_next_check_at > now
+                if not global_demand and not direct:
+                    wake = or_(wake, maintenance_lane() == 1)
                 session.execute(
                     update(Article)
                     .where(
-                        Article.id.in_(page),
+                        Article.id.in_(locked),
                         Article.review_status.in_(["pending", "approved"]),
                         Article.publication_status == "unpublished",
+                        wake,
                     )
                     .values(
                         automation_input_revision=Article.automation_input_revision + 1,
                         automation_next_check_at=func.least(Article.automation_next_check_at, now),
-                        automation_wait_reason=(
-                            case(
-                                (foreground, Article.automation_wait_reason),
-                                else_=MAINTENANCE_WAIT_REASON,
-                            )
-                            if demand.source_id is None and demand.tag_id is None
-                            else None
-                        ),
+                        automation_wait_reason=MAINTENANCE_WAIT_REASON if global_demand else None,
                     )
                 )
-            if len(page) == settings.automation_invalidation_batch_size:
-                # Only the publisher writes cursor fields. A concurrent writer
-                # increments revision without losing this page's progress.
-                session.execute(
-                    update(AutomationInvalidation)
-                    .where(AutomationInvalidation.key == demand.key)
-                    .values(after_article_id=page[-1], scan_revision=revision, progressed_at=now)
-                )
-            else:
-                removed = session.execute(
-                    delete(AutomationInvalidation).where(
-                        AutomationInvalidation.key == demand.key,
-                        AutomationInvalidation.revision == revision,
-                    )
-                ).rowcount
-                if not removed:
-                    # Edits after this pass started require a successor pass,
-                    # including entities already covered before those edits.
+            for demand in demands:
+                revision = demand.scan_revision or demand.revision
+                if not direct and len(page) == settings.automation_invalidation_batch_size:
+                    # Only the publisher writes cursor fields. A concurrent writer
+                    # increments revision without losing this page's progress.
                     session.execute(
                         update(AutomationInvalidation)
                         .where(AutomationInvalidation.key == demand.key)
-                        .values(after_article_id=None, scan_revision=None, progressed_at=now)
+                        .values(
+                            after_article_id=page[-1], scan_revision=revision, progressed_at=now
+                        )
                     )
+                else:
+                    removed = session.execute(
+                        delete(AutomationInvalidation).where(
+                            AutomationInvalidation.key == demand.key,
+                            AutomationInvalidation.revision == revision,
+                        )
+                    ).rowcount
+                    if not removed:
+                        # Each family independently retains edits after its pass
+                        # started, including entities already covered by this page.
+                        session.execute(
+                            update(AutomationInvalidation)
+                            .where(AutomationInvalidation.key == demand.key)
+                            .values(after_article_id=None, scan_revision=None, progressed_at=now)
+                        )
             return len(page)
     except OperationalError as exc:
         if getattr(exc.orig, "sqlstate", None) == "55P03":
@@ -233,8 +297,9 @@ def observe_automation_demand(session, article, now):
     """Consume only the completed locked observation, including our own requests.
 
     Semantic writes flushed by this evaluation can advance the database revision.
-    Refresh that scalar before acknowledging it. A concurrent dependency writer
-    waits for the article lock, then advances the revision and due clock after us.
+    Refresh that scalar before acknowledging our own writes. A concurrent
+    dependency writer that cannot lock this article records a durable exact wake;
+    its later replay advances the revision and due clock after this observation.
     Changed-input retries intentionally remain due and are never acknowledged.
     """
     enabled = get_settings().automation_dependency_wakes_enabled
@@ -268,7 +333,7 @@ def record_automation_backlog(factory):
     now = utcnow()
     try:
         with factory.begin() as session:
-            count, requested, progressed = session.execute(
+            count, requested, progressed, direct_count, direct_oldest = session.execute(
                 select(
                     func.count(),
                     func.min(AutomationInvalidation.requested_at),
@@ -277,6 +342,12 @@ def record_automation_backlog(factory):
                             AutomationInvalidation.progressed_at,
                             AutomationInvalidation.requested_at,
                         )
+                    ),
+                    func.count().filter(
+                        AutomationInvalidation.key.startswith(DIRECT_DEMAND_PREFIX)
+                    ),
+                    func.min(AutomationInvalidation.requested_at).filter(
+                        AutomationInvalidation.key.startswith(DIRECT_DEMAND_PREFIX)
                     ),
                 ).select_from(AutomationInvalidation)
             ).one()
@@ -307,6 +378,7 @@ def record_automation_backlog(factory):
         {"kind": "automation-invalidation-progress"},
     )
     for kind, count, oldest in (
+        ("automation-direct-invalidations", direct_count, direct_oldest),
         ("automation-foreground", foreground, foreground_oldest),
         ("automation-maintenance", maintenance, maintenance_oldest),
     ):
