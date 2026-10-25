@@ -393,9 +393,12 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
       mode = "unclaimed";
       await streaks.getByRole("button", { name: "Retry your ranking" }).click();
       for (const board of [streaks, days]) {
-        await board.getByRole("listitem").nth(8).locator('[data-own="true"]').waitFor();
+        const ownRanking = board.locator('footer [data-own="true"]');
+        await ownRanking.waitFor();
+        assert.ok((await ownRanking.textContent()).includes("Reader 8"));
+        assert.equal(await ownRanking.getByRole("link").count(), 0);
+        assert.equal(await board.locator('ol [data-own="true"]').count(), 0);
         assert.equal(await board.getByRole("listitem").nth(8).getByRole("link").count(), 0);
-        assert.equal(await board.locator("footer").count(), 0);
       }
     }
   } finally {

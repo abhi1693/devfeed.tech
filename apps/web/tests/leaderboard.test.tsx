@@ -197,6 +197,57 @@ it.each(["mine", ""])(
   },
 );
 
+it("identifies the same username when position and display name change between reads", async () => {
+  state.user = { user_id: "mine" };
+  const listed = { ...reader, username: "mine", display_name: "Previous name" };
+  const mine = { ...listed, position: 2, rank: 2, display_name: "Updated name" };
+  network.mockImplementation((url: string) =>
+    Promise.resolve(
+      Response.json(
+        url.endsWith("/me")
+          ? { longest_streak: mine, reading_days: mine }
+          : { longest_streak: [listed], reading_days: [listed] },
+      ),
+    ),
+  );
+  render(<Leaderboard />);
+  expect(await screen.findAllByText("You")).toHaveLength(2);
+  for (const title of ["Longest streak", "Most reading days"]) {
+    const board = screen.getByRole("region", { name: title });
+    expect(within(board).getAllByRole("listitem")).toHaveLength(1);
+    expect(
+      within(board).getByRole("link", { name: rankingName("Previous name", 1, 21, true) }),
+    ).toBeTruthy();
+    expect(within(board).queryByLabelText(`Your ${title.toLowerCase()} ranking`)).toBeNull();
+    expect(within(board).queryByText("Updated name")).toBeNull();
+  }
+});
+
+it("does not infer ownership from an unclaimed reader's display name and position", async () => {
+  state.user = { user_id: "mine" };
+  const unclaimed = { ...reader, username: "", display_name: "Shared public name" };
+  network.mockImplementation((url: string) =>
+    Promise.resolve(
+      Response.json(
+        url.endsWith("/me")
+          ? { longest_streak: unclaimed, reading_days: unclaimed }
+          : { longest_streak: [unclaimed], reading_days: [unclaimed] },
+      ),
+    ),
+  );
+  render(<Leaderboard />);
+  expect(await screen.findAllByText("You")).toHaveLength(2);
+  for (const title of ["Longest streak", "Most reading days"]) {
+    const board = screen.getByRole("region", { name: title });
+    const listed = within(board).getByRole("listitem");
+    expect(within(listed).getByText("Shared public name")).toBeTruthy();
+    expect(within(listed).queryByText("You")).toBeNull();
+    const personal = within(board).getByLabelText(`Your ${title.toLowerCase()} ranking`);
+    expect(within(personal).getByText("Shared public name")).toBeTruthy();
+    expect(within(personal).getByText("You")).toBeTruthy();
+  }
+});
+
 it("keeps the public rankings when personal ranks fail and lets the reader retry", async () => {
   state.user = { user_id: "mine" };
   network.mockImplementation((url: string) =>
@@ -290,7 +341,7 @@ function rankingName(name: string, rank: number, days: number, own: boolean) {
   );
 }
 
-it("keeps named unclaimed readers unlinked and highlights only the signed-in reader", async () => {
+it("keeps named unclaimed readers unlinked and shows your ranking in the personal footer", async () => {
   state.user = { user_id: "mine" };
   const entries = [
     { ...reader, position: 1, username: "", display_name: "  Unclaimed reader  " },
@@ -315,8 +366,11 @@ it("keeps named unclaimed readers unlinked and highlights only the signed-in rea
     expect(rows[0].textContent).toContain("Unclaimed reader");
     expect(rows[0].textContent).not.toContain("You");
     expect(rows[0].textContent).not.toContain("  Unclaimed reader  ");
-    expect(rows[1].textContent).toContain("Another readerYou");
-    expect(within(board).queryByLabelText(`Your ${title.toLowerCase()} ranking`)).toBeNull();
+    expect(rows[1].textContent).toContain("Another reader");
+    expect(rows[1].textContent).not.toContain("You");
+    const personal = within(board).getByLabelText(`Your ${title.toLowerCase()} ranking`);
+    expect(within(personal).getByText("Another reader")).toBeTruthy();
+    expect(within(personal).getByText("You")).toBeTruthy();
   }
 });
 

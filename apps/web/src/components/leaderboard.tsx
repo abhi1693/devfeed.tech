@@ -103,10 +103,7 @@ export function Leaderboard() {
             const mine =
               personalEntry && leaderboardName(personalEntry) ? personalEntry : undefined;
             const isOwnEntry = (entry: LeaderboardEntry) =>
-              !!mine &&
-              entry.position === mine.position &&
-              entry.username === mine.username &&
-              leaderboardName(entry) === leaderboardName(mine);
+              !!mine?.username && entry.username === mine.username;
             const ownRankListed = entries.some(isOwnEntry);
             return (
               <section key={key} className={styles.board} aria-label={title} data-metric={key}>

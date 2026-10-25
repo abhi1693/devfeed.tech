@@ -5,6 +5,7 @@ from datetime import date
 
 import pytest
 from devfeed_core.models import UserAccount, UserReadingStreak
+from devfeed_core.user_settings import ProfileSettings
 from devfeed_user_api.auth import UserIdentity, require_user
 from devfeed_user_api.main import create_app
 from fastapi.testclient import TestClient
@@ -225,8 +226,12 @@ def test_anonymous_readers_are_excluded_before_ranking_and_top_ten_limit(
     readers, database, profile
 ):
     client, current, identifiers = readers
+    normalized = ProfileSettings.model_validate(profile)
+    assert normalized.display_name is None
     with database.begin() as session:
-        session.get(UserAccount, identifiers[13]).profile = profile
+        session.get(UserAccount, identifiers[13]).profile = normalized.model_dump(
+            exclude_unset=True
+        )
 
     response = client.get("/v1/user/leaderboard")
     boards = response.json()
@@ -252,6 +257,25 @@ def test_anonymous_readers_are_excluded_before_ranking_and_top_ten_limit(
     }
 
 
+def test_legacy_space_only_name_does_not_enter_leaderboards(readers, database):
+    client, current, identifiers = readers
+    with database.begin() as session:
+        session.get(UserAccount, identifiers[13]).profile = {"display_name": "   "}
+
+    response = client.get("/v1/user/leaderboard")
+    assert response.status_code == 200
+    boards = response.json()
+    for board in boards.values():
+        assert all(row["username"] for row in board)
+        assert [row["position"] for row in board] == list(range(1, 11))
+    assert [row["rank"] for row in boards["longest_streak"][:3]] == [1, 1, 3]
+    current.user_id, current.subject = str(identifiers[13]), "reader-13"
+    assert client.get("/v1/user/leaderboard/me").json() == {
+        "longest_streak": None,
+        "reading_days": None,
+    }
+
+
 @pytest.mark.parametrize("identity", ["display_name", "username"])
 def test_adding_a_public_name_or_username_enters_existing_reading_activity(
     readers, database, identity
@@ -268,7 +292,7 @@ def test_adding_a_public_name_or_username_enters_existing_reading_activity(
     with database.begin() as session:
         account = session.get(UserAccount, identifiers[13])
         if identity == "display_name":
-            account.profile = {"display_name": "  Public name  "}
+            account.profile = ProfileSettings(display_name="  Public name  ").model_dump()
         else:
             account.username = "new-public-name"
 
@@ -285,8 +309,77 @@ def test_adding_a_public_name_or_username_enters_existing_reading_activity(
 def test_claimed_username_keeps_reader_eligible_with_a_blank_display_name(readers, database):
     client, _, identifiers = readers
     with database.begin() as session:
-        session.get(UserAccount, identifiers[0]).profile = {"display_name": " \t\n\u00a0"}
+        session.get(UserAccount, identifiers[0]).profile = ProfileSettings(
+            display_name=" \t\n\u00a0"
+        ).model_dump()
     boards = client.get("/v1/user/leaderboard").json()
     for board in boards.values():
         reader = next(row for row in board if row["username"] == "reader-00")
         assert reader["display_name"] is None
+
+
+def test_short_boards_only_include_eligible_readers_without_padding(readers, database):
+    client, current, identifiers = readers
+    with database.begin() as session:
+        for index, account_id in enumerate(identifiers):
+            account = session.get(UserAccount, account_id)
+            streak = session.get(UserReadingStreak, account_id)
+            if index == 0:
+                account.profile = {}
+            elif index == 11:
+                streak.current_days = streak.longest_days = streak.total_days = 0
+            elif index not in {12, 13, 14}:
+                account.username = None
+                account.profile = {}
+                streak.longest_days = streak.total_days = 10000
+
+    response = client.get("/v1/user/leaderboard")
+    assert response.status_code == 200
+    boards = response.json()
+    for metric, board in boards.items():
+        assert len(board) == 2
+        assert [row["username"] for row in board] == ["", "reader-00"]
+        assert [row["display_name"] for row in board] == ["Public reader 13", None]
+        assert [row["rank"] for row in board] == [1, 2]
+        assert [row["position"] for row in board] == [1, 2]
+        assert [row["days"] for row in board] == (
+            [1000, 50] if metric == "longest_streak" else [2000, 60]
+        )
+
+    for index, position in ((13, 0), (0, 1)):
+        current.user_id, current.subject = str(identifiers[index]), f"reader-{index}"
+        own = client.get("/v1/user/leaderboard/me").json()
+        assert own == {metric: board[position] for metric, board in boards.items()}
+
+    current.user_id, current.subject = str(identifiers[1]), "reader-1"
+    assert client.get("/v1/user/leaderboard/me").json() == {
+        "longest_streak": None,
+        "reading_days": None,
+    }
+
+
+@pytest.mark.parametrize("display_name", [None, "", " \t\n\r\f\v", "\u00a0\u2003\u3000"])
+def test_clearing_public_name_immediately_removes_unclaimed_reader(readers, display_name):
+    client, current, identifiers = readers
+    current.user_id, current.subject = str(identifiers[13]), "reader-13"
+    assert all(
+        row["display_name"] == "Public reader 13"
+        for row in client.get("/v1/user/leaderboard/me").json().values()
+    )
+
+    saved = client.put("/v1/user/settings/profile", json={"display_name": display_name})
+    assert saved.status_code == 200
+    assert saved.json()["display_name"] is None
+
+    response = client.get("/v1/user/leaderboard")
+    assert response.status_code == 200
+    boards = response.json()
+    for board in boards.values():
+        assert all(row["username"] for row in board)
+        assert [row["position"] for row in board] == list(range(1, 11))
+    assert [row["rank"] for row in boards["longest_streak"][:3]] == [1, 1, 3]
+    assert "Public reader 13" not in response.text
+    assert client.get("/v1/user/leaderboard/me").json() == {
+        "longest_streak": None,
+        "reading_days": None,
+    }

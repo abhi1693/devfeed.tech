@@ -35,16 +35,8 @@ class MyReadingRanks(BaseModel):
 def ranked_readers(metric: InstrumentedAttribute[int]):
     # Missing visibility uses the same public default as profile settings.
     # Ties share a competition rank; position identifies rows without exposing account IDs.
-    # Normalize legacy values as profile settings do; provider names stay private.
-    display_name = func.nullif(
-        func.btrim(
-            UserAccount.profile["display_name"].as_string(),
-            " \t\n\r\f\v\x1c\x1d\x1e\x1f\u0085\u00a0\u1680"
-            "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
-            "\u2028\u2029\u202f\u205f\u3000",
-        ),
-        "",
-    )
+    # Profile settings normalize names on write; also ignore legacy empty/space-only names.
+    display_name = func.nullif(func.btrim(UserAccount.profile["display_name"].as_string()), "")
     return (
         select(
             UserAccount.id.label("user_id"),
