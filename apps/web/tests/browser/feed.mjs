@@ -2140,6 +2140,25 @@ test(
   },
 );
 
+test("search security checks use visible article results", { timeout: 180000 }, async (t) => {
+  const { browser, origin } = await createReaderFixture(t);
+  await withReaderPage(browser, async (page) => {
+    const description = searchFixture(searchSecurityQuery).sections.articles.items[0].description;
+    await page.addInitScript((text) => {
+      document.addEventListener("DOMContentLoaded", () => {
+        const retained = document.createElement("p");
+        retained.hidden = true;
+        retained.textContent = text;
+        document.body.append(retained);
+      });
+    }, description);
+    await checkSearchSecurity(
+      page,
+      `${origin}/search?${new URLSearchParams({ q: searchSecurityQuery })}`,
+    );
+  });
+});
+
 test("reader journey works at desktop and mobile sizes", { timeout: 360000 }, async (t) => {
   const { runJourney } = await createReaderFixture(t);
   await runJourney();
