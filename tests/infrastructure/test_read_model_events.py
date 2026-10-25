@@ -580,7 +580,9 @@ def test_migration_round_trip_preserves_entities_and_requests_bounded_backfill(d
     try:
         command.downgrade(config, "0033")
         with database() as session:
-            assert session.get(Article, identifier).title == "Inspect Python coroutine state"
+            assert session.scalar(select(Article.title).where(Article.id == identifier)) == (
+                "Inspect Python coroutine state"
+            )
             assert session.scalar(text("SELECT to_regclass('pipeline_projections')")) is None
         command.upgrade(config, "head")
         with database() as session:

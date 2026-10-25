@@ -16,6 +16,11 @@ def get_engine():
 
 def create_database_engine(settings: Settings):
     from devfeed_core.database_telemetry import ObservedNullPool, ObservedQueuePool
+    from devfeed_core.telemetry import current
+
+    application_name = settings.database_application_name
+    if application_name == "devfeed" and (runtime := current()):
+        application_name = ("devfeed-" + runtime.service)[:63]
 
     pool_options = (
         {
@@ -36,6 +41,7 @@ def create_database_engine(settings: Settings):
         # connect_timeout only covers establishment; TCP controls bound loss of
         # an established peer. Pre-ping/invalidation then replace dead sockets.
         connect_args={
+            "application_name": application_name,
             "connect_timeout": settings.database_connect_timeout_seconds,
             "keepalives": 1,
             "keepalives_idle": settings.database_keepalives_idle_seconds,

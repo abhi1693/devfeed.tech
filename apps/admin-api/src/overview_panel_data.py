@@ -16,7 +16,7 @@ from devfeed_core.overview_daily import read_daily_metrics
 from devfeed_core.pipeline_metrics import pipeline_throughput
 from devfeed_core.read_models import ReadModelSnapshot
 from devfeed_core.topic_decision_metrics import decision_metrics
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 from sqlalchemy import func, literal, select, union_all
 
 from devfeed_admin_api.automation import (
@@ -118,6 +118,8 @@ class OverviewPanelAutomation(AutomationOverview):
 
 
 class OverviewPanel(BaseModel):
+    _reporting_fact_observation: dict | None = PrivateAttr(default=None)
+
     generated_at: datetime
     days: int
     snapshot: ReadModelSnapshot | None = None
@@ -158,24 +160,31 @@ def panel_data(session, group: str, days: int, now: datetime) -> OverviewPanel:
                 ),
             )
         if group == "publication-time":
-            elapsed = func.extract("epoch", Article.published_to_feed_at - Article.discovered_at)
-            latency = session.execute(
-                select(
-                    func.percentile_cont(0.5)
-                    .within_group(elapsed)
-                    .filter(Article.published_to_feed_at >= start),
-                    func.percentile_cont(0.5)
-                    .within_group(elapsed)
-                    .filter(Article.published_to_feed_at < start),
-                    func.percentile_cont(0.9)
-                    .within_group(elapsed)
-                    .filter(Article.published_to_feed_at >= start),
-                ).where(
-                    Article.published_to_feed_at >= previous,
-                    Article.published_to_feed_at <= now,
-                    elapsed >= 0,
+            if getattr(session, "info", {}).get("reporting_facts") is True:
+                from devfeed_core.reporting_facts import publication_latency
+
+                latency = publication_latency(session, start, previous, now)
+            else:
+                elapsed = func.extract(
+                    "epoch", Article.published_to_feed_at - Article.discovered_at
                 )
-            ).one()
+                latency = session.execute(
+                    select(
+                        func.percentile_cont(0.5)
+                        .within_group(elapsed)
+                        .filter(Article.published_to_feed_at >= start),
+                        func.percentile_cont(0.5)
+                        .within_group(elapsed)
+                        .filter(Article.published_to_feed_at < start),
+                        func.percentile_cont(0.9)
+                        .within_group(elapsed)
+                        .filter(Article.published_to_feed_at >= start),
+                    ).where(
+                        Article.published_to_feed_at >= previous,
+                        Article.published_to_feed_at <= now,
+                        elapsed >= 0,
+                    )
+                ).one()
             insight.publication_seconds = OverviewMetric(current=latency[0], previous=latency[1])
             insight.publication_p90_seconds = latency[2]
     elif group == "adoption":

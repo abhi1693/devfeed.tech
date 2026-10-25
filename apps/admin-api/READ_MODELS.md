@@ -1,5 +1,8 @@
 # Durable administration read models
 
+See [background workload capacity](BACKGROUND_WORK.md) for demand expiry,
+incremental report facts, dependency wakes, duty budgets and the 0041 rollout.
+
 Article and source boards read indexed PostgreSQL projections. Overview reads saved
 reports. Board and Overview GETs never calculate lifecycle facts, rank the taxonomy, load
 article bodies, or reconstruct historical reports. Redis is optional for these
@@ -90,8 +93,10 @@ Item detail endpoints continue to load current authoritative evidence.
 
 Overview GETs load the last complete saved result and coalesce refresh demand.
 Cold reads immediately return structured `report_refreshing`; they never launch a
-calculation. Workers refresh default and previously requested ranges independently
-of viewers. Persistent leases and failure cooldowns survive restart. Complete
+calculation. Viewer demand is persisted separately from refresh ownership. Viewer leases expire
+after ten minutes and are renewed at most once a minute per normalized key. Only
+attention and throughput remain warm without viewers; historical ranges stop
+refreshing after demand expires. Saved results remain readable with their real age. Persistent leases and failure cooldowns survive restart. Complete
 results survive Redis loss, failed refreshes, and API restart.
 
 Processing charts use maintained daily job facts and active counts. Blocker reports
@@ -112,9 +117,9 @@ start within this budget. These conditions defer blocker publication when over
 budget. `catalog_lag_seconds` separately measures unfinished catalog work from its
 queued/active start; a large progressing scan can exceed 60 seconds without
 starving reports. At the default one-report-per-cycle, report work remains bounded
-by the finite group/range demand queue. The report worker requests known snapshots
-again at age 60 seconds; scheduling/SQL time is additional, so this is a refresh
-target, not a hard latency SLA under saturation. Exceeding it is visible as stale
+by the finite group/range demand queue. The report worker refreshes active operational snapshots at age 60 seconds and
+active historical snapshots at age 300 seconds. Scheduling/SQL time is additional,
+so these are refresh targets, not hard latency SLAs under saturation. Exceeding it is visible as stale
 or refreshing saved data. Unavailable initial coverage remains a structured 503;
 incompatible coverage remains rebuilding. Source freshness is independent of
 article catalog scans.
@@ -156,7 +161,13 @@ replicas, rollout surge, and failover. A second URL into the same saturated pool
 does not reserve capacity. Each worker performs one calculation at a time using
 short-lived connections.
 
-Batch size defaults to 200 and polling to one second. Keep batches below the
+Batch size defaults to 200 and polling to one second. Continuous pipeline and
+report workers have duty fractions of 0.5 and 0.25 respectively: after a cycle,
+they wait at least `elapsed * (1 / duty - 1)` before starting the next. Failed
+cycles pay the same allowance. Waiting is interruptible and maintains heartbeats.
+These are per-process occupancy limits, not PostgreSQL CPU limits: replicas
+multiply the allowance and pool reservations remain necessary. Explicit `--once`
+runs one cycle; both `--drain` modes pace resumable batches until completion. Keep batches below the
 120-second publisher lease. Worker health requires a recent successful heartbeat.
 Passing 100,000 historical articles does not change this algorithm or trigger a
 rebuild. Catalog refresh cost follows retained article cards: nonterminal work

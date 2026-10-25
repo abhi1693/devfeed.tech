@@ -4,6 +4,7 @@ import copy
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from devfeed_admin_api import automation, overview_processing, pipeline_reads
@@ -16,6 +17,7 @@ from devfeed_admin_api.overview_insights import (
     OverviewProcessing,
     OverviewSourcePerformance,
 )
+from devfeed_core import reporting_facts
 from devfeed_core.inference_metrics import InferenceCharts
 from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.models import ReadModelState
@@ -464,8 +466,9 @@ def test_blocker_report_uses_exact_projected_counts_and_revision_checked_targets
 
 
 @pytest.mark.parametrize("rollup_fails", [False, True])
+@pytest.mark.parametrize("facts_fail", [False, True])
 def test_refresh_worker_isolates_failed_panel_and_rollup_then_publishes_later_claim(
-    monkeypatch, rollup_fails
+    monkeypatch, rollup_fails, facts_fail
 ):
     factory, calls = object(), []
     claims = iter([("sources", 7, uuid.uuid4(), 1), ("daily", 7, uuid.uuid4(), 1), None])
@@ -475,6 +478,11 @@ def test_refresh_worker_isolates_failed_panel_and_rollup_then_publishes_later_cl
         if rollup_fails:
             raise TimeoutError("processing unavailable")
 
+    def facts(*args, **kwargs):
+        calls.append("facts")
+        if facts_fail:
+            raise TimeoutError("facts unavailable")
+
     def calculate(factory, group, days, now):
         calls.append(group)
         if group == "sources":
@@ -482,6 +490,7 @@ def test_refresh_worker_isolates_failed_panel_and_rollup_then_publishes_later_cl
         return panels.OverviewPanel(generated_at=now, days=days)
 
     failures, published = [], []
+    monkeypatch.setattr(reporting_facts, "refresh_reporting_facts", facts)
     monkeypatch.setattr(overview_processing, "refresh_processing_facts", rollup)
     monkeypatch.setattr(projections, "seed_refreshes", lambda *args: calls.append("seed"))
     monkeypatch.setattr(projections, "claim_refresh", lambda *args: next(claims))
@@ -501,7 +510,7 @@ def test_refresh_worker_isolates_failed_panel_and_rollup_then_publishes_later_cl
     monkeypatch.setattr(projections, "utcnow", lambda: NOW)
 
     assert projections.refresh_overview_projections(factory, now=NOW, limit=4) == 1
-    assert calls == ["rollup", "seed", "sources", "daily"]
+    assert calls == ["facts", "rollup", "seed", "sources", "daily"]
     assert failures == [("sources", TimeoutError)]
     assert published == [("daily", 7, projections.report_policy_version())]
 
@@ -524,6 +533,54 @@ def test_refresh_worker_obeys_batch_bound_even_when_claims_keep_arriving(monkeyp
     assert projections.refresh_overview_projections(object(), limit=2, now=NOW, seed=False) == 0
     assert len(calls) == 2  # Lost publication ownership does not count as a published report.
     assert all(version == projections.report_policy_version() for _, version in calls)
+
+
+def test_operator_refresh_propagates_fact_maintenance_failure_before_claiming_reports(monkeypatch):
+    def fail(*args, **kwargs):
+        raise TimeoutError("Fact maintenance timed out")
+
+    monkeypatch.setattr(reporting_facts, "refresh_reporting_facts", fail)
+    claim = Mock()
+    monkeypatch.setattr(projections, "claim_refresh", claim)
+    with pytest.raises(TimeoutError, match="Fact maintenance timed out"):
+        projections.refresh_overview_projections(object(), fail_fast=True)
+    claim.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "error_type,dependency",
+    [
+        (TimeoutError, False),
+        (projections.ProjectionNotReady, True),
+        (reporting_facts.ReportingFactsUnavailable, True),
+    ],
+)
+def test_operator_refresh_preserves_cooldown_and_retries_only_dependency_failures(
+    monkeypatch, error_type, dependency
+):
+    error = error_type("Catching up" if dependency else "SQL")
+    monkeypatch.setattr(reporting_facts, "refresh_reporting_facts", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(overview_processing, "refresh_processing_facts", lambda *_: False)
+    monkeypatch.setattr(projections, "seed_refreshes", lambda *_: None)
+    claims = iter([("daily", 90, uuid.uuid4(), 1), None])
+    monkeypatch.setattr(projections, "claim_refresh", lambda *_: next(claims))
+
+    def calculate(*args):
+        raise error
+
+    monkeypatch.setattr(projections, "calculate_report", calculate)
+    failed = Mock()
+    monkeypatch.setattr(projections, "fail_refresh", failed)
+    if dependency:
+        assert projections.refresh_overview_projections(object(), fail_fast=True, limit=2) == 0
+    else:
+        with pytest.raises(TimeoutError, match="SQL"):
+            projections.refresh_overview_projections(object(), fail_fast=True, limit=2)
+    assert failed.call_count == 1
+    if error_type is reporting_facts.ReportingFactsUnavailable:
+        assert isinstance(failed.call_args.args[-1], projections.ProjectionNotReady)
+    else:
+        assert failed.call_args.args[-1] is error
 
 
 @pytest.mark.parametrize("limit", [0, 101])

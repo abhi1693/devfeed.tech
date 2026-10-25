@@ -6,6 +6,30 @@ DATABASE_URL = "postgresql+psycopg://operator:test-secret@database.invalid/devfe
 REDIS_URL = "redis://redis.invalid/4"
 
 
+def test_article_automation_capacity_is_optional_and_does_not_raise_other_family_budgets():
+    settings = Settings(_env_file=None, database_url=DATABASE_URL, redis_url=REDIS_URL)
+    assert settings.article_automation_batch_size is None
+    assert settings.automation_batch_size == 50 and settings.article_automation_cycle_seconds == 40
+    configured = settings.model_copy(update={"article_automation_batch_size": 250})
+    assert (
+        configured.article_automation_batch_size == 250 and configured.automation_batch_size == 50
+    )
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"article_automation_batch_size": 0},
+        {"article_automation_batch_size": 501},
+        {"article_automation_cycle_seconds": 0},
+        {"article_automation_cycle_seconds": 60.01},
+    ],
+)
+def test_invalid_article_automation_capacity_is_rejected(values):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, database_url=DATABASE_URL, redis_url=REDIS_URL, **values)
+
+
 def test_taxonomy_auto_approval_is_opt_in_and_independently_configurable(monkeypatch):
     keys = ("DEVFEED_AUTO_APPROVE_TOPICS", "DEVFEED_AUTO_APPROVE_TOPIC_RELATIONSHIPS")
     for key in keys:

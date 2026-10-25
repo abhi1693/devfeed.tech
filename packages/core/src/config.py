@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     read_model_database_url: str | None = None
     read_model_batch_size: int = Field(default=200, ge=1, le=1000)
     read_model_poll_seconds: float = Field(default=1, ge=0.1, le=60)
+    # Duty fractions bound sustained worker time, in addition to batch/concurrency limits.
+    read_model_pipeline_duty_cycle: float = Field(default=0.5, gt=0, le=1)
+    read_model_report_duty_cycle: float = Field(default=0.25, gt=0, le=1)
+    automation_dependency_wakes_enabled: bool = True
+    automation_reconcile_seconds: int = Field(default=86400, ge=300, le=604800)
+    automation_invalidation_batch_size: int = Field(default=2000, ge=1, le=5000)
+    database_application_name: str = Field(default="devfeed", min_length=1, max_length=63)
     redis_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     partner_credential_key: SecretStr | None = None
 
@@ -207,6 +214,8 @@ class Settings(BaseSettings):
     job_payload_sweep_interval_seconds: int = Field(default=3600, ge=60, le=86400)
 
     automation_batch_size: int = Field(default=50, ge=1, le=500)
+    article_automation_batch_size: int | None = Field(default=None, ge=1, le=500)
+    article_automation_cycle_seconds: float = Field(default=40, gt=0, le=60)
     ai_compact_article_prompts: bool = False
     # Opt in after a reviewed workflow benchmark; legacy deployments stay stable.
     ai_tiered_routing_enabled: bool = False

@@ -478,3 +478,113 @@ def test_full_topic_candidate_quota_still_allows_independently_ranked_tag_eviden
         [taxonomy["topics"][0]["id"]],
         [taxonomy["tags"][0]["id"]],
     ]
+
+
+def full_sort_candidate_order(prepared, scores):
+    """Frozen ordering oracle from before sparse-match optimization."""
+    return sorted(
+        range(len(scores)), key=lambda index: (-scores[index], *prepared.sort_keys[index])
+    )
+
+
+def ranking_case(name):
+    def item(number, title=None, **values):
+        return entry(
+            title or f"Catalog item {number:04}", id=str(uuid.UUID(int=number + 1)), **values
+        )
+
+    if name == "empty":
+        return {"topics": [], "tags": []}, {}
+    if name == "zero-ties":
+        shared = item(0, "Straße")
+        return {
+            "topics": [shared, item(1, "STRASSE"), item(2, "工程")],
+            "tags": [dict(shared), item(3, "strasse")],
+        }, {"title": "No matching evidence"}
+    if name == "dense":
+        return {
+            field: [item(number, aliases=["shared phrase"]) for number in range(70)]
+            for field in ("topics", "tags")
+        }, {"title": "shared phrase", "text": "shared phrase"}
+    if name == "unicode":
+        return {
+            "topics": [item(0, "工程", aliases=["ＡＩ"]), item(1, "C++")],
+            "tags": [item(2, "C#", aliases=["工具"]), item(3, "Go")],
+        }, {"title": "ＡＩ 工程 and C++", "source_summary": "工具 C# and Google"}
+    if name == "oversized":
+        return {
+            "topics": [
+                item(0, "A oversized", aliases=["target", "編程" * 50000]),
+                item(1, "Z smaller", aliases=["target"]),
+            ],
+            "tags": [item(2, "Small tag", aliases=["target"])],
+        }, {"title": "target"}
+    if name == "duplicate-field-ids":
+        return {
+            "topics": [
+                item(0, "Same", aliases=["duplicate"]),
+                item(0, "Same", aliases=["duplicate"], description="First"),
+                item(1, "Other"),
+            ],
+            "tags": [item(0, "Same", aliases=["duplicate"])],
+        }, {"title": "duplicate"}
+    if name == "idf":
+        return {
+            "topics": [
+                item(number, description="generic indexing" + (" scheduler" if number == 5 else ""))
+                for number in range(30)
+            ],
+            "tags": [item(40, "Indexed", keywords=["scheduler"])],
+        }, {"text": "generic indexing scheduler"}
+    return {
+        "topics": [
+            item(number, aliases=["routing"] if number == 37 else []) for number in range(60)
+        ],
+        "tags": [
+            item(80 + number, keywords=["coroutines"] if number == 17 else [])
+            for number in range(60)
+        ],
+    }, {"title": "routing", "text": "coroutines"}
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["empty", "zero-ties", "sparse", "dense", "unicode", "oversized", "duplicate-field-ids", "idf"],
+)
+@pytest.mark.parametrize("maximum,fallback", [(1, 0), (5, 2)])
+def test_sparse_candidate_order_preserves_full_sort_payload_and_byte_budget(
+    monkeypatch, case, maximum, fallback
+):
+    taxonomy, snapshot = ranking_case(case)
+    settings = configuration(analysis_max_candidates=maximum, analysis_fallback_candidates=fallback)
+    monkeypatch.setattr(analysis, "get_settings", lambda: settings)
+    optimized = analysis._candidate_order
+    with monkeypatch.context() as oracle:
+        oracle.setattr(analysis, "_candidate_order", full_sort_candidate_order)
+        with analysis.reuse_candidates():
+            expected = analysis.analysis_candidates(taxonomy, snapshot)
+    with analysis.reuse_candidates():
+        actual = analysis.analysis_candidates(taxonomy, snapshot)
+        prepared = analysis._prepared_catalog(taxonomy)
+        root, frequency, postings = prepared.indexes
+        scores = analysis._candidate_scores(
+            root, frequency, postings, len(prepared.entries), snapshot
+        )
+        assert all(score >= 0 for score in scores)
+        assert list(optimized(prepared, scores)) == full_sort_candidate_order(prepared, scores)
+    assert actual == expected
+    assert len(analysis.analysis_prompt(snapshot, actual).encode()) <= 240_000
+    assert all(len(values) <= maximum for values in actual.values())
+
+
+def test_zero_order_is_built_once_per_catalog_and_remains_stable_across_article_scores(monkeypatch):
+    taxonomy, snapshot = ranking_case("sparse")
+    with analysis.reuse_candidates():
+        analysis.analysis_candidates(taxonomy, snapshot)
+        prepared = analysis._prepared_catalog(taxonomy)
+        original = prepared.zero_order
+        analysis.analysis_candidates(taxonomy, {"title": "Unrelated evidence"})
+        assert analysis._prepared_catalog(taxonomy).zero_order is original
+        assert original == tuple(
+            sorted(range(len(prepared.entries)), key=prepared.sort_keys.__getitem__)
+        )

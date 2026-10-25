@@ -293,6 +293,7 @@ def test_feed_import_preserves_editorial_classification_and_only_uses_heuristics
         if statement.table.name == ArticleTag.__tablename__
     ]
     if classification is None:
+        assert session.scalars.call_count == 2
         assert len(topic_writes) == len(tag_writes) == 1
         assert {
             key: topic_writes[0][key]
@@ -307,6 +308,7 @@ def test_feed_import_preserves_editorial_classification_and_only_uses_heuristics
         assert tag_writes[0]["article_id"] == article_id and tag_writes[0]["tag_id"] == tag.id
     else:
         assert topic_writes == tag_writes == []
+        session.scalars.assert_not_called()
 
 
 def test_retained_origin_can_attach_new_explicit_labels_without_reimporting_or_counting_arrivals(
@@ -336,8 +338,59 @@ def test_retained_origin_can_attach_new_explicit_labels_without_reimporting_or_c
     assert activity == []
     attach.assert_called_once_with(session, article_id, [supplied_id])
     session.execute.assert_not_called()
+    session.scalars.assert_not_called()
     enrich.assert_not_called()
     image.assert_not_called()
+
+
+@pytest.mark.parametrize("empty_catalog", [False, True])
+def test_heuristic_feed_batch_reuses_one_lazily_loaded_catalog(
+    monkeypatch, rss_bytes, empty_catalog
+):
+    from dataclasses import replace
+
+    from devfeed_core.feeds.parser import ParsedFeed, parse_feed
+    from devfeed_core.models import ArticleTag, ArticleTopic, Tag, Topic
+    from sqlalchemy.dialects import postgresql
+
+    original = parse_feed(
+        rss_bytes, "https://example.com/rss", NOW, source_type=SourceType.PUBLISHER
+    ).entries[0]
+    entries = [
+        replace(original, entry_key=str(index), canonical_url=f"https://example.com/{index}")
+        for index in range(2)
+    ]
+    identifiers = [uuid.uuid4(), uuid.uuid4()]
+    topic = Topic(
+        id=uuid.uuid4(), name="Python", slug="python", status="active", keywords=["Python"]
+    )
+    tag = Tag(id=uuid.uuid4(), name="PostgreSQL", slug="postgresql", aliases=[])
+    session = Mock()
+    session.scalar.side_effect = [
+        value for identifier in identifiers for value in (None, identifier, None)
+    ]
+    session.scalars.side_effect = [
+        SimpleNamespace(all=lambda: [] if empty_catalog else [topic]),
+        SimpleNamespace(all=lambda: [] if empty_catalog else [tag]),
+    ]
+    monkeypatch.setattr(tasks, "get_settings", lambda: configuration(ai_enabled=False))
+    monkeypatch.setattr(tasks, "resolve_source_tags", lambda *_: ({"python": uuid.uuid4()}, 0))
+    monkeypatch.setattr(tasks, "attach_source_tags", Mock())
+    monkeypatch.setattr(tasks, "request_image", Mock())
+    assert tasks.store_entries(session, uuid.uuid4(), ParsedFeed(entries, 2, 0)) == 2
+    assert session.scalars.call_count == 2
+    for model, field, expected in (
+        (ArticleTopic, "topic_id", topic.id),
+        (ArticleTag, "tag_id", tag.id),
+    ):
+        writes = [
+            call.args[0].compile(dialect=postgresql.dialect()).params
+            for call in session.execute.call_args_list
+            if call.args[0].table.name == model.__tablename__
+        ]
+        assert [(row["article_id"], row[field]) for row in writes] == (
+            [] if empty_catalog else [(identifier, expected) for identifier in identifiers]
+        )
 
 
 @pytest.mark.parametrize("approval", ["pending", "rejected"])

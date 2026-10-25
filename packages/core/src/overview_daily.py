@@ -6,11 +6,26 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 
-from devfeed_core.models import Article, ArticleOpen, OverviewDaily, UserAccount, utcnow
+from devfeed_core.models import (
+    Article,
+    ArticleOpen,
+    OverviewDaily,
+    ReportingArticleFact,
+    UserAccount,
+    utcnow,
+)
 
 
 def daily_metrics(session, start, now):
     """Backfill counts from retained records; unavailable open history stays null."""
+    article_model: type[Article] | type[ReportingArticleFact] = Article
+    published_at = Article.published_to_feed_at
+    if getattr(session, "info", {}).get("reporting_facts") is True:
+        from devfeed_core.reporting_facts import require_reporting_facts
+
+        require_reporting_facts(session)
+        article_model = ReportingArticleFact
+        published_at = ReportingArticleFact.published_at
     first_open_day = (now - timedelta(days=30)).date() + timedelta(days=1)
     values: dict[date, dict[str, Any]] = {
         start.date() + timedelta(days=i): {
@@ -28,8 +43,8 @@ def daily_metrics(session, start, now):
         if bucket_day >= first_open_day:
             metrics.update(opens=0, readers=0, multi_article_readers=0)
     for model, timestamp, metric in [
-        (Article, Article.discovered_at, "added"),
-        (Article, Article.published_to_feed_at, "published"),
+        (article_model, article_model.discovered_at, "added"),
+        (article_model, published_at, "published"),
         (UserAccount, UserAccount.created_at, "accounts"),
         (ArticleOpen, ArticleOpen.opened_hour, "opens"),
     ]:
@@ -60,19 +75,17 @@ def daily_metrics(session, start, now):
     ):
         if bucket >= first_open_day:
             values[bucket].update(readers=readers, multi_article_readers=multiple)
-    day = func.date(func.timezone("UTC", Article.published_to_feed_at))
+    day = func.date(func.timezone("UTC", published_at))
     for bucket, kind, count in session.execute(
-        select(day, Article.content_type, func.count())
-        .where(Article.published_to_feed_at >= start, Article.published_to_feed_at <= now)
-        .group_by(day, Article.content_type)
+        select(day, article_model.content_type, func.count())
+        .where(published_at >= start, published_at <= now)
+        .group_by(day, article_model.content_type)
     ):
         values[bucket]["content_types"][kind] = count
-    elapsed = func.extract("epoch", Article.published_to_feed_at - Article.discovered_at)
+    elapsed = func.extract("epoch", published_at - article_model.discovered_at)
     for bucket, median in session.execute(
         select(day, func.percentile_cont(0.5).within_group(elapsed))
-        .where(
-            Article.published_to_feed_at >= start, Article.published_to_feed_at <= now, elapsed >= 0
-        )
+        .where(published_at >= start, published_at <= now, elapsed >= 0)
         .group_by(day)
     ):
         values[bucket]["median_publication_seconds"] = median
@@ -143,6 +156,15 @@ def read_daily_metrics(session, start, now):
         now.date(),
     )
     live = daily_metrics(session, datetime.combine(missing, time.min, tzinfo=now.tzinfo), now)
+    if getattr(session, "info", {}).get("reporting_facts") is True:
+        corrected = daily_metrics(session, start, now)
+        for day in expected:
+            for key in ("added", "published", "content_types", "median_publication_seconds"):
+                if key in corrected[day]:
+                    rows.setdefault(day, {})[key] = corrected[day][key]
+                elif key == "median_publication_seconds":
+                    # Deleting the last publication removes its old latency too.
+                    rows.setdefault(day, {}).pop(key, None)
     # Existing history wins over re-reading events which may have been pruned.
     return {
         day: {

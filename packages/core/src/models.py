@@ -523,13 +523,42 @@ class Article(Base):
     automation_next_check_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("now()")
     )
+    # Transactional dependency wakes advance this token; scheduling clocks do not.
+    automation_input_revision: Mapped[int] = mapped_column(
+        BigInteger, default=1, server_default="1", server_onupdate=FetchedValue()
+    )
+    automation_evaluated_revision: Mapped[int] = mapped_column(
+        BigInteger, default=0, server_default="0"
+    )
+    automation_wait_reason: Mapped[str | None] = mapped_column(String(50))
     origins: Mapped[list["ArticleOrigin"]] = relationship(lazy="selectin")
     topic_links: Mapped[list["ArticleTopic"]] = relationship(lazy="selectin")
 
 
+ARTICLE_AUTOMATION_LANE_SQL = (
+    # Match PostgreSQL's reflected expression so Alembic can compare this index.
+    "\nCASE\n    WHEN automation_wait_reason::text = ANY (ARRAY["
+    "'maintenance'::character varying, 'dependencies'::character varying, "
+    "'source_admission'::character varying, 'content_date_deferred'::character varying"
+    "]::text[]) THEN 1\n    ELSE 0\nEND"
+)
+Index(
+    "ix_articles_automation_lane_due",
+    text(ARTICLE_AUTOMATION_LANE_SQL),
+    Article.automation_next_check_at,
+    Article.id,
+    postgresql_where=(Article.review_status.in_(["pending", "approved"]))
+    & (Article.publication_status == "unpublished"),
+)
 Index(
     "ix_articles_automation_due",
     Article.automation_next_check_at,
+    Article.id,
+    postgresql_where=(Article.review_status.in_(["pending", "approved"]))
+    & (Article.publication_status == "unpublished"),
+)
+Index(
+    "ix_articles_automation_identity",
     Article.id,
     postgresql_where=(Article.review_status.in_(["pending", "approved"]))
     & (Article.publication_status == "unpublished"),
@@ -561,6 +590,27 @@ Index(
     postgresql_using="gin",
     _table=cast(Table, Article.__table__),
 )
+
+
+class AutomationInvalidation(Base):
+    """Coalesced catalog/source wakes expanded outside their writer transaction."""
+
+    __tablename__ = "automation_invalidations"
+    __table_args__ = (
+        CheckConstraint(
+            "source_id IS NULL OR tag_id IS NULL", name="ck_automation_invalidation_owner"
+        ),
+    )
+    key: Mapped[str] = mapped_column(String(50), primary_key=True)
+    source_id: Mapped[uuid.UUID | None]
+    tag_id: Mapped[uuid.UUID | None]
+    revision: Mapped[int] = mapped_column(BigInteger, default=1, server_default="1")
+    scan_revision: Mapped[int | None] = mapped_column(BigInteger)
+    after_article_id: Mapped[uuid.UUID | None]
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now()
+    )
+    progressed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ArticleTag(Base):
@@ -595,6 +645,7 @@ class ArticleOrigin(Base):
 
 
 Index("ix_article_origins_article_source", ArticleOrigin.article_id, ArticleOrigin.source_id)
+Index("ix_article_origins_source_article", ArticleOrigin.source_id, ArticleOrigin.article_id)
 
 
 class IngestionJob(LeasedJobMixin, Base):
@@ -1525,6 +1576,84 @@ class InferenceDailyUsage(Base):
     reasoning_tokens: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
     web_searches: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
     duration_ms: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+
+
+class ReportingFactState(Base):
+    """Durable keyset bootstrap coverage for independently rebuilt report facts."""
+
+    __tablename__ = "reporting_fact_states"
+    generation: Mapped[int] = mapped_column(BigInteger, server_default="0")
+    kind: Mapped[str] = mapped_column(String(40), primary_key=True)
+    cursor_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    complete: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ReportingDirty(Base):
+    """Coalesced transactional invalidation, fenced by a monotonic generation."""
+
+    __tablename__ = "reporting_dirty"
+    kind: Mapped[str] = mapped_column(String(40), primary_key=True)
+    entity_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    generation: Mapped[int] = mapped_column(BigInteger, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (Index("ix_reporting_dirty_oldest", "created_at", "kind", "entity_id"),)
+
+
+class ReportingJobFact(Base):
+    """Compact cumulative job accounting, separate from inference invocations."""
+
+    __tablename__ = "reporting_job_facts"
+    kind: Mapped[str] = mapped_column(String(40), primary_key=True)
+    entity_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    tokens: Mapped[Decimal | None] = mapped_column(Numeric)
+    duration_ms: Mapped[int] = mapped_column(BigInteger)
+    source_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    __table_args__ = (Index("ix_reporting_job_facts_window", "kind", "finished_at"),)
+
+
+class ReportingArticleFact(Base):
+    """Publication contribution and exact latency sample, without article payloads."""
+
+    __tablename__ = "reporting_article_facts"
+    content_type: Mapped[str] = mapped_column(String(30))
+    article_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    published: Mapped[bool] = mapped_column(Boolean)
+    automatic: Mapped[bool] = mapped_column(Boolean)
+    latency_seconds: Mapped[Decimal | None] = mapped_column(Numeric)
+
+
+class ReportingArticleSource(Base):
+    __tablename__ = "reporting_article_sources"
+    article_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    source_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    __table_args__ = (Index("ix_reporting_article_sources_source", "source_id", "article_id"),)
+
+
+class ReportingArticleTopic(Base):
+    __tablename__ = "reporting_article_topics"
+    article_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    topic_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    __table_args__ = (Index("ix_reporting_article_topics_topic", "topic_id", "article_id"),)
+
+
+class ReportingDailyFact(Base):
+    """Reusable UTC buckets; year one stores all-time dimension counts."""
+
+    __tablename__ = "reporting_daily_facts"
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(40), primary_key=True)
+    dimension_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    count: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    automatic: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    tokens: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    reported: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    unreported: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    duration_ms: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    __table_args__ = (Index("ix_reporting_daily_facts_kind_day", "kind", "day"),)
 
 
 class TopicDecisionRun(Base):
@@ -2582,6 +2711,21 @@ class ReadModelState(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("now()")
     )
+
+
+class ReportDemand(Base):
+    """Recent viewers, independent of refresh leases and the last saved document."""
+
+    __tablename__ = "report_demand"
+    __table_args__ = (
+        CheckConstraint("days BETWEEN 1 AND 90", name="ck_report_demand_days"),
+        Index("ix_report_demand_active", "active_until"),
+    )
+
+    group: Mapped[str] = mapped_column(String(50), primary_key=True)
+    days: Mapped[int] = mapped_column(Integer, primary_key=True)
+    last_requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    active_until: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class ReportSnapshot(Base):

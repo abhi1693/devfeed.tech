@@ -1,5 +1,7 @@
 """The index-only lifecycle migration can roll forward/back without data changes."""
 
+import uuid
+
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -41,7 +43,12 @@ def test_lifecycle_indexes_upgrade_downgrade_and_preserve_articles(database):
     try:
         command.downgrade(config, "0032")
         with database() as session:
-            assert session.get(Article, identifier).publication_status == "published"
+            assert (
+                session.scalar(
+                    text("SELECT publication_status FROM articles WHERE id=:id"), {"id": identifier}
+                )
+                == "published"
+            )
             assert parent_indexes(session) == retained
             assert session.scalar(text("SELECT to_regclass('ix_article_image_history')")) is None
             predicate = session.scalar(
@@ -85,5 +92,59 @@ def test_lifecycle_indexes_upgrade_downgrade_and_preserve_articles(database):
                 )
                 == 0
             )
+    finally:
+        command.upgrade(config, "head")
+
+
+@pytest.mark.integration
+def test_automation_migration_marks_existing_debt_without_changing_new_insert_defaults(database):
+    config = Config(str(REPO_ROOT / "alembic.ini"))
+    with database.begin() as session:
+        article = Article(
+            canonical_url="https://publisher.example/preexisting-automation",
+            url_hash="preexisting-automation",
+            title="Historical pending article",
+            summary="Evidence",
+        )
+        session.add(article)
+        session.flush()
+        old_id = article.id
+    new_id = uuid.uuid4()
+    try:
+        command.downgrade(config, "0039")
+        command.upgrade(config, "0040")
+        with database.begin() as session:
+            assert (
+                session.scalar(
+                    text("SELECT automation_wait_reason FROM articles WHERE id=:id"), {"id": old_id}
+                )
+                == "maintenance"
+            )
+            session.execute(
+                text(
+                    "INSERT INTO articles "
+                    "(id,canonical_url,url_hash,title,summary,review_status,publication_status,"
+                    "content_type,content_format,feed_at,discovered_at) "
+                    "VALUES (:id,:url,:hash,'New foreground article','Evidence','pending',"
+                    "'unpublished','article','article',now(),now())"
+                ),
+                {"id": new_id, "url": f"https://publisher.example/{new_id}", "hash": new_id.hex},
+            )
+            assert (
+                session.scalar(
+                    text("SELECT automation_wait_reason FROM articles WHERE id=:id"), {"id": new_id}
+                )
+                is None
+            )
+        command.upgrade(config, "head")
+        with database() as session:
+            rows = session.execute(
+                text(
+                    "SELECT relname,indisvalid FROM pg_index JOIN pg_class ON oid=indexrelid "
+                    "WHERE relname IN ('ix_articles_automation_lane_due',"
+                    "'ix_articles_automation_identity','ix_article_origins_source_article')"
+                )
+            ).all()
+            assert len(rows) == 3 and all(valid for _, valid in rows)
     finally:
         command.upgrade(config, "head")

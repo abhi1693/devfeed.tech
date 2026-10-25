@@ -62,6 +62,12 @@ def test_clock_rechecks_preserve_retry_deadline_without_rebuilding_until_due(dat
         )
     drain_pipeline(database)
     policy = pipeline_policy_version()
+    with database() as session:
+        initial = session.get(PipelineProjection, (policy, "article", identifier))
+        semantic_payload = {
+            key: value for key, value in initial.payload.items() if key != "next_check_at"
+        }
+        evaluated_at = initial.evaluated_at
     original = pipeline_projection.article_rows
     batches = []
 
@@ -76,7 +82,12 @@ def test_clock_rechecks_preserve_retry_deadline_without_rebuilding_until_due(dat
             session.execute(
                 update(Article)
                 .where(Article.id == identifier)
-                .values(automation_next_check_at=clock)
+                .values(
+                    automation_next_check_at=clock,
+                    automation_input_revision=Article.automation_input_revision + 1,
+                    automation_evaluated_revision=Article.automation_evaluated_revision + 1,
+                    automation_wait_reason="maintenance",
+                )
             )
             assert session.scalar(select(func.count()).select_from(ReadModelEvent)) == 0
         assert project_batch(database, now=clock) == 0
@@ -84,6 +95,10 @@ def test_clock_rechecks_preserve_retry_deadline_without_rebuilding_until_due(dat
             row = session.get(PipelineProjection, (policy, "article", identifier))
             assert row.next_transition_at == retry_at
             assert datetime.fromisoformat(row.payload["next_check_at"]) == clock
+            assert {
+                key: value for key, value in row.payload.items() if key != "next_check_at"
+            } == semantic_payload
+            assert row.evaluated_at == evaluated_at
     assert batches == []
     assert project_batch(database, now=retry_at + timedelta(seconds=1)) == 1
     assert batches == [[identifier]]
@@ -145,7 +160,12 @@ def test_detached_article_evaluation_keeps_racing_clocks_completion_and_deletion
         if change == "delete":
             assert saved is None
         else:
-            assert datetime.fromisoformat(saved.payload["next_check_at"]) == clock
+            authoritative_clock = session.get(Article, identifier).automation_next_check_at
+            assert datetime.fromisoformat(saved.payload["next_check_at"]) == authoritative_clock
+            if change == "analysis-completion":
+                assert authoritative_clock <= utcnow()
+            else:
+                assert authoritative_clock == clock
         if change != "clock":
             assert (
                 session.scalar(
@@ -161,7 +181,8 @@ def test_detached_article_evaluation_keeps_racing_clocks_completion_and_deletion
         if change == "delete":
             assert saved is None
         else:
-            assert datetime.fromisoformat(saved.payload["next_check_at"]) == clock
+            authoritative_clock = session.get(Article, identifier).automation_next_check_at
+            assert datetime.fromisoformat(saved.payload["next_check_at"]) == authoritative_clock
             if change == "analysis-completion":
                 assert saved.stage == "ready"
 
@@ -697,3 +718,44 @@ def test_catalog_scan_pages_cross_insensitive_prefix_without_skipping_saved_depe
         assert session.get(PipelineProjection, (policy, "article", legacy)).payload[
             "_catalog_sensitive"
         ]
+
+
+def test_semantic_title_and_job_completion_keep_both_projection_and_foreground_wakes(database):
+    with database.begin() as session:
+        identifier = make_article(session, state="analysis").id
+    drain_pipeline(database)
+    for change in ("title", "job-completion"):
+        with database.begin() as session:
+            session.execute(
+                update(Article)
+                .where(Article.id == identifier)
+                .values(
+                    automation_next_check_at=utcnow() + timedelta(days=1),
+                    automation_wait_reason="maintenance",
+                )
+            )
+            assert session.scalar(select(func.count()).select_from(ReadModelEvent)) == 0
+            if change == "title":
+                session.execute(
+                    update(Article)
+                    .where(Article.id == identifier)
+                    .values(title="Updated article title")
+                )
+            else:
+                session.execute(
+                    update(ArticleAnalysisJob)
+                    .where(ArticleAnalysisJob.article_id == identifier)
+                    .values(status="succeeded", finished_at=utcnow())
+                )
+            article = session.get(Article, identifier)
+            assert article.automation_wait_reason is None
+            assert article.automation_next_check_at <= utcnow()
+            assert (
+                session.scalar(
+                    select(ReadModelEvent.id)
+                    .where(ReadModelEvent.kind == "article", ReadModelEvent.entity_id == identifier)
+                    .limit(1)
+                )
+                is not None
+            )
+        drain_pipeline(database)

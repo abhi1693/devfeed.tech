@@ -37,6 +37,7 @@ from sqlalchemy import event, func, select, text
 from sqlalchemy.orm import sessionmaker
 
 REPORT_GROUPS = frozenset({"blockers", "overview"})
+MAX_FACT_BATCHES = 20000
 
 
 def measure(operation):
@@ -148,11 +149,40 @@ def database_activity(factory):
         )
 
 
+def maintain_reporting_facts(factory):
+    """Prepare/advance the candidate's required facts; older subjects have none."""
+    try:
+        from devfeed_core.reporting_facts import (
+            ReportingFactsUnavailable,
+            refresh_reporting_facts,
+            require_reporting_facts,
+        )
+    except ModuleNotFoundError as error:
+        if error.name != "devfeed_core.reporting_facts":
+            raise
+        return {"supported": False, "processed": 0, "batches": 0}
+    processed = 0
+    for batch in range(1, MAX_FACT_BATCHES + 1):
+        count = refresh_reporting_facts(factory, limit=200)
+        processed += count
+        if count == 0:
+            with factory() as session:
+                try:
+                    require_reporting_facts(session)
+                except ReportingFactsUnavailable:
+                    # An empty kind still advances initial coverage; a later
+                    # kind can contain history even though this batch was empty.
+                    continue
+            return {"supported": True, "processed": processed, "batches": batch}
+    raise RuntimeError("Reporting fact dependencies did not converge within their batch budget")
+
+
 def publish(factory):
     from devfeed_admin_api import overview_projection as reports
     from devfeed_admin_api.overview_processing import refresh_processing_facts
 
     refresh_processing_facts(factory, datetime.now(UTC))
+    maintain_reporting_facts(factory)
     with factory.begin() as session:
         for group, days in (("blockers", 1), ("overview", 30)):
             reports.request_refresh(session, group, days, datetime.now(UTC))
@@ -404,6 +434,7 @@ def main():
                 "available_at": deadline.isoformat(),
             }
         output["bootstrap"] = measure(lambda: drain_pipeline(factory, batch=args.batch))
+        output["reporting_fact_preparation"] = measure(lambda: maintain_reporting_facts(factory))
         output["dataset"] = dataset_counts(factory)
         with factory() as session:
             output["dataset"]["retained_article_cards"] = session.scalar(

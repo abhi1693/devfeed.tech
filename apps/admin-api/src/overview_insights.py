@@ -27,6 +27,7 @@ from devfeed_core.overview_daily import read_daily_metrics
 from devfeed_core.recommendations import has_recommendation_work
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, literal, select, union_all
+from sqlalchemy.sql.elements import ColumnElement
 
 
 class OverviewMetric(BaseModel):
@@ -276,6 +277,31 @@ def interest_coverage(session, start, now):
         .group_by(ArticleTopic.topic_id)
         .subquery()
     )
+    last_published: ColumnElement = articles.c.last_published_at
+    if getattr(session, "info", {}).get("reporting_facts") is True:
+        from devfeed_core.models import ReportingArticleFact, ReportingArticleTopic
+        from devfeed_core.reporting_facts import bucket_query, require_reporting_facts
+
+        require_reporting_facts(session)
+        buckets = bucket_query("topic.published", start, now)
+        articles = (
+            select(
+                buckets.c.dimension_id.label("topic_id"),
+                func.sum(buckets.c.count).label("publications"),
+            )
+            .group_by(buckets.c.dimension_id)
+            .subquery()
+        )
+        last_published = (
+            select(func.max(ReportingArticleFact.published_at))
+            .join(
+                ReportingArticleTopic,
+                ReportingArticleTopic.article_id == ReportingArticleFact.article_id,
+            )
+            .where(ReportingArticleTopic.topic_id == Topic.id, ReportingArticleFact.published)
+            .correlate(Topic)
+            .scalar_subquery()
+        )
     query = (
         select(
             Topic.id,
@@ -285,7 +311,7 @@ def interest_coverage(session, start, now):
             func.coalesce(follows.c.followers, 0).label("followers"),
             func.coalesce(inferred.c.users, 0).label("inferred_users"),
             func.coalesce(articles.c.publications, 0).label("publications"),
-            articles.c.last_published_at,
+            last_published.label("last_published_at"),
         )
         .outerjoin(follows, follows.c.topic_id == Topic.id)
         .outerjoin(inferred, inferred.c.topic_id == Topic.id)
@@ -346,6 +372,41 @@ def sources_performance(session, start, now):
         .group_by(IngestionJob.source_id)
         .subquery()
     )
+    if getattr(session, "info", {}).get("reporting_facts") is True:
+        from devfeed_core.reporting_facts import bucket_query, require_reporting_facts
+
+        require_reporting_facts(session)
+        discovered = bucket_query("source.discovered", start, now)
+        published = bucket_query("source.published", start, now)
+        combined = union_all(
+            select(
+                discovered.c.dimension_id,
+                discovered.c.count.label("discovered"),
+                literal(0).label("published"),
+            ),
+            select(
+                published.c.dimension_id,
+                literal(0).label("discovered"),
+                published.c.count.label("published"),
+            ),
+        ).subquery()
+        articles = (
+            select(
+                combined.c.dimension_id.label("source_id"),
+                func.sum(combined.c.discovered).label("discovered"),
+                func.sum(combined.c.published).label("published"),
+            )
+            .group_by(combined.c.dimension_id)
+            .subquery()
+        )
+        failed = bucket_query("source.failed", start, now)
+        failures = (
+            select(
+                failed.c.dimension_id.label("source_id"), func.sum(failed.c.count).label("failures")
+            )
+            .group_by(failed.c.dimension_id)
+            .subquery()
+        )
     base = (
         select(
             Source.id,
@@ -448,24 +509,29 @@ def overview_insights(session, days, now):
             previous=sum(previous) if all(v is not None for v in previous) else None,
         )
 
-    elapsed = func.extract("epoch", Article.published_to_feed_at - Article.discovered_at)
-    latency = session.execute(
-        select(
-            func.percentile_cont(0.5)
-            .within_group(elapsed)
-            .filter(Article.published_to_feed_at >= start),
-            func.percentile_cont(0.5)
-            .within_group(elapsed)
-            .filter(Article.published_to_feed_at < start),
-            func.percentile_cont(0.9)
-            .within_group(elapsed)
-            .filter(Article.published_to_feed_at >= start),
-        ).where(
-            Article.published_to_feed_at >= previous_start,
-            Article.published_to_feed_at <= now,
-            elapsed >= 0,
-        )
-    ).one()
+    if getattr(session, "info", {}).get("reporting_facts") is True:
+        from devfeed_core.reporting_facts import publication_latency
+
+        latency = publication_latency(session, start, previous_start, now)
+    else:
+        elapsed = func.extract("epoch", Article.published_to_feed_at - Article.discovered_at)
+        latency = session.execute(
+            select(
+                func.percentile_cont(0.5)
+                .within_group(elapsed)
+                .filter(Article.published_to_feed_at >= start),
+                func.percentile_cont(0.5)
+                .within_group(elapsed)
+                .filter(Article.published_to_feed_at < start),
+                func.percentile_cont(0.9)
+                .within_group(elapsed)
+                .filter(Article.published_to_feed_at >= start),
+            ).where(
+                Article.published_to_feed_at >= previous_start,
+                Article.published_to_feed_at <= now,
+                elapsed >= 0,
+            )
+        ).one()
     retained_start = max(
         start,
         datetime.combine(

@@ -217,6 +217,22 @@ def statement_totals(engine):
         )
 
 
+def settle_automation_setup(factory, now):
+    """Finish fixture fanout before defining the isolated legacy-clock cohort."""
+    invalidation = getattr(models, "AutomationInvalidation", None)
+    if invalidation is None:
+        return 0  # The identical harness also runs before dependency scheduling existed.
+    from devfeed_core.automation_demands import expand_automation_demands
+
+    expanded = 0
+    for _ in range(10000):
+        expanded += expand_automation_demands(factory, now)
+        with factory() as session:
+            if session.scalar(select(invalidation.key).limit(1)) is None:
+                return expanded
+    raise RuntimeError("Automation fixture setup exceeded its bounded drain")
+
+
 def prepare_queue(factory, *, batch, now, backlog):
     """Prepare a fixed pending cohort; historical payloads and triggers stay intact."""
     identifiers = [fixture.fixture_id("articles", 20 + 40 * index) for index in range(batch)]
@@ -336,7 +352,9 @@ def prepare_projections(factory, identifiers, now):
     policy = pipeline_policy_version()
     with factory.begin() as session:
         session.execute(text("SET LOCAL statement_timeout='0'"))
-        session.execute(text("TRUNCATE pipeline_projections, read_model_events, read_model_states"))
+        # Reset the pipeline pointer below, preserving independent scheduler
+        # policy observations already settled during unmeasured fixture setup.
+        session.execute(text("TRUNCATE pipeline_projections, read_model_events"))
         session.execute(
             text("""
             INSERT INTO pipeline_projections
@@ -628,6 +646,9 @@ def main():
         DEVFEED_AUTOMATION_BATCH_SIZE=str(args.batch),
         DEVFEED_DATABASE_POOL_ENABLED="true",
         DEVFEED_DATABASE_POOL_SIZE="4",
+        # This focused benchmark isolates the legacy clock-only invalidation
+        # contract. Dependency-driven scheduling has a separate sustained suite.
+        DEVFEED_AUTOMATION_DEPENDENCY_WAKES_ENABLED="false",
     )
     from devfeed_core import article_automation
     from devfeed_core.config import Settings, get_settings
@@ -677,6 +698,11 @@ def main():
             reset_workload(factory, articles=counts["articles"])
             output["fixture_reused"] = True
         now = datetime.now(UTC)
+        setup_started = time.perf_counter()
+        output["automation_setup"] = {
+            "expanded": settle_automation_setup(factory, now),
+            "seconds": time.perf_counter() - setup_started,
+        }
         identifiers = prepare_queue(
             factory, batch=args.batch, now=now, backlog=max(args.batch, int(12000 * args.scale))
         )

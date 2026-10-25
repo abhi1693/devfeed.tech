@@ -907,7 +907,7 @@ def profile_gates(phases, *, p95_budget_ms):
 @reuse_candidates()
 def background_worker(kind, stop, ready, results):
     """Independent processes/engines model publishers competing with HTTP readers."""
-    from devfeed_admin_api.overview_projection import refresh_overview_projections, request_refresh
+    from devfeed_admin_api.overview_projection import refresh_overview_projections
     from devfeed_admin_api.pipeline_projection import project_batch
     from devfeed_core.config import get_settings
     from devfeed_core.db import create_database_engine
@@ -923,10 +923,8 @@ def background_worker(kind, stop, ready, results):
             if kind == "pipeline":
                 counts["acknowledged_events"] += project_batch(factory, batch=40, token=token)
             elif kind == "reports":
-                with factory.begin() as session:
-                    request_refresh(session, "attention", 30, datetime.now(UTC))
-                    request_refresh(session, "processing", 30, datetime.now(UTC))
-                counts["published"] += refresh_overview_projections(factory, limit=2, seed=False)
+                # Exercise the production demand scheduler, including its warm set.
+                counts["published"] += refresh_overview_projections(factory, limit=2)
             else:
                 # Ten edits per transaction, at most 400: ordinary triggers capture
                 # actual entity changes while readers and both publishers run.
