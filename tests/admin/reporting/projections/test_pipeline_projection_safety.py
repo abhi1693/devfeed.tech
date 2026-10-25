@@ -529,8 +529,12 @@ def test_catalog_refresh_keeps_complete_cards_visible_without_rebuilding_coverag
     project_batch(database, batch=1)
     after = admin_client.get("/v1/admin/article-pipeline")
     assert after.status_code == 200
-    assert after.json()["snapshot"]["status"] == "refreshing"
-    assert after.json()["snapshot"]["generation"] == before.json()["snapshot"]["generation"]
+    assert after.json()["snapshot"]["status"] == "catching_up"
+    assert after.json()["snapshot"]["policy_version"] == before.json()["snapshot"]["policy_version"]
+    assert (
+        after.json()["snapshot"]["article_generation"]
+        >= before.json()["snapshot"]["article_generation"]
+    )
     assert after.json()["counts"] == before.json()["counts"]
     assert after.json()["columns"] == before.json()["columns"]
 

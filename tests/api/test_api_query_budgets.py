@@ -391,6 +391,11 @@ def profile_request(http, path, budget, repeats=1, *, plans=False):
 
 
 def test_populated_api_query_budgets(profile_data, database, client, admin_client, monkeypatch):
+    from devfeed_admin_api.pipeline_projection import drain_pipeline
+
+    # A healthy dependent report requires the current, completed pipeline too.
+    # Without it, serving the saved payload correctly adds coalesced rebuild demand.
+    drain_pipeline(database)
     save_overview(database)
     report_path = os.environ.get("DEVFEED_PROFILE_REPORT")
     repeats = int(os.environ.get("DEVFEED_PROFILE_REPEATS", "1"))
@@ -402,6 +407,7 @@ def test_populated_api_query_budgets(profile_data, database, client, admin_clien
         warm = http.get(path)
         assert warm.status_code == 200, (path, warm.text)
         if path.startswith("/v1/admin/overview"):
+            assert warm.json()["snapshot"]["status"] == "fresh"
             metrics = warm.json()["automation"]
             blockers = {blocker["code"]: blocker for blocker in metrics["blockers"]}
             expected_groups = {
@@ -487,6 +493,21 @@ def test_populated_api_query_budgets(profile_data, database, client, admin_clien
             )
             + "\n"
         )
+
+
+def test_populated_overview_rebuild_demand_query_budget(profile_data, database, admin_client):
+    from devfeed_core.models import ReportRefresh
+    from sqlalchemy import func, select
+
+    saved = save_overview(database)
+    # Keep the populated article/job history, but omit the pipeline dependency.
+    # Each poll may coalesce demand; it must never rebuild or scan evidence on GET.
+    _, result = profile_request(admin_client, "/v1/admin/overview?days=30", 5, repeats=3)
+    assert result["snapshot"]["status"] == "rebuilding"
+    assert result["automation"] == saved.model_dump(mode="json")["automation"]
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(ReportRefresh)) == 1
+        assert session.get(ReportRefresh, ("overview", 30)) is not None
 
 
 def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_client):

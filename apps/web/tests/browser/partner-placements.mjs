@@ -4764,11 +4764,17 @@ try {
           return response.request().postDataJSON()?.surface === "feed";
         });
         await page.goto(`${base}/?q=typescript`);
-        await page.locator(".article-grid .card-open-link").first().waitFor();
+        const activeGrid = page.locator(".article-grid:visible");
+        await activeGrid.locator(".card-open-link").first().waitFor();
         await unexpectedSelection;
         await page.evaluate(
           () =>
             new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+        assert.equal(
+          await activeGrid.count(),
+          1,
+          `${platform}/${width}: filtered feed has exactly one visible grid`,
         );
         assert.equal(
           await page.locator(".partner-placement").count(),
@@ -4776,7 +4782,8 @@ try {
           `${platform}/${width}: unrequested Engagement inventory never renders in a feed grid`,
         );
         assert.deepEqual(
-          await page.locator(".article-grid .card-open-link").allTextContents(),
+          // Inspect the displayed feed while hidden render trees remain mounted.
+          await activeGrid.locator(".card-open-link").allTextContents(),
           feedArticles.map((item) => item.title),
           `${platform}/${width}: rejecting sidebar inventory preserves all organic grid cards`,
         );
@@ -4881,6 +4888,13 @@ try {
           ? {
               url: page.url(),
               text: await page.locator("body").innerText(),
+              articleGrids: await page.locator(".article-grid").evaluateAll((grids) =>
+                grids.map((grid) => ({
+                  visible: grid.checkVisibility(),
+                  articleCount: grid.querySelectorAll(".card-open-link").length,
+                  hiddenAncestor: grid.closest("[hidden], [inert]")?.id ?? null,
+                })),
+              ),
               placements: await page
                 .locator(".partner-placement")
                 .evaluateAll((nodes) => nodes.map((node) => node.outerHTML)),

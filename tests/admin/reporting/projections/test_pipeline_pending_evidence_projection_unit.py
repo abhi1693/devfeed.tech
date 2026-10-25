@@ -157,6 +157,7 @@ def test_pending_article_projection_evaluates_detached_evidence_without_inventin
     session = Mock()
     session.execute.side_effect = [
         None,
+        None,
         Mock(all=Mock(return_value=[(article, "angular routing")])),
         Mock(all=Mock(return_value=[])),
     ]

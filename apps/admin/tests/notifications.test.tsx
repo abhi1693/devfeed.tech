@@ -377,6 +377,7 @@ describe("workflow feedback", () => {
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith("Feed fetch requested", expect.any(Object)),
     );
+    expect(toast.success).toHaveBeenCalledTimes(1);
     expect(adminSourceFetch).toHaveBeenCalledExactlyOnceWith("source-1", {
       headers: { "X-CSRF-Token": "test-csrf" },
     });

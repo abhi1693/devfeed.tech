@@ -112,11 +112,11 @@ export function OverviewPanel({
       aria-label={title}
       aria-busy={loading}
       data-overview-panel={panel}
-      className="min-w-0 space-y-2"
+      className="flex min-w-0 flex-col gap-2"
     >
       {data ? (
         <div
-          className={`overview-panel-content h-full ${["publication-automation", "job-tokens", "job-reliability", "workload"].includes(panel) ? "rounded-lg border bg-card p-5" : ""}`}
+          className={`overview-panel-content flex-1 ${["publication-automation", "job-tokens", "job-reliability", "workload"].includes(panel) ? "rounded-lg border bg-card p-5" : ""}`}
         >
           <OverviewLiveContext.Provider
             value={{

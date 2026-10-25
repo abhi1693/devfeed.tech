@@ -241,6 +241,31 @@ def test_text_ingestion_summary_has_counts_and_short_id_without_context_dump():
         assert field not in output
 
 
+@pytest.mark.parametrize(
+    "available_at,expected",
+    [
+        (None, "Retry scheduled"),
+        ("2026-10-24T14:05:06", "Retry scheduled for 14:05:06"),
+    ],
+)
+def test_text_ingestion_retry_reports_the_optional_deadline(available_at, expected):
+    record = logging.makeLogRecord(
+        {
+            "name": "devfeed_aggregator.tasks",
+            "msg": "ingestion_retry_scheduled",
+            "levelname": "INFO",
+            "levelno": logging.INFO,
+            "available_at": available_at,
+        }
+    )
+
+    output = TextFormatter("worker").format(record)
+
+    assert output.endswith(expected)
+    assert len(output.splitlines()) == 1
+    assert "Ingested" not in output
+
+
 def test_admin_service_logs_keep_human_events_and_supplied_fields():
     record = logging.makeLogRecord(
         {

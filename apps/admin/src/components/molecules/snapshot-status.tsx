@@ -35,11 +35,15 @@ export function SnapshotStatus({
   const verified = Date.parse(checkedAt ?? "");
   const reference = Number.isFinite(verified) ? verified : Date.parse(snapshot.generated_at ?? "");
   const old = now - reference > maxAgeSeconds * 1000;
-  const status = snapshot.status === "fresh" && old ? "stale" : snapshot.status;
+  const status =
+    (snapshot.status === "fresh" || snapshot.status === "catching_up") && old
+      ? "stale"
+      : snapshot.status;
   const label = {
     fresh: "Updated",
     stale: "Stale data · Last updated",
     refreshing: "Updating saved data · Last updated",
+    catching_up: "Catalog catching up · Last updated",
     rebuilding: "Rebuilding saved data · Last updated",
   }[status];
   return (
@@ -49,6 +53,9 @@ export function SnapshotStatus({
     >
       {label}{" "}
       {snapshot.generated_at ? <DateTime value={snapshot.generated_at} /> : "not yet available"}
+      {snapshot.catalog_lag_seconds != null && snapshot.catalog_lag_seconds >= 60 && (
+        <> · Catalog changes pending for {Math.ceil(snapshot.catalog_lag_seconds / 60)} min</>
+      )}
     </p>
   );
 }

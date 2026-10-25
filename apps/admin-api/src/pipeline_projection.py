@@ -38,7 +38,7 @@ from devfeed_core.read_models import (
 )
 from devfeed_core.source_lifecycle import source_readiness_batch
 from devfeed_core.text_search import normalized_text
-from sqlalchemy import delete, func, select, tuple_, update
+from sqlalchemy import delete, func, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import load_only
@@ -64,6 +64,9 @@ def article_rows(factory, identifiers, policy, now):
     from devfeed_admin_api.automation import automation_blocker_rows
 
     with factory() as session:
+        # Card revisions, catalog, job evidence and compact blockers must describe
+        # the same observation even when ingestion commits between these reads.
+        session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
         session.execute(select(func.set_config("statement_timeout", "10000", True)))
         loaded = session.execute(
             _statement(None, None)
@@ -310,6 +313,7 @@ def _expand(session, events, batch, now):
     continuations: list[dict[str, Any]] = []
     scanned = 0
     state = dict(session.get(ReadModelState, "pipeline").payload)
+    target_revision = None
     for event in events:
         remaining = min(batch - sum(len(values) for values in work.values()), batch - scanned)
         if remaining <= 0:
@@ -321,12 +325,15 @@ def _expand(session, events, batch, now):
             if not state.get("pending_backfills"):
                 refresh = state.get("catalog_refresh")
                 if event.entity_id is None:
+                    if target_revision is None:
+                        target_revision = _catalog_revision(session)
+                    state["catalog_target_revision"] = target_revision
                     if refresh is not None:
                         acknowledged.append(event.id)
                         continue
                     refresh = {
                         "token": str(uuid.uuid4()),
-                        "revision": _catalog_revision(session),
+                        "revision": target_revision,
                         "started_at": (event.created_at or now).isoformat(),
                     }
                     state["catalog_refresh"] = refresh
@@ -349,6 +356,10 @@ def _expand(session, events, batch, now):
                 # Limit scanned keys before checking JSON. A sparse sensitivity
                 # filter must not turn one small work batch into a full-table read.
                 page = list(session.execute(statement))
+                # This plan becomes visible only with the page write and event
+                # acknowledgement. Coalesced edits do not advance scan progress.
+                refresh = {**refresh, "progress_at": now.isoformat()}
+                state["catalog_refresh"] = refresh
                 scanned += len(page)
                 identifiers = [
                     identifier for identifier, sensitive in page if sensitive is not False
@@ -514,7 +525,9 @@ def project_batch(factory, *, batch=200, token=None, now=None):
                 )
             )
             for row in due:
-                enqueue_event(session, row.kind, row.entity_id)
+                assert row.next_transition_at is not None
+                transition = enqueue_event(session, row.kind, row.entity_id)
+                transition.created_at = row.next_transition_at
                 row.next_transition_at = None
             events = event_batch(session, batch)
             # Expansion only reads. Continuations and acknowledgement commit
@@ -550,6 +563,7 @@ def project_batch(factory, *, batch=200, token=None, now=None):
                     if getattr(error.orig, "sqlstate", None) != "55P03":
                         raise
                     return 0
+            previous_serving = planned_state.get("serving_policy")
             _publish_rows(
                 session,
                 work,
@@ -561,6 +575,12 @@ def project_batch(factory, *, batch=200, token=None, now=None):
                 enqueue_event(session, **continuation)
             acknowledge_events(session, event_ids)
             payload = planned_state
+            if (refresh := payload.get("catalog_refresh")) and any(
+                continuation["kind"] == "catalog" for continuation in continuations
+            ):
+                progress_at = utcnow().isoformat()
+                payload["catalog_refresh"] = {**refresh, "progress_at": progress_at}
+                payload["catalog_progress_at"] = progress_at
             if payload.get("pending_backfills") and any(work.values()):
                 payload["backfill_progress"] = True
             pending = set(payload.get("pending_backfills", [])) - finished
@@ -618,13 +638,22 @@ def project_batch(factory, *, batch=200, token=None, now=None):
                         for kind in ("article", "source", "candidate"):
                             enqueue_event(session, cast(EventKind, f"backfill_{kind}"))
                     else:
+                        payload["catalog_generation"] = payload.get("catalog_generation", 0) + 1
+                        payload["catalog_revision"] = payload.get("backfill_revision")
+                        payload["catalog_target_revision"] = current_revision
+                        payload["catalog_progress_at"] = utcnow().isoformat()
                         payload["article_generated_at"] = now.isoformat()
                         payload["source_generated_at"] = now.isoformat()
                         if payload.get("backfill_revision") != current_revision:
                             enqueue_event(session, "catalog")
             if "catalog" in finished:
                 refresh = payload.pop("catalog_refresh")
-                if refresh["revision"] != _catalog_revision(session):
+                current_revision = _catalog_revision(session)
+                payload["catalog_generation"] = payload.get("catalog_generation", 0) + 1
+                payload["catalog_revision"] = refresh["revision"]
+                payload["catalog_target_revision"] = current_revision
+                payload["catalog_progress_at"] = utcnow().isoformat()
+                if refresh["revision"] != current_revision:
                     # Coalesce edits observed during this bounded refresh. They
                     # never restart historical/source/candidate coverage.
                     enqueue_event(session, "catalog")
@@ -685,6 +714,16 @@ def project_batch(factory, *, batch=200, token=None, now=None):
                         )
                     )
                     removed += len(expired)
+                if (
+                    work["article"]
+                    or expired
+                    or previous_serving != policy
+                    or "catalog" in finished
+                ):
+                    # This identifies a committed observation of article cards,
+                    # including deletions and completed coverage. Catalog batches
+                    # remain incremental; it is not a pinned taxonomy snapshot.
+                    payload["article_generation"] = payload.get("article_generation", 0) + 1
             set_state(session, "pipeline", payload)
         return len(event_ids) + removed
     finally:

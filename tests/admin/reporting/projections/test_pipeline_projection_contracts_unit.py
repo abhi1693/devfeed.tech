@@ -168,13 +168,20 @@ def test_article_projection_retains_only_recent_terminal_history_and_current_adm
     loaded = iter(
         [
             None,
+            None,
             SimpleNamespace(all=lambda: [(article, "angular routing publisher")]),
             SimpleNamespace(all=lambda: rejected),
         ]
     )
     connection = {"open": False, "detached": False}
+    statements = []
+
+    def execute(statement):
+        statements.append(str(statement))
+        return next(loaded)
+
     session = SimpleNamespace(
-        execute=lambda _: next(loaded),
+        execute=execute,
         scalars=lambda _: [],
         expunge_all=lambda: connection.update(detached=True),
     )
@@ -214,6 +221,7 @@ def test_article_projection_retains_only_recent_terminal_history_and_current_adm
 
     rows = projections.article_rows(factory, [article.id], "policy-generation", NOW)
 
+    assert statements[0] == "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
     if state.endswith("old") or state == "rejected-no-review":
         assert rows == [] and selected == []
         return

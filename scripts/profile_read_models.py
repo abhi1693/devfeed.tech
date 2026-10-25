@@ -593,6 +593,7 @@ def seed_fixture(engine, counts, *, history_bytes=8192):
         connection.execute(text("INSERT INTO read_model_events(kind) VALUES ('policy')"))
     seed_current_articles(sessionmaker(engine, expire_on_commit=False), articles)
     with engine.begin() as connection:
+        connection.execute(text("SET LOCAL statement_timeout='0'"))
         connection.execute(text("DELETE FROM read_model_events"))
         connection.execute(text("INSERT INTO read_model_events(kind) VALUES ('policy')"))
         connection.execute(text("ANALYZE"))

@@ -9,7 +9,7 @@ import uuid
 from contextlib import contextmanager, nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 import pytest
 from devfeed_admin_api import overview, reporting
@@ -77,12 +77,27 @@ class Rows:
 
 @pytest.fixture
 def report_store(monkeypatch):
-    current = {"row": None}
+    policy = reports.pipeline_policy_version()
+    current = {
+        "row": None,
+        "pipeline": ReadModelState(
+            name="pipeline",
+            payload={
+                "serving_policy": policy,
+                "target_policy": policy,
+                "backfill_complete": True,
+                "article_generation": 99,
+            },
+            updated_at=NOW,
+        ),
+    }
     reads, writes = [], []
     session = Mock()
     session.info = {}
     session.connection.return_value.info = {}
-    session.get.side_effect = lambda *_: current["row"]
+    session.get.side_effect = lambda model, key, **kwargs: (
+        current["pipeline"] if model is ReadModelState and key == "pipeline" else current["row"]
+    )
     session.scalar.return_value = True
 
     def execute(statement):
@@ -270,8 +285,12 @@ def test_report_publish_serializes_complete_content_and_dependency_before_retiri
     value.session.scalar.return_value = owned
     snapshot = (
         ReadModelSnapshot(
-            status="rebuilding",
-            generation="pipeline-policy",
+            status="catching_up",
+            generation=f"{reports.pipeline_policy_version()}:4",
+            policy_version=reports.pipeline_policy_version(),
+            article_generation=4,
+            catalog_generation=2,
+            catalog_lag_seconds=600,
             generated_at=NOW - timedelta(seconds=2),
             lag_seconds=3,
         )
@@ -289,7 +308,84 @@ def test_report_publish_serializes_complete_content_and_dependency_before_retiri
     assert requested["payload"].get("_projection_snapshot") == (
         snapshot.model_dump(mode="json") if snapshot else None
     )
+    assert value.session.get.call_args_list == (
+        [call(ReadModelState, "pipeline", with_for_update=True)] if dependency else []
+    ) + [call(ReportSnapshot, ("daily", 7), with_for_update=True)]
     value.session.delete.assert_called_once_with(owned)
+
+
+@pytest.mark.parametrize("barrier", ["missing", "serving", "target", "incomplete", None])
+def test_report_publication_fences_database_policy_changes_without_requiring_current_generation(
+    report_store, barrier
+):
+    value = report_store
+    policy = reports.pipeline_policy_version()
+    claim = ("blockers", 1, uuid.uuid4(), 7)
+    owned = ReportRefresh(
+        group=claim[0],
+        days=claim[1],
+        requested_at=NOW,
+        available_at=NOW,
+        attempts=7,
+        lease_token=claim[2],
+        lease_until=NOW + timedelta(seconds=30),
+    )
+    value.session.scalar.return_value = owned
+    snapshot = ReadModelSnapshot(
+        status="catching_up",
+        generation=f"{policy}:4",
+        policy_version=policy,
+        article_generation=4,
+        lag_seconds=2,
+    )
+    stored = ReportSnapshot(
+        group=claim[0],
+        days=claim[1],
+        payload={
+            "articles_pending_review": 99,
+            "_projection_snapshot": {
+                "policy_version": policy,
+                "article_generation": 3,
+            },
+        },
+        generated_at=NOW - timedelta(seconds=1),
+        # Different report policies deliberately skip same-policy ordering checks;
+        # the authoritative pipeline pointer must still fence the old publisher.
+        policy_version="newer-report-policy" if barrier else reports.report_policy_version(),
+    )
+    value.current["row"] = stored
+    if barrier == "missing":
+        value.current["pipeline"] = None
+    elif barrier == "serving":
+        value.current["pipeline"].payload.update(
+            serving_policy="replacement-policy", target_policy="replacement-policy"
+        )
+    elif barrier == "target":
+        value.current["pipeline"].payload["target_policy"] = "replacement-policy"
+    elif barrier == "incomplete":
+        value.current["pipeline"].payload["backfill_complete"] = False
+
+    accepted = reports.publish_report(value.factory, claim, panel(snapshot=snapshot), NOW)
+
+    assert accepted is (barrier is None)
+    assert value.session.get.call_args_list[0] == call(
+        ReadModelState, "pipeline", with_for_update=True
+    )
+    if barrier:
+        assert value.writes == [] and value.current["row"] is stored
+        assert stored.payload["articles_pending_review"] == 99
+        assert owned.available_at == NOW + timedelta(seconds=5)
+        assert owned.attempts == 0 and owned.lease_token is owned.lease_until is None
+        assert owned.last_error == "ProjectionNotReady"
+        value.session.delete.assert_not_called()
+    else:
+        # The pipeline advanced to generation99 after this report observed4.
+        # Requiring equality here would starve publication under ingestion.
+        assert value.current["pipeline"].payload["article_generation"] == 99
+        assert value.writes[-1].compile().params["payload"]["_projection_snapshot"] == (
+            snapshot.model_dump(mode="json")
+        )
+        value.session.delete.assert_called_once_with(owned)
 
 
 def test_lost_refresh_claim_cannot_request_a_snapshot_write_or_remove_another_publishers_demand(

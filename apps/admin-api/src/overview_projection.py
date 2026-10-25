@@ -27,7 +27,8 @@ from devfeed_admin_api.overview_panel_data import GROUPS, PanelName, panel_data
 logger = logging.getLogger(__name__)
 FRESH_SECONDS = 60
 LEASE_SECONDS = 45
-POLICY_VERSION = "overview-v3"
+POLICY_VERSION = "overview-v4"
+DEPENDENCY_RETRY_SECONDS = 5
 INDEPENDENT_GROUPS = frozenset(
     {"adoption", "personalization", "attention", "blockers", "throughput"}
 )
@@ -47,7 +48,7 @@ def projected_blockers(session):
         serving, dependency = serving_projection(session, kind="article")
     except HTTPException as error:
         raise ProjectionNotReady("Article pipeline projection is still rebuilding") from error
-    if serving != pipeline_policy_version():
+    if serving != pipeline_policy_version() or dependency.status == "rebuilding":
         raise ProjectionNotReady("Article pipeline projection is still rebuilding")
     if dependency.lag_seconds is not None and dependency.lag_seconds > FRESH_SECONDS:
         raise ProjectionNotReady("Article pipeline projection is catching up")
@@ -161,14 +162,14 @@ def read_report(factory, group, days, model, *, now=None):
         session.connection().info["report_deadline"] = clock.monotonic() + 2
         session.execute(text("SET LOCAL statement_timeout = '2s'"))
         session.execute(text("SET LOCAL lock_timeout = '500ms'"))
-        catalog_refresh = None
+        pipeline = None
         if group in {"blockers", "overview"}:
             saved = session.execute(
-                select(ReportSnapshot, ReadModelState.payload["catalog_refresh"])
+                select(ReportSnapshot, ReadModelState.payload)
                 .outerjoin(ReadModelState, ReadModelState.name == "pipeline")
                 .where(ReportSnapshot.group == key[0], ReportSnapshot.days == key[1])
             ).one_or_none()
-            stored, catalog_refresh = saved if saved is not None else (None, None)
+            stored, pipeline = saved if saved is not None else (None, None)
         else:
             stored = session.get(ReportSnapshot, key)
         age = max(0, (now - stored.generated_at).total_seconds()) if stored else float("inf")
@@ -184,15 +185,22 @@ def read_report(factory, group, days, model, *, now=None):
                     )
             except ValueError:
                 rebuilding = True
-        catalog_started = None
-        if result is not None and catalog_refresh:
-            catalog_started = datetime.fromisoformat(catalog_refresh["started_at"])
+        catalog_refresh = pipeline.get("catalog_refresh") if pipeline else None
+        dependency_rebuilding = group in {"blockers", "overview"} and (
+            pipeline is None
+            or (
+                pipeline.get("serving_policy") != pipeline_policy_version()
+                or pipeline.get("target_policy") != pipeline.get("serving_policy")
+                or pipeline.get("backfill_complete") is False
+            )
+        )
         if (
             stored is None
             or rebuilding
+            or dependency_rebuilding
             or age >= FRESH_SECONDS
             or (
-                catalog_started is not None and (dependency is None or dependency.status == "fresh")
+                catalog_refresh is not None and (dependency is None or dependency.status == "fresh")
             )
         ):
             request_refresh(session, key[0], key[1], now)
@@ -201,26 +209,45 @@ def read_report(factory, group, days, model, *, now=None):
             raise_after_commit = True
         else:
             raise_after_commit = False
-            result.snapshot = ReadModelSnapshot(
-                status="rebuilding"
-                if rebuilding or (dependency is not None and dependency.status == "rebuilding")
-                else dependency.status
-                if dependency is not None and dependency.status != "fresh"
-                else "fresh"
-                if age < FRESH_SECONDS
-                else "refreshing"
-                if refresh is not None and refresh.last_error is None
-                else "stale",
-                generated_at=stored.generated_at,
-                generation=stored.policy_version,
-                lag_seconds=age + (dependency.lag_seconds or 0) if dependency is not None else age,
+            # Preserve the exact observed projection generation. Reading a newer
+            # pipeline pointer here must never relabel an older saved document.
+            lag = age + (dependency.lag_seconds or 0) if dependency else age
+            if (
+                rebuilding
+                or dependency_rebuilding
+                or (dependency is not None and dependency.status == "rebuilding")
+            ):
+                status = "rebuilding"
+            elif (refresh is not None and refresh.last_error is not None) or (
+                dependency is not None and (dependency.status == "stale" or lag > FRESH_SECONDS)
+            ):
+                status = "stale"
+            elif age >= FRESH_SECONDS:
+                status = "refreshing" if refresh is not None else "stale"
+            elif catalog_refresh is not None:
+                status = "catching_up"
+            else:
+                status = dependency.status if dependency is not None else "fresh"
+            result.snapshot = (dependency or ReadModelSnapshot(status="fresh")).model_copy(
+                update={
+                    "status": status,
+                    "generated_at": stored.generated_at,
+                    "generation": (dependency.generation if dependency else None)
+                    or stored.policy_version,
+                    "lag_seconds": lag,
+                }
             )
-            if catalog_started is not None:
-                if result.snapshot.status == "fresh":
-                    result.snapshot.status = "refreshing"
-                result.snapshot.lag_seconds = max(
-                    result.snapshot.lag_seconds or 0,
-                    max(0.0, (now - catalog_started).total_seconds()),
+            if dependency is not None and dependency.catalog_lag_seconds is not None:
+                result.snapshot.catalog_lag_seconds = age + dependency.catalog_lag_seconds
+            if catalog_refresh is not None:
+                result.snapshot.catalog_lag_seconds = max(
+                    result.snapshot.catalog_lag_seconds or 0,
+                    max(
+                        0.0,
+                        (
+                            now - datetime.fromisoformat(catalog_refresh["started_at"])
+                        ).total_seconds(),
+                    ),
                 )
     # Commit demand before returning a cold response; HTTP exceptions roll back
     # ordinary request-scoped sessions and would otherwise lose that demand.
@@ -323,8 +350,17 @@ def calculate_report(factory, group, days, now):
         return panel
 
 
-def publish_report(factory, claim, result, now):
+def _defer_refresh(owned, now):
+    owned.available_at = now + timedelta(seconds=DEPENDENCY_RETRY_SECONDS)
+    owned.lease_until = None
+    owned.lease_token = None
+    owned.attempts = 0
+    owned.last_error = "ProjectionNotReady"
+
+
+def publish_report(factory, claim, result, now, *, policy_version=None):
     group, days, token, _attempts = claim
+    version = policy_version or report_policy_version()
     with factory.begin() as session:
         owned = session.scalar(
             select(ReportRefresh)
@@ -338,6 +374,40 @@ def publish_report(factory, claim, result, now):
         )
         if owned is None:
             return False
+        dependency = result.snapshot
+        if version != report_policy_version() or (
+            dependency is not None
+            and dependency.policy_version is not None
+            and dependency.policy_version != pipeline_policy_version()
+        ):
+            _defer_refresh(owned, now)
+            return False
+        if dependency is not None and dependency.policy_version is not None:
+            # Fence mixed-configuration publishers against the database pointer,
+            # even while an old process still considers its local policy current.
+            # Hold this row only for the short saved-document write, never during
+            # calculation. A moving article generation is deliberately allowed.
+            pipeline = session.get(ReadModelState, "pipeline", with_for_update=True)
+            if pipeline is None or (
+                pipeline.payload.get("serving_policy") != dependency.policy_version
+                or pipeline.payload.get("target_policy") != dependency.policy_version
+                or pipeline.payload.get("backfill_complete") is False
+            ):
+                _defer_refresh(owned, now)
+                return False
+        stored = session.get(ReportSnapshot, (group, days), with_for_update=True)
+        if stored is not None and stored.policy_version == version:
+            previous = stored.payload.get("_projection_snapshot") or {}
+            previous_generation = previous.get("article_generation")
+            if result.generated_at < stored.generated_at or (
+                dependency is not None
+                and dependency.policy_version == previous.get("policy_version")
+                and dependency.article_generation is not None
+                and previous_generation is not None
+                and dependency.article_generation < previous_generation
+            ):
+                _defer_refresh(owned, now)
+                return False
         payload = result.model_dump(mode="json", exclude={"snapshot"})
         if result.snapshot is not None:
             payload["_projection_snapshot"] = result.snapshot.model_dump(mode="json")
@@ -346,7 +416,7 @@ def publish_report(factory, claim, result, now):
             days=days,
             payload=payload,
             generated_at=result.generated_at,
-            policy_version=report_policy_version(),
+            policy_version=version,
         )
         session.execute(
             statement.on_conflict_do_update(
@@ -373,9 +443,15 @@ def fail_refresh(factory, claim, now, error):
                 ReportRefresh.lease_token == token,
             )
             .values(
-                available_at=now + timedelta(seconds=min(900, 15 * 2 ** min(attempts - 1, 6))),
+                available_at=now
+                + timedelta(
+                    seconds=DEPENDENCY_RETRY_SECONDS
+                    if isinstance(error, ProjectionNotReady)
+                    else min(900, 15 * 2 ** min(attempts - 1, 6))
+                ),
                 lease_until=None,
                 lease_token=None,
+                attempts=0 if isinstance(error, ProjectionNotReady) else attempts,
                 last_error=type(error).__name__[:100],
             )
         )
@@ -406,8 +482,9 @@ def refresh_overview_projections(factory=None, *, limit=4, now=None, seed=True):
         if claim is None:
             break
         try:
+            version = report_policy_version()
             result = calculate_report(factory, claim[0], claim[1], claim_now)
-            published += publish_report(factory, claim, result, utcnow())
+            published += publish_report(factory, claim, result, utcnow(), policy_version=version)
         except Exception as error:
             fail_refresh(factory, claim, utcnow(), error)
             logger.warning(
