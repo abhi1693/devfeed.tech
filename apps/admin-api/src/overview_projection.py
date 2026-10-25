@@ -13,6 +13,7 @@ from typing import get_args
 from devfeed_core.models import (
     PipelineProjection,
     ReadModelState,
+    ReportDemand,
     ReportRefresh,
     ReportSnapshot,
     utcnow,
@@ -26,13 +27,31 @@ from devfeed_admin_api.overview_panel_data import GROUPS, PanelName, panel_data
 
 logger = logging.getLogger(__name__)
 FRESH_SECONDS = 60
+HISTORICAL_FRESH_SECONDS = 300
+DEMAND_SECONDS = 600
+DEMAND_TOUCH_SECONDS = 60
 LEASE_SECONDS = 45
-POLICY_VERSION = "overview-v4"
+POLICY_VERSION = "overview-v5"
 DEPENDENCY_RETRY_SECONDS = 5
 INDEPENDENT_GROUPS = frozenset(
     {"adoption", "personalization", "attention", "blockers", "throughput"}
 )
 REPORT_GROUPS = frozenset(GROUPS.get(panel, panel) for panel in get_args(PanelName)) | {"overview"}
+OPERATIONAL_GROUPS = frozenset(
+    {"attention", "blockers", "throughput", "personalization", "processing"}
+)
+WARM_REPORT_KEYS = frozenset({("attention", 1), ("throughput", 1)})
+FACT_REPORT_GROUPS = frozenset(
+    {
+        "daily",
+        "job-tokens",
+        "publication-automation",
+        "publication-time",
+        "sources",
+        "topic-coverage",
+        "overview",
+    }
+)
 
 
 class ProjectionNotReady(RuntimeError):
@@ -140,6 +159,35 @@ def report_key(group: str, days: int) -> tuple[str, int]:
     return group, 1 if group in INDEPENDENT_GROUPS else days
 
 
+def report_fresh_seconds(group):
+    return FRESH_SECONDS if group in OPERATIONAL_GROUPS else HISTORICAL_FRESH_SECONDS
+
+
+def touch_report_demand(session, group, days, now):
+    """Persist viewer activity at most once a minute per normalized report key.
+
+    Demand never changes an existing refresh lease or failure cooldown. Its finite
+    key space remains bounded even when an old viewer never returns.
+    """
+    group, days = report_key(group, days)
+    statement = insert(ReportDemand).values(
+        group=group,
+        days=days,
+        last_requested_at=now,
+        active_until=now + timedelta(seconds=DEMAND_SECONDS),
+    )
+    session.execute(
+        statement.on_conflict_do_update(
+            index_elements=[ReportDemand.group, ReportDemand.days],
+            set_={
+                "last_requested_at": statement.excluded.last_requested_at,
+                "active_until": statement.excluded.active_until,
+            },
+            where=ReportDemand.last_requested_at <= now - timedelta(seconds=DEMAND_TOUCH_SECONDS),
+        )
+    )
+
+
 def request_refresh(session, group, days, now):
     """The finite group/range key space bounds demand even under repeated GETs.
 
@@ -158,10 +206,12 @@ def read_report(factory, group, days, model, *, now=None):
     now = now or utcnow()
     key = report_key(group, days)
     version = report_policy_version()
+    fresh_seconds = report_fresh_seconds(group)
     with factory.begin() as session:
         session.connection().info["report_deadline"] = clock.monotonic() + 2
         session.execute(text("SET LOCAL statement_timeout = '2s'"))
         session.execute(text("SET LOCAL lock_timeout = '500ms'"))
+        touch_report_demand(session, key[0], key[1], now)
         pipeline = None
         if group in {"blockers", "overview"}:
             saved = session.execute(
@@ -198,7 +248,7 @@ def read_report(factory, group, days, model, *, now=None):
             stored is None
             or rebuilding
             or dependency_rebuilding
-            or age >= FRESH_SECONDS
+            or age >= fresh_seconds
             or (
                 catalog_refresh is not None and (dependency is None or dependency.status == "fresh")
             )
@@ -219,10 +269,10 @@ def read_report(factory, group, days, model, *, now=None):
             ):
                 status = "rebuilding"
             elif (refresh is not None and refresh.last_error is not None) or (
-                dependency is not None and (dependency.status == "stale" or lag > FRESH_SECONDS)
+                dependency is not None and (dependency.status == "stale" or lag > fresh_seconds)
             ):
                 status = "stale"
-            elif age >= FRESH_SECONDS:
+            elif age >= fresh_seconds:
                 status = "refreshing" if refresh is not None else "stale"
             elif catalog_refresh is not None:
                 status = "catching_up"
@@ -264,29 +314,24 @@ def read_report(factory, group, days, model, *, now=None):
 
 
 def seed_refreshes(factory, now):
-    """Continuously refresh known ranges, including after the last viewer leaves."""
+    """Refresh the small warm set and ranges with an unexpired viewer lease."""
     with factory.begin() as session:
-        for group in sorted(REPORT_GROUPS):
-            for days in (1,) if group in INDEPENDENT_GROUPS else (7, 30):
-                stored = session.get(ReportSnapshot, (group, days))
-                if (
-                    stored is None
-                    or stored.policy_version != report_policy_version()
-                    or stored.generated_at <= now - timedelta(seconds=FRESH_SECONDS)
-                ):
-                    request_refresh(session, group, days, now)
-        for group, days in session.execute(
-            select(ReportSnapshot.group, ReportSnapshot.days)
+        active = session.execute(
+            select(ReportDemand.group, ReportDemand.days)
             .where(
-                ReportSnapshot.group.in_(REPORT_GROUPS),
-                or_(
-                    ReportSnapshot.generated_at <= now - timedelta(seconds=FRESH_SECONDS),
-                    ReportSnapshot.policy_version != report_policy_version(),
-                ),
+                ReportDemand.group.in_(REPORT_GROUPS),
+                ReportDemand.active_until > now,
             )
             .limit(len(REPORT_GROUPS) * 90)
-        ):
-            request_refresh(session, group, days, now)
+        )
+        for group, days in sorted(WARM_REPORT_KEYS | set(active)):
+            stored = session.get(ReportSnapshot, (group, days))
+            if (
+                stored is None
+                or stored.policy_version != report_policy_version()
+                or stored.generated_at <= now - timedelta(seconds=report_fresh_seconds(group))
+            ):
+                request_refresh(session, group, days, now)
 
 
 def claim_refresh(factory, now):
@@ -312,6 +357,8 @@ def claim_refresh(factory, now):
 
 def calculate_report(factory, group, days, now):
     """Worker-only entry point. Each calculation owns a short-lived connection."""
+    from devfeed_core.reporting_facts import ReportingFactsUnavailable, require_reporting_facts
+
     from devfeed_admin_api.overview import overview_metrics
     from devfeed_admin_api.overview_processing import processing_facts
     from devfeed_admin_api.reporting import report_budget
@@ -321,6 +368,12 @@ def calculate_report(factory, group, days, now):
         session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
         session.execute(text("SET LOCAL statement_timeout = '10s'"))
         session.execute(text("SET LOCAL idle_in_transaction_session_timeout = '10s'"))
+        if group in FACT_REPORT_GROUPS:
+            try:
+                require_reporting_facts(session)
+            except ReportingFactsUnavailable as error:
+                raise ProjectionNotReady("Reporting facts are still rebuilding") from error
+            session.info["reporting_facts"] = True
         if group in {"processing", "overview"}:
             from datetime import datetime, time
 
@@ -340,14 +393,29 @@ def calculate_report(factory, group, days, now):
             result = overview_metrics(session, days, projected=True)
             assert facts is not None
             result.generated_at = min(result.generated_at, facts.updated_at)
-            result.snapshot = session.info.get("report_projection_snapshot")
-            return result
+            return observe_report_facts(session, result)
         panel = panel_data(session, group, days, now)
         if group == "processing":
             assert facts is not None
             panel.generated_at = min(panel.generated_at, facts.updated_at)
-        panel.snapshot = session.info.get("report_projection_snapshot")
-        return panel
+        return observe_report_facts(session, panel)
+
+
+def observe_report_facts(session, result):
+    """Carry the actual calculation's dependency observations into publication."""
+    from devfeed_core.reporting_facts import reporting_fact_observation
+
+    result.snapshot = session.info.get("report_projection_snapshot")
+    if session.info.get("reporting_facts"):
+        observation = reporting_fact_observation(session)
+        result._reporting_fact_observation = observation
+        dependency = result.snapshot or ReadModelSnapshot(
+            status="fresh", generation=f"reporting-facts:{observation['generation']}"
+        )
+        result.snapshot = dependency.model_copy(
+            update={"lag_seconds": max(dependency.lag_seconds or 0, observation["lag_seconds"])}
+        )
+    return result
 
 
 def _defer_refresh(owned, now):
@@ -411,6 +479,8 @@ def publish_report(factory, claim, result, now, *, policy_version=None):
         payload = result.model_dump(mode="json", exclude={"snapshot"})
         if result.snapshot is not None:
             payload["_projection_snapshot"] = result.snapshot.model_dump(mode="json")
+        if result._reporting_fact_observation is not None:
+            payload["_reporting_fact_observation"] = result._reporting_fact_observation
         statement = insert(ReportSnapshot).values(
             group=group,
             days=days,
@@ -457,8 +527,10 @@ def fail_refresh(factory, claim, now, error):
         )
 
 
-def refresh_overview_projections(factory=None, *, limit=4, now=None, seed=True):
+def refresh_overview_projections(factory=None, *, limit=4, now=None, seed=True, fail_fast=False):
     """Publish at most ``limit`` reports; failure never removes the last complete one."""
+    from devfeed_core.reporting_facts import ReportingFactsUnavailable, refresh_reporting_facts
+
     from devfeed_admin_api.overview_processing import refresh_processing_facts
     from devfeed_admin_api.reporting import reporting_sessions
 
@@ -467,12 +539,22 @@ def refresh_overview_projections(factory=None, *, limit=4, now=None, seed=True):
     factory = factory or reporting_sessions()
     now = now or utcnow()
     try:
+        refresh_reporting_facts(factory, limit=100)
+    except Exception as error:
+        logger.warning(
+            "overview_reporting_facts_refresh_failed", extra={"error_type": type(error).__name__}
+        )
+        if fail_fast:
+            raise
+    try:
         refresh_processing_facts(factory, now)
     except Exception as error:
         # Other panels remain independently publishable while one rollup fails.
         logger.warning(
             "overview_processing_refresh_failed", extra={"error_type": type(error).__name__}
         )
+        if fail_fast:
+            raise
     if seed:
         seed_refreshes(factory, now)
     published = 0
@@ -486,9 +568,16 @@ def refresh_overview_projections(factory=None, *, limit=4, now=None, seed=True):
             result = calculate_report(factory, claim[0], claim[1], claim_now)
             published += publish_report(factory, claim, result, utcnow(), policy_version=version)
         except Exception as error:
+            if isinstance(error, ReportingFactsUnavailable):
+                # A reader can cross its source-lag threshold during the same
+                # repeatable-read calculation. This remains dependency catch-up,
+                # with the same cooldown as an initial readiness failure.
+                error = ProjectionNotReady("Reporting facts are catching up")
             fail_refresh(factory, claim, utcnow(), error)
             logger.warning(
                 "overview_projection_failed",
                 extra={"group": claim[0], "days": claim[1], "error_type": type(error).__name__},
             )
+            if fail_fast and not isinstance(error, ProjectionNotReady):
+                raise
     return published

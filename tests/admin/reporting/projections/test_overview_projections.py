@@ -12,6 +12,7 @@ from devfeed_core.models import (
     ArticleAnalysisJob,
     PipelineProjection,
     ReadModelState,
+    ReportDemand,
     ReportRefresh,
     ReportSnapshot,
     utcnow,
@@ -454,7 +455,9 @@ def test_report_worker_rejects_policy_changed_since_calculation_started(database
         assert demand is not None and demand.lease_token is None
 
 
-def test_background_publisher_refreshes_known_ranges_without_page_views(database, monkeypatch):
+def test_background_publisher_stops_refreshing_ranges_after_viewer_demand_expires(
+    database, monkeypatch
+):
     from devfeed_admin_api import overview_processing
 
     now = utcnow()
@@ -469,11 +472,81 @@ def test_background_publisher_refreshes_known_ranges_without_page_views(database
 
     monkeypatch.setattr(projections, "calculate_report", calculate)
     assert projections.refresh_overview_projections(database, limit=100) > 0
-    assert ("daily", 17) in loaded
+    assert set(loaded) == projections.WARM_REPORT_KEYS
+    with database.begin() as session:
+        projections.touch_report_demand(session, "daily", 17, now)
     loaded.clear()
-    now += timedelta(seconds=61)
     assert projections.refresh_overview_projections(database, limit=100) > 0
     assert ("daily", 17) in loaded
+    loaded.clear()
+    now += timedelta(seconds=301)
+    assert projections.refresh_overview_projections(database, limit=100) > 0
+    assert ("daily", 17) in loaded
+    loaded.clear()
+    now += timedelta(seconds=300)
+    assert projections.refresh_overview_projections(database, limit=100) > 0
+    assert set(loaded) == projections.WARM_REPORT_KEYS
+    with database() as session:
+        assert session.get(ReportSnapshot, ("daily", 17)).generated_at < now
+
+
+def test_report_demand_touches_are_throttled_and_cannot_reset_refresh_ownership(database):
+    now = utcnow()
+    token = uuid.uuid4()
+    with database.begin() as session:
+        projections.touch_report_demand(session, "attention", 90, now)
+        projections.request_refresh(session, "attention", 90, now)
+        refresh = session.get(ReportRefresh, ("attention", 1))
+        refresh.lease_token = token
+        refresh.lease_until = now + timedelta(seconds=45)
+        refresh.available_at = now + timedelta(minutes=5)
+        refresh.last_error = "TimeoutError"
+    for age in (0, 1, 59):
+        with database.begin() as session:
+            projections.touch_report_demand(session, "attention", 17, now + timedelta(seconds=age))
+            projections.request_refresh(session, "attention", 17, now + timedelta(seconds=age))
+    with database() as session:
+        demand = session.get(ReportDemand, ("attention", 1))
+        assert demand.last_requested_at == now
+        assert demand.active_until == now + timedelta(seconds=600)
+        refresh = session.get(ReportRefresh, ("attention", 1))
+        assert refresh.lease_token == token
+        assert refresh.available_at == now + timedelta(minutes=5)
+        assert refresh.last_error == "TimeoutError"
+        assert session.scalar(select(func.count()).select_from(ReportDemand)) == 1
+    with database.begin() as session:
+        projections.touch_report_demand(session, "attention", 30, now + timedelta(seconds=60))
+    with database() as session:
+        demand = session.get(ReportDemand, ("attention", 1))
+        assert demand.last_requested_at == now + timedelta(seconds=60)
+        assert demand.active_until == now + timedelta(seconds=660)
+
+
+def test_historical_and_operational_report_freshness_remain_distinct(database):
+    now = utcnow()
+    generated = now - timedelta(seconds=60)
+    save_panel(database, "daily", 90, generated_at=generated)
+    save_panel(database, "attention", 1, generated_at=generated)
+    historical = projections.read_report(database, "daily", 90, OverviewPanel, now=now)
+    operational = projections.read_report(database, "attention", 90, OverviewPanel, now=now)
+    assert historical.snapshot.status == "fresh"
+    assert operational.snapshot.status == "refreshing"
+    with database() as session:
+        assert session.get(ReportRefresh, ("daily", 90)) is None
+        assert session.get(ReportRefresh, ("attention", 1)) is not None
+        assert session.get(ReportDemand, ("daily", 90)).active_until == now + timedelta(seconds=600)
+
+
+def test_expired_viewer_demand_does_not_queue_old_ranges_on_a_new_worker(database):
+    now = utcnow()
+    save_panel(database, "daily", 89, generated_at=now - timedelta(days=1))
+    with database.begin() as session:
+        projections.touch_report_demand(session, "daily", 89, now - timedelta(seconds=600))
+    projections.seed_refreshes(database, now)
+    with database() as session:
+        keys = {(row.group, row.days) for row in session.scalars(select(ReportRefresh))}
+        assert keys == projections.WARM_REPORT_KEYS
+        assert session.get(ReportSnapshot, ("daily", 89)) is not None
 
 
 def test_range_independent_panels_share_one_durable_snapshot(database, admin_client):
@@ -645,6 +718,10 @@ def test_corrupt_saved_document_queues_rebuild_without_calculation(database, adm
 
 
 def test_background_worker_publishes_every_report_group(database, admin_client):
+    from devfeed_core.reporting_facts import KIND_MODELS, refresh_reporting_facts
+
+    for _ in KIND_MODELS:
+        refresh_reporting_facts(database)
     policy = pipeline_policy_version()
     with database.begin() as session:
         session.add(
@@ -658,6 +735,8 @@ def test_background_worker_publishes_every_report_group(database, admin_client):
                 updated_at=utcnow(),
             )
         )
+        for group in projections.REPORT_GROUPS:
+            projections.request_refresh(session, group, 30, utcnow())
     published = projections.refresh_overview_projections(database, limit=100)
     assert published > 0
     with database() as session:
@@ -670,6 +749,35 @@ def test_background_worker_publishes_every_report_group(database, admin_client):
     response = admin_client.get("/v1/admin/overview/panels/readers?days=17")
     assert response.status_code == 200
     assert len(response.json()["insights"]["reader_activity"]) == 17
+
+
+def test_report_drain_waits_for_facts_and_rejects_busy_or_failed_publications(database):
+    from devfeed_admin_api.projection_worker import reports_drained
+    from devfeed_core.reporting_facts import KIND_MODELS, refresh_reporting_facts
+
+    assert not reports_drained(database)
+    for _ in KIND_MODELS:
+        refresh_reporting_facts(database)
+    assert reports_drained(database)
+    now = utcnow()
+    with database.begin() as session:
+        projections.request_refresh(session, "daily", 90, now)
+        queued = session.get(ReportRefresh, ("daily", 90))
+        queued.last_error = "ProjectionNotReady"
+        queued.available_at = now + timedelta(seconds=5)
+    assert not reports_drained(database)
+    with database.begin() as session:
+        queued = session.get(ReportRefresh, ("daily", 90))
+        queued.last_error = "TimeoutError"
+    with pytest.raises(RuntimeError, match="retry after its cooldown"):
+        reports_drained(database)
+    with database.begin() as session:
+        queued = session.get(ReportRefresh, ("daily", 90))
+        queued.last_error = None
+        queued.lease_token = uuid.uuid4()
+        queued.lease_until = now + timedelta(minutes=1)
+    with pytest.raises(RuntimeError, match="publication is busy"):
+        reports_drained(database)
 
 
 def test_report_budget_cancels_sql_with_a_supplied_factory(database):

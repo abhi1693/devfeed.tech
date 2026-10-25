@@ -16,6 +16,7 @@ from devfeed_admin_api import overview, reporting
 from devfeed_admin_api import overview_processing as processing
 from devfeed_admin_api import overview_projection as reports
 from devfeed_admin_api.overview_panel_data import OverviewPanel
+from devfeed_core import reporting_facts
 from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.models import ReadModelState, ReportRefresh, ReportSnapshot
 from devfeed_core.read_models import ReadModelSnapshot
@@ -118,6 +119,12 @@ def report_store(monkeypatch):
 
     monkeypatch.setattr(processing, "set_state", save)
     monkeypatch.setattr(reporting, "report_budget", lambda *_: nullcontext())
+    monkeypatch.setattr(reporting_facts, "require_reporting_facts", lambda *_: None)
+    monkeypatch.setattr(
+        reporting_facts,
+        "reporting_fact_observation",
+        lambda *_: {"observed_at": NOW.isoformat(), "lag_seconds": 0, "generation": 8},
+    )
     return SimpleNamespace(
         current=current, reads=reads, writes=writes, session=session, factory=factory
     )
@@ -298,6 +305,12 @@ def test_report_publish_serializes_complete_content_and_dependency_before_retiri
         else None
     )
     result = panel(snapshot=snapshot)
+    observation = {
+        "observed_at": (NOW - timedelta(seconds=4)).isoformat(),
+        "lag_seconds": 3,
+        "generation": 8,
+    }
+    result._reporting_fact_observation = observation
     assert reports.publish_report(value.factory, claim, result, NOW)
     requested = value.writes[-1].compile().params
     assert requested["group"] == "daily" and requested["days"] == 7
@@ -305,6 +318,7 @@ def test_report_publish_serializes_complete_content_and_dependency_before_retiri
     assert requested["policy_version"] == reports.report_policy_version()
     assert requested["payload"]["articles_pending_review"] == 12
     assert "snapshot" not in requested["payload"]
+    assert requested["payload"]["_reporting_fact_observation"] == observation
     assert requested["payload"].get("_projection_snapshot") == (
         snapshot.model_dump(mode="json") if snapshot else None
     )
@@ -465,9 +479,39 @@ def test_processing_calculation_cannot_publish_before_recent_complete_daily_cove
     calculate.assert_not_called()
 
 
-def test_refresh_seeding_revisits_known_nondefault_ranges_after_viewers_leave(
-    monkeypatch, report_store
+@pytest.mark.parametrize("group", sorted(reports.FACT_REPORT_GROUPS))
+def test_worker_declines_incomplete_reporting_facts_before_running_a_report(
+    report_store, monkeypatch, group
 ):
+    require = Mock(side_effect=reporting_facts.ReportingFactsUnavailable("Rebuilding"))
+    monkeypatch.setattr(reporting_facts, "require_reporting_facts", require)
+    calculate = Mock()
+    monkeypatch.setattr(reports, "panel_data", calculate)
+    monkeypatch.setattr(overview, "overview_metrics", calculate)
+    with pytest.raises(reports.ProjectionNotReady, match="Reporting facts are still rebuilding"):
+        reports.calculate_report(report_store.factory, group, 30, NOW)
+    calculate.assert_not_called()
+
+
+def test_worker_records_fact_watermark_and_lag_from_the_calculation_snapshot(
+    report_store, monkeypatch
+):
+    observation = {
+        "observed_at": (NOW - timedelta(seconds=15)).isoformat(),
+        "lag_seconds": 12,
+        "generation": 8,
+    }
+    monkeypatch.setattr(reporting_facts, "reporting_fact_observation", lambda *_: observation)
+    result = panel()
+    monkeypatch.setattr(reports, "panel_data", lambda *_: result)
+    actual = reports.calculate_report(report_store.factory, "job-tokens", 30, NOW)
+    assert actual._reporting_fact_observation == observation
+    assert actual.snapshot.generation == "reporting-facts:8"
+    assert actual.snapshot.lag_seconds == 12
+    assert report_store.session.info["reporting_facts"] is True
+
+
+def test_refresh_seeding_uses_recent_viewers_and_the_small_warm_set(monkeypatch, report_store):
     value = report_store
     version = reports.report_policy_version()
 
@@ -475,7 +519,7 @@ def test_refresh_seeding_revisits_known_nondefault_ranges_after_viewers_leave(
         return ReportSnapshot(
             group=key[0],
             days=key[1],
-            generated_at=NOW - timedelta(seconds=60 if key == ("daily", 7) else 1),
+            generated_at=NOW - timedelta(seconds=300 if key == ("daily", 14) else 1),
             policy_version=version,
             payload=(overview_document() if key[0] == "overview" else panel()).model_dump(
                 mode="json"
@@ -483,11 +527,10 @@ def test_refresh_seeding_revisits_known_nondefault_ranges_after_viewers_leave(
         )
 
     value.session.get.side_effect = stored
-    value.reads.append([("daily", 14)])  # A previously requested, now stale nondefault range.
+    value.reads.append([("daily", 14), ("sources", 90)])
     demand = Mock()
     monkeypatch.setattr(reports, "request_refresh", demand)
     reports.seed_refreshes(value.factory, NOW)
     assert [call.args[1:] for call in demand.call_args_list] == [
-        ("daily", 7, NOW),
         ("daily", 14, NOW),
     ]

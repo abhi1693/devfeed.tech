@@ -15,7 +15,7 @@ from devfeed_core.models import (
 )
 from devfeed_core.read_models import ReadModelSnapshot
 from fastapi import APIRouter, Depends, Query, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 from sqlalchemy import func, select, union_all
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
@@ -54,6 +54,8 @@ class OverviewAnalysisActivity(BaseModel):
 
 
 class AdminOverview(BaseModel):
+    _reporting_fact_observation: dict | None = PrivateAttr(default=None)
+
     generated_at: datetime
     days: int
     snapshot: ReadModelSnapshot | None = None
@@ -118,20 +120,39 @@ def overview_metrics(session: Session, days: int, *, projected=False) -> AdminOv
         )
     ).one()
 
-    published_count = func.count(ArticleTopic.article_id)
-    top_topics = session.execute(
-        select(Topic.id, Topic.name, published_count.label("articles"))
-        .join(ArticleTopic, ArticleTopic.topic_id == Topic.id)
-        .join(Article, Article.id == ArticleTopic.article_id)
-        .where(
-            Topic.status == "active",
-            Article.publication_status == "published",
-            ArticleTopic.role.in_(["primary", "supporting"]),
-        )
-        .group_by(Topic.id, Topic.name)
-        .order_by(published_count.desc(), Topic.name, Topic.id)
-        .limit(5)
-    ).mappings()
+    if getattr(session, "info", {}).get("reporting_facts") is not True:
+        published_count = func.count(ArticleTopic.article_id)
+        top_topics = session.execute(
+            select(Topic.id, Topic.name, published_count.label("articles"))
+            .join(ArticleTopic, ArticleTopic.topic_id == Topic.id)
+            .join(Article, Article.id == ArticleTopic.article_id)
+            .where(
+                Topic.status == "active",
+                Article.publication_status == "published",
+                ArticleTopic.role.in_(["primary", "supporting"]),
+            )
+            .group_by(Topic.id, Topic.name)
+            .order_by(published_count.desc(), Topic.name, Topic.id)
+            .limit(5)
+        ).mappings()
+
+    if getattr(session, "info", {}).get("reporting_facts") is True:
+        from devfeed_core.models import ReportingDailyFact
+        from devfeed_core.reporting_facts import TOTAL_DAY, require_reporting_facts
+
+        require_reporting_facts(session)
+        top_topics = session.execute(
+            select(Topic.id, Topic.name, ReportingDailyFact.count.label("articles"))
+            .join(ReportingDailyFact, ReportingDailyFact.dimension_id == Topic.id)
+            .where(
+                Topic.status == "active",
+                ReportingDailyFact.kind == "topic.total",
+                ReportingDailyFact.day == TOTAL_DAY,
+                ReportingDailyFact.count > 0,
+            )
+            .order_by(ReportingDailyFact.count.desc(), Topic.name, Topic.id)
+            .limit(5)
+        ).mappings()
 
     if projected:
         from devfeed_core.models import ReadModelState

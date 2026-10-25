@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     read_model_database_url: str | None = None
     read_model_batch_size: int = Field(default=200, ge=1, le=1000)
     read_model_poll_seconds: float = Field(default=1, ge=0.1, le=60)
+    # Duty fractions bound sustained worker time, in addition to batch/concurrency limits.
+    read_model_pipeline_duty_cycle: float = Field(default=0.5, gt=0, le=1)
+    read_model_report_duty_cycle: float = Field(default=0.25, gt=0, le=1)
+    automation_dependency_wakes_enabled: bool = True
+    automation_reconcile_seconds: int = Field(default=86400, ge=300, le=604800)
+    automation_invalidation_batch_size: int = Field(default=2000, ge=1, le=5000)
+    database_application_name: str = Field(default="devfeed", min_length=1, max_length=63)
     redis_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     partner_credential_key: SecretStr | None = None
 

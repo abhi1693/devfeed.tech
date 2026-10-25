@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import timedelta
 from functools import lru_cache
+from itertools import chain
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -425,6 +426,9 @@ class _PreparedCatalog:
         self.sort_keys = [
             (item["name"].casefold(), item["id"], field) for field, item in self.entries
         ]
+        # Lazily reuse static fallback order for sparse matches. Dense matches
+        # use the original full sort and pay no extra preparation/storage cost.
+        self.zero_order: tuple[int, ...] | None = None
         self.indexes = _candidate_indexes([item for _, item in self.entries])
         self.prompt_items: dict[int, tuple[dict, int]] = {}
         self.identities: dict[str, dict] = {}
@@ -464,6 +468,25 @@ def _prepared_catalog(taxonomy):
     return prepared
 
 
+def _candidate_order(prepared, scores):
+    # Every evidence weight and IDF contribution is nonnegative. Positive
+    # matches therefore precede all zero-score fallbacks in the original order.
+    # A dense match set uses the original sort rather than paying for both paths.
+    if sum(score > 0 for score in scores) > len(scores) // 4:
+        return iter(
+            sorted(
+                range(len(scores)), key=lambda index: (-scores[index], *prepared.sort_keys[index])
+            )
+        )
+    if prepared.zero_order is None:
+        prepared.zero_order = tuple(sorted(range(len(scores)), key=prepared.sort_keys.__getitem__))
+    positive = sorted(
+        (index for index, score in enumerate(scores) if score > 0),
+        key=lambda index: (-scores[index], *prepared.sort_keys[index]),
+    )
+    return chain(positive, (index for index in prepared.zero_order if scores[index] == 0))
+
+
 def analysis_candidates(taxonomy: dict, snapshot: dict) -> dict:
     """Rank catalog entries against article evidence and bound the inference input.
 
@@ -490,7 +513,7 @@ def analysis_candidates(taxonomy: dict, snapshot: dict) -> dict:
         240_000 - _json_bytes(bounded_analysis_source(snapshot)) - ARTICLE_INPUT_RESERVE_BYTES
     )
     fallback = {"topics": 0, "tags": 0}
-    for index in sorted(range(len(scores)), key=lambda i: (-scores[i], *prepared.sort_keys[i])):
+    for index in _candidate_order(prepared, scores):
         score = scores[index]
         if score == 0 and all(
             len(result[field]) >= settings.analysis_max_candidates

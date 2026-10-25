@@ -8,6 +8,12 @@ establish ARM64 release-image readiness.
 
 `commands.json` captures the prepared DevFeed Fleet commands and probes from the
 home-lab checkout at revision `76bd4d280e00031e31b05f7c2b3e7fa15b1135c2`.
+The `provenance.prepared_overrides` field explicitly identifies commands changed
+in this repository after capture. The schema-0041 backfill override requests the
+default report keys and runs the paced report drain; it must be carried into the
+owning Fleet rollout before deployment. Original file hashes identify the captured
+inputs and do not certify that this override is already deployed.
+
 The prepared migration/backfill/publisher files can include uncommitted release
 preparation; the recorded per-file SHA-256 values identify that exact input.
 The consumer wrapper is the byte-identical `infra/chimely/consumer.py` from this

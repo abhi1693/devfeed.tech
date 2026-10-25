@@ -3,7 +3,7 @@
 import uuid
 from datetime import timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true
 from sqlalchemy.orm import defer, lazyload
 
 from devfeed_core.ai_content import eligible_article, eligible_articles
@@ -25,6 +25,13 @@ from devfeed_core.article_jobs import (
     request_article_enrichment,
 )
 from devfeed_core.article_lifecycle import reconcile_processing
+from devfeed_core.automation_demands import (
+    expand_automation_demands,
+    maintenance_lane,
+    observe_automation_demand,
+    wait_for_dependency,
+    wait_for_job,
+)
 from devfeed_core.catalog_cache import reuse_snapshots, snapshot_current
 from devfeed_core.catalog_cache import snapshot as catalog_snapshot
 from devfeed_core.config import get_settings
@@ -49,6 +56,39 @@ from devfeed_core.topics import TopicWrite, lock_topics
 CHECK_INTERVAL = timedelta(minutes=5)
 TOPIC_WAIT = timedelta(hours=24)
 SOURCE_ACTOR = "devfeed:source-automation"
+_single_candidate_foreground = True
+
+
+def _bounded_due_candidates(session, statement, batch):
+    """Reserve both lanes without exceeding the expensive evaluation budget.
+
+    Separate indexed queries avoid walking an old maintenance prefix to locate
+    fresh work. Unused reservations return to the other lane. A one-item budget
+    alternates its first choice; durable due work survives process restart.
+    """
+    global _single_candidate_foreground
+    if batch == 1:
+        reservations = [(0 if _single_candidate_foreground else 1, 1)]
+        _single_candidate_foreground = not _single_candidate_foreground
+    else:
+        reservations = [(0, (batch + 1) // 2), (1, batch // 2)]
+    selected, identifiers = [], set()
+
+    def append(rows):
+        for row in rows:
+            if row[0] not in identifiers:
+                selected.append(row)
+                identifiers.add(row[0])
+
+    for lane, limit in reservations:
+        scoped = statement.where(maintenance_lane() == lane)
+        if identifiers:
+            scoped = scoped.where(Article.id.not_in(identifiers))
+        append(session.execute(scoped.limit(limit)).all())
+    if len(selected) < batch:
+        scoped = statement.where(Article.id.not_in(identifiers)) if identifiers else statement
+        append(session.execute(scoped.limit(batch - len(selected))).all())
+    return selected
 
 
 def lock_article_catalog(session):
@@ -163,7 +203,7 @@ def schedule_source_admission(factory) -> int:
     return schedule_pending_reviews(factory, get_settings().automation_batch_size)
 
 
-def reject_known_paywalled_articles(factory) -> int:
+def reject_known_paywalled_articles(factory, *, now=None) -> int:
     """Apply the explicit paywall policy to pending records enriched before this policy."""
     latest_enrichment_id = (
         select(ArticleEnrichmentJob.id)
@@ -182,17 +222,49 @@ def reject_known_paywalled_articles(factory) -> int:
         )
         .exists()
     )
+    now = now or utcnow()
     with factory() as session:
-        identifiers = session.scalars(
-            select(Article.id)
-            .where(
-                Article.review_status == "pending",
-                Article.publication_status == "unpublished",
-                has_latest_paywall,
+        if get_settings().automation_dependency_wakes_enabled:
+            candidates = (
+                select(Article.id)
+                .where(
+                    Article.review_status == "pending",
+                    Article.publication_status == "unpublished",
+                    Article.automation_next_check_at <= now,
+                )
+                .order_by(Article.automation_next_check_at, Article.id)
+                .limit(get_settings().automation_batch_size)
+                .cte("paywall_candidates")
+                .prefix_with("MATERIALIZED")
             )
-            .order_by(Article.discovered_at, Article.id)
-            .limit(get_settings().automation_batch_size)
-        ).all()
+            latest = (
+                select(
+                    ArticleEnrichmentJob.status,
+                    ArticleEnrichmentJob.result["paywalled"].astext.label("paywalled"),
+                )
+                .where(ArticleEnrichmentJob.article_id == candidates.c.id)
+                .order_by(ArticleEnrichmentJob.created_at.desc(), ArticleEnrichmentJob.id.desc())
+                .limit(1)
+                .lateral()
+            )
+            statement = (
+                select(candidates.c.id)
+                .select_from(candidates)
+                .join(latest, true())
+                .where(latest.c.status == "succeeded", latest.c.paywalled == "true")
+            )
+        else:
+            statement = (
+                select(Article.id)
+                .where(
+                    Article.review_status == "pending",
+                    Article.publication_status == "unpublished",
+                    has_latest_paywall,
+                )
+                .order_by(Article.discovered_at, Article.id)
+                .limit(get_settings().automation_batch_size)
+            )
+        identifiers = session.scalars(statement).all()
 
     rejected = 0
     for identifier in identifiers:
@@ -259,9 +331,11 @@ def _schedule_article_automation(factory) -> dict[str, int]:
         "articles_rejected": 0,
         "source_topics_proposed": 0,
     }
-    # Access policy is independent of AI mode, source enablement and the AI date window.
-    counts["articles_rejected"] += reject_known_paywalled_articles(factory)
+    # Policy/catalog/source wakes advance in a bounded page outside writer transactions.
     now = utcnow()
+    expand_automation_demands(factory, now)
+    # Access policy is independent of AI mode, source enablement and the AI date window.
+    counts["articles_rejected"] += reject_known_paywalled_articles(factory, now=now)
     origin = (
         select(ArticleOrigin.id)
         .join(Source)
@@ -271,21 +345,39 @@ def _schedule_article_automation(factory) -> dict[str, int]:
             Source.enabled.is_(True),
         )
     )
+    dependency_wakes = get_settings().automation_dependency_wakes_enabled
     with factory() as session:
-        identifiers = session.scalars(
+        statement = (
             select(Article.id)
             .where(
                 Article.review_status.in_(["pending", "approved"]),
                 Article.publication_status == "unpublished",
                 Article.automation_next_check_at <= now,
-                eligible_articles(),
-                origin.exists(),
             )
             .order_by(Article.automation_next_check_at, Article.id)
             .limit(get_settings().automation_batch_size)
-        ).all()
-    for identifier in identifiers:
-        prepared = _prepare_article_candidates(factory, identifier)
+        )
+        if dependency_wakes:
+            # Bound examined due identities before source/date checks. Otherwise
+            # an indefinitely ineligible prefix remains hot on every scheduler tick.
+            selected = _bounded_due_candidates(
+                session,
+                statement.add_columns(eligible_articles(), origin.exists()),
+                get_settings().automation_batch_size,
+            )
+        else:
+            selected = [
+                (identifier, True, True)
+                for identifier in session.scalars(
+                    statement.where(eligible_articles(), origin.exists())
+                ).all()
+            ]
+    for identifier, date_eligible, source_admitted in selected:
+        prepared = (
+            _prepare_article_candidates(factory, identifier)
+            if date_eligible and source_admitted
+            else None
+        )
         with factory.begin() as session:
             # Workers acquire job -> source -> article -> taxonomy. Use the same order.
             job = session.scalar(
@@ -307,170 +399,197 @@ def _schedule_article_automation(factory) -> dict[str, int]:
             )
             if (
                 article is None
-                or not eligible_article(article)
                 or article.review_status not in {"pending", "approved"}
                 or article.publication_status != "unpublished"
                 or article.automation_next_check_at > now
-                or not any(
-                    o.source.enabled and o.source.approval_status == "approved"
-                    for o in article.origins
-                )
             ):
                 continue
-            article.automation_started_at = article.automation_started_at or now
-            article.automation_next_check_at = now + CHECK_INTERVAL
-            counts["articles_checked"] += 1
-            reconcile_processing(session, article, taxonomy=prepared[0] if prepared else None)
-            if not get_settings().full_automation or article.review_status == "approved":
-                continue
-            if job is not None and job.status in {"queued", "running"}:
-                continue  # Includes provider cooldowns; durable retries own this work.
-            enrichment = session.scalar(
-                select(ArticleEnrichmentJob)
-                .where(ArticleEnrichmentJob.article_id == identifier)
-                .order_by(ArticleEnrichmentJob.created_at.desc(), ArticleEnrichmentJob.id.desc())
-                .limit(1)
+            admitted = any(
+                o.source.enabled and o.source.approval_status == "approved" for o in article.origins
             )
-            if enrichment is not None and enrichment.status in {"queued", "running"}:
+            if not eligible_article(article) or not admitted:
+                # Park without consuming a publication-policy observation. A
+                # source/editorial/settings wake makes this identity due again.
+                wait_for_dependency(
+                    article,
+                    now,
+                    reason="source_admission" if not admitted else "content_date_deferred",
+                )
                 continue
-            if enrichment is not None and enrichment.status == "failed":
-                content = session.get(ArticleContent, identifier)
-                if not meaningful_text(article.summary) and not meaningful_text(
-                    content.text if content is not None else None
-                ):
-                    decide_article(
-                        session,
-                        identifier,
-                        EditorialDecision(
-                            action="reject",
-                            actor="DevFeed automation",
-                            note=(
-                                "Article enrichment failed after retry exhaustion; no publisher "
-                                f"summary or article text is available. {enrichment.error or ''}"
-                            )[:1000],
-                            expected_revision=article.editorial_revision,
-                        ),
-                        automation={
-                            "policy": "article-enrichment-failure-v1",
-                            "job_id": str(enrichment.id),
-                            "error": enrichment.error,
-                        },
-                    )
-                    counts["articles_rejected"] += 1
+            if not date_eligible or not source_admitted:
+                # Eligibility changed since preselection. Prepare current inputs
+                # outside publication locks on the next tick.
+                continue
+            with observe_automation_demand(session, article, now):
+                article.automation_started_at = article.automation_started_at or now
+                article.automation_next_check_at = now + CHECK_INTERVAL
+                wait_for_dependency(article, now)
+                counts["articles_checked"] += 1
+                reconcile_processing(session, article, taxonomy=prepared[0] if prepared else None)
+                if not get_settings().full_automation or article.review_status == "approved":
                     continue
-            if job is None and enrichment is None:
-                request_article_enrichment(session, identifier, automatic=True)
-                continue
-            negative = (
-                job is not None
-                and job.status == "succeeded"
-                and (
-                    job.result.get("developer_relevance") == "unrelated"
-                    or job.result.get("page_kind") == "non_article"
+                if job is not None and job.status in {"queued", "running"}:
+                    wait_for_job(article, job, now)
+                    continue  # Includes provider cooldowns; durable retries own this work.
+                enrichment = session.scalar(
+                    select(ArticleEnrichmentJob)
+                    .where(ArticleEnrichmentJob.article_id == identifier)
+                    .order_by(
+                        ArticleEnrichmentJob.created_at.desc(), ArticleEnrichmentJob.id.desc()
+                    )
+                    .limit(1)
                 )
-            )
-            if not negative:
-                counts["source_topics_proposed"] += propose_source_topics(session, article)
-            lock_topics(session, read=True)
-            snapshot = source_snapshot(article, session.get(ArticleContent, identifier))
-            if (
-                prepared is None
-                or snapshot != prepared[1]
-                or not snapshot_current(session, ("topics", "tags"), prepared[0])
-            ):
-                # Catalog/input changes must be ranked again outside these locks.
-                # Leave the article due for the next tick rather than using stale data.
-                article.automation_next_check_at = now
-                continue
-            taxonomy = prepared[0]
-            evaluation = None
-            if negative:
-                decision = apply_publication_policy(session, article, job, taxonomy=taxonomy)
+                if enrichment is not None and enrichment.status in {"queued", "running"}:
+                    wait_for_job(article, enrichment, now)
+                    continue
+                if enrichment is not None and enrichment.status == "failed":
+                    content = session.get(ArticleContent, identifier)
+                    if not meaningful_text(article.summary) and not meaningful_text(
+                        content.text if content is not None else None
+                    ):
+                        decide_article(
+                            session,
+                            identifier,
+                            EditorialDecision(
+                                action="reject",
+                                actor="DevFeed automation",
+                                note=(
+                                    "Article enrichment failed after retry exhaustion; "
+                                    "no publisher summary or article text is available. "
+                                    f"{enrichment.error or ''}"
+                                )[:1000],
+                                expected_revision=article.editorial_revision,
+                            ),
+                            automation={
+                                "policy": "article-enrichment-failure-v1",
+                                "job_id": str(enrichment.id),
+                                "error": enrichment.error,
+                            },
+                        )
+                        counts["articles_rejected"] += 1
+                        continue
+                if job is None and enrichment is None:
+                    request_article_enrichment(session, identifier, automatic=True)
+                    continue
+                negative = (
+                    job is not None
+                    and job.status == "succeeded"
+                    and (
+                        job.result.get("developer_relevance") == "unrelated"
+                        or job.result.get("page_kind") == "non_article"
+                    )
+                )
+                if not negative:
+                    counts["source_topics_proposed"] += propose_source_topics(session, article)
+                lock_topics(session, read=True)
+                snapshot = source_snapshot(article, session.get(ArticleContent, identifier))
+                if (
+                    prepared is None
+                    or snapshot != prepared[1]
+                    or not snapshot_current(session, ("topics", "tags"), prepared[0])
+                ):
+                    # Catalog/input changes must be ranked again outside these locks.
+                    # Leave the article due for the next tick rather than using stale data.
+                    article.automation_next_check_at = now
+                    article.automation_wait_reason = "changed_during_evaluation"
+                    continue
+                taxonomy = prepared[0]
+                evaluation = None
+                if negative:
+                    decision = apply_publication_policy(session, article, job, taxonomy=taxonomy)
+                    if decision["status"] == "rejected":
+                        counts["articles_rejected"] += 1
+                        continue
+                # Re-extract only records affected by the old description/code/truncation
+                # bugs. The new job is stamped at creation, including terminal failures,
+                # so unchanged pages cannot create an automatic enrichment loop.
+                if (
+                    enrichment is not None
+                    and enrichment.status == "succeeded"
+                    and enrichment.result.get("extraction_version") != EXTRACTION_VERSION
+                    and (
+                        enrichment.result.get("text_source") in {None, "description"}
+                        or enrichment.result.get("sample_characters") == 2500
+                    )
+                    and (job is None or job.outcome == "insufficient_evidence")
+                ):
+                    request_article_enrichment(session, identifier)
+                    continue
+                feedback = (job.result or {}).get("validation_feedback", {}) if job else {}
+                if (
+                    job is not None
+                    and job.status == "failed"
+                    and job.error == "invalid_analysis_result"
+                    and feedback.get("code") == "schema_validation"
+                    and feedback.get("fields") == ["result:value_error"]
+                    and (job.usage or {}).get("validation_version") != VALIDATION_VERSION
+                ):
+                    replacement = request_analysis(
+                        session, identifier, automatic=True, force=True, taxonomy=taxonomy
+                    )
+                    if replacement is not None:
+                        replacement.usage = {
+                            **replacement.usage,
+                            "requested_reason": "title_validation_corrected",
+                        }
+                    continue
+                current = job is not None and (
+                    job.input_hash == snapshot_hash(snapshot)
+                    and job.editorial_revision == article.editorial_revision
+                    and analysis_catalog_current(job, taxonomy, snapshot)
+                    and job.prompt_version == PROMPT_VERSION
+                    and job.outcome not in {"superseded", "content_date_deferred"}
+                )
+                if not meaningful_text(snapshot["text"]):
+                    reasons = ["insufficient_source_text"]
+                elif not current:
+                    # Editorial revisions must be current even with an unchanged input hash.
+                    request_analysis(
+                        session, identifier, automatic=True, force=True, taxonomy=taxonomy
+                    )
+                    continue
+                elif job.status == "failed":
+                    reasons = ["analysis_failed", job.error or "analysis_attempts_exhausted"]
+                elif job.result.get("topic_match_status") == "no_topic_match":
+                    reasons = ["no_supported_topic_match"]
+                elif job.result.get("topic_match_status") == "no_primary_topic":
+                    reasons = ["no_supported_primary_topic"]
+                else:
+                    evaluation = evaluate_publication(session, article, job, taxonomy=taxonomy)
+                    decision = evaluation
+                    if decision["status"] == "would_publish":
+                        apply_publication_policy(
+                            session, article, job, taxonomy=taxonomy, evaluation=evaluation
+                        )
+                        counts["articles_published"] += 1
+                        continue
+                    reasons = decision["reasons"]
+                    if job.outcome == "insufficient_evidence":
+                        reasons = ["insufficient_analysis_evidence"]
+                    # Allow matching topic research to finish before recording a blocked decision.
+                    if (
+                        job.result.get("developer_relevance") != "unrelated"
+                        and (
+                            "missing_active_primary_topic" in reasons
+                            or job.outcome == "insufficient_evidence"
+                        )
+                        and now < article.automation_started_at + TOPIC_WAIT
+                        and pending_topic_matches(session, snapshot)
+                    ):
+                        wait_for_dependency(
+                            article,
+                            now,
+                            reason="topic_research",
+                            deadline=article.automation_started_at + TOPIC_WAIT,
+                        )
+                        continue
+                decision = apply_publication_policy(
+                    session,
+                    article,
+                    job,
+                    taxonomy=taxonomy,
+                    evaluation=evaluation,
+                )
                 if decision["status"] == "rejected":
                     counts["articles_rejected"] += 1
-                    continue
-            # Re-extract only records affected by the old description/code/truncation
-            # bugs. The new job is stamped at creation, including terminal failures,
-            # so unchanged pages cannot create an automatic enrichment loop.
-            if (
-                enrichment is not None
-                and enrichment.status == "succeeded"
-                and enrichment.result.get("extraction_version") != EXTRACTION_VERSION
-                and (
-                    enrichment.result.get("text_source") in {None, "description"}
-                    or enrichment.result.get("sample_characters") == 2500
-                )
-                and (job is None or job.outcome == "insufficient_evidence")
-            ):
-                request_article_enrichment(session, identifier)
-                continue
-            feedback = (job.result or {}).get("validation_feedback", {}) if job else {}
-            if (
-                job is not None
-                and job.status == "failed"
-                and job.error == "invalid_analysis_result"
-                and feedback.get("code") == "schema_validation"
-                and feedback.get("fields") == ["result:value_error"]
-                and (job.usage or {}).get("validation_version") != VALIDATION_VERSION
-            ):
-                replacement = request_analysis(
-                    session, identifier, automatic=True, force=True, taxonomy=taxonomy
-                )
-                if replacement is not None:
-                    replacement.usage = {
-                        **replacement.usage,
-                        "requested_reason": "title_validation_corrected",
-                    }
-                continue
-            current = job is not None and (
-                job.input_hash == snapshot_hash(snapshot)
-                and job.editorial_revision == article.editorial_revision
-                and analysis_catalog_current(job, taxonomy, snapshot)
-                and job.prompt_version == PROMPT_VERSION
-                and job.outcome not in {"superseded", "content_date_deferred"}
-            )
-            if not meaningful_text(snapshot["text"]):
-                reasons = ["insufficient_source_text"]
-            elif not current:
-                # A current editorial revision is required even when the input hash is unchanged.
-                request_analysis(session, identifier, automatic=True, force=True, taxonomy=taxonomy)
-                continue
-            elif job.status == "failed":
-                reasons = ["analysis_failed", job.error or "analysis_attempts_exhausted"]
-            elif job.result.get("topic_match_status") == "no_topic_match":
-                reasons = ["no_supported_topic_match"]
-            elif job.result.get("topic_match_status") == "no_primary_topic":
-                reasons = ["no_supported_primary_topic"]
-            else:
-                evaluation = evaluate_publication(session, article, job, taxonomy=taxonomy)
-                decision = evaluation
-                if decision["status"] == "would_publish":
-                    apply_publication_policy(
-                        session, article, job, taxonomy=taxonomy, evaluation=evaluation
-                    )
-                    counts["articles_published"] += 1
-                    continue
-                reasons = decision["reasons"]
-                if job.outcome == "insufficient_evidence":
-                    reasons = ["insufficient_analysis_evidence"]
-                # Allow matching topic research to finish before recording a blocked decision.
-                if (
-                    job.result.get("developer_relevance") != "unrelated"
-                    and (
-                        "missing_active_primary_topic" in reasons
-                        or job.outcome == "insufficient_evidence"
-                    )
-                    and now < article.automation_started_at + TOPIC_WAIT
-                    and pending_topic_matches(session, snapshot)
-                ):
-                    continue
-            decision = apply_publication_policy(
-                session,
-                article,
-                job,
-                taxonomy=taxonomy,
-                evaluation=evaluation,
-            )
-            if decision["status"] == "rejected":
-                counts["articles_rejected"] += 1
     return counts

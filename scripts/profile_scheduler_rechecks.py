@@ -628,6 +628,9 @@ def main():
         DEVFEED_AUTOMATION_BATCH_SIZE=str(args.batch),
         DEVFEED_DATABASE_POOL_ENABLED="true",
         DEVFEED_DATABASE_POOL_SIZE="4",
+        # This focused benchmark isolates the legacy clock-only invalidation
+        # contract. Dependency-driven scheduling has a separate sustained suite.
+        DEVFEED_AUTOMATION_DEPENDENCY_WAKES_ENABLED="false",
     )
     from devfeed_core import article_automation
     from devfeed_core.config import Settings, get_settings

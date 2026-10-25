@@ -1,7 +1,7 @@
 """Explain current pipeline blockers and provide revision-checked, targeted recovery."""
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from devfeed_core.ai_content import eligible_articles
@@ -107,6 +107,35 @@ class AutomationOverview(BaseModel):
 
 def analysis_token_activity(session, start: datetime, now: datetime):
     """Aggregate stored cumulative job usage once, on the UTC completion date."""
+    if getattr(session, "info", {}).get("reporting_facts") is True:
+        from devfeed_core.reporting_facts import bucket_query, require_reporting_facts
+
+        require_reporting_facts(session)
+        start, now = start.astimezone(UTC), now.astimezone(UTC)
+        points = {
+            (start.date() + timedelta(days=index)).isoformat(): AnalysisTokenDay(
+                date=(start.date() + timedelta(days=index)).isoformat()
+            )
+            for index in range((now.date() - start.date()).days + 1)
+        }
+        duration = 0
+        for kind in ("article_analysis", "topic_analysis", "research_verification"):
+            buckets = bucket_query("job." + kind, start, now)
+            for row in session.execute(
+                select(
+                    buckets.c.day,
+                    func.sum(buckets.c.tokens).label("tokens"),
+                    func.sum(buckets.c.reported).label("reported"),
+                    func.sum(buckets.c.unreported).label("unreported"),
+                    func.sum(buckets.c.duration_ms).label("duration"),
+                ).group_by(buckets.c.day)
+            ).mappings():
+                point = points[row["day"].isoformat()]
+                setattr(point, kind, int(row["tokens"]))
+                point.reported_runs += int(row["reported"])
+                point.unreported_runs += int(row["unreported"])
+                duration += int(row["duration"])
+        return list(points.values()), duration
     statements = []
     for kind, model in (
         ("article_analysis", ArticleAnalysisJob),
@@ -680,7 +709,32 @@ def _publication_automation_query(start, now):
 
 
 def publication_automation(session, start, now):
-    published, autonomous, median = session.execute(_publication_automation_query(start, now)).one()
+    if getattr(session, "info", {}).get("reporting_facts") is True:
+        from devfeed_core.models import ReportingArticleFact
+        from devfeed_core.reporting_facts import bucket_query, require_reporting_facts
+
+        require_reporting_facts(session)
+        buckets = bucket_query("article.published", start, now)
+        published, autonomous = session.execute(
+            select(
+                func.coalesce(func.sum(buckets.c.count), 0),
+                func.coalesce(func.sum(buckets.c.automatic), 0),
+            )
+        ).one()
+        median = session.scalar(
+            select(
+                func.percentile_cont(0.5).within_group(ReportingArticleFact.latency_seconds)
+            ).where(
+                ReportingArticleFact.published_at >= start,
+                ReportingArticleFact.published_at <= now,
+                ReportingArticleFact.latency_seconds.is_not(None),
+            )
+        )
+        published, autonomous = int(published), int(autonomous)
+    else:
+        published, autonomous, median = session.execute(
+            _publication_automation_query(start, now)
+        ).one()
     return dict(
         published_in_window=published,
         published_without_intervention=autonomous,

@@ -12,6 +12,7 @@ from devfeed_core import (
     analysis,
     article_automation,
     article_lifecycle,
+    automation_demands,
     image_jobs,
     source_relevance,
 )
@@ -67,7 +68,15 @@ def runtime(monkeypatch):
     monkeypatch.setattr(automation, "get_settings", lambda: value.settings)
     monkeypatch.setattr(ai_content, "get_settings", lambda: value.settings)
     monkeypatch.setattr(automation, "utcnow", lambda: now)
-    monkeypatch.setattr(automation, "reject_known_paywalled_articles", lambda _: 0)
+    monkeypatch.setattr(automation, "reject_known_paywalled_articles", lambda *_, **__: 0)
+    # These decision cases model preselected repository rows. Demand persistence
+    # and enabled scheduling have their own lifecycle and transaction coverage.
+    monkeypatch.setattr(automation, "expand_automation_demands", lambda *_: 0)
+    monkeypatch.setattr(
+        automation_demands,
+        "get_settings",
+        lambda: configuration(automation_dependency_wakes_enabled=False),
+    )
 
     def prepare(*_):
         return (
@@ -124,6 +133,10 @@ def runtime(monkeypatch):
 
 
 def run(value):
+    identifier = value.read.scalars.return_value.all.return_value[0]
+    value.read.execute.return_value.all.return_value = [
+        (identifier, *getattr(value, "selected_eligibility", (True, True)))
+    ]
     value.write.scalar.side_effect = [
         value.facts["analysis"],
         value.article,
@@ -131,6 +144,55 @@ def run(value):
     ]
     value.write.get.return_value = getattr(value, "content", None)
     return automation.schedule_article_automation(value.factory)
+
+
+@pytest.mark.parametrize("eligibility", [(False, True), (True, False)])
+def test_newly_admitted_due_identity_prepares_before_next_locked_evaluation(runtime, eligibility):
+    runtime.selected_eligibility = eligibility
+    assert run(runtime)["articles_checked"] == 0
+    runtime.reconcile.assert_not_called()
+    runtime.apply.assert_not_called()
+    assert runtime.article.automation_next_check_at <= runtime.now
+
+
+def test_disabled_dependency_gate_retains_existing_due_selection_and_spacing(runtime):
+    runtime.settings = runtime.settings.model_copy(
+        update={"automation_dependency_wakes_enabled": False}
+    )
+    assert run(runtime)["articles_checked"] == 1
+    assert runtime.article.automation_next_check_at == runtime.now + automation.CHECK_INTERVAL
+    runtime.read.execute.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "scenario,batch,prefer_foreground,pages,expected",
+    [
+        ("both", 4, True, [[1, 2], [3, 4]], [1, 2, 3, 4]),
+        ("foreground-spare", 4, True, [[1, 2], [], [3, 4]], [1, 2, 3, 4]),
+        ("background-spare", 4, True, [[], [1, 2], [3, 4]], [1, 2, 3, 4]),
+        ("single-foreground", 1, True, [[1]], [1]),
+        ("single-background", 1, False, [[2]], [2]),
+        ("single-fallback", 1, True, [[], [2]], [2]),
+        ("racing-duplicate", 4, True, [[1, 2], [2, 3], [4]], [1, 2, 3, 4]),
+    ],
+)
+def test_due_lane_reservations_are_fair_bounded_and_work_conserving(
+    monkeypatch, scenario, batch, prefer_foreground, pages, expected
+):
+    from devfeed_core.models import Article
+    from sqlalchemy import select
+
+    session = Mock()
+    session.execute.side_effect = [
+        SimpleNamespace(all=lambda page=page: [(value, True, True) for value in page])
+        for page in pages
+    ]
+    monkeypatch.setattr(automation, "_single_candidate_foreground", prefer_foreground)
+    selected = automation._bounded_due_candidates(session, select(Article.id), batch)
+    assert [row[0] for row in selected] == expected
+    assert len(selected) <= batch
+    if batch == 1:
+        assert automation._single_candidate_foreground != prefer_foreground
 
 
 def test_current_ready_analysis_passes_evaluation_and_counts_successful_publication(runtime):

@@ -624,7 +624,12 @@ def test_pending_topic_waits_then_new_catalog_automatically_reanalyzes(database,
         )
         identifier = article.id
     assert schedule_article_automation(database)["articles_rejected"] == 0
-    due(database, identifier)
+    with database() as session:
+        article = session.get(Article, identifier)
+        assert article.automation_wait_reason == "topic_research"
+        assert article.automation_next_check_at == article.automation_started_at + timedelta(
+            hours=24
+        )
     with database.begin() as session:
         session.add(Topic(name="Angular", slug="angular", kind="technology", status="active"))
     assert schedule_article_automation(database)["articles_rejected"] == 0
@@ -732,6 +737,15 @@ def test_backlog_admission_and_article_scans_are_bounded(database, monkeypatch):
         complete_source_review(database, identifier)
     assert schedule_article_automation(database)["articles_checked"] == 1
     assert schedule_article_automation(database)["articles_checked"] == 1
+    # Initial policy/catalog coverage follows identity order independently of due
+    # order. It can revisit an admitted article while the bounded pass drains.
+    for _ in range(6):
+        checked = schedule_article_automation(database)["articles_checked"]
+        assert checked <= 1
+        if checked == 0:
+            break
+    else:
+        pytest.fail("Initial automation demand did not converge")
     assert schedule_article_automation(database)["articles_checked"] == 0
 
 

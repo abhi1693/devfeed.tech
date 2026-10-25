@@ -152,6 +152,16 @@ def test_saved_report_preserves_payload_and_exposes_honest_freshness(
         assert store.refresh is failure
 
 
+@pytest.mark.parametrize(
+    "age,status,demand", [(60, "fresh", False), (299, "fresh", False), (300, "refreshing", True)]
+)
+def test_historical_report_uses_five_minute_freshness(saved_reports, age, status, demand):
+    store = saved_reports(stored_report(age=age))
+    result = overview_projection.read_report(store, "daily", 90, OverviewPanel, now=NOW)
+    assert result.snapshot.status == status
+    assert ("demand" in store.events) is demand
+
+
 @pytest.mark.parametrize("group", ["daily", "blockers", "overview"])
 def test_cold_report_commits_refresh_demand_before_raising_retryable_response(saved_reports, group):
     store = saved_reports()

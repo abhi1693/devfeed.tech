@@ -147,7 +147,7 @@ def test_change_between_preparation_and_locking_never_applies_stale_result(
 def test_repeated_active_checks_preserve_work_without_hydrating_analysis_evidence(
     database, monkeypatch, status
 ):
-    full(monkeypatch, AUTOMATION_BATCH_SIZE=2)
+    full(monkeypatch, AUTOMATION_BATCH_SIZE=2, AUTOMATION_DEPENDENCY_WAKES_ENABLED=False)
     now = utcnow()
     with database.begin() as session:
         _, article, topic = seed(session, mode="auto")
@@ -281,3 +281,513 @@ def test_no_outcome_maintenance_keeps_expired_specialists_recoverable_without_du
         assert len(jobs) == 1
         assert jobs[0].id == job_id and jobs[0].status == status
         assert jobs[0].available_at == available_at and jobs[0].attempts == 99
+
+
+def test_stable_article_waits_for_semantic_input_and_keeps_daily_reconciliation(
+    database, monkeypatch
+):
+    enable(monkeypatch)
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        ready(session, article, topic)
+        identifier = article.id
+    now = utcnow()
+    monkeypatch.setattr(article_automation, "utcnow", lambda: now)
+    assert article_automation.schedule_article_automation(database)["articles_checked"] == 1
+    with database() as session:
+        article = session.get(Article, identifier)
+        assert article.automation_wait_reason == "dependencies"
+        assert article.automation_input_revision == article.automation_evaluated_revision
+        assert article.automation_next_check_at == now + timedelta(days=1)
+    # The old five-minute loop no longer ranks settled articles or reads their evidence.
+    prepare = article_automation._prepare_article_candidates
+    monkeypatch.setattr(
+        article_automation, "_prepare_article_candidates", lambda *_: pytest.fail("Unexpected rank")
+    )
+    monkeypatch.setattr(article_automation, "utcnow", lambda: now + timedelta(minutes=5))
+    assert article_automation.schedule_article_automation(database)["articles_checked"] == 0
+    with database.begin() as session:
+        session.execute(
+            text("UPDATE articles SET summary=summary || ' New input.' WHERE id=:id"),
+            {"id": identifier},
+        )
+    with database() as session:
+        article = session.get(Article, identifier)
+        assert article.automation_input_revision > article.automation_evaluated_revision
+    monkeypatch.setattr(article_automation, "_prepare_article_candidates", prepare)
+    assert article_automation.schedule_article_automation(database)["articles_checked"] == 1
+
+
+@pytest.mark.parametrize("status", ["queued", "running"])
+def test_active_job_waits_without_rechecks_and_completion_wakes_publication(
+    database, monkeypatch, status
+):
+    full(monkeypatch)
+    now = utcnow()
+    with database.begin() as session:
+        _, article, topic = seed(session, mode="auto")
+        job = ready(session, article, topic)
+        job.status, job.finished_at = status, None
+        job.available_at = now + timedelta(hours=1)
+        job.lease_until = now + timedelta(hours=1) if status == "running" else None
+        identifier, job_id = article.id, job.id
+    monkeypatch.setattr(article_automation, "utcnow", lambda: now + timedelta(seconds=1))
+    assert article_automation.schedule_article_automation(database)["articles_checked"] == 1
+    with database.begin() as session:
+        article = session.get(Article, identifier)
+        revision, due = article.automation_input_revision, article.automation_next_check_at
+        session.execute(
+            text(
+                "UPDATE article_analysis_jobs SET dispatched_at=now(),lease_until=:lease "
+                "WHERE id=:id"
+            ),
+            {"id": job_id, "lease": now + timedelta(hours=2)},
+        )
+    monkeypatch.setattr(article_automation, "utcnow", lambda: now + timedelta(minutes=5))
+    assert article_automation.schedule_article_automation(database)["articles_checked"] == 0
+    with database.begin() as session:
+        article = session.get(Article, identifier)
+        assert (article.automation_input_revision, article.automation_next_check_at) == (
+            revision,
+            due,
+        )
+        finish_job(session.get(ArticleAnalysisJob, job_id), "applied", utcnow())
+    assert article_automation.schedule_article_automation(database)["articles_published"] == 1
+
+
+def test_catalog_wakes_are_bounded_and_changes_during_a_pass_get_complete_successor_coverage(
+    database, monkeypatch
+):
+    from devfeed_core.automation_demands import expand_automation_demands
+    from devfeed_core.models import AutomationInvalidation, Topic
+
+    enable(monkeypatch, AUTOMATION_BATCH_SIZE=1, AUTOMATION_INVALIDATION_BATCH_SIZE=2)
+    with database.begin() as session:
+        articles = [seed(session, name=f"Framework{index}")[1] for index in range(5)]
+        session.flush()
+        for article in articles:
+            article.automation_next_check_at = utcnow() + timedelta(days=1)
+        identifiers = sorted(article.id for article in articles)
+    now = utcnow()
+    assert expand_automation_demands(database, now) == 2
+    with database.begin() as session:
+        first_revisions = {
+            article.id: article.automation_input_revision
+            for article in session.scalars(select(Article))
+        }
+        session.add(
+            Topic(
+                name="New catalog vocabulary",
+                slug="new-vocabulary",
+                status="active",
+                kind="technology",
+            )
+        )
+    for _ in range(10):
+        assert expand_automation_demands(database, now) <= 2
+        with database() as session:
+            if session.scalar(select(AutomationInvalidation.key).limit(1)) is None:
+                break
+    else:
+        pytest.fail("Catalog demand did not converge")
+    with database() as session:
+        for article in session.scalars(select(Article)):
+            assert article.automation_input_revision > first_revisions[article.id]
+        assert all(session.get(Article, key).automation_next_check_at <= now for key in identifiers)
+
+
+def test_locked_article_defers_demand_page_without_skipping_its_wake(database, monkeypatch):
+    from devfeed_core.automation_demands import expand_automation_demands
+    from devfeed_core.models import AutomationInvalidation
+
+    enable(monkeypatch, AUTOMATION_BATCH_SIZE=1, AUTOMATION_INVALIDATION_BATCH_SIZE=2)
+    with database.begin() as session:
+        identifier = seed(session)[1].id
+    with database.begin() as editor:
+        editor.execute(select(Article.id).where(Article.id == identifier).with_for_update())
+        assert expand_automation_demands(database, utcnow()) == 0
+        with database() as observer:
+            demand = observer.get(AutomationInvalidation, "all")
+            assert demand.after_article_id is None and demand.scan_revision is None
+    assert expand_automation_demands(database, utcnow()) == 1
+
+
+def test_ineligible_due_prefix_is_parked_in_bounded_pages_and_source_approval_wakes_it(
+    database, monkeypatch
+):
+    from devfeed_core.automation_demands import _enqueue_policy
+    from devfeed_core.models import AutomationInvalidation, Source
+    from sqlalchemy import delete
+
+    today = utcnow().date()
+    enable(monkeypatch, AUTOMATION_BATCH_SIZE=1, AI_CONTENT_NOT_BEFORE=today.isoformat())
+    with database.begin() as session:
+        source, waiting, _ = seed(session, name="Waiting")
+        source.approval_status = "pending"
+        _, historical, _ = seed(session, name="Historical")
+        historical.discovered_at = utcnow() - timedelta(days=2)
+        historical.published_at = historical.discovered_at
+        _, admitted, _ = seed(session, name="Admitted")
+        waiting.published_at = admitted.published_at = utcnow()
+        session.flush()
+        for index, article in enumerate((waiting, historical, admitted)):
+            article.automation_next_check_at = utcnow() - timedelta(minutes=10 - index)
+        waiting_id, historical_id, admitted_id, source_id = (
+            waiting.id,
+            historical.id,
+            admitted.id,
+            source.id,
+        )
+    # Establish policy, then measure due selection independently of its initial
+    # catalog pass, which has separate bounded continuation coverage above.
+    _enqueue_policy(database, get_settings())
+    with database.begin() as session:
+        session.execute(delete(AutomationInvalidation))
+    prepared = []
+    prepare = article_automation._prepare_article_candidates
+
+    def capture(factory, identifier):
+        prepared.append(identifier)
+        return prepare(factory, identifier)
+
+    monkeypatch.setattr(article_automation, "_prepare_article_candidates", capture)
+    counts = [
+        article_automation.schedule_article_automation(database)["articles_checked"]
+        for _ in range(3)
+    ]
+    assert counts == [0, 0, 1]
+    assert prepared == [admitted_id]
+    with database.begin() as session:
+        for identifier, reason in (
+            (waiting_id, "source_admission"),
+            (historical_id, "content_date_deferred"),
+        ):
+            article = session.get(Article, identifier)
+            assert article.automation_wait_reason == reason
+            assert article.automation_started_at is None
+            assert article.automation_evaluated_revision == 0
+        session.get(Source, source_id).approval_status = "approved"
+    assert article_automation.schedule_article_automation(database)["articles_checked"] == 1
+    assert prepared[-1] == waiting_id
+
+
+def test_raw_dependency_owner_move_delete_and_terminal_result_edit_wake_current_owners(
+    database, monkeypatch
+):
+    from devfeed_core.models import ArticleContent
+
+    enable(monkeypatch)
+    with database.begin() as session:
+        _, first, topic = seed(session)
+        job = ready(session, first, topic)
+        _, second, _ = seed(session, name="Python")
+        session.add(
+            ArticleContent(
+                article_id=first.id,
+                url=first.canonical_url,
+                text="Private source evidence",
+                content_hash="evidence",
+                method="body",
+            )
+        )
+        session.flush()
+        first.automation_next_check_at = second.automation_next_check_at = utcnow() + timedelta(
+            days=1
+        )
+        first_id, second_id, job_id = first.id, second.id, job.id
+    with database.begin() as session:
+        session.execute(
+            text("UPDATE article_contents SET article_id=:new WHERE article_id=:old"),
+            {"new": second_id, "old": first_id},
+        )
+    with database.begin() as session:
+        assert all(
+            session.get(Article, key).automation_next_check_at <= utcnow()
+            for key in (first_id, second_id)
+        )
+        for key in (first_id, second_id):
+            session.get(Article, key).automation_next_check_at = utcnow() + timedelta(days=1)
+    with database.begin() as session:
+        session.execute(
+            text("DELETE FROM article_contents WHERE article_id=:id"), {"id": second_id}
+        )
+        session.execute(
+            text(
+                "UPDATE article_analysis_jobs SET usage=usage || "
+                "jsonb_build_object('billing_note',true) WHERE id=:id"
+            ),
+            {"id": job_id},
+        )
+        assert session.get(Article, first_id).automation_next_check_at > utcnow()
+        session.execute(
+            text(
+                "UPDATE article_analysis_jobs "
+                "SET result=result || jsonb_build_object('corrected',true) "
+                "WHERE id=:id"
+            ),
+            {"id": job_id},
+        )
+    with database() as session:
+        assert all(
+            session.get(Article, key).automation_next_check_at <= utcnow()
+            for key in (first_id, second_id)
+        )
+
+
+def test_proposal_research_metadata_does_not_invalidate_matching_but_identity_and_status_do(
+    database, monkeypatch
+):
+    from devfeed_core.models import AutomationInvalidation, TopicProposal
+    from sqlalchemy import delete
+
+    enable(monkeypatch)
+    with database.begin() as session:
+        proposal = TopicProposal(
+            batch_id=uuid.uuid4(),
+            slug="angular",
+            action="create",
+            origin="import",
+            source_name="Test",
+            created_by={},
+            proposed={"name": "Angular", "slug": "angular"},
+        )
+        session.add(proposal)
+        session.flush()
+        identifier = proposal.id
+        session.execute(delete(AutomationInvalidation))
+    with database.begin() as session:
+        session.execute(
+            text(
+                "UPDATE topic_proposals SET proposed=proposed || "
+                "jsonb_build_object('description','Researched context') WHERE id=:id"
+            ),
+            {"id": identifier},
+        )
+        assert session.scalar(select(AutomationInvalidation.key).limit(1)) is None
+    with database.begin() as session:
+        session.execute(
+            text(
+                "UPDATE topic_proposals SET proposed=proposed || "
+                "jsonb_build_object('keywords',jsonb_build_array('routing')) WHERE id=:id"
+            ),
+            {"id": identifier},
+        )
+        assert session.get(AutomationInvalidation, "all") is not None
+        session.execute(delete(AutomationInvalidation))
+    with database.begin() as session:
+        session.execute(
+            text(
+                "UPDATE topic_proposals SET status='rejected',"
+                "reviewed_at=now(),reviewed_by='{}'::jsonb "
+                "WHERE id=:id"
+            ),
+            {"id": identifier},
+        )
+        assert session.get(AutomationInvalidation, "all") is not None
+
+
+def test_cascaded_article_tag_delete_wakes_its_article(database, monkeypatch):
+    from devfeed_core.models import ArticleTag, Tag
+
+    enable(monkeypatch)
+    with database.begin() as session:
+        _, article, _ = seed(session)
+        tag = Tag(name="Routing", slug="routing")
+        session.add(tag)
+        session.flush()
+        session.add(ArticleTag(article_id=article.id, tag_id=tag.id, origin="source"))
+        session.flush()
+        article.automation_next_check_at = utcnow() + timedelta(days=1)
+        identifier, tag_id = article.id, tag.id
+    with database.begin() as session:
+        session.execute(text("DELETE FROM tags WHERE id=:id"), {"id": tag_id})
+        assert session.get(Article, identifier).automation_next_check_at <= utcnow()
+
+
+def test_tag_assignment_policy_wakes_only_linked_articles_in_bounded_pages(database, monkeypatch):
+    from devfeed_core.automation_demands import _enqueue_policy, expand_automation_demands
+    from devfeed_core.models import ArticleTag, AutomationInvalidation, Tag
+    from sqlalchemy import delete
+
+    enable(monkeypatch, AUTOMATION_BATCH_SIZE=1, AUTOMATION_INVALIDATION_BATCH_SIZE=1)
+    with database.begin() as session:
+        articles = [seed(session, name=f"Framework{index}")[1] for index in range(3)]
+        tag = Tag(name="Routing", slug="routing", auto_link_topic=False)
+        session.add(tag)
+        session.flush()
+        session.add_all(
+            ArticleTag(article_id=article.id, tag_id=tag.id, origin="source")
+            for article in articles[:2]
+        )
+        session.flush()
+        for article in articles:
+            article.automation_next_check_at = utcnow() + timedelta(days=1)
+        linked = {article.id for article in articles[:2]}
+        unrelated, tag_id = articles[2].id, tag.id
+    _enqueue_policy(database, get_settings())
+    with database.begin() as session:
+        session.execute(delete(AutomationInvalidation))
+    with database.begin() as session:
+        session.execute(text("UPDATE tags SET auto_link_topic=true WHERE id=:id"), {"id": tag_id})
+        demand = session.scalar(select(AutomationInvalidation))
+        assert demand.key == f"tag:{tag_id}" and demand.tag_id == tag_id
+    for _ in range(4):
+        assert expand_automation_demands(database, utcnow()) <= 1
+    with database() as session:
+        assert all(session.get(Article, key).automation_next_check_at <= utcnow() for key in linked)
+        assert session.get(Article, unrelated).automation_next_check_at > utcnow()
+        assert session.scalar(select(AutomationInvalidation.key).limit(1)) is None
+
+
+def test_bulk_proposal_update_that_removes_vocabulary_still_invalidates_dependencies(
+    database, monkeypatch
+):
+    from devfeed_core.models import AutomationInvalidation, TopicProposal
+    from sqlalchemy import delete
+
+    enable(monkeypatch)
+    with database.begin() as session:
+        for slug in ("angular", "python"):
+            session.add(
+                TopicProposal(
+                    batch_id=uuid.uuid4(),
+                    slug=slug,
+                    action="create",
+                    origin="import",
+                    source_name="Test",
+                    created_by={},
+                    proposed={"name": slug, "slug": slug},
+                )
+            )
+        session.flush()
+        session.execute(delete(AutomationInvalidation))
+    with database.begin() as session:
+        session.execute(
+            text(
+                "UPDATE topic_proposals "
+                "SET proposed=jsonb_build_object('name','angular','slug','angular')"
+            )
+        )
+        assert session.get(AutomationInvalidation, "all") is not None
+
+
+def test_paywall_recovery_plan_limits_latest_history_probes_before_filtering(database, monkeypatch):
+    from devfeed_core.models import ArticleEnrichmentJob
+
+    enable(monkeypatch, AUTOMATION_BATCH_SIZE=2)
+    with database.begin() as session:
+        for index in range(20):
+            _, article, _ = seed(session, name=f"Framework{index}")
+            for age in range(5):
+                session.add(
+                    ArticleEnrichmentJob(
+                        article_id=article.id,
+                        status="succeeded",
+                        result={"paywalled": False},
+                        created_at=utcnow() - timedelta(days=age),
+                    )
+                )
+    captured = []
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        if "paywall_candidates" in statement and "LATERAL" in statement:
+            captured.append((statement, parameters))
+
+    event.listen(get_engine(), "before_cursor_execute", capture)
+    try:
+        assert article_automation.reject_known_paywalled_articles(database) == 0
+    finally:
+        event.remove(get_engine(), "before_cursor_execute", capture)
+    assert len(captured) == 1
+    with get_engine().connect() as connection:
+        statement, parameters = captured[0]
+        plan = connection.exec_driver_sql(
+            "EXPLAIN (ANALYZE, FORMAT JSON) " + statement, parameters
+        ).scalar()[0]["Plan"]
+
+    def walk(node):
+        yield node
+        for child in node.get("Plans", []):
+            yield from walk(child)
+
+    history_probes = [
+        node for node in walk(plan) if node.get("Relation Name") == "article_enrichment_jobs"
+    ]
+    assert history_probes
+    assert all(node["Actual Loops"] <= 2 for node in history_probes)
+    assert any(
+        node.get("CTE Name") == "paywall_candidates" and node["Actual Rows"] == 2
+        for node in walk(plan)
+    )
+
+
+def test_job_completion_runs_within_reserved_capacity_while_catalog_debt_progresses(
+    database, monkeypatch
+):
+    from devfeed_core.automation_demands import maintenance_lane
+    from sqlalchemy import func
+
+    full(monkeypatch, AUTOMATION_BATCH_SIZE=2, AUTOMATION_INVALIDATION_BATCH_SIZE=20)
+    with database.begin() as session:
+        for index in range(8):
+            _, article, topic = seed(session, name=f"Framework{index}")
+            job = ready(session, article, topic)
+            job.status, job.error = "failed", "provider_unavailable"
+        _, fresh, topic = seed(session, name="Fresh", mode="auto")
+        fresh_job = ready(session, fresh, topic)
+        fresh_job.status, fresh_job.finished_at = "running", None
+        session.flush()
+        for article in session.scalars(select(Article)):
+            article.automation_next_check_at = utcnow() + timedelta(days=1)
+            article.automation_wait_reason = "dependencies"
+        fresh_id, fresh_job_id = fresh.id, fresh_job.id
+    with database.begin() as session:
+        finish_job(session.get(ArticleAnalysisJob, fresh_job_id), "applied", utcnow())
+    counts = article_automation.schedule_article_automation(database)
+    assert counts["articles_checked"] == 2 and counts["articles_published"] == 1
+    with database() as session:
+        assert session.get(Article, fresh_id).publication_status == "published"
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(Article)
+                .where(maintenance_lane() == 1, Article.automation_next_check_at <= utcnow())
+            )
+            == 7
+        )
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(Article)
+                .where(
+                    Article.automation_wait_reason == "dependencies",
+                    Article.publication_status == "unpublished",
+                    Article.automation_evaluated_revision == Article.automation_input_revision,
+                )
+            )
+            == 1
+        )
+
+
+def test_source_policy_keeps_foreground_demand_alongside_active_catalog_work(database, monkeypatch):
+    from devfeed_core.automation_demands import expand_automation_demands
+    from devfeed_core.models import AutomationInvalidation
+
+    enable(monkeypatch, AUTOMATION_INVALIDATION_BATCH_SIZE=1)
+    with database.begin() as session:
+        source, article, _ = seed(session)
+        identifier, source_id = article.id, source.id
+        article.automation_next_check_at = utcnow() + timedelta(days=1)
+        article.automation_wait_reason = "dependencies"
+        source.publication_policy = "preview"
+    with database() as session:
+        assert set(session.scalars(select(AutomationInvalidation.key))) == {
+            "all",
+            f"source:{source_id}",
+        }
+    for _ in range(3):
+        expand_automation_demands(database, utcnow())
+    with database() as session:
+        article = session.get(Article, identifier)
+        assert article.automation_wait_reason is None
+        assert article.automation_next_check_at <= utcnow()

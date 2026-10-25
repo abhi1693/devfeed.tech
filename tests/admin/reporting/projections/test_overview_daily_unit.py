@@ -30,10 +30,15 @@ def metrics(**changes):
     }
 
 
-def test_daily_projection_distinguishes_expired_history_from_zero_and_composes_all_series():
+@pytest.mark.parametrize("use_facts", [False, True])
+def test_daily_projection_distinguishes_expired_history_from_zero_and_composes_all_series(
+    use_facts,
+):
     today = NOW.date()
     expired, retained = today - timedelta(days=30), today - timedelta(days=29)
     session = Mock()
+    session.info = {"reporting_facts": use_facts}
+    session.scalar.side_effect = [5, None] if use_facts else []
     # Counts and viewer breadth are genuine already-grouped read results.
     session.execute.side_effect = [
         [(expired, 2), (today, 1)],
@@ -59,6 +64,13 @@ def test_daily_projection_distinguishes_expired_history_from_zero_and_composes_a
         added=1, accounts=2, opens=3, readers=2, multi_article_readers=0
     )
     assert result[today - timedelta(days=1)] == metrics(opens=0, readers=0, multi_article_readers=0)
+    if use_facts:
+        queries = [str(call.args[0]) for call in session.execute.call_args_list]
+        assert "reporting_article_facts" in queries[0]
+        assert "reporting_article_facts" in queries[1]
+        assert "reporting_article_facts.content_type" in queries[5]
+        assert "reporting_article_facts.published_at" in queries[6]
+        assert all("FROM articles" not in query for query in queries)
 
 
 @pytest.mark.parametrize("guard", ["lease-busy", "fresh"])
@@ -220,3 +232,47 @@ def test_live_daily_measurements_replace_previously_retained_rollup_counts(monke
     assert old == metrics(opens=90, readers=40, multi_article_readers=20)
     writes = session.execute.call_args.args[0].compile().params
     assert writes["metrics_m1"] == values[today] and writes["updated_at_m1"] == NOW
+
+
+def test_fact_corrections_replace_closed_article_history_and_remove_deleted_publication_latency(
+    monkeypatch,
+):
+    first, second = NOW.date() - timedelta(days=2), NOW.date() - timedelta(days=1)
+    stored = [
+        OverviewDaily(
+            day=day,
+            metrics=metrics(
+                added=99,
+                published=88,
+                opens=12,
+                readers=6,
+                multi_article_readers=2,
+                content_types={"article": 88},
+                median_publication_seconds=900,
+            ),
+            updated_at=NOW - timedelta(days=1),
+        )
+        for day in (first, second)
+    ]
+    session = SimpleNamespace(info={"reporting_facts": True}, scalars=lambda _: stored)
+    corrected = {
+        first: metrics(added=1, published=0),
+        second: metrics(
+            added=2, published=1, content_types={"tutorial": 1}, median_publication_seconds=2.5
+        ),
+        NOW.date(): metrics(added=3, published=0, opens=2, readers=1, multi_article_readers=0),
+    }
+    compute = Mock(side_effect=[{NOW.date(): corrected[NOW.date()]}, corrected])
+    monkeypatch.setattr(overview, "daily_metrics", compute)
+    values = overview.read_daily_metrics(session, midnight(first), NOW)
+    assert compute.call_args_list[0].args == (session, midnight(NOW.date()), NOW)
+    assert compute.call_args_list[1].args == (session, midnight(first), NOW)
+    assert values[first]["added"] == 1 and values[first]["published"] == 0
+    assert values[first]["content_types"] == {}
+    assert "median_publication_seconds" not in values[first]
+    assert values[second]["published"] == 1 and values[second]["content_types"] == {"tutorial": 1}
+    assert values[second]["median_publication_seconds"] == 2.5
+    # Correcting article contributions preserves retained anonymous engagement.
+    assert values[first]["opens"] == values[second]["opens"] == 12
+    assert values[first]["readers"] == values[second]["readers"] == 6
+    assert values[NOW.date()]["opens"] == 2

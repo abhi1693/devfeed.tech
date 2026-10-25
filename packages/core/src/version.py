@@ -6,8 +6,8 @@ __version__ = version("devfeed-core")
 
 # Schema revisions are not application versions. Advance this when adding a
 # migration required by this application; never change an existing migration.
-SCHEMA_REVISION = "0037"
+SCHEMA_REVISION = "0041"
 
-# Retention maintenance requires the durable checkpoints added after the scheduler
-# clock and indexed topic decision facts in 0035 and 0036.
+# Dependency wakes and asynchronous reporting require their durable capture,
+# demand and reconciliation tables before any new scheduler/publisher starts.
 BACKWARD_COMPATIBLE_SCHEMA_REVISIONS: frozenset[str] = frozenset()

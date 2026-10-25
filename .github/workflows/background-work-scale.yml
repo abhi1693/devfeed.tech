@@ -1,0 +1,167 @@
+name: Sustained background work
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 2 * * 3"
+  pull_request:
+    paths:
+      - .github/workflows/background-work-scale.yml
+      - scripts/profile_background_work.py
+      - scripts/ci/background_work_report.py
+      - scripts/profile_read_models.py
+      - scripts/profile_catalog_refresh.py
+      - apps/admin-api/src/**
+      - apps/aggregator/src/**
+      - packages/core/src/**
+      - migrations/versions/**
+permissions:
+  contents: read
+concurrency:
+  group: background-work-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  measure:
+    name: Background / ${{ matrix.scale }}x / ${{ matrix.variant }} / ARM64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        scale: [1, 2]
+        variant: ${{ fromJSON(github.event_name == 'schedule' && '["candidate"]' || '["baseline","candidate"]') }}
+    services:
+      postgres:
+        image: postgres:17.11@sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable
+          POSTGRES_DB: devfeed_background_test
+        ports:
+          - 5432:5432
+        options: >-
+          --shm-size=512m --cpus=2 --memory=4g
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:8-alpine@sha256:0bf6577d7774e592b29d093e3ac9390eb91e13d72c21e506afce736de5e0eeb0
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://postgres@127.0.0.1:5432/devfeed_background_test
+      DEVFEED_TEST_REDIS_URL: redis://127.0.0.1:6379/15
+      PGPASSWORD: disposable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ matrix.variant == 'baseline' && (github.event.pull_request.base.sha || github.sha) || (github.event.pull_request.head.sha || github.sha) }}
+          path: subject
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+        with:
+          version: "0.13.5"
+          enable-cache: true
+          cache-dependency-glob: subject/uv.lock
+      - name: Install subject and the identical measurement harness
+        run: |
+          cp harness/scripts/profile_background_work.py subject/scripts/profile_background_work.py
+          sh harness/scripts/ci/python-bootstrap.sh subject --editable --all-packages
+          mkdir -p reports
+      - name: Enable measured PostgreSQL statements
+        working-directory: subject
+        run: |
+          .venv/bin/python - <<'PY'
+          import os
+          from sqlalchemy import create_engine
+          engine = create_engine(os.environ['DEVFEED_TEST_DATABASE_URL'], isolation_level='AUTOCOMMIT')
+          with engine.connect() as connection:
+              connection.exec_driver_sql("ALTER SYSTEM SET shared_preload_libraries='pg_stat_statements'")
+              connection.exec_driver_sql("ALTER SYSTEM SET pg_stat_statements.max=20000")
+              connection.exec_driver_sql("ALTER SYSTEM SET pg_stat_statements.track='top'")
+          PY
+          docker restart '${{ job.services.postgres.id }}'
+          for attempt in $(seq 1 60); do
+            if docker exec '${{ job.services.postgres.id }}' pg_isready -U postgres; then break; fi
+            if [ "$attempt" -eq 60 ]; then exit 1; fi
+            sleep 1
+          done
+      - name: Measure sustained production loops
+        continue-on-error: ${{ matrix.variant == 'baseline' }}
+        working-directory: subject
+        env:
+          PROFILE_SCALE: ${{ matrix.scale }}
+        run: |
+          .venv/bin/python scripts/profile_background_work.py --seed --scale "$PROFILE_SCALE" \
+            --require-native-arm64 --isolated-database-cluster \
+            --sql-seconds-per-minute 60 --buffers-per-minute 10000000 \
+            --wal-bytes-per-minute 67108864 --output ../reports/result.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: sustained-background-${{ matrix.scale }}x-${{ matrix.variant }}-${{ github.run_attempt }}
+          path: reports/
+          if-no-files-found: error
+          retention-days: 30
+  compare:
+    name: Background capacity / ${{ matrix.scale }}x
+    needs: measure
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        scale: [1, 2]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        if: github.event_name != 'schedule'
+        with:
+          name: sustained-background-${{ matrix.scale }}x-baseline-${{ github.run_attempt }}
+          path: reports/baseline
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: sustained-background-${{ matrix.scale }}x-candidate-${{ github.run_attempt }}
+          path: reports/candidate
+      - name: Require complete current-head capacity evidence
+        if: always() && !cancelled()
+        env:
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_EVENT: ${{ github.event_name }}
+        run: |
+          comparison_status=0
+          if [ "$RUN_EVENT" = schedule ]; then
+            python scripts/ci/background_work_report.py reports/candidate/result.json \
+              --absolute-only --candidate-sha "$EXPECTED_HEAD_SHA" \
+              --summary reports/summary.md || comparison_status=$?
+          else
+            python scripts/ci/background_work_report.py \
+              reports/baseline/result.json reports/candidate/result.json \
+              --baseline-sha "$EXPECTED_BASE_SHA" --candidate-sha "$EXPECTED_HEAD_SHA" \
+              --summary reports/summary.md || comparison_status=$?
+          fi
+          cat reports/summary.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$comparison_status"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: sustained-background-${{ matrix.scale }}x-summary-${{ github.run_attempt }}
+          path: reports/summary.md
+          if-no-files-found: error
+          retention-days: 30
