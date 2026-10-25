@@ -255,8 +255,8 @@ function rankingName(name: string, rank: number, days: number, own: boolean) {
 it("keeps unclaimed readers unlinked and highlights only the signed-in reader", async () => {
   state.user = { user_id: "mine" };
   const entries = [
-    { ...reader, position: 1, username: null, display_name: "Unclaimed reader" },
-    { ...reader, position: 2, username: null, display_name: null },
+    { ...reader, position: 1, username: "", display_name: "Unclaimed reader" },
+    { ...reader, position: 2, username: "", display_name: null },
   ];
   network.mockImplementation((url: string) =>
     Promise.resolve(

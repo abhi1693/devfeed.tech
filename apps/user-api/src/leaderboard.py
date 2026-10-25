@@ -16,7 +16,7 @@ router = APIRouter(prefix="/v1/user/leaderboard", tags=["user-leaderboard"])
 class LeaderboardEntry(BaseModel):
     rank: int = Field(ge=1)
     position: int = Field(ge=1)
-    username: str | None
+    username: str
     display_name: str | None
     avatar_url: str | None
     days: int = Field(gt=0)
@@ -38,7 +38,7 @@ def ranked_readers(metric: InstrumentedAttribute[int]):
     return (
         select(
             UserAccount.id.label("user_id"),
-            UserAccount.username,
+            func.coalesce(UserAccount.username, "").label("username"),
             UserAccount.profile["display_name"].as_string().label("display_name"),
             UserAccount.profile["avatar_url"].as_string().label("avatar_url"),
             metric.label("days"),

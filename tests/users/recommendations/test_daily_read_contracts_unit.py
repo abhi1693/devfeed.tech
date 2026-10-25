@@ -261,7 +261,7 @@ def test_midnight_rollover_rejects_presentation_of_the_previous_days_selection(
 
 
 @pytest.mark.parametrize("private", [False, True])
-@pytest.mark.parametrize("username", ["reader", None])
+@pytest.mark.parametrize("username", ["reader", ""])
 def test_own_reading_rank_projection_omits_identity_and_represents_unlisted_accounts_as_null(
     selection, private, username
 ):
@@ -318,7 +318,7 @@ def test_public_leaderboards_preserve_supplied_competition_ranks_and_drop_privat
             "subject": "private-subject",
         }
         for position, (rank, name, days) in enumerate(
-            [(1, "reader-a", 10), (1, None, 10), (3, None, 7)], start=1
+            [(1, "reader-a", 10), (1, "", 10), (3, "", 7)], start=1
         )
     ]
     selection.session.execute.return_value = SimpleNamespace(mappings=lambda: rows)
@@ -327,7 +327,7 @@ def test_public_leaderboards_preserve_supplied_competition_ranks_and_drop_privat
     result = leaderboard.leaderboard(selection.session, response)
 
     assert [row.rank for row in result.longest_streak] == [1, 1, 3]
-    assert [row.username for row in result.reading_days] == ["reader-a", None, None]
+    assert [row.username for row in result.reading_days] == ["reader-a", "", ""]
     for board in (result.longest_streak, result.reading_days):
         assert [row.position for row in board] == [1, 2, 3]
     assert (

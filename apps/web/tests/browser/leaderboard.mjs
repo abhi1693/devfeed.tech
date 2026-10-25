@@ -20,7 +20,7 @@ export const leaderboardProfile = {
 const rows = Array.from({ length: 10 }, (_, index) => ({
   position: index + 1,
   rank: index < 2 ? 1 : index + 1,
-  username: index === 8 ? null : index ? `reader-${index}` : leaderboardProfile.username,
+  username: index === 8 ? "" : index ? `reader-${index}` : leaderboardProfile.username,
   display_name:
     index === 9
       ? "A reader with a very long display name"

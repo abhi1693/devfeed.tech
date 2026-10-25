@@ -1063,15 +1063,8 @@
             "type": "integer"
           },
           "username": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Username"
+            "title": "Username",
+            "type": "string"
           }
         },
         "required": [

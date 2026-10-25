@@ -73,10 +73,10 @@ def test_public_top_ten_uses_best_streak_and_distinct_days_with_safe_identity(re
     boards = response.json()
     streaks, days = boards["longest_streak"], boards["reading_days"]
     assert len(streaks) == len(days) == 10
-    assert [row["username"] for row in streaks] == [None] + [
+    assert [row["username"] for row in streaks] == [""] + [
         f"reader-{index:02}" for index in range(9)
     ]
-    assert [row["username"] for row in days] == [None, "reader-11"] + [
+    assert [row["username"] for row in days] == ["", "reader-11"] + [
         f"reader-{index:02}" for index in range(8)
     ]
     for board in (streaks, days):
@@ -119,7 +119,7 @@ def test_claiming_username_preserves_existing_rank(readers, database):
     client, current, identifiers = readers
     current.user_id, current.subject = str(identifiers[13]), "reader-13"
     assert all(
-        row["username"] is None and row["rank"] == 1
+        row["username"] == "" and row["rank"] == 1
         for row in client.get("/v1/user/leaderboard/me").json().values()
     )
     with database.begin() as session:
@@ -171,7 +171,7 @@ def test_empty_and_zero_activity_boards_and_unclaimed_own_rank(readers, database
     client, current, identifiers = readers
     current.user_id, current.subject = str(identifiers[13]), "reader-13"
     assert all(
-        row["username"] is None for row in client.get("/v1/user/leaderboard/me").json().values()
+        row["username"] == "" for row in client.get("/v1/user/leaderboard/me").json().values()
     )
     with database.begin() as session:
         for account_id in identifiers:
@@ -202,7 +202,7 @@ def test_multiple_unclaimed_readers_keep_distinct_positions_and_private_accounts
     own = client.get("/v1/user/leaderboard/me").json()
     for metric, board in boards.items():
         assert [row["position"] for row in board] == list(range(1, 11))
-        unclaimed = [row for row in board if row["username"] is None]
+        unclaimed = [row for row in board if row["username"] == ""]
         assert len(unclaimed) == 3
         assert own[metric] in unclaimed
         assert sum(row["position"] == own[metric]["position"] for row in board) == 1
