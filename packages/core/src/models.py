@@ -286,7 +286,7 @@ class TopicProposal(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_by: Mapped[dict] = mapped_column(JSONB)
-    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     reviewed_by: Mapped[dict | None] = mapped_column(JSONB)
     review_note: Mapped[str | None] = mapped_column(String(1000))
     applied: Mapped[dict | None] = mapped_column(JSONB)
@@ -1542,6 +1542,22 @@ class TopicDecisionRun(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class TopicDecisionCall(Base):
+    """Indexed report facts, projected transactionally from each run's call ledger."""
+
+    __tablename__ = "topic_decision_calls"
+    proposal_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("topic_decision_runs.proposal_id", ondelete="CASCADE"), primary_key=True
+    )
+    ordinal: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    stage: Mapped[str | None] = mapped_column(Text)
+    stage_call: Mapped[int] = mapped_column(BigInteger)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    tokens: Mapped[Decimal] = mapped_column(Numeric)
+    charged_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    escalated: Mapped[bool] = mapped_column(Boolean)
+
+
 class DiscoverySeed(Base):
     __tablename__ = "discovery_seeds"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -1653,6 +1669,26 @@ class SourceDiscoveryJob(LeasedJobMixin, Base):
 
 
 Index("ix_topics_active_name", Topic.name, Topic.id, postgresql_where=Topic.status == "active")
+
+
+class JobPayloadRetention(Base):
+    """One atomic, resumable payload-maintenance sweep per analysis history."""
+
+    __tablename__ = "job_payload_retention"
+    __table_args__ = (
+        CheckConstraint("kind IN ('article','topic')", name="ck_job_payload_retention_kind"),
+        CheckConstraint(
+            "(cursor_finished_at IS NULL) = (cursor_id IS NULL)",
+            name="ck_job_payload_retention_cursor",
+        ),
+    )
+    kind: Mapped[str] = mapped_column(String(20), primary_key=True)
+    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    cutoff: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cursor_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cursor_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+
+
 for _payload_model in (ArticleAnalysisJob, TopicAnalysisJob):
     Index(
         f"ix_{_payload_model.__tablename__}_retention",
@@ -1660,6 +1696,21 @@ for _payload_model in (ArticleAnalysisJob, TopicAnalysisJob):
         _payload_model.id,
         postgresql_where=(_payload_model.status == "succeeded")
         & _payload_model.inputs_pruned_at.is_(None),
+    )
+
+for _payload_model, _subject_column in (
+    (ArticleAnalysisJob, ArticleAnalysisJob.article_id),
+    (TopicAnalysisJob, TopicAnalysisJob.proposal_id),
+    (TopicAnalysisJob, TopicAnalysisJob.topic_id),
+):
+    Index(
+        f"ix_{_payload_model.__tablename__}_{_subject_column.key}_retained_success",
+        _subject_column,
+        _payload_model.created_at,
+        _payload_model.id,
+        postgresql_where=(_payload_model.status == "succeeded")
+        & _payload_model.inputs_pruned_at.is_(None)
+        & _subject_column.is_not(None),
     )
 
 

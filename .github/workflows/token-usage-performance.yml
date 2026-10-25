@@ -1,0 +1,101 @@
+name: Token usage performance
+on:
+  pull_request:
+    paths:
+      - apps/admin-api/src/automation.py
+      - scripts/profile_token_usage.py
+      - scripts/ci/token-usage-summary.py
+      - tests/tooling/ci/test_token_usage_comment.py
+      - tests/tooling/profiling/test_token_usage_summary.py
+      - .github/workflows/performance-report.yml
+      - .github/workflows/token-usage-performance.yml
+  workflow_dispatch:
+concurrency:
+  group: token-usage-performance-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    name: Native ARM64 PostgreSQL 17
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17.11-bookworm
+        env:
+          POSTGRES_USER: devfeed
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: devfeed_token_profile_test
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U devfeed -d devfeed_token_profile_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DEVFEED_DATABASE_URL: postgresql+psycopg://devfeed@127.0.0.1:5432/devfeed_token_profile_test
+      DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://devfeed@127.0.0.1:5432/devfeed_token_profile_test
+      DEVFEED_REDIS_URL: redis://127.0.0.1:6379/15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.5"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: token-usage-profile
+      - name: Install locked application
+        run: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
+      - name: Migrate disposable database
+        run: uv run --locked --no-sync --no-build devfeed db upgrade
+      - name: Compare production-sized and larger histories
+        id: measure
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          test "$(uname -m)" = aarch64
+          uv run --locked --no-sync --no-build python scripts/profile_token_usage.py --seed --articles 100000 300000 \
+            --postgres-container "$POSTGRES_CONTAINER"
+      - name: Summarize before and after measurements
+        if: always()
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MEASUREMENT_OUTCOME: ${{ steps.measure.outcome }}
+        run: |
+          set +e
+          python3 scripts/ci/token-usage-summary.py \
+            --head-sha "$HEAD_SHA" --run-url "$RUN_URL" --outcome "$MEASUREMENT_OUTCOME"
+          summary_status=$?
+          set -e
+          if [ -f reports/token-usage/summary.md ]; then
+            cat reports/token-usage/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$summary_status"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: token-usage-native-arm64-${{ github.run_attempt }}
+          path: reports/token-usage/
+          if-no-files-found: warn
+          retention-days: 30
+  report:
+    name: Publish token usage results
+    needs: benchmark
+    if: >-
+      always() && !cancelled() && github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/performance-report.yml
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      section: token-usage
+      artifact-name: token-usage-native-arm64-${{ github.run_attempt }}
+      measurement-result: ${{ needs.benchmark.result }}

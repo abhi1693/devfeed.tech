@@ -112,7 +112,9 @@ function PersonalColumns({ children }: { children: React.ReactNode }) {
     return () => controller.abort();
     // Profile labels can change independently of the owner and confirmed session.
   }, [checking, key, userId]);
-  const current = state?.key === key ? state : null;
+  // The enclosing workspace resets on actual session changes. Retain its columns
+  // while a preference revision revalidates, so reading state stays mounted.
+  const current = state;
   const persist = useCallback(
     async (
       columns: ReaderColumn[],
@@ -125,6 +127,7 @@ function PersonalColumns({ children }: { children: React.ReactNode }) {
         !userId ||
         checking ||
         !current?.value ||
+        current.key !== key ||
         saving.current ||
         !pending?.ready ||
         pending.key !== key ||
@@ -187,7 +190,7 @@ function PersonalColumns({ children }: { children: React.ReactNode }) {
         columnsInitialized: current?.value?.initialized ?? null,
         loading: !current,
         unavailable: !!current && !current.value,
-        busy,
+        busy: busy || (!!current && current.key !== key),
         error,
         setColumns: (columns) => persist(columns, "replace"),
         initializeColumns,

@@ -336,23 +336,26 @@ describe("workflow feedback", () => {
     expect(adminSourceReview).toHaveBeenCalled();
   });
   it("reports queued work as requested, not completed", async () => {
+    const user = userEvent.setup();
     let resolveReadiness!: (value: Awaited<ReturnType<typeof adminSourcePipelineDetail>>) => void;
-    vi.mocked(adminSourcePipelineDetail).mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveReadiness = resolve;
-      }),
+    vi.mocked(adminSourcePipelineDetail).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveReadiness = resolve;
+        }),
     );
+    vi.mocked(getRecord).mockResolvedValueOnce({ id: "source-1", name: "News" });
     vi.mocked(adminSourceFetch).mockResolvedValueOnce({ id: "job-1" } as Awaited<
       ReturnType<typeof adminSourceFetch>
     >);
     withAdmin(
       <ResourceWorkflow identity={{ resource: "sources", id: "source-1" }} action="fetch" />,
     );
-    const queueFetch = (await screen.findByRole("button", {
+    const submit = (await screen.findByRole("button", {
       name: "Queue fetch",
     })) as HTMLButtonElement;
-    expect(queueFetch.disabled).toBe(true);
-    fireEvent.click(queueFetch);
+    expect(submit.disabled).toBe(true);
+    await user.click(submit);
     expect(adminSourceFetch).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
     await act(async () => {
@@ -369,8 +372,8 @@ describe("workflow feedback", () => {
         }),
       );
     });
-    await waitFor(() => expect(queueFetch.disabled).toBe(false));
-    fireEvent.click(queueFetch);
+    await waitFor(() => expect(submit.disabled).toBe(false));
+    await user.click(submit);
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith("Feed fetch requested", expect.any(Object)),
     );

@@ -1,0 +1,664 @@
+"""The topic profiler bounds disposable work and measures the actual report SQL."""
+
+import json
+import os
+import stat
+import sys
+from datetime import timedelta
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from devfeed_core.inference_metrics import inference_charts
+from devfeed_core.topic_decision_metrics import decision_metrics
+from sqlalchemy import event, text
+
+from scripts import profile_topic_reports as profile
+
+
+@pytest.fixture(autouse=True)
+def clear_libpq_routes(monkeypatch):
+    for name in ("PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.parametrize(
+    "destination",
+    [
+        "outside.json",
+        "../escape.json",
+        "reports/../../escape.json",
+        "reports/sub/../escape.json",
+        "reports/report.txt",
+    ],
+)
+def test_output_rejects_traversal_outside_paths_and_non_json_artifacts(
+    monkeypatch, tmp_path, destination
+):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match="reports folder|.json extension"):
+        profile.report_output_path(Path(destination))
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("absolute", [False, True])
+def test_output_creates_private_json_inside_reports_without_overwriting(
+    monkeypatch, tmp_path, absolute
+):
+    monkeypatch.chdir(tmp_path)
+    relative = Path("reports/nested/topic-reports.json")
+    output = tmp_path / relative
+    destination = output if absolute else relative
+    assert profile.report_output_path(destination) == output
+    profile.write_profile_output(destination, {"complete": True})
+    assert json.loads(output.read_text()) == {"complete": True}
+    assert output.read_text().endswith("\n")
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600
+    with pytest.raises(ValueError, match="already exists"):
+        profile.write_profile_output(destination, {"replaced": True})
+    assert json.loads(output.read_text()) == {"complete": True}
+
+
+@pytest.mark.parametrize("kind", ["file", "directory", "symlink", "parent-symlink"])
+def test_output_rejects_existing_files_directories_and_symlinks(monkeypatch, tmp_path, kind):
+    monkeypatch.chdir(tmp_path)
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    output = reports / "profile.json"
+    if kind == "file":
+        output.write_text("Retain the earlier report")
+    elif kind == "directory":
+        output.mkdir()
+    elif kind == "symlink":
+        original = reports / "original.json"
+        original.write_text("Retain the earlier report")
+        output.symlink_to(original)
+    else:
+        original = reports / "original"
+        original.mkdir()
+        (reports / "alias").symlink_to(original, target_is_directory=True)
+        output = reports / "alias" / "profile.json"
+    with pytest.raises(ValueError, match="already exists|must not be symlinks"):
+        profile.write_profile_output(output, {"replaced": True})
+    if kind == "file":
+        assert output.read_text() == "Retain the earlier report"
+    elif kind == "symlink":
+        assert original.read_text() == "Retain the earlier report"
+    elif kind == "parent-symlink":
+        assert not (original / "profile.json").exists()
+
+
+def test_output_cannot_follow_a_parent_replaced_after_validation(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "reports" / "nested" / "profile.json"
+    output.parent.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    validate = profile.report_output_path
+
+    def swap_directory(destination):
+        validated = validate(destination)
+        output.parent.rmdir()
+        output.parent.symlink_to(outside, target_is_directory=True)
+        return validated
+
+    monkeypatch.setattr(profile, "report_output_path", swap_directory)
+    with pytest.raises(OSError):
+        profile.write_profile_output(output, {"complete": True})
+    assert not (outside / "profile.json").exists()
+
+
+@pytest.mark.parametrize("symlink", [False, True])
+def test_output_exclusive_creation_preserves_a_target_added_after_validation(
+    monkeypatch, tmp_path, symlink
+):
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "reports" / "profile.json"
+    victim = tmp_path / "earlier.json"
+    victim.write_text("Retain the existing file")
+    original_open = os.open
+
+    def competing_open(path, flags, mode=0o777, *, dir_fd=None):
+        if path == output.name and flags & os.O_EXCL:
+            if symlink:
+                os.symlink(victim, path, dir_fd=dir_fd)
+            else:
+                descriptor = original_open(
+                    path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=dir_fd
+                )
+                with os.fdopen(descriptor, "w") as earlier:
+                    earlier.write("Retain the earlier report")
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", competing_open)
+    with pytest.raises(FileExistsError):
+        profile.write_profile_output(output, {"replaced": True})
+    assert victim.read_text() == "Retain the existing file"
+    assert output.read_text() == (
+        "Retain the existing file" if symlink else "Retain the earlier report"
+    )
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_cli_rejects_invalid_output_before_loading_code_or_opening_database(
+    monkeypatch, tmp_path, capsys, existing
+):
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "reports" / "existing.json" if existing else tmp_path / "outside.json"
+    if existing:
+        output.parent.mkdir()
+        output.write_text("Retain the earlier report")
+    monkeypatch.setenv("DEVFEED_TEST_DATABASE_URL", "postgresql://test@localhost/devfeed_test")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["topic-profiler", "--baseline-root", str(profile.ROOT), "--output", str(output)],
+    )
+    monkeypatch.setattr(
+        profile, "report_functions", lambda *_args: pytest.fail("Loaded report code")
+    )
+    monkeypatch.setattr(profile, "create_engine", lambda *_a, **_kw: pytest.fail("Opened database"))
+    with pytest.raises(SystemExit) as error:
+        profile.main()
+    assert error.value.code == 2
+    assert "Output" in capsys.readouterr().err
+    if existing:
+        assert output.read_text() == "Retain the earlier report"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql://test@production.invalid/devfeed_test",
+        "postgresql://test@localhost/devfeed",
+        "postgresql://test@localhost",
+        "postgresql://test@/devfeed_test",
+        "sqlite://localhost/devfeed_test",
+        "postgresql://test@localhost/devfeed_test?host=production.invalid",
+        "postgresql://test@localhost/devfeed_test?hostaddr=192.0.2.1",
+        "postgresql://test@localhost/devfeed_test?service=production",
+        "postgresql://test@localhost/devfeed_test?options=-csearch_path%3Dother",
+    ],
+)
+def test_profiler_rejects_nonlocal_databases_and_connection_query_overrides(url):
+    with pytest.raises(ValueError, match="explicitly local PostgreSQL"):
+        profile.validate_database(url)
+
+
+@pytest.mark.parametrize("name", ["PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE"])
+def test_profiler_rejects_libpq_routing_overrides(monkeypatch, name):
+    monkeypatch.setenv(name, "unexpected-route")
+    with pytest.raises(ValueError, match="routing overrides"):
+        profile.validate_database("postgresql+psycopg://test@127.0.0.1/devfeed_test")
+
+
+@pytest.mark.parametrize("host", ["localhost", "127.0.0.1"])
+def test_profiler_accepts_explicit_local_disposable_database(host):
+    value = f"postgresql+psycopg://test@{host}:55499/devfeed_test"
+    assert str(profile.validate_database(value)) == value
+
+
+@pytest.mark.parametrize(
+    "version,required_major",
+    [("170000", None), ("170011", 17), ("180000", None), ("180001", 18), ("190001", None)],
+)
+def test_profiler_accepts_supported_servers_and_matching_explicit_major(version, required_major):
+    profile.validate_server_version(version, required_major=required_major)
+
+
+@pytest.mark.parametrize(
+    "version,required_major,message",
+    [
+        ("160011", None, "17 or newer"),
+        ("90624", None, "17 or newer"),
+        ("180000", 17, "requires PostgreSQL 17"),
+        ("170011", 18, "requires PostgreSQL 18"),
+    ],
+)
+def test_profiler_rejects_unsupported_servers_and_explicit_major_mismatch(
+    version, required_major, message
+):
+    with pytest.raises(ValueError, match=message):
+        profile.validate_server_version(version, required_major=required_major)
+
+
+def test_cli_checks_explicit_server_major_before_seeding_or_profiling(
+    monkeypatch, tmp_path, capsys
+):
+    server = {"version": "PostgreSQL 18", "default_work_mem": "4MB", "version_num": "180000"}
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def execute(self, _statement):
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(one=lambda: server))
+
+    disposed = []
+    engine = SimpleNamespace(connect=Connection, dispose=lambda: disposed.append(True))
+    monkeypatch.setenv("DEVFEED_TEST_DATABASE_URL", "postgresql://test@localhost/devfeed_test")
+    monkeypatch.setattr(profile, "create_engine", lambda *_args, **_kw: engine)
+    monkeypatch.setattr(profile, "seed", lambda *_args: pytest.fail("Seeded mismatched server"))
+    monkeypatch.setattr(profile, "report_sample", lambda *_a, **_kw: pytest.fail("Profiled server"))
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "reports" / "profile.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "topic-profiler",
+            "--baseline-root",
+            str(profile.ROOT),
+            "--output",
+            str(output),
+            "--seed",
+            "--require-postgres-major",
+            "17",
+        ],
+    )
+    with pytest.raises(SystemExit) as error:
+        profile.main()
+    assert error.value.code == 2
+    assert "requires PostgreSQL 17; connected server is 18" in capsys.readouterr().err
+    assert not output.exists()
+    assert disposed == [True]
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["--articles", "9"],
+        ["--articles", "1000001"],
+        ["--runs", "9"],
+        ["--runs", "100001"],
+        ["--history-bytes", "-1"],
+        ["--history-bytes", "40001"],
+        ["--repeats", "0"],
+        ["--repeats", "11"],
+        ["--workers", "0"],
+        ["--workers", "9"],
+        ["--writes", "0"],
+        ["--writes", "1001"],
+    ],
+)
+def test_cli_rejects_unbounded_work_before_loading_code_or_connecting(
+    monkeypatch, tmp_path, capsys, options
+):
+    monkeypatch.setenv("DEVFEED_TEST_DATABASE_URL", "postgresql://test@localhost/devfeed_test")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "topic-profiler",
+            "--baseline-root",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "result.json"),
+            *options,
+        ],
+    )
+    monkeypatch.setattr(profile, "create_engine", lambda *_a, **_kw: pytest.fail("Opened database"))
+    monkeypatch.setattr(profile, "report_functions", lambda *_a: pytest.fail("Loaded report code"))
+    with pytest.raises(SystemExit) as error:
+        profile.main()
+    assert error.value.code == 2
+    assert "profiling bounds" in capsys.readouterr().err
+    assert not (tmp_path / "result.json").exists()
+
+
+def test_cli_rejects_unsupported_required_major_before_connecting(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("DEVFEED_TEST_DATABASE_URL", "postgresql://test@localhost/devfeed_test")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "topic-profiler",
+            "--baseline-root",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "profile.json"),
+            "--require-postgres-major",
+            "16",
+        ],
+    )
+    monkeypatch.setattr(profile, "create_engine", lambda *_a, **_kw: pytest.fail("Opened database"))
+    monkeypatch.setattr(profile, "report_functions", lambda *_a: pytest.fail("Loaded report code"))
+    with pytest.raises(SystemExit) as error:
+        profile.main()
+    assert error.value.code == 2
+    assert "--require-postgres-major must be 17 or newer" in capsys.readouterr().err
+
+
+def fixture_snapshot(session):
+    return {
+        "articles": session.scalar(text("SELECT count(*) FROM articles")),
+        "runs": session.execute(
+            text("""SELECT proposal_id,state,updated_at
+            FROM topic_decision_runs ORDER BY proposal_id""")
+        ).all(),
+        "facts": session.execute(
+            text("""SELECT * FROM topic_decision_calls
+            ORDER BY proposal_id,ordinal""")
+        ).all(),
+        "inference": session.scalar(text("SELECT count(*) FROM inference_calls")),
+    }
+
+
+@pytest.mark.integration
+def test_seed_refuses_existing_history_and_report_sample_captures_actual_plans(database):
+    with database() as session:
+        engine = session.get_bind()
+    profile.seed(engine, articles=20, runs=20, history_bytes=64)
+    with database() as session:
+        before = fixture_snapshot(session)
+    with pytest.raises(ValueError, match="requires empty fixture tables"):
+        profile.seed(engine, articles=20, runs=20, history_bytes=64)
+    loaded = profile.report_functions(profile.ROOT, "test-direct")
+    assert loaded[0] is not decision_metrics and loaded[1] is not inference_charts
+    actual = profile.report_sample(engine, loaded, days=30, explain=True)
+    expected = profile.report_sample(engine, [decision_metrics, inference_charts], days=30)
+    assert actual["output"] == expected["output"]
+    assert actual["output"][0]["calls"] == 60
+    assert len(actual["output"][1]["topic_activity"]) == 31
+    assert len(actual["plans"]) == 2
+    assert actual["plan_totals"]["execution_ms"] >= 0
+    assert actual["plan_totals"]["temp_written_blocks"] == 0
+    assert all("Execution Time" in plan and "Plan" in plan for plan in actual["plans"])
+    assert any("topic_decision_calls" in json.dumps(plan) for plan in actual["plans"])
+    with database() as session:
+        assert fixture_snapshot(session) == before
+
+
+@pytest.mark.integration
+def test_correction_wal_measurement_includes_after_triggers_and_rolls_back(database):
+    with database() as session:
+        engine = session.get_bind()
+    profile.seed(engine, articles=10, runs=10, history_bytes=64)
+    with database() as session:
+        before = fixture_snapshot(session)
+    for legacy in (True, False):
+        plan = profile.correction_plan(engine, legacy=legacy)
+        assert isinstance(plan["statement_wal_bytes"], int)
+        assert plan["statement_wal_bytes"] >= plan["Plan"]["WAL Bytes"] > 0
+        assert "AFTER triggers" in plan["statement_wal_scope"]
+        if not legacy:
+            assert any(
+                trigger["Trigger Name"] == "topic_decision_calls_sync" and trigger["Calls"] == 1
+                for trigger in plan["Triggers"]
+            )
+            assert plan["statement_wal_bytes"] > plan["Plan"]["WAL Bytes"]
+        with database() as session:
+            assert fixture_snapshot(session) == before
+
+
+def committed_fixture_snapshot(session):
+    return {
+        **fixture_snapshot(session),
+        "table_counts": {
+            table.name: session.scalar(text(f'SELECT count(*) FROM "{table.name}"'))
+            for table in profile.models.Base.metadata.sorted_tables
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "iterations,call_count,repeats",
+    [(0, 5, 1), (1001, 5, 1), (1, 1, 1), (1, 21, 1), (1, 5, 0), (1, 5, 11)],
+)
+def test_durable_writes_reject_unbounded_work_before_connecting(
+    monkeypatch, iterations, call_count, repeats
+):
+    monkeypatch.setattr(
+        profile, "_durable_write_phase", lambda *_a, **_kw: pytest.fail("Started durable writes")
+    )
+    with pytest.raises(ValueError, match="exceeds supported bounds"):
+        profile.durable_write_profile(
+            object(), iterations=iterations, call_count=call_count, repeats=repeats
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("call_count", [5, 20])
+def test_durable_writes_commit_lifecycle_steps_and_clean_up_each_strategy(database, call_count):
+    with database() as session:
+        engine = session.get_bind()
+    profile.seed(engine, articles=10, runs=10, history_bytes=64)
+    with database() as session:
+        before = committed_fixture_snapshot(session)
+    visible_steps = []
+    final_states = []
+
+    def observe_commits(_connection, _cursor, statement, parameters, _context, _many):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("update topic_decision_runs set state="):
+            value = json.loads(parameters["value"])
+            with engine.connect() as observer:
+                state = observer.scalar(
+                    text("SELECT state FROM topic_decision_runs WHERE proposal_id=:proposal"),
+                    {"proposal": parameters["proposal"]},
+                )
+            if isinstance(value, list):
+                operation = "append"
+                assert len(state["calls"]) == call_count - 1
+            elif isinstance(value, dict):
+                operation = "settle"
+                assert len(state["calls"]) == call_count
+                assert state["calls"][-1]["status"] == "running"
+                assert state["calls"][-1]["charged_tokens"] == 40000
+            elif isinstance(value, int):
+                operation = "correction"
+                assert state["calls"][-1]["status"] == "returned"
+                assert state["calls"][-1]["tokens"] == {"totalTokens": 1200}
+                assert state["calls"][0]["charged_tokens"] == 1100
+            else:
+                operation = "checkpoint"
+                assert value == "complete"
+                assert state["calls"][0]["charged_tokens"] in {50000, 50001}
+                assert "checkpoint" not in state
+            visible_steps.append(operation)
+        elif normalized.startswith("delete from articles where id="):
+            with engine.connect() as observer:
+                assert (
+                    observer.scalar(
+                        text("SELECT count(*) FROM articles WHERE id=ANY(:ids)"), parameters
+                    )
+                    == 2
+                )
+                states = observer.execute(
+                    text("""SELECT r.proposal_id,r.state FROM topic_decision_runs r
+                    JOIN topic_proposals p ON p.id=r.proposal_id
+                    WHERE p.slug LIKE 'durable-%' ORDER BY r.state->>'evidence',
+                        r.state#>>'{calls,0,charged_tokens}'""")
+                ).all()
+                assert len(states) == 2
+                for proposal, state in states:
+                    assert len(state["calls"]) == call_count
+                    assert state["calls"][-1]["status"] == "returned"
+                    assert state["checkpoint"] == "complete"
+                    facts = (
+                        observer.execute(
+                            text("""SELECT charged_tokens FROM topic_decision_calls
+                        WHERE proposal_id=:proposal ORDER BY ordinal"""),
+                            {"proposal": proposal},
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    if len(final_states) == 0:
+                        assert facts == [1100] * (call_count - 1)
+                    else:
+                        assert facts == [call["charged_tokens"] for call in state["calls"]]
+                final_states.append([state for _proposal, state in states])
+
+    event.listen(engine, "before_cursor_execute", observe_commits)
+    try:
+        result = profile.durable_write_profile(
+            engine, iterations=2, call_count=call_count, repeats=1
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", observe_commits)
+    assert visible_steps == ["append", "settle", "correction", "checkpoint"] * 4
+    assert final_states[0] == final_states[1]
+    assert result["calls_per_workflow"] == call_count
+    assert result["paired_order"] == [["legacy", "facts"]]
+    assert result["source_states_equal"] is True
+    assert result["projection_verified"] is True
+    for strategy in result["strategies"].values():
+        assert strategy["committed"] is True
+        assert strategy["iterations"] == 2
+        assert strategy["committed_transactions"] == 8
+        assert strategy["samples"] == 8
+        assert strategy["wal_bytes"] > 0
+        assert strategy["wal_records"] > 0
+        assert strategy["wal_full_page_images"] >= 0
+        assert strategy["elapsed_seconds"] > 0
+        assert strategy["application_thread_cpu_seconds"] > 0
+        assert set(strategy["operations"]) == {"append", "settle", "correction", "checkpoint"}
+        for operation in strategy["operations"].values():
+            assert operation["samples"] == 2
+            assert 0 < operation["median_ms"] <= operation["p95_ms"]
+    with database() as session:
+        assert committed_fixture_snapshot(session) == before
+        assert (
+            session.scalar(
+                text("""SELECT tgenabled FROM pg_trigger
+            WHERE tgrelid='topic_decision_runs'::regclass
+            AND tgname='topic_decision_calls_sync'""")
+            )
+            == "O"
+        )
+
+
+@pytest.mark.integration
+def test_durable_writes_clean_up_partial_commits_and_restore_projection_after_failure(database):
+    with database() as session:
+        engine = session.get_bind()
+    profile.seed(engine, articles=10, runs=10, history_bytes=64)
+    with database() as session:
+        before = committed_fixture_snapshot(session)
+    observed_committed_append = []
+
+    def fail_settlement(_connection, _cursor, statement, parameters, _context, _many):
+        if " ".join(statement.lower().split()).startswith("update topic_decision_runs set state="):
+            value = json.loads(parameters["value"])
+            if isinstance(value, dict):
+                with engine.connect() as observer:
+                    state = observer.scalar(
+                        text("SELECT state FROM topic_decision_runs WHERE proposal_id=:proposal"),
+                        {"proposal": parameters["proposal"]},
+                    )
+                    assert len(state["calls"]) == 5
+                    assert state["calls"][-1]["status"] == "running"
+                    observed_committed_append.append(True)
+                raise RuntimeError("Settlement failed after the append committed")
+
+    event.listen(engine, "before_cursor_execute", fail_settlement)
+    try:
+        with pytest.raises(RuntimeError, match="after the append committed"):
+            profile.durable_write_profile(engine, iterations=2, call_count=5, repeats=1)
+    finally:
+        event.remove(engine, "before_cursor_execute", fail_settlement)
+    assert observed_committed_append == [True]
+    with database() as session:
+        assert committed_fixture_snapshot(session) == before
+        assert (
+            session.scalar(
+                text("""SELECT tgenabled FROM pg_trigger
+            WHERE tgrelid='topic_decision_runs'::regclass
+            AND tgname='topic_decision_calls_sync'""")
+            )
+            == "O"
+        )
+
+
+@pytest.mark.integration
+def test_seed_repeated_stages_cross_report_window_and_utc_day_boundaries(database):
+    with database() as session:
+        engine = session.get_bind()
+    profile.seed(engine, articles=10, runs=90, history_bytes=64)
+    with database() as session:
+        for number, days in ((29, 30), (89, 90)):
+            rows = session.execute(
+                text("""SELECT c.stage,c.stage_call,c.started_at
+                FROM topic_decision_calls c JOIN topic_proposals p ON p.id=c.proposal_id
+                WHERE p.slug=:slug ORDER BY c.ordinal"""),
+                {"slug": f"topic-profile-{number}"},
+            ).all()
+            draft = [row for row in rows if row.stage == "draft"]
+            verification = [row for row in rows if row.stage == "verification"]
+            start = profile.NOW - timedelta(days=days)
+            assert [row.stage_call for row in draft] == [1, 2]
+            assert draft[0].started_at < start < draft[1].started_at <= profile.NOW
+            assert [row.stage_call for row in verification] == [1, 2]
+            assert verification[0].started_at.date() < verification[1].started_at.date()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("fail", [False, True])
+def test_cli_preserves_facts_and_restores_projection_after_concurrent_samples(
+    database, monkeypatch, tmp_path, capsys, fail
+):
+    with database() as session:
+        engine = session.get_bind()
+    profile.seed(engine, articles=10, runs=10, history_bytes=64)
+    with database() as session:
+        before = fixture_snapshot(session)
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "reports" / "profile.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "topic-profiler",
+            "--baseline-root",
+            str(profile.ROOT),
+            "--output",
+            str(output),
+            "--repeats",
+            "1",
+            "--workers",
+            "2",
+            "--writes",
+            "2",
+        ],
+    )
+    if fail:
+
+        def failure(*_args, **_kwargs):
+            raise RuntimeError("Concurrent reporter failed")
+
+        monkeypatch.setattr(profile, "concurrent", failure)
+        with pytest.raises(RuntimeError, match="Concurrent reporter failed"):
+            profile.main()
+        assert not output.exists()
+    else:
+        profile.main()
+        assert json.loads(capsys.readouterr().out)["fixture"]["articles"] == 10
+        result = json.loads(output.read_text())
+        assert [report["days"] for report in result["reports"]] == [1, 7, 30, 90]
+        assert all(report["exact_output_parity"] for report in result["reports"])
+        for sample in result["concurrent"].values():
+            assert sample["ingestion"]["committed"] is False
+            assert sample["ingestion"]["iterations"] == 2
+            assert sample["report_pairs"] == 2
+            assert len(sample["plans"]) == 2
+        assert [sample["calls_per_workflow"] for sample in result["durable_writes"]] == [5, 20]
+        for sample in result["durable_writes"]:
+            assert sample["source_states_equal"] is True
+            assert sample["projection_verified"] is True
+            for strategy in sample["strategies"].values():
+                assert strategy["committed"] is True
+                assert strategy["committed_transactions"] == 8
+    with database() as session:
+        assert fixture_snapshot(session) == before
+        assert (
+            session.scalar(
+                text("""SELECT tgenabled FROM pg_trigger
+            WHERE tgrelid='topic_decision_runs'::regclass
+            AND tgname='topic_decision_calls_sync'""")
+            )
+            == "O"
+        )

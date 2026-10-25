@@ -9,7 +9,8 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
+from sqlalchemy.orm import defer
 
 from devfeed_core.article_quality import presentation_blockers
 from devfeed_core.config import Settings, get_settings
@@ -322,6 +323,15 @@ def _processing_facts(session, article: Article, taxonomy: dict | None) -> dict:
         ("storage", ArticleImageJob, "store"),
     ):
         statement = select(model).where(model.article_id == article.id)
+        if model is ArticleAnalysisJob:
+            # Active jobs need only execution metadata. The retained input and
+            # catalog evidence can be much larger than the article itself.
+            statement = statement.options(
+                defer(ArticleAnalysisJob.input_snapshot),
+                defer(ArticleAnalysisJob.catalog_snapshot),
+                defer(ArticleAnalysisJob.result),
+                defer(ArticleAnalysisJob.usage),
+            )
         if operation is not None:
             statement = statement.where(ArticleImageJob.operation == operation)
         current_image_input = (
@@ -343,7 +353,12 @@ def _processing_facts(session, article: Article, taxonomy: dict | None) -> dict:
                 model.id.desc(),
             ).limit(1)
         )
-    if facts["taxonomy"] is None and facts["analysis"] is not None:
+    analysis = facts["analysis"]
+    if analysis is not None and analysis.status not in {"queued", "running"}:
+        details = {"catalog_snapshot", "result", "usage"} & inspect(analysis).unloaded
+        if details:
+            session.refresh(analysis, attribute_names=sorted(details))
+    if facts["taxonomy"] is None and analysis is not None and analysis.status == "succeeded":
         facts["taxonomy"] = catalog(session)
     return facts
 
@@ -381,15 +396,16 @@ def reconcile_processing(session, article: Article, *, taxonomy=None) -> Process
 
     facts = _processing_facts(session, article, taxonomy)
     result = derive_processing_readiness(article, **facts)
+    requested = False
     enrichment = facts["enrichment"]
     if enrichment is None:
         request_article_enrichment(session, article.id, automatic=True)
+        requested = True
     elif result.checks["enrichment"].status == "stale":
         request_article_enrichment(session, article.id)
-    if (
-        article.image_url
-        or result.checks["enrichment"].status == "complete"
-        and result.checks["images"].status in {"missing", "stale"}
+        requested = True
+    if result.checks["images"].status in {"missing", "stale"} and (
+        article.image_url or result.checks["enrichment"].status == "complete"
     ):
         storage = facts["storage"]
         request_image(
@@ -401,6 +417,7 @@ def reconcile_processing(session, article: Article, *, taxonomy=None) -> Process
                 and result.checks["images"].status == "stale"
             ),
         )
+        requested = True
     if (
         result.checks["enrichment"].status == "complete"
         and get_settings().ai_enabled
@@ -438,5 +455,10 @@ def reconcile_processing(session, article: Article, *, taxonomy=None) -> Process
                 force=job is not None,
                 taxonomy=facts["taxonomy"],
             )
+            requested = True
     session.flush()
-    return publication_readiness(session, article, taxonomy=facts["taxonomy"])
+    if requested:
+        return publication_readiness(session, article, taxonomy=facts["taxonomy"])
+    # Rechecking unchanged durable work must not hydrate its history/evidence a
+    # second time. Refresh facts only when a prerequisite request may change them.
+    return derive_publication_readiness(article, **facts)

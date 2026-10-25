@@ -1,13 +1,17 @@
 """Publisher retention and lease failures preserve complete serving generations."""
 
 import uuid
-from datetime import timedelta
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+from queue import Queue
+from time import monotonic, sleep
 
 import pytest
 from devfeed_admin_api import article_pipeline, pipeline_projection, pipeline_reads
 from devfeed_admin_api.pipeline_projection import drain_pipeline, project_batch
 from devfeed_core.models import (
     Article,
+    ArticleAnalysisJob,
     ArticleOrigin,
     PipelineProjection,
     ReadModelEvent,
@@ -18,7 +22,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.read_models import pipeline_policy_version
-from sqlalchemy import event, func, select, update
+from sqlalchemy import delete, event, func, select, text, update
 
 from tests.admin.articles.test_article_pipeline import make_article
 
@@ -44,6 +48,226 @@ def add_article(session, *, published_at=None, published=False, source=None, ide
         ]
     session.flush()
     return article
+
+
+def test_clock_rechecks_preserve_retry_deadline_without_rebuilding_until_due(database, monkeypatch):
+    now = utcnow()
+    retry_at = now + timedelta(minutes=10)
+    with database.begin() as session:
+        identifier = make_article(session, state="analysis").id
+        session.execute(
+            update(ArticleAnalysisJob)
+            .where(ArticleAnalysisJob.article_id == identifier)
+            .values(status="queued", available_at=retry_at)
+        )
+    drain_pipeline(database)
+    policy = pipeline_policy_version()
+    original = pipeline_projection.article_rows
+    batches = []
+
+    def articles(factory, identifiers, version, evaluated_at):
+        batches.append(list(identifiers))
+        return original(factory, identifiers, version, evaluated_at)
+
+    monkeypatch.setattr(pipeline_projection, "article_rows", articles)
+    for tick in range(1, 5):
+        clock = now + timedelta(minutes=tick)
+        with database.begin() as session:
+            session.execute(
+                update(Article)
+                .where(Article.id == identifier)
+                .values(automation_next_check_at=clock)
+            )
+            assert session.scalar(select(func.count()).select_from(ReadModelEvent)) == 0
+        assert project_batch(database, now=clock) == 0
+        with database() as session:
+            row = session.get(PipelineProjection, (policy, "article", identifier))
+            assert row.next_transition_at == retry_at
+            assert datetime.fromisoformat(row.payload["next_check_at"]) == clock
+    assert batches == []
+    assert project_batch(database, now=retry_at + timedelta(seconds=1)) == 1
+    assert batches == [[identifier]]
+    with database() as session:
+        row = session.get(PipelineProjection, (policy, "article", identifier))
+        assert row.next_transition_at is None
+        assert datetime.fromisoformat(row.payload["next_check_at"]) == clock
+        assert session.scalar(select(func.count()).select_from(ReadModelEvent)) == 0
+
+
+@pytest.mark.parametrize("rebuilding", [False, True])
+@pytest.mark.parametrize("change", ["clock", "analysis-completion", "delete"])
+def test_detached_article_evaluation_keeps_racing_clocks_completion_and_deletion(
+    database, monkeypatch, rebuilding, change
+):
+    with database.begin() as session:
+        identifier = make_article(session, state="analysis").id
+    drain_pipeline(database)
+    policy = pipeline_policy_version()
+    if rebuilding:
+        policy = "clock-race-policy"
+        monkeypatch.setattr(pipeline_projection, "pipeline_policy_version", lambda: policy)
+    else:
+        with database.begin() as session:
+            session.execute(
+                update(Article).where(Article.id == identifier).values(ai_title="Changed")
+            )
+    clock = utcnow() + timedelta(minutes=15)
+    original = pipeline_projection.article_rows
+    raced = False
+
+    def articles(factory, identifiers, version, evaluated_at):
+        nonlocal raced
+        rows = original(factory, identifiers, version, evaluated_at)
+        if not raced and identifier in identifiers:
+            raced = True
+            with database.begin() as session:
+                if change == "delete":
+                    session.execute(delete(Article).where(Article.id == identifier))
+                else:
+                    session.execute(
+                        update(Article)
+                        .where(Article.id == identifier)
+                        .values(automation_next_check_at=clock)
+                    )
+                    if change == "analysis-completion":
+                        session.execute(
+                            update(ArticleAnalysisJob)
+                            .where(ArticleAnalysisJob.article_id == identifier)
+                            .values(status="succeeded", finished_at=utcnow())
+                        )
+        return rows
+
+    monkeypatch.setattr(pipeline_projection, "article_rows", articles)
+    project_batch(database)
+    assert raced
+    with database() as session:
+        saved = session.get(PipelineProjection, (policy, "article", identifier))
+        if change == "delete":
+            assert saved is None
+        else:
+            assert datetime.fromisoformat(saved.payload["next_check_at"]) == clock
+        if change != "clock":
+            assert (
+                session.scalar(
+                    select(ReadModelEvent.id).where(
+                        ReadModelEvent.kind == "article", ReadModelEvent.entity_id == identifier
+                    )
+                )
+                is not None
+            )
+    drain_pipeline(database)
+    with database() as session:
+        saved = session.get(PipelineProjection, (policy, "article", identifier))
+        if change == "delete":
+            assert saved is None
+        else:
+            assert datetime.fromisoformat(saved.payload["next_check_at"]) == clock
+            if change == "analysis-completion":
+                assert saved.stage == "ready"
+
+
+def test_clock_update_waits_for_publication_then_patches_the_new_card(database):
+    with database.begin() as session:
+        identifier = make_article(session, state="analysis").id
+    drain_pipeline(database)
+    policy = pipeline_policy_version()
+    rows = pipeline_projection.article_rows(database, [identifier], policy, utcnow())
+    clock = utcnow() + timedelta(minutes=10)
+    backend_ids = Queue()
+
+    def recheck():
+        with database.begin() as session:
+            session.execute(text("SET LOCAL lock_timeout = '5s'"))
+            backend_ids.put(session.scalar(select(func.pg_backend_pid())))
+            session.execute(
+                update(Article)
+                .where(Article.id == identifier)
+                .values(automation_next_check_at=clock)
+            )
+
+    # Keep the executor outside the transaction so a failed assertion releases
+    # the article lock before waiting for the writer thread to exit.
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with database.begin() as session:
+            pipeline_projection._synchronize_article_clocks(session, rows)
+            future = executor.submit(recheck)
+            backend_id = backend_ids.get(timeout=5)
+            deadline = monotonic() + 3
+            blocked = False
+            while monotonic() < deadline:
+                with database() as observer:
+                    blocked = bool(observer.scalar(select(func.pg_blocking_pids(backend_id))))
+                if blocked:
+                    break
+                sleep(0.01)
+            assert blocked, "Clock writer did not wait for the publisher's article share lock"
+            pipeline_projection._publish_rows(
+                session, {"article": {identifier}}, rows, policy, refresh_evaluated_at=False
+            )
+        future.result(timeout=5)
+    with database() as session:
+        saved = session.get(PipelineProjection, (policy, "article", identifier))
+        assert datetime.fromisoformat(saved.payload["next_check_at"]) == clock
+        assert session.scalar(select(func.count()).select_from(ReadModelEvent)) == 0
+
+
+def test_ingestion_url_order_conflict_defers_the_whole_publication_batch_without_deadlock(database):
+    low_id, high_id = uuid.UUID(int=101), uuid.UUID(int=102)
+    with database.begin() as session:
+        low, high = [add_article(session, identity=identifier) for identifier in (low_id, high_id)]
+        # store_entries locks existing articles by canonical URL, which need not
+        # match the UUID order used by the publisher's scalar clock query.
+        low.canonical_url, high.canonical_url = (
+            "https://ingest.example/z",
+            "https://ingest.example/a",
+        )
+    drain_pipeline(database)
+    policy = pipeline_policy_version()
+    with database.begin() as session:
+        session.execute(update(Article).values(ai_title="Changed during ingestion"))
+        event_ids = list(session.scalars(select(ReadModelEvent.id).order_by(ReadModelEvent.id)))
+        before = {
+            row.entity_id: row.payload
+            for row in session.scalars(
+                select(PipelineProjection).where(PipelineProjection.kind == "article")
+            )
+        }
+    # A regression times out and releases ingestion's lock before joining the
+    # worker, rather than hanging the suite on an intentionally opposed lock.
+    with ThreadPoolExecutor(max_workers=1) as executor, database.begin() as ingestion:
+        assert (
+            ingestion.scalar(
+                select(Article.id).order_by(Article.canonical_url).limit(1).with_for_update()
+            )
+            == high_id
+        )
+        assert executor.submit(project_batch, database).result(timeout=5) == 0
+        # NOWAIT failure must release the publisher's already acquired low-ID
+        # share lock, allowing ingestion to finish its opposite lock order.
+        assert (
+            ingestion.scalar(
+                select(Article.id).where(Article.id == low_id).with_for_update(nowait=True)
+            )
+            == low_id
+        )
+        with database() as observer:
+            assert (
+                list(observer.scalars(select(ReadModelEvent.id).order_by(ReadModelEvent.id)))
+                == event_ids
+            )
+            assert {
+                row.entity_id: row.payload
+                for row in observer.scalars(
+                    select(PipelineProjection).where(PipelineProjection.kind == "article")
+                )
+            } == before
+            assert observer.get(ReadModelState, "pipeline-worker").payload == {}
+    assert project_batch(database) == len(event_ids)
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(ReadModelEvent)) == 0
+        for identifier in (low_id, high_id):
+            saved = session.get(PipelineProjection, (policy, "article", identifier))
+            assert saved.payload["title"] == "Changed during ingestion"
 
 
 def test_terminal_publications_without_a_timestamp_preserve_legacy_omission(database, admin_client):

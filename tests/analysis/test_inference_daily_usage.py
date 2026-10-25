@@ -179,17 +179,22 @@ def test_concurrent_bucket_swaps_keep_totals_consistent(database):
         assert sum(row["calls"] for row in result) == 2
 
 
-def test_migration_backfills_history_and_old_schema_retains_exact_fallback(database):
+def test_migration_backfills_history_and_preserves_ledger_activity(database):
     config = Config(str(REPO_ROOT / "alembic.ini"))
     try:
         command.downgrade(config, "0030")
         with database.begin() as session:
             session.add(invocation(NOW - timedelta(days=10)))
         with database() as session:
-            assert len(equal_activity(session)) == 1
+            # Capture the pre-0031 ledger contract directly. The current complete
+            # chart also requires the later topic-call schema enforced at startup.
+            expected = [
+                dict(row) for row in _ledger_activity(session, NOW - timedelta(days=30), NOW)
+            ]
+            assert len(expected) == 1
         command.upgrade(config, "head")
         with database() as session:
-            assert len(equal_activity(session)) == 1
+            assert equal_activity(session) == expected
             assert session.scalar(text("SELECT sum(calls) FROM inference_daily_usage")) == 1
             assert session.scalar(select(func.count()).select_from(InferenceCall)) == 1
     finally:

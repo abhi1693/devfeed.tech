@@ -40,6 +40,7 @@ from devfeed_core.source_lifecycle import source_readiness_batch
 from devfeed_core.text_search import normalized_text
 from sqlalchemy import delete, func, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import load_only
 
 LEASE_SECONDS = 120
@@ -471,6 +472,35 @@ def _publish_rows(session, work, rows, policy, *, refresh_evaluated_at):
     )
 
 
+def _synchronize_article_clocks(session, rows):
+    """Fence detached card evaluation against concurrent transactional clock writes.
+
+    Keep article share locks until publication commits, so a preceding recheck is
+    read here and a later recheck patches the published card. NOWAIT avoids a lock
+    cycle with ingestion, which locks multiple articles in canonical URL order.
+    This reads only two scalar columns, never article or job evidence.
+    """
+    identifiers = [row["entity_id"] for row in rows if row["kind"] == "article"]
+    if not identifiers:
+        return
+    clocks = dict(
+        session.execute(
+            select(Article.id, Article.automation_next_check_at)
+            .where(Article.id.in_(identifiers))
+            .order_by(Article.id)
+            .with_for_update(read=True, of=Article, nowait=True)
+        ).all()
+    )
+    # A deletion racing detached evaluation is a tombstone, not a resurrected card.
+    rows[:] = [row for row in rows if row["kind"] != "article" or row["entity_id"] in clocks]
+    for row in rows:
+        if row["kind"] == "article":
+            clock = clocks[row["entity_id"]]
+            row["payload"]["next_check_at"] = (
+                clock.isoformat().replace("+00:00", "Z") if row["state"] != "complete" else None
+            )
+
+
 def project_batch(factory, *, batch=200, token=None, now=None):
     """Publish one bounded batch; a crash or expired lease leaves work retryable."""
     now, token = now or utcnow(), token or str(uuid.uuid4())
@@ -522,6 +552,17 @@ def project_batch(factory, *, batch=200, token=None, now=None):
         with factory.begin() as session:
             if not _owns_lease(session, token, utcnow()):
                 return 0
+            if any(row["kind"] == "article" for row in rows):
+                try:
+                    # Roll back every partially acquired article lock before
+                    # deferring the entire publication batch. Captured events
+                    # remain unacknowledged, including newly due retry timers.
+                    with session.begin_nested():
+                        _synchronize_article_clocks(session, rows)
+                except OperationalError as error:
+                    if getattr(error.orig, "sqlstate", None) != "55P03":
+                        raise
+                    return 0
             previous_serving = planned_state.get("serving_policy")
             _publish_rows(
                 session,

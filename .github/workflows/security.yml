@@ -24,13 +24,16 @@ jobs:
         run: npm audit --prefix infra/codex --omit=dev --audit-level=high
       - name: Install locked JavaScript coverage tooling
         run: npm ci --ignore-scripts
-      - name: Test private Codex transport with coverage
+      - name: Test private transport and benchmark reporting with coverage
         run: |
           node node_modules/c8/bin/c8.js --include 'infra/codex/*.cjs' \
+            --include scripts/ci/job-retention-report.mjs \
+            --include 'scripts/render_scheduler_recheck_report.cjs' \
             --reporter=lcovonly --reporter=json-summary \
             --reports-dir=reports/coverage/security \
-            node --test tests/codex_transport.test.cjs
-      - name: Upload private Codex transport coverage
+            node --test tests/codex_transport.test.cjs tests/scheduler-recheck-report.test.cjs \
+              tests/scheduler-scale-workflow.test.cjs scripts/ci/job-retention-report.test.mjs
+      - name: Upload security and benchmark reporting coverage
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: security-coverage-${{ github.run_attempt }}
