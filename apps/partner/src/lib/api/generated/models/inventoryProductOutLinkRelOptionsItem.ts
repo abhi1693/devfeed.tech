@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Partner API
  * Partner analytics API with role-gated sessions and live memberships.
- * OpenAPI spec version: 0.1.3
+ * OpenAPI spec version: 0.1.4
  */
 
 export type InventoryProductOutLinkRelOptionsItem = typeof InventoryProductOutLinkRelOptionsItem[keyof typeof InventoryProductOutLinkRelOptionsItem];

@@ -2,6 +2,26 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.1.4 — 2026-10-25
+
+### Performance Improvements
+
+- [#300](https://github.com/abhi1693/devfeed.tech/pull/300) - Avoid rebuilding article pipeline cards when scheduler checks only advance the next-check time.
+- [#301](https://github.com/abhi1693/devfeed.tech/pull/301), [#302](https://github.com/abhi1693/devfeed.tech/pull/302), [#304](https://github.com/abhi1693/devfeed.tech/pull/304) - Reduce database work for token-usage, publication-review, and topic-inference reports while preserving exact accounting and report results.
+- [#303](https://github.com/abhi1693/devfeed.tech/pull/303) - Reduce source-filter lookup work in large feeds while preserving source visibility, ordering, and combined filters.
+- [#305](https://github.com/abhi1693/devfeed.tech/pull/305) - Clean up old analysis payloads in bounded, resumable batches instead of repeatedly scanning history on every scheduler tick.
+
+### Bug Fixes
+
+- [#292](https://github.com/abhi1693/devfeed.tech/pull/292) - Preserve loaded articles, Columns scroll positions, open editors, and the reading-streak panel when returning to a browser tab on web, Chrome, and Edge.
+- [#303](https://github.com/abhi1693/devfeed.tech/pull/303) - Keep the reading position stable when opening and closing article previews, including delayed navigation in Edge.
+- [#306](https://github.com/abhi1693/devfeed.tech/pull/306) - Keep overview and blocker reports updating during continuous catalog refreshes, with explicit catching-up status and separate catalog progress.
+
+### Upgrade Notes
+
+- Apply schema revisions 0035–0037 before starting the new runtimes. Pause the previous pipeline publisher and stop older schedulers before migration; verify the three retention indexes are valid before starting the new scheduler. PostgreSQL 17 or later is required for retention transaction timeouts.
+- Topic-report migration 0036 briefly pauses proposal and workflow writes while backfilling indexed call facts. Deploy the updated admin UI, API, and report workers together. Coordinate application and schema rollback; downgrading cannot restore analysis payloads already removed by retention.
+
 ## 0.1.3 — 2026-10-24
 
 ### Performance Improvements

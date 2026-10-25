@@ -3197,7 +3197,7 @@
   "info": {
     "description": "Optional personalization API. OIDC sessions and CSRF protection required.",
     "title": "DevFeed User API",
-    "version": "0.1.3"
+    "version": "0.1.4"
   },
   "openapi": "3.1.0",
   "paths": {
