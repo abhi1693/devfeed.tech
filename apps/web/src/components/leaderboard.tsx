@@ -6,6 +6,7 @@ import Link from "@/components/reader-link";
 import { readerLoginLink, readerRequest } from "@/lib/reader-runtime";
 import { userRequest } from "@/lib/user";
 import type { LeaderboardEntry, MyReadingRanks, ReadingLeaderboard } from "@/lib/leaderboard";
+import { leaderboardName } from "@/lib/leaderboard";
 import { useUser } from "./user-account";
 import { ProfileAvatar } from "./profile-avatar";
 import styles from "./leaderboard.module.css";
@@ -97,9 +98,16 @@ export function Leaderboard() {
       ) : (
         <div className={styles.boards}>
           {boards.map(({ key, title, Icon }) => {
-            const entries = current.value![key];
-            const mine = own?.value?.[key];
-            const ownRankListed = entries.some((entry) => entry.position === mine?.position);
+            const entries = current.value![key].filter((entry) => leaderboardName(entry));
+            const personalEntry = own?.value?.[key];
+            const mine =
+              personalEntry && leaderboardName(personalEntry) ? personalEntry : undefined;
+            const isOwnEntry = (entry: LeaderboardEntry) =>
+              !!mine &&
+              entry.position === mine.position &&
+              entry.username === mine.username &&
+              leaderboardName(entry) === leaderboardName(mine);
+            const ownRankListed = entries.some(isOwnEntry);
             return (
               <section key={key} className={styles.board} aria-label={title} data-metric={key}>
                 <header>
@@ -112,7 +120,7 @@ export function Leaderboard() {
                   <ol className={styles.list} aria-label={`${title} rankings`}>
                     {entries.map((entry) => (
                       <li key={entry.position}>
-                        <RankingRow entry={entry} own={mine?.position === entry.position} />
+                        <RankingRow entry={entry} own={isOwnEntry(entry)} />
                       </li>
                     ))}
                   </ol>
@@ -138,7 +146,9 @@ export function Leaderboard() {
                       <p role="status">Loading your ranking…</p>
                     ) : mine ? (
                       <RankingRow entry={mine} own />
-                    ) : profile && profile.visibility?.public !== false ? (
+                    ) : profile &&
+                      profile.visibility?.public !== false &&
+                      leaderboardName(profile) ? (
                       <Link className={styles.action} href="/latest">
                         Start reading
                       </Link>
@@ -146,7 +156,9 @@ export function Leaderboard() {
                       <Link className={styles.action} href="/settings/profile">
                         {profileUnavailable || !profile
                           ? "Review your profile"
-                          : "Make your profile public"}
+                          : profile.visibility?.public === false
+                            ? "Make your profile public"
+                            : "Set your display name"}
                       </Link>
                     )}
                   </footer>
@@ -161,7 +173,7 @@ export function Leaderboard() {
 }
 
 function RankingRow({ entry, own = false }: { entry: LeaderboardEntry; own?: boolean }) {
-  const name = entry.display_name || entry.username || "Reader";
+  const name = leaderboardName(entry);
   const content = (
     <>
       <span className={styles.rank} data-podium={entry.rank <= 3 ? entry.rank : undefined}>

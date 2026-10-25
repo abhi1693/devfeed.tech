@@ -2127,7 +2127,7 @@ test("reader sidebar persists and adapts to the viewport", { timeout: 180000 }, 
 });
 
 test(
-  "leaderboard includes unclaimed readers without profile links",
+  "leaderboard shows named readers without filling anonymous ranks",
   { timeout: 180000 },
   async (t) => {
     const { browser, origin } = await createReaderFixture(t);

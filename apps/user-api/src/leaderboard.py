@@ -3,7 +3,7 @@
 from devfeed_core.models import UserAccount, UserReadingStreak
 from fastapi import APIRouter, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, true
+from sqlalchemy import func, or_, select, true
 from sqlalchemy.orm import InstrumentedAttribute
 
 from devfeed_user_api.auth import User
@@ -35,11 +35,21 @@ class MyReadingRanks(BaseModel):
 def ranked_readers(metric: InstrumentedAttribute[int]):
     # Missing visibility uses the same public default as profile settings.
     # Ties share a competition rank; position identifies rows without exposing account IDs.
+    # Normalize legacy values as profile settings do; provider names stay private.
+    display_name = func.nullif(
+        func.btrim(
+            UserAccount.profile["display_name"].as_string(),
+            " \t\n\r\f\v\x1c\x1d\x1e\x1f\u0085\u00a0\u1680"
+            "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+            "\u2028\u2029\u202f\u205f\u3000",
+        ),
+        "",
+    )
     return (
         select(
             UserAccount.id.label("user_id"),
             func.coalesce(UserAccount.username, "").label("username"),
-            UserAccount.profile["display_name"].as_string().label("display_name"),
+            display_name.label("display_name"),
             UserAccount.profile["avatar_url"].as_string().label("avatar_url"),
             metric.label("days"),
             func.row_number()
@@ -50,6 +60,7 @@ def ranked_readers(metric: InstrumentedAttribute[int]):
         .join(UserReadingStreak, UserReadingStreak.user_id == UserAccount.id)
         .where(
             func.coalesce(UserAccount.profile["visibility"]["public"].as_boolean(), true()),
+            or_(UserAccount.username.is_not(None), display_name.is_not(None)),
             metric > 0,
         )
         .subquery()

@@ -170,6 +170,33 @@ it("keeps the personal footer for a tied rank whose username is outside the disp
   }
 });
 
+it.each(["mine", ""])(
+  "does not label another reader as You when ranking responses disagree for username %j",
+  async (username) => {
+    state.user = { user_id: "mine" };
+    const other = { ...reader, username: username ? "other" : "", display_name: "Other reader" };
+    const mine = { ...reader, username, display_name: "My public name" };
+    network.mockImplementation((url: string) =>
+      Promise.resolve(
+        Response.json(
+          url.endsWith("/me")
+            ? { longest_streak: mine, reading_days: mine }
+            : { longest_streak: [other], reading_days: [other] },
+        ),
+      ),
+    );
+    render(<Leaderboard />);
+    expect(await screen.findAllByText("You")).toHaveLength(2);
+    for (const title of ["Longest streak", "Most reading days"]) {
+      const board = screen.getByRole("region", { name: title });
+      expect(within(within(board).getByRole("listitem")).queryByText("You")).toBeNull();
+      const personal = within(board).getByLabelText(`Your ${title.toLowerCase()} ranking`);
+      expect(within(personal).getByText("My public name")).toBeTruthy();
+      expect(within(personal).getByText("You")).toBeTruthy();
+    }
+  },
+);
+
 it("keeps the public rankings when personal ranks fail and lets the reader retry", async () => {
   state.user = { user_id: "mine" };
   network.mockImplementation((url: string) =>
@@ -200,34 +227,45 @@ it("recovers a failed public read and distinguishes empty rankings from a failur
 });
 
 it.each([
-  { username: null, published: false, action: "Make your profile public" },
-  { username: null, published: true, action: "Start reading" },
-  { username: "mine", published: false, action: "Make your profile public" },
-  { username: "mine", published: true, action: "Start reading" },
-])("offers $action for an unranked reader", async ({ username, published, action }) => {
-  state.user = { user_id: "mine" };
-  state.profile = {
-    display_name: "Reader",
-    avatar_url: null,
-    username,
-    visibility: {
-      public: published,
-      location: false,
-      stack: false,
-      heatmap: false,
-      achievements: false,
-    },
-  };
-  network.mockImplementation((url: string) =>
-    Promise.resolve(
-      Response.json(
-        url.endsWith("/me") ? { longest_streak: null, reading_days: null } : publicBoards,
+  { username: null, display_name: null, published: false, action: "Make your profile public" },
+  { username: null, display_name: null, published: true, action: "Set your display name" },
+  { username: null, display_name: " \t\n ", published: true, action: "Set your display name" },
+  { username: null, display_name: "Named reader", published: true, action: "Start reading" },
+  { username: "mine", display_name: null, published: false, action: "Make your profile public" },
+  { username: "mine", display_name: null, published: true, action: "Start reading" },
+])(
+  "offers $action for an unranked reader",
+  async ({ username, display_name, published, action }) => {
+    state.user = { user_id: "mine" };
+    state.profile = {
+      display_name,
+      avatar_url: null,
+      username,
+      visibility: {
+        public: published,
+        location: false,
+        stack: false,
+        heatmap: false,
+        achievements: false,
+      },
+    };
+    network.mockImplementation((url: string) =>
+      Promise.resolve(
+        Response.json(
+          url.endsWith("/me") ? { longest_streak: null, reading_days: null } : publicBoards,
+        ),
       ),
-    ),
-  );
-  render(<Leaderboard />);
-  expect(await screen.findAllByRole("link", { name: action })).toHaveLength(2);
-});
+    );
+    render(<Leaderboard />);
+    const actions = await screen.findAllByRole("link", { name: action });
+    expect(actions).toHaveLength(2);
+    for (const link of actions) {
+      expect(link.getAttribute("href")).toBe(
+        action === "Start reading" ? "/latest" : "/settings/profile",
+      );
+    }
+  },
+);
 
 it("does not show a previous account's rank while the next account loads", async () => {
   state.user = { user_id: "mine" };
@@ -252,11 +290,11 @@ function rankingName(name: string, rank: number, days: number, own: boolean) {
   );
 }
 
-it("keeps unclaimed readers unlinked and highlights only the signed-in reader", async () => {
+it("keeps named unclaimed readers unlinked and highlights only the signed-in reader", async () => {
   state.user = { user_id: "mine" };
   const entries = [
-    { ...reader, position: 1, username: "", display_name: "Unclaimed reader" },
-    { ...reader, position: 2, username: "", display_name: null },
+    { ...reader, position: 1, username: "", display_name: "  Unclaimed reader  " },
+    { ...reader, position: 2, username: "", display_name: "Another reader" },
   ];
   network.mockImplementation((url: string) =>
     Promise.resolve(
@@ -276,7 +314,49 @@ it("keeps unclaimed readers unlinked and highlights only the signed-in reader", 
     expect(within(board).queryByRole("link")).toBeNull();
     expect(rows[0].textContent).toContain("Unclaimed reader");
     expect(rows[0].textContent).not.toContain("You");
-    expect(rows[1].textContent).toContain("ReaderYou");
+    expect(rows[0].textContent).not.toContain("  Unclaimed reader  ");
+    expect(rows[1].textContent).toContain("Another readerYou");
     expect(within(board).queryByLabelText(`Your ${title.toLowerCase()} ranking`)).toBeNull();
   }
+});
+
+it.each([undefined, null, "", " \t\n "])(
+  "omits anonymous public and personal entries with display name %j",
+  async (display_name) => {
+    state.user = { user_id: "mine" };
+    state.profile = { username: null, display_name: null, avatar_url: null };
+    const named = { ...reader, username: "real-handle", display_name: " \t " };
+    const anonymous = { ...reader, position: 2, username: "", display_name };
+    network.mockImplementation((url: string) =>
+      Promise.resolve(
+        Response.json(
+          url.endsWith("/me")
+            ? { longest_streak: anonymous, reading_days: anonymous }
+            : { longest_streak: [named, anonymous], reading_days: [named, anonymous] },
+        ),
+      ),
+    );
+    render(<Leaderboard />);
+    expect(await screen.findAllByRole("link", { name: "Set your display name" })).toHaveLength(2);
+    for (const title of ["Longest streak", "Most reading days"]) {
+      const board = screen.getByRole("region", { name: title });
+      expect(within(board).getAllByRole("listitem")).toHaveLength(1);
+      expect(
+        within(board).getByRole("link", { name: rankingName("real-handle", 1, 21, false) }),
+      ).toBeTruthy();
+      expect(within(board).queryByText("You")).toBeNull();
+      expect(within(board).queryByText("Reader", { exact: true })).toBeNull();
+    }
+  },
+);
+
+it("shows empty boards when a legacy response contains only anonymous entries", async () => {
+  const anonymous = { ...reader, username: "", display_name: null };
+  network.mockResolvedValue(
+    Response.json({ longest_streak: [anonymous], reading_days: [anonymous] }),
+  );
+  render(<Leaderboard />);
+  expect(await screen.findAllByText("No rankings yet.")).toHaveLength(2);
+  expect(screen.queryByRole("listitem")).toBeNull();
+  expect(screen.queryByText("Reader", { exact: true })).toBeNull();
 });

@@ -189,7 +189,7 @@ def test_public_read_does_not_require_authentication_and_own_rank_does(readers):
     assert client.get("/v1/user/leaderboard/me").status_code in {401, 503}
 
 
-def test_multiple_unclaimed_readers_keep_distinct_positions_and_private_accounts_hidden(
+def test_multiple_named_unclaimed_readers_keep_distinct_positions_and_private_accounts_hidden(
     readers, database
 ):
     client, current, identifiers = readers
@@ -203,9 +203,90 @@ def test_multiple_unclaimed_readers_keep_distinct_positions_and_private_accounts
     for metric, board in boards.items():
         assert [row["position"] for row in board] == list(range(1, 11))
         unclaimed = [row for row in board if row["username"] == ""]
-        assert len(unclaimed) == 3
+        assert len(unclaimed) == 2
         assert own[metric] in unclaimed
         assert sum(row["position"] == own[metric]["position"] for row in board) == 1
         assert "Public reader 12" not in str(board)
-    assert any(row["display_name"] is None for row in boards["longest_streak"])
+    assert all(row["display_name"] for row in boards["longest_streak"])
     assert client.get("/v1/user/profiles/reader-00").status_code == 404
+
+
+@pytest.mark.parametrize(
+    "profile",
+    [
+        {},
+        {"display_name": None},
+        {"display_name": ""},
+        {"display_name": " \t\n\r\f\v"},
+        {"display_name": "\u00a0\u2003\u3000"},
+    ],
+)
+def test_anonymous_readers_are_excluded_before_ranking_and_top_ten_limit(
+    readers, database, profile
+):
+    client, current, identifiers = readers
+    with database.begin() as session:
+        session.get(UserAccount, identifiers[13]).profile = profile
+
+    response = client.get("/v1/user/leaderboard")
+    boards = response.json()
+    assert [row["username"] for row in boards["longest_streak"]] == [
+        f"reader-{index:02}" for index in range(10)
+    ]
+    assert [row["username"] for row in boards["reading_days"]] == ["reader-11"] + [
+        f"reader-{index:02}" for index in range(9)
+    ]
+    assert [row["rank"] for row in boards["longest_streak"][:3]] == [1, 1, 3]
+    for board in boards.values():
+        assert [row["position"] for row in board] == list(range(1, 11))
+    assert "private@example.test" not in response.text
+    assert "Private provider name" not in response.text
+
+    own = client.get("/v1/user/leaderboard/me").json()
+    assert own["longest_streak"]["rank"] == 11
+    assert own["reading_days"]["rank"] == 12
+    current.user_id, current.subject = str(identifiers[13]), "reader-13"
+    assert client.get("/v1/user/leaderboard/me").json() == {
+        "longest_streak": None,
+        "reading_days": None,
+    }
+
+
+@pytest.mark.parametrize("identity", ["display_name", "username"])
+def test_adding_a_public_name_or_username_enters_existing_reading_activity(
+    readers, database, identity
+):
+    client, current, identifiers = readers
+    current.user_id, current.subject = str(identifiers[13]), "reader-13"
+    with database.begin() as session:
+        session.get(UserAccount, identifiers[13]).profile = {}
+    assert client.get("/v1/user/leaderboard/me").json() == {
+        "longest_streak": None,
+        "reading_days": None,
+    }
+
+    with database.begin() as session:
+        account = session.get(UserAccount, identifiers[13])
+        if identity == "display_name":
+            account.profile = {"display_name": "  Public name  "}
+        else:
+            account.username = "new-public-name"
+
+    boards = client.get("/v1/user/leaderboard").json()
+    own = client.get("/v1/user/leaderboard/me").json()
+    for metric, board in boards.items():
+        assert len(board) == 10
+        assert own[metric] == board[0]
+        assert board[0]["rank"] == board[0]["position"] == 1
+        assert board[0]["username"] == ("new-public-name" if identity == "username" else "")
+        assert board[0]["display_name"] == ("Public name" if identity == "display_name" else None)
+
+
+def test_claimed_username_keeps_reader_eligible_with_a_blank_display_name(readers, database):
+    client, _, identifiers = readers
+    with database.begin() as session:
+        session.get(UserAccount, identifiers[0]).profile = {"display_name": " \t\n\u00a0"}
+    boards = client.get("/v1/user/leaderboard").json()
+    for board in boards.values():
+        reader = next(row for row in board if row["username"] == "reader-00")
+        assert reader["display_name"] is None

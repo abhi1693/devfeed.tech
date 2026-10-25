@@ -53,17 +53,38 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
     ...boards,
     reading_days: boards.reading_days.map((row) => ({ ...row, rank: 1, days: 465 })),
   };
+  const anonymousRows = [undefined, null, "", " \t "].map((display_name, index) => ({
+    position: 20 + index,
+    rank: 20 + index,
+    username: "",
+    display_name,
+    avatar_url: null,
+    days: 1000,
+  }));
+  const usernameOnly = {
+    ...rows[2],
+    username: "handle-only",
+    display_name: " \t ",
+  };
+  const legacyBoards = Object.fromEntries(
+    Object.entries(boards).map(([key, entries]) => [
+      key,
+      [anonymousRows[0], entries[0], ...anonymousRows.slice(1), entries[8], usernameOnly],
+    ]),
+  );
   const publicRoute = async (route) =>
     route.fulfill({
       status: mode === "public-error" ? 503 : 200,
       json:
         mode === "empty"
           ? { longest_streak: [], reading_days: [] }
-          : mode === "self-only"
+          : ["self-only", "sparse"].includes(mode)
             ? sparseBoards
             : mode === "mixed"
               ? mixedBoards
-              : boards,
+              : mode === "legacy"
+                ? legacyBoards
+                : boards,
     });
   const ownRoute = async (route) => {
     ownReads++;
@@ -72,49 +93,66 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
       json:
         mode === "empty"
           ? { longest_streak: null, reading_days: null }
-          : mode === "unclaimed"
-            ? { longest_streak: boards.longest_streak[8], reading_days: boards.reading_days[8] }
-            : mode === "self-only"
-              ? {
-                  longest_streak: sparseBoards.longest_streak[0],
-                  reading_days: sparseBoards.reading_days[0],
-                }
-              : mode === "mixed"
+          : mode === "anonymous-own"
+            ? {
+                longest_streak: anonymousRows[3],
+                reading_days: anonymousRows[3],
+              }
+            : mode === "unclaimed"
+              ? { longest_streak: boards.longest_streak[8], reading_days: boards.reading_days[8] }
+              : mode === "self-only"
                 ? {
-                    longest_streak: boards.longest_streak[9],
-                    reading_days: {
-                      ...mixedBoards.reading_days[0],
-                      position: 1521,
-                      username: "own-reader",
-                      display_name: "Your Reader",
-                    },
+                    longest_streak: sparseBoards.longest_streak[0],
+                    reading_days: sparseBoards.reading_days[0],
                   }
-                : {
-                    longest_streak: {
-                      ...rows[0],
-                      position: 1521,
-                      username: "own-reader",
-                      display_name: "Your Reader",
-                      rank: 1521,
-                      days: 12,
+                : mode === "mixed"
+                  ? {
+                      longest_streak: boards.longest_streak[9],
+                      reading_days: {
+                        ...mixedBoards.reading_days[0],
+                        position: 1521,
+                        username: "own-reader",
+                        display_name: "Your Reader",
+                      },
+                    }
+                  : {
+                      longest_streak: {
+                        ...rows[0],
+                        position: 1521,
+                        username: "own-reader",
+                        display_name: "Your Reader",
+                        rank: 1521,
+                        days: 12,
+                      },
+                      reading_days: {
+                        ...rows[0],
+                        position: 1521,
+                        username: "own-reader",
+                        display_name: "Your Reader",
+                        rank: 1420,
+                        days: 24,
+                      },
                     },
-                    reading_days: {
-                      ...rows[0],
-                      position: 1521,
-                      username: "own-reader",
-                      display_name: "Your Reader",
-                      rank: 1420,
-                      days: 24,
-                    },
-                  },
     });
   };
   const profileRoute = (route) =>
     route.fulfill({ json: { profile: leaderboardProfile, activity: null } });
+  const accountProfileRoute = (route) =>
+    mode === "anonymous-own"
+      ? route.fulfill({
+          json: {
+            display_name: " \t ",
+            username: null,
+            avatar_url: null,
+            visibility: { public: true },
+          },
+        })
+      : route.fallback();
   await mockOptimizedAvatars(page);
   await page.route("**/api/v1/leaderboard", publicRoute);
   await page.route("**/api/v1/user/leaderboard/me", ownRoute);
   await page.route("**/api/v1/users/leader-reader", profileRoute);
+  await page.route("**/api/v1/user/settings/profile", accountProfileRoute);
   try {
     await page.setViewportSize({ width: 1440, height: 1100 });
     await page.locator(".sidebar").getByRole("link", { name: "Leaderboard", exact: true }).click();
@@ -246,7 +284,55 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
     await checkOptimizedPublicAvatar(page);
     await page.goto(`${base}/leaderboard`);
     await streaks.getByRole("listitem").first().waitFor();
+    mode = "sparse";
+    await page.reload();
+    for (const board of [streaks, days]) {
+      await board
+        .getByRole("link", { name: /Leading Reader/ })
+        .first()
+        .waitFor();
+      assert.equal(
+        await board.getByRole("listitem").count(),
+        1,
+        "A sparse leaderboard shows only the real entries returned by the API",
+      );
+      assert.equal(await board.getByText("Reader", { exact: true }).count(), 0);
+    }
+    await page.screenshot({ path: `${prefix}-sparse.png`, fullPage: true });
+    mode = "legacy";
+    await page.reload();
+    for (const board of [streaks, days]) {
+      await board.getByRole("link", { name: /handle-only/ }).waitFor();
+      assert.equal(
+        await board.getByRole("listitem").count(),
+        3,
+        "Anonymous legacy entries are omitted without removing named unclaimed readers",
+      );
+      const unclaimed = board.getByRole("listitem").filter({ hasText: "Reader 8" });
+      assert.equal(await unclaimed.count(), 1);
+      assert.equal(await unclaimed.getByRole("link").count(), 0);
+      assert.equal(await board.getByText("Reader", { exact: true }).count(), 0);
+      assert.equal(await board.getByText("1,000", { exact: true }).count(), 0);
+      assert.equal(await board.getByText("handle-only", { exact: true }).count(), 1);
+      assert.equal(
+        await board.getByRole("link", { name: /handle-only/ }).getAttribute("href"),
+        `${extension ? "#" : ""}/users/handle-only`,
+      );
+    }
     if (signedIn) {
+      mode = "anonymous-own";
+      await page.reload();
+      for (const board of [streaks, days]) {
+        const setName = board.getByRole("link", { name: "Set your display name", exact: true });
+        await setName.waitFor();
+        assert.equal(
+          await setName.getAttribute("href"),
+          `${extension ? "#" : ""}/settings/profile`,
+        );
+        assert.equal(await board.locator('[data-own="true"]').count(), 0);
+        assert.equal(await board.getByRole("listitem").count(), 10);
+        assert.equal(await board.getByText("Reader", { exact: true }).count(), 0);
+      }
       mode = "self-only";
       await page.reload();
       await streaks
@@ -314,6 +400,7 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
     await page.unroute("**/api/v1/leaderboard", publicRoute);
     await page.unroute("**/api/v1/user/leaderboard/me", ownRoute);
     await page.unroute("**/api/v1/users/leader-reader", profileRoute);
+    await page.unroute("**/api/v1/user/settings/profile", accountProfileRoute);
     await page.setViewportSize(viewport);
     await page.emulateMedia({ reducedMotion: reducedMotion ? "reduce" : "no-preference" });
     await page.goto(previousUrl);
