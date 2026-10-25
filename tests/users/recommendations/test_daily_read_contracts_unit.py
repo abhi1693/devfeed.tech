@@ -261,8 +261,9 @@ def test_midnight_rollover_rejects_presentation_of_the_previous_days_selection(
 
 
 @pytest.mark.parametrize("private", [False, True])
+@pytest.mark.parametrize("username", ["reader", None])
 def test_own_reading_rank_projection_omits_identity_and_represents_unlisted_accounts_as_null(
-    selection, private
+    selection, private, username
 ):
     selection.account.profile = {"visibility": {"public": not private}}
     selection.session.execute.side_effect = [
@@ -274,7 +275,8 @@ def test_own_reading_rank_projection_omits_identity_and_represents_unlisted_acco
                     else {
                         "user_id": selection.account.id,
                         "rank": 3,
-                        "username": "reader",
+                        "position": 4,
+                        "username": username,
                         "display_name": "Reader",
                         "avatar_url": None,
                         "days": days,
@@ -295,6 +297,8 @@ def test_own_reading_rank_projection_omits_identity_and_represents_unlisted_acco
     else:
         assert result.longest_streak.days == 7 and result.reading_days.days == 12
         assert result.longest_streak.rank == result.reading_days.rank == 3
+        assert result.longest_streak.position == result.reading_days.position == 4
+        assert result.longest_streak.username == result.reading_days.username == username
     assert "private@example.test" not in result.model_dump_json()
     selection.session.commit.assert_not_called()
 
@@ -305,6 +309,7 @@ def test_public_leaderboards_preserve_supplied_competition_ranks_and_drop_privat
     rows = [
         {
             "rank": rank,
+            "position": position,
             "username": name,
             "display_name": None,
             "avatar_url": None,
@@ -312,7 +317,9 @@ def test_public_leaderboards_preserve_supplied_competition_ranks_and_drop_privat
             "user_id": uuid.uuid4(),
             "subject": "private-subject",
         }
-        for rank, name, days in [(1, "reader-a", 10), (1, "reader-b", 10), (3, "reader-c", 7)]
+        for position, (rank, name, days) in enumerate(
+            [(1, "reader-a", 10), (1, None, 10), (3, None, 7)], start=1
+        )
     ]
     selection.session.execute.return_value = SimpleNamespace(mappings=lambda: rows)
     response = Response()
@@ -320,7 +327,9 @@ def test_public_leaderboards_preserve_supplied_competition_ranks_and_drop_privat
     result = leaderboard.leaderboard(selection.session, response)
 
     assert [row.rank for row in result.longest_streak] == [1, 1, 3]
-    assert [row.username for row in result.reading_days] == ["reader-a", "reader-b", "reader-c"]
+    assert [row.username for row in result.reading_days] == ["reader-a", None, None]
+    for board in (result.longest_streak, result.reading_days):
+        assert [row.position for row in board] == [1, 2, 3]
     assert (
         "user_id" not in result.model_dump_json()
         and "private-subject" not in result.model_dump_json()
