@@ -126,7 +126,13 @@ export function OverviewChart({ chart, range }: { chart: ChartName; range: DateR
       cancelled = true;
     };
   }, [near, load, key]);
-  const pollInterval = preparing ? (preparing.delayed ? 15_000 : 5000) : interval * 1000;
+  const pollInterval = preparing
+    ? preparing.delayed
+      ? 15_000
+      : 5000
+    : chart === "queue-pressure"
+      ? interval * 1000
+      : 0;
   usePolling((signal) => load(signal), visible ? pollInterval : 0, key);
   const ready = stored?.key === key && !loading && !preparing && !error;
   const placeholder = ready ? null : (

@@ -912,8 +912,37 @@ try {
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
   await page.screenshot({ path: `${output}/mobile-first-390x844.png` });
   mode = "live";
-  await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.reload();
+  await page.goto("about:blank");
+  // Keep every chart onscreen so an offscreen pause cannot hide unwanted polling.
+  await page.setViewportSize({ width: 1920, height: 3200 });
+  const liveStarted = requests.length;
+  const liveLoaded = Promise.all(
+    charts.map((chart) =>
+      page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === `/api/v1/admin/overview/charts/${chart}` &&
+          response.status() === 200,
+      ),
+    ),
+  );
+  await page.goto(origin);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await liveLoaded;
+  await settled();
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("[data-overview-chart]")].every((node) => {
+      const bounds = node.getBoundingClientRect();
+      return bounds.top >= 0 && bounds.bottom <= innerHeight;
+    }),
+  );
+  const liveCount = (chart) =>
+    requests.slice(liveStarted).filter((request) => request.chart === chart).length;
+  const assertStaticChartsUnchanged = () => {
+    for (const chart of charts.filter((name) => name !== "queue-pressure"))
+      assert.equal(liveCount(chart), 1, `${chart} loads once without automatic live refresh`);
+  };
+  assertStaticChartsUnchanged();
+  assert.ok(liveCount("queue-pressure") >= 1);
   const workload = page.locator('[data-overview-card="queue-pressure"]');
   await page.locator("#processing").scrollIntoViewIfNeeded();
   await workload.waitFor();
@@ -924,6 +953,34 @@ try {
     .getByRole("table", { name: "Workload counts by job type" })
     .getByText("8,976", { exact: true })
     .waitFor({ timeout: 15000 });
+  assert.ok(liveCount("queue-pressure") >= 2, "Queue pressure keeps polling while visible");
+  assertStaticChartsUnchanged();
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await settled();
+  const inactiveQueueRequests = liveCount("queue-pressure");
+  await page.waitForTimeout(6000);
+  assert.equal(
+    liveCount("queue-pressure"),
+    inactiveQueueRequests,
+    "Hidden pages stop live polling",
+  );
+  assertStaticChartsUnchanged();
+  const queueResumed = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/v1/admin/overview/charts/queue-pressure" &&
+      response.status() === 200,
+  );
+  await page.evaluate(() => {
+    delete document.visibilityState;
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await queueResumed;
+  await settled();
+  assert.ok(liveCount("queue-pressure") > inactiveQueueRequests);
+  assertStaticChartsUnchanged();
   await workload.screenshot({ path: `${output}/workload-live.png` });
   assert.equal(
     await workload
@@ -967,6 +1024,7 @@ try {
     .locator("#queue-pressure")
     .getByRole("alert")
     .waitFor({ state: "hidden", timeout: 15000 });
+  assertStaticChartsUnchanged();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
   await workload.screenshot({ path: `${output}/workload-live-mobile.png` });
@@ -1029,7 +1087,8 @@ try {
           "sticky sidebar at 1080px and 600px heights",
           "shared collapsed rail, persisted expansion, active routes and keyboard toggle",
           "pinned toggle after scrolling long navigation, mobile link/Escape dismissal",
-          "background polling, offscreen pause and error recovery without a status strip",
+          "only Queue pressure polls; all eleven other visible charts retain their first result",
+          "Queue pressure pauses on hidden pages and offscreen, resumes and recovers from errors",
           "revision-guarded CSRF recovery refreshes only attention",
           "real inbox SDK bell, items, counts, seen and read through native gateway operations",
           "native EventSource receives an unbuffered hint before the stream closes",

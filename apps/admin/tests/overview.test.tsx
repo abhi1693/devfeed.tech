@@ -62,6 +62,35 @@ it("fetches each of twelve chart documents independently", async () => {
   expect(screen.queryByRole("navigation", { name: "Overview sections" })).toBeNull();
 });
 
+it("refreshes only Queue pressure after charts load, including focus and interval changes", async () => {
+  vi.useFakeTimers();
+  vi.mocked(adminOverviewChart).mockImplementation(async (chart) => populatedCharts[chart]);
+  showOverview();
+  await act(async () => {});
+  expect(adminOverviewChart).toHaveBeenCalledTimes(12);
+  const expectCounts = (queue: number) => {
+    for (const chart of charts)
+      expect(
+        vi.mocked(adminOverviewChart).mock.calls.filter(([name]) => name === chart),
+        chart,
+      ).toHaveLength(chart === "queue-pressure" ? queue : 1);
+  };
+  await saveRefresh(5);
+  await act(() => vi.advanceTimersByTimeAsync(15_000));
+  expectCounts(4);
+  await act(async () => fireEvent(window, new Event("blur")));
+  await act(() => vi.advanceTimersByTimeAsync(10_000));
+  expectCounts(4);
+  await act(async () => fireEvent(window, new Event("focus")));
+  expectCounts(5);
+  await saveRefresh(60);
+  await act(() => vi.advanceTimersByTimeAsync(60_000));
+  expectCounts(6);
+  await saveRefresh(0);
+  await act(() => vi.advanceTimersByTimeAsync(60_000));
+  expectCounts(6);
+});
+
 it("places a loader inside a slow chart while its neighboring chart is usable", async () => {
   let finish!: (report: (typeof populatedCharts)["publication-rate"]) => void;
   vi.mocked(adminOverviewChart).mockImplementation((chart) =>
@@ -211,6 +240,8 @@ it("keeps preparation inside the chart and checks completion after five seconds"
   expect(adminOverviewChart).toHaveBeenCalledTimes(1);
   await act(() => vi.advanceTimersByTimeAsync(1));
   expect(screen.getByText("publication-rate ready")).toBeTruthy();
+  await act(() => vi.advanceTimersByTimeAsync(60_000));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(2);
 });
 
 it("keeps checking delayed preparation automatically even when refresh is paused", async () => {
@@ -313,19 +344,22 @@ it("cancels delayed preparation checks when the date range changes", async () =>
   expect(adminOverviewChart).toHaveBeenCalledTimes(4);
 });
 
-it("replaces a failed refreshed plot with its own retry state", async () => {
+it("replaces a failed Queue pressure refresh with its own retry state", async () => {
   vi.useFakeTimers();
   vi.mocked(adminOverviewChart)
-    .mockResolvedValueOnce(populatedCharts["publication-rate"])
+    .mockResolvedValueOnce(populatedCharts["queue-pressure"])
     .mockRejectedValue(new ApiError(500));
-  render(publication());
-  await act(async () => {});
-  expect(screen.getByText("publication-rate ready")).toBeTruthy();
-  await act(() => vi.advanceTimersByTimeAsync(10_000));
-  expect(screen.queryByText("publication-rate ready")).toBeNull();
-  expect(within(publicationCard()).getByRole("alert").textContent).toContain(
-    "Could not update publication output.",
+  render(
+    <RefreshSettings>
+      <OverviewChart chart="queue-pressure" range={{ from: "now-29d/d", to: "now" }} />
+    </RefreshSettings>,
   );
+  await act(async () => {});
+  expect(screen.getByText("queue-pressure ready")).toBeTruthy();
+  await act(() => vi.advanceTimersByTimeAsync(10_000));
+  expect(screen.queryByText("queue-pressure ready")).toBeNull();
+  const card = document.querySelector('[data-overview-card="queue-pressure"]') as HTMLElement;
+  expect(within(card).getByRole("alert").textContent).toContain("Could not update queue pressure.");
 });
 
 it("keeps freshness metadata out of charts", async () => {

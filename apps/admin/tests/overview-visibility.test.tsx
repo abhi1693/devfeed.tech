@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { OverviewChart } from "@/components/organisms/overview-chart";
 import { adminOverviewChart } from "@/lib/api/generated/admin";
@@ -43,7 +43,7 @@ afterEach(() => {
   observers.length = 0;
 });
 
-it("loads near the viewport, polls only onscreen, and defers offscreen range changes", async () => {
+it("loads static charts near the viewport without polling and defers offscreen range changes", async () => {
   vi.useFakeTimers();
   observe();
   vi.mocked(adminOverviewChart).mockImplementation(async (_panel, params) =>
@@ -65,21 +65,52 @@ it("loads near the viewport, polls only onscreen, and defers offscreen range cha
   await act(async () => {
     await vi.advanceTimersByTimeAsync(5000);
   });
-  expect(adminOverviewChart).toHaveBeenCalledTimes(2);
+  expect(adminOverviewChart).toHaveBeenCalledTimes(1);
   await visibility(false, false);
   await act(async () => {
     await vi.advanceTimersByTimeAsync(10000);
   });
-  expect(adminOverviewChart).toHaveBeenCalledTimes(2);
+  expect(adminOverviewChart).toHaveBeenCalledTimes(1);
   expect(screen.getByText("42")).toBeTruthy();
   await visibility(true, false);
-  expect(adminOverviewChart).toHaveBeenCalledTimes(2);
+  expect(adminOverviewChart).toHaveBeenCalledTimes(1);
   await visibility(false, false);
   view.rerender(panel({ from: "now-6d/d", to: "now" }));
-  expect(adminOverviewChart).toHaveBeenCalledTimes(2);
+  expect(adminOverviewChart).toHaveBeenCalledTimes(1);
   await visibility(true, true);
   expect(screen.getByText("42")).toBeTruthy();
+  expect(adminOverviewChart).toHaveBeenCalledTimes(2);
+});
+
+it("polls Queue pressure only onscreen and resumes when the browser tab becomes active", async () => {
+  vi.useFakeTimers();
+  observe();
+  vi.mocked(adminOverviewChart).mockResolvedValue(populatedCharts["queue-pressure"]);
+  render(<OverviewChart chart="queue-pressure" range={{ from: "now-29d/d", to: "now" }} />);
+  await visibility(true, false);
+  expect(adminOverviewChart).toHaveBeenCalledTimes(1);
+  await act(() => vi.advanceTimersByTimeAsync(10_000));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(1);
+  await visibility(true, true);
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(2);
+  await visibility(false, false);
+  await act(() => vi.advanceTimersByTimeAsync(10_000));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(2);
+  await visibility(true, true);
+  await act(() => vi.advanceTimersByTimeAsync(5000));
   expect(adminOverviewChart).toHaveBeenCalledTimes(3);
+  const state = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  try {
+    await act(async () => fireEvent(document, new Event("visibilitychange")));
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(adminOverviewChart).toHaveBeenCalledTimes(3);
+    state.mockReturnValue("visible");
+    await act(async () => fireEvent(document, new Event("visibilitychange")));
+    expect(adminOverviewChart).toHaveBeenCalledTimes(4);
+  } finally {
+    state.mockRestore();
+  }
 });
 
 it("finishes admitted cold reads offscreen and reuses them when layout changes bring them back", async () => {
