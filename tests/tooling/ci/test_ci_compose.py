@@ -156,6 +156,26 @@ def test_server_profiles_reserve_capacity_for_exporter_across_reader_replicas():
         assert server.find(name).get("from_env") == key
 
 
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        ({}, "0.0.0.0"),
+        ({"DEVFEED_BIND_IP": "192.168.1.101"}, "192.168.1.101"),
+        (
+            {"DEVFEED_BIND_IP": "192.168.1.101", "DEVFEED_CH_UI_BIND_IP": "127.0.0.1"},
+            "127.0.0.1",
+        ),
+    ],
+)
+def test_management_ui_inherits_lan_binding_with_an_explicit_override(options, expected):
+    services = check_compose.render({"POSTGRES_PASSWORD": "fixture-password", **options})[
+        "services"
+    ]
+    assert services["ch-ui"]["ports"][0]["host_ip"] == expected
+    assert services["ch-ui"]["ports"][0]["published"] == "4000"
+    assert not services["clickhouse"].get("ports")
+
+
 @pytest.mark.parametrize("build", [False, True], ids=["registry", "local-build"])
 def test_management_ui_has_private_database_access_and_separate_persistent_state(build):
     options = {

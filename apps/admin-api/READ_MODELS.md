@@ -146,7 +146,9 @@ and some operational/governance features require the upstream Pro edition.
 
 `DEVFEED_CH_UI_BIND_IP`, `DEVFEED_CH_UI_PORT`, and `DEVFEED_CH_UI_URL` configure the
 loopback binding, published port, and browser origin. The defaults bind only to
-`127.0.0.1` on port `4000`. When using another origin, update `DEVFEED_CH_UI_URL`
+the shared `DEVFEED_BIND_IP` interface, or all IPv4 interfaces when unset, on port `4000`.
+Set `DEVFEED_CH_UI_BIND_IP` to a specific LAN address to restrict the binding.
+When using a LAN origin, update `DEVFEED_CH_UI_URL`
 and terminate HTTPS at the chosen reverse proxy. The UI's saved database endpoint
 is configured on the server; arbitrary database URLs on the login page are disabled.
 

@@ -275,7 +275,7 @@ def check() -> None:
         "service_healthy"
     )
     management = services["ch-ui"]
-    assert management["ports"][0]["host_ip"] == "127.0.0.1"
+    assert management["ports"][0]["host_ip"] == "0.0.0.0"
     assert management["ports"][0]["published"] == "4000"
     assert set(management["networks"]) == {"default", "data"}
     assert set(management["depends_on"]) == {"clickhouse"}

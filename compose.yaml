@@ -233,7 +233,7 @@ services:
     ports:
       - target: 4000
         published: "${DEVFEED_CH_UI_PORT:-4000}"
-        host_ip: "${DEVFEED_CH_UI_BIND_IP:-127.0.0.1}"
+        host_ip: "${DEVFEED_CH_UI_BIND_IP:-${DEVFEED_BIND_IP:-0.0.0.0}}"
     cpus: ${DEVFEED_CH_UI_CPUS:-0.5}
     mem_limit: ${DEVFEED_CH_UI_MEMORY_LIMIT:-512m}
     healthcheck:
