@@ -5,9 +5,9 @@ package. Source files live directly under `src`, mapped to `devfeed_admin_api`.
 
 See [configuration, authentication, service boundaries and commands](../../docs/admin.md).
 
-Pipeline and Overview pages use [durable read models](READ_MODELS.md). That guide
-covers change capture, dedicated workers, freshness, rollout requirements, and
-reproducible performance checks above production data counts.
+Pipeline and Overview pages read [native ClickHouse analytics](ANALYTICS.md). That guide
+covers transactional capture, the analytics exporter, bounded current cards, report
+caching, freshness, and coordinated rollout.
 
 The source lifecycle board is available at `GET /v1/admin/source-pipeline`;
 `GET /columns/{stage}` pages one lane with an integer `cursor`. Both accept `q`,
@@ -15,7 +15,7 @@ The source lifecycle board is available at `GET /v1/admin/source-pipeline`;
 `terminal_since` (seven days by default, at most 90 days). Pending work and active
 jobs remain visible regardless of age. Running cards come first, followed by
 oldest waiting work; terminal lanes show the latest durable activity first.
-Counts cover the entire filtered projection. Workers load evidence in bounded
+Counts cover the entire filtered ClickHouse snapshot. The exporter loads evidence in bounded
 batches; board reads do not load article bodies or job history.
 
 Cards use `source:{id}` or `candidate:{id}` keys. Linked discovery candidates appear
@@ -43,14 +43,14 @@ rejected discovery candidate does not gain this Source-specific shortcut.
 
 ClickHouse is the required store for historical Overview reports. The dashboard retains
 publication, audience, personalization, source, processing, and inference panels. PostgreSQL
-serves saved report documents and transactional operations; it does not calculate history
-for reporting requests.
+retains transactional source records and validates operator actions. Chart and board
+reads use ClickHouse with a shared request cache.
 
 The analytical exporter captures narrow committed changes and sends them asynchronously.
 A bounded initial backfill imports available history, including older aggregate-only reader
 metrics. Token reports retain the distinction between cumulative completed-job usage and
 individual inference invocations, including unknown and malformed telemetry.
 
-See [durable read models](READ_MODELS.md) for Compose configuration, ingestion, query
+See [native analytics](ANALYTICS.md) for Compose configuration, ingestion, query
 budgets, freshness, backups, and rollout. The PostgreSQL report comparison profilers have
 been replaced by native ClickHouse diagnostics in `scripts/profile_analytics_reports.py`.

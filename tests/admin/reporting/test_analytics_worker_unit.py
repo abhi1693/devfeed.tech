@@ -109,6 +109,9 @@ def exporter(connection=None):
         refresh_one=AsyncMock(return_value=False),
         compact_one=AsyncMock(return_value=False),
     )
+    result.cards = NS(
+        ingest=AsyncMock(), once=AsyncMock(return_value=False), bootstrapping=False, close=Mock()
+    )
     result.upgrade = NS(
         once=AsyncMock(return_value=False),
         normalize_pending=AsyncMock(side_effect=lambda _connection, events, _generation: events),
@@ -217,7 +220,7 @@ def test_bounded_backfill_inserts_generation_one_before_fenced_checkpoint(monkey
 
 
 @pytest.mark.parametrize(
-    "failure", ["normalize", "facts", "gauges", "dirty", "gauge-dirty", "lease"]
+    "failure", ["normalize", "facts", "gauges", "cards", "dirty", "gauge-dirty", "lease"]
 )
 def test_delivery_failure_retains_all_events_until_every_projection_is_durable(
     monkeypatch, failure
@@ -225,6 +228,7 @@ def test_delivery_failure_retains_all_events_until_every_projection_is_durable(
     events = [
         dict(
             id=value,
+            format_version=3,
             source_table="inference_calls",
             operation="I",
             record={},
@@ -249,6 +253,8 @@ def test_delivery_failure_retains_all_events_until_every_projection_is_durable(
         service.client.insert = AsyncMock(side_effect=RuntimeError("sink"))
     elif failure == "gauges":
         service.gauges.ingest.side_effect = RuntimeError("sink")
+    elif failure == "cards":
+        service.cards.ingest.side_effect = RuntimeError("sink")
     elif failure == "dirty":
         service.rollups.mark_dirty.side_effect = RuntimeError("sink")
     elif failure == "gauge-dirty":
@@ -259,7 +265,7 @@ def test_delivery_failure_retains_all_events_until_every_projection_is_durable(
 
 
 def test_delivery_acknowledges_exact_ids_only_after_facts_and_gauges(monkeypatch):
-    events = [dict(id=n) for n in (3, 9)]
+    events = [dict(id=n, format_version=3, source_table="articles") for n in (3, 9)]
     connection = Connection(lambda q, _: events if q.startswith("SELECT id,source") else {"ok": 1})
     service = exporter(connection)
     transform = AsyncMock(return_value=[])
@@ -274,7 +280,7 @@ def test_delivery_acknowledges_exact_ids_only_after_facts_and_gauges(monkeypatch
 def test_legacy_delivery_acks_original_ids_and_count_after_normalized_projection(
     monkeypatch, normalized
 ):
-    captured = [dict(id=n) for n in (3, 9)]
+    captured = [dict(id=n, format_version=3, source_table="articles") for n in (3, 9)]
     connection = Connection(
         lambda q, _: captured if q.startswith("SELECT id,source") else {"ok": 1}
     )
@@ -425,7 +431,7 @@ def test_publication_waits_for_all_durable_raw_bootstrap_inputs(
     query = connection.calls[0][0]
     assert "analytics_bootstrap_cursors WHERE NOT complete" in query
     assert "CASE WHEN native_bootstrap_complete THEN true" in query
-    assert "analytics_capture_events WHERE format_version=1" in query
+    assert "analytics_ingest_events WHERE format_version=1" in query
 
 
 @pytest.mark.parametrize(
@@ -573,7 +579,7 @@ def test_completed_raw_import_requires_rollup_and_gauge_barriers_across_failure_
 
 
 @pytest.mark.parametrize(
-    "busy", [None, "upgrade", "backfill", "events", "rollup", "gauges", "compact"]
+    "busy", [None, "upgrade", "backfill", "events", "rollup", "gauges", "cards", "compact"]
 )
 def test_export_cycle_orders_handoffs_reuses_original_capture_and_releases_lease(monkeypatch, busy):
     connection = Connection()
@@ -595,7 +601,7 @@ def test_export_cycle_orders_handoffs_reuses_original_capture_and_releases_lease
             native_capture_started_at=None if i == 0 else NOW - timedelta(days=60),
             lease_generation=i + 1,
         )
-        for i in range(4)
+        for i in range(5)
     ]
     service._lease = AsyncMock(side_effect=leases)
     service._check_lease = AsyncMock()
@@ -605,6 +611,7 @@ def test_export_cycle_orders_handoffs_reuses_original_capture_and_releases_lease
     service._export_events = AsyncMock(side_effect=operation("events", int(busy == "events")))
     service.rollups.refresh_one = AsyncMock(side_effect=operation("rollup", busy == "rollup"))
     service._refresh_gauges = AsyncMock(side_effect=operation("gauges", busy == "gauges"))
+    service.cards.once = AsyncMock(side_effect=operation("cards", busy == "cards"))
     service.rollups.compact_one = AsyncMock(side_effect=operation("compact", busy == "compact"))
     monkeypatch.setattr(
         worker.psycopg, "AsyncConnection", NS(connect=AsyncMock(return_value=connection))
@@ -612,11 +619,11 @@ def test_export_cycle_orders_handoffs_reuses_original_capture_and_releases_lease
     marker = Mock()
     monkeypatch.setattr(worker, "write_runtime_marker", marker)
     assert run(service.once()) is (busy is not None)
-    assert trace == ["upgrade", "backfill", "events", "rollup", "gauges", "compact"]
+    assert trace == ["upgrade", "backfill", "events", "rollup", "gauges", "cards", "compact"]
     assert service.capture_started_at == NOW - timedelta(days=60)
     assert service._backfill_one.call_args.args[1] == 2
     assert service._export_events.call_args.args[1] == 3
-    assert service._publish_status.call_args.args[1]["lease_generation"] == 4
+    assert service._publish_status.call_args.args[1]["lease_generation"] == 5
     assert any(
         q.startswith("UPDATE analytics_pipeline_state SET last_success")
         for q, _ in connection.calls
@@ -624,7 +631,7 @@ def test_export_cycle_orders_handoffs_reuses_original_capture_and_releases_lease
     assert connection.closed and marker.call_count == 1
 
 
-@pytest.mark.parametrize("lost", range(4))
+@pytest.mark.parametrize("lost", range(5))
 def test_export_cycle_stops_after_missing_or_expired_renewal(monkeypatch, lost):
     connection = Connection()
     service = exporter(connection)
@@ -1223,3 +1230,36 @@ def test_gauge_cycle_renews_each_manifest_generation_and_stops_when_lease_is_los
         run(service._refresh_gauges(connection))
     assert service.gauges.refresh_one.await_count == completed
     assert service._lease.await_count == completed + 1
+
+
+@pytest.mark.parametrize(
+    "change", [{"format_version": 4}, {"source_table": "unknown_private_source"}]
+)
+def test_unknown_capture_protocol_is_rejected_before_delivery_or_acknowledgement(change):
+    event = {"id": 7, "format_version": 3, "source_table": "articles", **change}
+    connection = Connection(lambda q, _: [event] if q.startswith("SELECT id,source") else {"ok": 1})
+    service = exporter(connection)
+    with pytest.raises(ValueError, match="Unsupported analytical capture"):
+        run(service._export_events(connection, 42))
+    service.upgrade.normalize_pending.assert_not_awaited()
+    service.cards.ingest.assert_not_awaited()
+    assert not service.client.inserts
+    assert not any(q.startswith("DELETE") for q, _ in connection.calls)
+
+
+def test_known_retired_v1_sources_are_archived_and_acknowledged_after_reconciliation(monkeypatch):
+    captured = [{"id": 7, "format_version": 1, "source_table": "user_tags"}]
+    connection = Connection(
+        lambda q, _: captured if q.startswith("SELECT id,source") else {"ok": 1}
+    )
+    service = exporter(connection)
+    service.upgrade.normalize_pending.return_value = []
+    service.upgrade.normalize_pending.side_effect = None
+    transform = AsyncMock(return_value=[])
+    monkeypatch.setattr(worker, "transform_events", transform)
+    assert run(service._export_events(connection, 42)) == 1
+    service.upgrade.normalize_pending.assert_awaited_once_with(connection, captured, 42)
+    service.cards.ingest.assert_awaited_once_with(
+        connection, captured, 42, fence=service._check_lease
+    )
+    assert [p for q, p in connection.calls if q.startswith("DELETE")] == [([7],)]

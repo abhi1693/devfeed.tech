@@ -60,8 +60,6 @@ class Settings(BaseSettings):
         return self
 
     database_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-    read_model_batch_size: int = Field(default=200, ge=1, le=1000)
-    read_model_poll_seconds: float = Field(default=1, ge=0.1, le=60)
     # Historical reporting is independent of the transactional PostgreSQL pool.
     clickhouse_url: str = "http://localhost:8123"
     clickhouse_database: str = Field(default="devfeed", pattern=r"^[a-zA-Z_][a-zA-Z0-9_]{0,62}$")

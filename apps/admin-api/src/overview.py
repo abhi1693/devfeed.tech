@@ -1,12 +1,11 @@
-"""Independent card reads over shared durable analytical documents."""
+"""Independent chart contracts over bounded ClickHouse analytical reads."""
 
 from typing import Annotated
 
 from devfeed_core.models import utcnow
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy.orm import Session, sessionmaker
-from starlette.concurrency import run_in_threadpool
 
+from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
 from devfeed_admin_api.auth import Admin
 from devfeed_admin_api.overview_charts import (
     CHART_SECTIONS,
@@ -14,10 +13,7 @@ from devfeed_admin_api.overview_charts import (
     OverviewChartReport,
     chart_report,
 )
-from devfeed_admin_api.overview_projection import read_report
-from devfeed_admin_api.overview_sections import OverviewSectionReport
 from devfeed_admin_api.overview_windows import current_window, parse_report_window
-from devfeed_admin_api.reporting import reporting_sessions as session_factory
 
 router = APIRouter(prefix="/v1/admin/overview", tags=["admin-overview"])
 
@@ -40,7 +36,7 @@ async def overview_chart(
     chart: ChartName,
     response: Response,
     admin: Admin,
-    sessions: Annotated[sessionmaker[Session], Depends(session_factory)],
+    analytics: Annotated[AnalyticsRuntime, Depends(get_analytics)],
     from_value: str | None = Query(
         default=None,
         alias="from",
@@ -62,10 +58,8 @@ async def overview_chart(
             window = current_window()
     except ValueError as error:
         raise HTTPException(422, detail=str(error)) from error
-    result = await run_in_threadpool(
-        read_report, sessions, CHART_SECTIONS[chart], window, OverviewSectionReport
-    )
+    result = await analytics.section(CHART_SECTIONS[chart], window)
     if result.snapshot is not None and result.snapshot.status != "fresh":
         response.headers["X-Overview-Stale"] = "true"
-        response.headers["X-Overview-Age-Seconds"] = str(int(result.snapshot.lag_seconds))
+        response.headers["X-Overview-Age-Seconds"] = str(int(result.snapshot.lag_seconds or 0))
     return chart_report(chart, result)

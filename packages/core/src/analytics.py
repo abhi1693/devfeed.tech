@@ -117,11 +117,14 @@ class AnalyticsClient:
             ) from error
 
     async def initialize(self):
+        from devfeed_core.analytics_cards import card_initialization_sql
         from devfeed_core.analytics_gauges import Gauges
 
         for statement in initialization_sql():
             await self.execute(statement)
         await Gauges(self.settings, self).initialize()
+        for statement in card_initialization_sql():
+            await self.execute(statement)
 
     async def insert(self, table: str, rows: list[dict[str, Any]]):
         if not rows:

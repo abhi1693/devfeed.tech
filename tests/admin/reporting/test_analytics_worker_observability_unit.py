@@ -37,7 +37,7 @@ def service(monkeypatch):
 
     client = Client()
     client.initialize = AsyncMock()
-    exporter = NS(once=AsyncMock(return_value=False), bootstrapping=True)
+    exporter = NS(once=AsyncMock(return_value=False), bootstrapping=True, close=Mock())
     make_exporter = Mock(return_value=exporter)
     backlog, sleep = AsyncMock(), AsyncMock()
     cycles = []
@@ -52,7 +52,7 @@ def service(monkeypatch):
     monkeypatch.setattr(worker, "AnalyticsExporter", make_exporter)
     monkeypatch.setattr(worker, "record_backlog", backlog)
     monkeypatch.setattr(worker, "background_cycle", cycle)
-    monkeypatch.setattr(worker, "asyncio", NS(sleep=sleep))
+    monkeypatch.setattr(worker, "pause", sleep)
     monkeypatch.setattr(worker, "time", NS(monotonic=lambda: 0.0))
     return NS(
         settings=settings,
@@ -105,7 +105,7 @@ def test_service_retries_initialization_and_keeps_outage_visible(service):
     assert service.client.initialize.await_count == 2
     service.exporter.once.assert_awaited_once_with()
     service.backlog.assert_awaited_once_with(service.settings)
-    assert [call.args[0] for call in service.sleep.await_args_list] == [2, 0.5]
+    assert [call.args[1] for call in service.sleep.await_args_list] == [2, 0.5]
     assert service.client.closed
 
 
@@ -114,7 +114,7 @@ def test_service_uses_independent_batch_delays_and_resets_failure_backoff(servic
     service.sleep.side_effect = [None, None, None, StopService()]
     with pytest.raises(StopService):
         asyncio.run(worker.run())
-    assert [call.args[0] for call in service.sleep.await_args_list] == [0.5, 0.25, 2, 0.25]
+    assert [call.args[1] for call in service.sleep.await_args_list] == [0.5, 0.25, 2, 0.25]
     service.client.initialize.assert_awaited_once_with()
     assert service.client.closed
 
@@ -157,7 +157,7 @@ def test_backlog_metric_uses_indexed_age_without_counting_pending_history(monkey
     connection.execute = AsyncMock(return_value=result)
     connect = AsyncMock(return_value=connection)
     gauge = Mock()
-    monkeypatch.setattr(worker, "current", lambda: NS(instruments={"read_model_oldest": gauge}))
+    monkeypatch.setattr(worker, "current", lambda: NS(instruments={"analytics_oldest": gauge}))
     monkeypatch.setattr(worker, "datetime", Clock)
     monkeypatch.setattr(worker.psycopg, "AsyncConnection", NS(connect=connect))
     settings = NS(
@@ -168,7 +168,7 @@ def test_backlog_metric_uses_indexed_age_without_counting_pending_history(monkey
     queries = [call.args[0] for call in connection.execute.await_args_list]
     assert queries == [
         "SET statement_timeout = '2s'",
-        "SELECT min(created_at) AS oldest FROM analytics_capture_events",
+        "SELECT min(created_at) AS oldest FROM analytics_ingest_events",
     ]
     gauge.set.assert_called_once_with(max(0, age or 0), {"kind": "analytics"})
 
@@ -213,5 +213,15 @@ def test_busy_service_uses_normal_poll_after_bootstrap_has_completed(service):
     service.sleep.side_effect = StopService()
     with pytest.raises(StopService):
         asyncio.run(worker.run())
-    service.sleep.assert_awaited_once_with(service.settings.analytics_poll_seconds)
+    assert service.sleep.await_args.args[1] == service.settings.analytics_poll_seconds
+    service.exporter.close.assert_called_once_with()
     assert service.client.closed
+
+
+def test_shutdown_interrupts_backoff_without_waiting_for_its_deadline():
+    async def check():
+        stopping = asyncio.Event()
+        stopping.set()
+        await asyncio.wait_for(worker.pause(stopping, 60), timeout=0.1)
+
+    asyncio.run(check())

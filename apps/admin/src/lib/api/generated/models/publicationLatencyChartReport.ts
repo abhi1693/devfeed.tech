@@ -5,10 +5,10 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.1.4
  */
+import type { AnalyticsSnapshot } from './analyticsSnapshot';
 import type { PublicationLatencyChartReportChart } from './publicationLatencyChartReportChart';
 import type { PublicationLatencyChartReportGranularity } from './publicationLatencyChartReportGranularity';
 import type { PublicationLatencyData } from './publicationLatencyData';
-import type { ReadModelSnapshot } from './readModelSnapshot';
 
 export interface PublicationLatencyChartReport {
   chart: PublicationLatencyChartReportChart;
@@ -17,6 +17,6 @@ export interface PublicationLatencyChartReport {
   end?: string | null;
   generated_at: string;
   granularity?: PublicationLatencyChartReportGranularity;
-  snapshot?: ReadModelSnapshot | null;
+  snapshot?: AnalyticsSnapshot | null;
   start?: string | null;
 }

@@ -103,7 +103,7 @@ def test_native_downgrade_fails_before_altering_pending_facts_or_live_queue_inde
         )
         session.add(_call(identifier, utcnow()))
     with database() as session:
-        pending = list(session.scalars(text("SELECT id FROM analytics_capture_events ORDER BY id")))
+        pending = list(session.scalars(text("SELECT id FROM analytics_ingest_events ORDER BY id")))
         indexes = session.execute(
             text(
                 "SELECT oid,relname FROM pg_class "
@@ -117,7 +117,7 @@ def test_native_downgrade_fails_before_altering_pending_facts_or_live_queue_inde
         assert session.scalar(text("SELECT version_num FROM alembic_version")) == SCHEMA_REVISION
         assert session.get(InferenceCall, identifier) is not None
         assert (
-            list(session.scalars(text("SELECT id FROM analytics_capture_events ORDER BY id")))
+            list(session.scalars(text("SELECT id FROM analytics_ingest_events ORDER BY id")))
             == pending
         )
         assert (
@@ -183,15 +183,16 @@ def test_pending_v1_updates_cross_native_cutover_without_old_cohort_or_attempt_d
         assert len(legacy_ids) >= 6
     command.upgrade(Config(str(REPO_ROOT / "alembic.ini")), "head")
     with database() as session:
-        assert set(
-            session.scalars(text("SELECT format_version FROM analytics_capture_events"))
-        ) == {1}
+        assert set(session.scalars(text("SELECT format_version FROM analytics_ingest_events"))) == {
+            1
+        }
     with database.begin() as session:
         session.get(InferenceCall, call_id).model = "native update"
     with database() as session:
-        assert set(
-            session.scalars(text("SELECT format_version FROM analytics_capture_events"))
-        ) == {1, 2}
+        assert set(session.scalars(text("SELECT format_version FROM analytics_ingest_events"))) == {
+            1,
+            3,
+        }
 
     async def verify():
         settings = _settings().model_copy(
@@ -222,9 +223,7 @@ def test_pending_v1_updates_cross_native_cutover_without_old_cohort_or_attempt_d
                     assert {row["event_id"] for row in audit} == legacy_ids
                     assert any(json.loads(row["record"]).get("status") == "queued" for row in audit)
                 with database() as session:
-                    assert (
-                        session.scalar(text("SELECT count(*) FROM analytics_capture_events")) == 0
-                    )
+                    assert session.scalar(text("SELECT count(*) FROM analytics_ingest_events")) == 0
             finally:
                 await admin.execute(f"DROP DATABASE `{settings.clickhouse_database}`")
 
@@ -367,7 +366,7 @@ def test_native_replay_late_commits_and_before_images_move_exact_fact_cohorts(da
             with database() as session:
                 captured = session.scalar(
                     text(
-                        "SELECT record FROM analytics_capture_events "
+                        "SELECT record FROM analytics_ingest_events "
                         "WHERE source_table='inference_calls' AND record->>'id'=:id"
                     ),
                     {"id": str(later)},
@@ -396,7 +395,7 @@ def test_native_replay_late_commits_and_before_images_move_exact_fact_cohorts(da
             with pytest.raises(RuntimeError, match="lost after durable"):
                 await exporter.once()
             with database() as session:
-                assert session.scalar(text("SELECT count(*) FROM analytics_capture_events")) > 0
+                assert session.scalar(text("SELECT count(*) FROM analytics_ingest_events")) > 0
             exporter.client = client
             await exporter.once()
             rows = await _facts(client, "inference", now)
@@ -405,7 +404,7 @@ def test_native_replay_late_commits_and_before_images_move_exact_fact_cohorts(da
             assert len(completed) == 1 and completed[0]["input_tokens"] == 10
             assert completed[0]["output_tokens"] == 3
             with database() as session:
-                assert session.scalar(text("SELECT count(*) FROM analytics_capture_events")) == 0
+                assert session.scalar(text("SELECT count(*) FROM analytics_ingest_events")) == 0
             for _ in range(3):
                 await exporter.once()
             assert len(await _facts(client, "inference", now)) == 3
@@ -488,7 +487,7 @@ def test_retention_keeps_receipts_explicit_delete_cancels_and_retry_keeps_failed
             await exporter.once()
             assert sum(row["opens"] for row in await _facts(client, "audience", now)) == 0
             with database() as session:
-                assert session.scalar(text("SELECT count(*) FROM analytics_capture_events")) == 0
+                assert session.scalar(text("SELECT count(*) FROM analytics_ingest_events")) == 0
 
     asyncio.run(verify())
 
@@ -507,7 +506,7 @@ def test_clickhouse_outage_keeps_main_writes_committable_and_recovers_latest_fac
             with database.begin() as session:
                 session.add(_call(first, now))
             with database() as session:
-                original_ids = set(session.scalars(text("SELECT id FROM analytics_capture_events")))
+                original_ids = set(session.scalars(text("SELECT id FROM analytics_ingest_events")))
             assert original_ids
             with socket.socket() as unavailable:
                 unavailable.bind(("127.0.0.1", 0))
@@ -524,7 +523,7 @@ def test_clickhouse_outage_keeps_main_writes_committable_and_recovers_latest_fac
                         await exporter.once()
                     with database() as session:
                         assert (
-                            set(session.scalars(text("SELECT id FROM analytics_capture_events")))
+                            set(session.scalars(text("SELECT id FROM analytics_ingest_events")))
                             == original_ids
                         )
                     with database.begin() as session:
@@ -547,14 +546,14 @@ def test_clickhouse_outage_keeps_main_writes_committable_and_recovers_latest_fac
                         assert session.get(InferenceCall, second) is not None
                         assert session.get(UserAccount, account_id) is not None
                         pending = set(
-                            session.scalars(text("SELECT id FROM analytics_capture_events"))
+                            session.scalars(text("SELECT id FROM analytics_ingest_events"))
                         )
                         assert original_ids < pending
                     with pytest.raises(AnalyticsUnavailable):
                         await exporter.once()
                     with database() as session:
                         assert (
-                            set(session.scalars(text("SELECT id FROM analytics_capture_events")))
+                            set(session.scalars(text("SELECT id FROM analytics_ingest_events")))
                             == pending
                         )
             exporter.client = client
@@ -566,7 +565,7 @@ def test_clickhouse_outage_keeps_main_writes_committable_and_recovers_latest_fac
                 sum(row["accounts_created"] for row in await _facts(client, "audience", now)) == 1
             )
             with database() as session:
-                assert session.scalar(text("SELECT count(*) FROM analytics_capture_events")) == 0
+                assert session.scalar(text("SELECT count(*) FROM analytics_ingest_events")) == 0
             await exporter.once()
             assert len(await _facts(client, "inference", now)) == 2
 

@@ -1,9 +1,10 @@
 """Native image smoke fixtures supply private disposable analytical services."""
 
 import importlib.util
-from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import Mock
+
+import pytest
 
 from tests.support.paths import REPO_ROOT
 
@@ -57,48 +58,25 @@ def test_required_clickhouse_is_private_authenticated_bounded_and_owned(monkeypa
         instance.directory.cleanup()
 
 
-def test_preparation_refreshes_operational_coverage_after_slow_analytics_backfill(monkeypatch):
+@pytest.mark.parametrize("failed", [False, True])
+def test_preparation_requires_history_and_current_cards_and_closes_exporter(monkeypatch, failed):
     import time
 
-    import devfeed_admin_api.overview_projection as reports
-    import devfeed_admin_api.pipeline_reads as reads
-    import devfeed_admin_api.projection_worker as worker
     import devfeed_core.analytics as analytics
+    import devfeed_core.analytics_observation as observation
     import devfeed_core.analytics_worker as exporter_module
     import devfeed_core.config as config
-    import devfeed_core.db as database
-    import sqlalchemy.orm as orm
 
-    state = SimpleNamespace(clock=0.0, fresh=False, requested=set())
+    state = SimpleNamespace(clock=0.0, cycles=0, current_policies=[])
     settings = SimpleNamespace(
         database_url="postgresql+psycopg://worker:fixture@database.invalid/app_test",
-        database_pool_enabled=True,
-        analytics_backfill_poll_seconds=1,
+        analytics_backfill_poll_seconds=0,
     )
-    settings.model_copy = Mock(
-        side_effect=lambda *, update: SimpleNamespace(
-            database_url=settings.database_url,
-            database_pool_enabled=update["database_pool_enabled"],
-        )
-    )
-    engine = SimpleNamespace(dispose=Mock())
-    create_engine = Mock(return_value=engine)
-
-    class Session:
-        def get(self, _model, key):
-            assert key in state.requested
-            return SimpleNamespace(policy_version="current")
-
-    class Factory:
-        def __call__(self):
-            return nullcontext(Session())
-
-        def begin(self):
-            return self()
+    closed = Mock()
 
     class Client:
-        def __init__(self, _settings):
-            pass
+        def __init__(self, supplied):
+            assert supplied is settings
 
         async def __aenter__(self):
             return self
@@ -112,58 +90,37 @@ def test_preparation_refreshes_operational_coverage_after_slow_analytics_backfil
         async def status(self):
             return {"ready": True, "lag_seconds": 0}
 
+        async def query(self, sql):
+            assert sql == "SELECT * FROM analytics_card_status FINAL"
+            # A historical ready latch alone cannot complete preparation, and
+            # readiness for a prior policy cannot satisfy current coverage.
+            policy = "previous" if state.cycles == 1 else "current"
+            state.current_policies.append(policy)
+            return [{"ready": not failed, "policy": policy, "lag_seconds": 0}]
+
     class Exporter:
-        def __init__(self, *_args):
-            pass
+        def __init__(self, client, supplied):
+            assert isinstance(client, Client) and supplied is settings
 
         async def once(self):
-            state.clock += 75
-            state.fresh = False
+            state.cycles += 1
+            state.clock += 30
             return False
 
-    def drain(**_kwargs):
-        state.fresh = True
-
-    def publish(*_args, **_kwargs):
-        assert state.fresh, "Slow analytical backfill left operational reports too stale to publish"
-        return len(state.requested)
+        close = closed
 
     monkeypatch.setattr(config, "get_settings", lambda: settings)
-    monkeypatch.setattr(database, "create_database_engine", create_engine)
-    monkeypatch.setattr(orm, "sessionmaker", lambda *_args, **_kwargs: Factory())
     monkeypatch.setattr(analytics, "AnalyticsClient", Client)
     monkeypatch.setattr(exporter_module, "AnalyticsExporter", Exporter)
-    monkeypatch.setattr(worker, "run", drain)
-    monkeypatch.setattr(
-        reads,
-        "serving_projection",
-        lambda _session: (
-            reports.pipeline_policy_version(),
-            SimpleNamespace(status="fresh", lag_seconds=0 if state.fresh else 75),
-        ),
-    )
-    monkeypatch.setattr(reports, "report_policy_version", lambda: "current")
-    monkeypatch.setattr(
-        reports,
-        "request_refresh",
-        lambda _session, group, window, _now: state.requested.add((group, window.key)),
-    )
-    monkeypatch.setattr(reports, "refresh_overview_projections", publish)
+    monkeypatch.setattr(observation, "pipeline_policy_version", lambda supplied: "current")
     monkeypatch.setattr(time, "monotonic", lambda: state.clock)
     command = smoke_module.CONTRACTS["backfill"]["command"][-1]
-    exec(compile(command, "fleet-preparation-fixture", "exec"), {})
-    assert len(state.requested) == 11
-    assert {group for group, _ in state.requested} == {
-        "operations",
-        "publishing",
-        "audience",
-        "processing",
-        "inference",
-        "coverage",
-    }
-    assert ("operations", "current") in state.requested
-    settings.model_copy.assert_called_once_with(update={"database_pool_enabled": False})
-    worker_settings = create_engine.call_args.args[0]
-    assert worker_settings.database_url == settings.database_url
-    assert worker_settings.database_pool_enabled is False
-    engine.dispose.assert_called_once_with()
+    if failed:
+        with pytest.raises(RuntimeError, match="coverage is incomplete"):
+            exec(compile(command, "fleet-preparation-fixture", "exec"), {})
+        assert state.cycles == 3
+    else:
+        exec(compile(command, "fleet-preparation-fixture", "exec"), {})
+        assert state.cycles == 2
+    assert state.current_policies[:2] == ["previous", "current"]
+    closed.assert_called_once_with()

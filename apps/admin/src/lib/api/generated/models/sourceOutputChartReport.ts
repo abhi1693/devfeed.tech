@@ -5,7 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.1.4
  */
-import type { ReadModelSnapshot } from './readModelSnapshot';
+import type { AnalyticsSnapshot } from './analyticsSnapshot';
 import type { SourceOutputChartReportChart } from './sourceOutputChartReportChart';
 import type { SourceOutputChartReportGranularity } from './sourceOutputChartReportGranularity';
 import type { SourceOutputData } from './sourceOutputData';
@@ -17,6 +17,6 @@ export interface SourceOutputChartReport {
   end?: string | null;
   generated_at: string;
   granularity?: SourceOutputChartReportGranularity;
-  snapshot?: ReadModelSnapshot | null;
+  snapshot?: AnalyticsSnapshot | null;
   start?: string | null;
 }

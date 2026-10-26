@@ -5,10 +5,10 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.1.4
  */
+import type { AnalyticsSnapshot } from './analyticsSnapshot';
 import type { AttentionChartReportChart } from './attentionChartReportChart';
 import type { AttentionChartReportGranularity } from './attentionChartReportGranularity';
 import type { AttentionData } from './attentionData';
-import type { ReadModelSnapshot } from './readModelSnapshot';
 
 export interface AttentionChartReport {
   chart: AttentionChartReportChart;
@@ -17,6 +17,6 @@ export interface AttentionChartReport {
   end?: string | null;
   generated_at: string;
   granularity?: AttentionChartReportGranularity;
-  snapshot?: ReadModelSnapshot | null;
+  snapshot?: AnalyticsSnapshot | null;
   start?: string | null;
 }

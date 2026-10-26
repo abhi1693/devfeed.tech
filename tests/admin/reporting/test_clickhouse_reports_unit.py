@@ -654,7 +654,7 @@ async def test_each_chart_serializes_only_its_own_typed_fields_and_preserves_rep
 ):
     from devfeed_admin_api.overview_charts import CHART_SECTIONS, OverviewChartReport, chart_report
     from devfeed_admin_api.overview_sections import OperationsSection, OverviewSectionReport
-    from devfeed_core.read_models import ReadModelSnapshot
+    from devfeed_core.analytics_observation import AnalyticsSnapshot
 
     group = CHART_SECTIONS[chart]
     saved = (
@@ -662,7 +662,7 @@ async def test_each_chart_serializes_only_its_own_typed_fields_and_preserves_rep
         if group == "operations"
         else await reports().section(group)
     )
-    saved.snapshot = ReadModelSnapshot(
+    saved.snapshot = AnalyticsSnapshot(
         status="stale", generation="retained-generation", lag_seconds=81
     )
     result = chart_report(chart, saved)

@@ -4,7 +4,7 @@ from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from devfeed_core.read_models import ReadModelSnapshot
+from devfeed_core.analytics_observation import AnalyticsSnapshot
 from pydantic import BaseModel, Field
 
 from devfeed_admin_api.automation import AutomationBlocker
@@ -182,5 +182,5 @@ class OverviewSectionReport(BaseModel):
     start: date | None = None
     end: date | None = None
     granularity: Literal["hour", "day", "week", "month"] | None = None
-    snapshot: ReadModelSnapshot | None = None
+    snapshot: AnalyticsSnapshot | None = None
     data: SectionData

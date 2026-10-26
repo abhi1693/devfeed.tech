@@ -5,10 +5,10 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.1.4
  */
+import type { AnalyticsSnapshot } from './analyticsSnapshot';
 import type { PublicationRateChartReportChart } from './publicationRateChartReportChart';
 import type { PublicationRateChartReportGranularity } from './publicationRateChartReportGranularity';
 import type { PublicationRateData } from './publicationRateData';
-import type { ReadModelSnapshot } from './readModelSnapshot';
 
 export interface PublicationRateChartReport {
   chart: PublicationRateChartReportChart;
@@ -17,6 +17,6 @@ export interface PublicationRateChartReport {
   end?: string | null;
   generated_at: string;
   granularity?: PublicationRateChartReportGranularity;
-  snapshot?: ReadModelSnapshot | null;
+  snapshot?: AnalyticsSnapshot | null;
   start?: string | null;
 }

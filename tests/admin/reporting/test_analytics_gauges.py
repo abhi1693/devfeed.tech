@@ -889,7 +889,7 @@ def test_committed_cross_shard_primary_key_updates_retire_old_gauge_identities(d
                         changes = await (
                             await connection.execute(
                                 "SELECT id,source_table,operation,record,before_record,created_at "
-                                "FROM analytics_capture_events ORDER BY id"
+                                "FROM analytics_ingest_events ORDER BY id"
                             )
                         ).fetchall()
                         moved = [

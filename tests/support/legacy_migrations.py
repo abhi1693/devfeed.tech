@@ -1,6 +1,7 @@
 """Exercise historical migration round trips outside the native analytics boundary."""
 
 import uuid
+from contextlib import contextmanager
 from urllib.parse import urlsplit
 
 import psycopg
@@ -22,14 +23,9 @@ def _clear_database_cache():
     get_settings.cache_clear()
 
 
-@pytest.fixture
-def pre_native_database(integration_environment, monkeypatch):
-    """Give one test its own real PostgreSQL database initially at revision 0038.
-
-    Native capture intentionally cannot downgrade. Historical round-trip tests
-    still run the original Alembic commands, including nontransactional concurrent
-    index DDL, without altering the shared integration schema or its checkpoints.
-    """
+@contextmanager
+def database_at_revision(monkeypatch, revision):
+    """Own a unique historical database without downgrading any current schema."""
     settings = get_settings()
     source = make_url(settings.database_url)
     if not (source.database or "").endswith("_test"):
@@ -48,7 +44,7 @@ def pre_native_database(integration_environment, monkeypatch):
         with monkeypatch.context() as environment:
             environment.setenv("DEVFEED_DATABASE_URL", target)
             try:
-                command.upgrade(Config(str(REPO_ROOT / "alembic.ini")), "0038")
+                command.upgrade(Config(str(REPO_ROOT / "alembic.ini")), revision)
                 yield session_factory()
             finally:
                 _clear_database_cache()
@@ -58,3 +54,17 @@ def pre_native_database(integration_environment, monkeypatch):
             connection.execute(
                 sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name))
             )
+
+
+@pytest.fixture
+def pre_native_database(integration_environment, monkeypatch):
+    """Give one native-upgrade test a database initially at revision0038."""
+    with database_at_revision(monkeypatch, "0038") as database:
+        yield database
+
+
+@pytest.fixture
+def pre_operator_database(integration_environment, monkeypatch):
+    """Give one operator-state cutover test a database initially at revision0041."""
+    with database_at_revision(monkeypatch, "0041") as database:
+        yield database

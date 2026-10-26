@@ -4,7 +4,6 @@ import uuid
 from datetime import timedelta
 
 import pytest
-from devfeed_admin_api.pipeline_projection import drain_pipeline
 from devfeed_core.analysis import (
     PROMPT_VERSION,
     analysis_candidates,
@@ -28,6 +27,7 @@ from devfeed_core.models import (
 from sqlalchemy import event, func, select
 
 from tests.admin.auth.test_auth import oidc_app as oidc_app
+from tests.support.analytics_cards import card_publication as card_publication
 
 
 def make_article(session, *, state="ready", source=None, age=0, title="Python task tracing"):
@@ -143,7 +143,7 @@ def test_source_grouping_requires_admin_before_database_access(oidc_app):
 
 
 @pytest.mark.integration
-def test_board_exact_lanes_filters_and_private_projection(admin_client, database):
+def test_board_exact_lanes_filters_and_private_projection(admin_client, database, card_publication):
     with database.begin() as session:
         records = {
             state: make_article(session, state=state)
@@ -163,7 +163,7 @@ def test_board_exact_lanes_filters_and_private_projection(admin_client, database
         make_article(session, state="published", age=30)
         old_pending = make_article(session, state="ingested", age=30)
         old_id = str(old_pending.id)
-    drain_pipeline(database)
+    card_publication(database)
     response = admin_client.get("/v1/admin/article-pipeline")
     assert response.status_code == 200, response.text
     board = response.json()
@@ -221,12 +221,12 @@ def test_detail_fallback_and_terminal_publish_actions(admin_client, database):
 
 
 @pytest.mark.integration
-def test_pipeline_paging_no_per_card_queries(admin_client, database):
+def test_pipeline_paging_no_per_card_queries(admin_client, database, card_publication):
     with database.begin() as session:
         for _ in range(12):
             make_article(session, state="ingested")
         engine = session.bind
-    drain_pipeline(database, batch=5)
+    card_publication(database, batch=5)
     queries = []
 
     def observe(*args):
@@ -252,11 +252,11 @@ def test_pipeline_paging_no_per_card_queries(admin_client, database):
 @pytest.mark.integration
 @pytest.mark.parametrize("stage", ["enrichment", "analysis", "images"])
 def test_running_articles_precede_other_states_across_batches_and_pages(
-    admin_client, database, monkeypatch, stage
+    admin_client, database, monkeypatch, stage, card_publication
 ):
-    from devfeed_admin_api import article_pipeline
+    from devfeed_core import analytics_article_cards
 
-    monkeypatch.setattr(article_pipeline, "BATCH_SIZE", 2)
+    monkeypatch.setattr(analytics_article_cards, "BATCH_SIZE", 2)
     base = utcnow() - timedelta(days=1)
     rows = []
     with database.begin() as session:
@@ -289,7 +289,7 @@ def test_running_articles_precede_other_states_across_batches_and_pages(
                 job.storage = {"input_url": article.canonical_url}
             rows.append((state != "running", article.discovered_at, article.id))
     expected = [str(identifier) for _, _, identifier in sorted(rows)]
-    drain_pipeline(database)
+    card_publication(database)
     board_response = admin_client.get("/v1/admin/article-pipeline?limit=2")
     assert board_response.status_code == 200, board_response.text
     board_column = next(
@@ -319,11 +319,11 @@ def test_running_articles_precede_other_states_across_batches_and_pages(
 
 @pytest.mark.integration
 def test_source_groups_count_complete_columns_before_group_pagination(
-    admin_client, database, monkeypatch
+    admin_client, database, monkeypatch, card_publication
 ):
-    from devfeed_admin_api import article_pipeline
+    from devfeed_core import analytics_article_cards
 
-    monkeypatch.setattr(article_pipeline, "BATCH_SIZE", 2)
+    monkeypatch.setattr(analytics_article_cards, "BATCH_SIZE", 2)
     with database.begin() as session:
         sources = {
             name: Source(
@@ -356,7 +356,7 @@ def test_source_groups_count_complete_columns_before_group_pagination(
                     utcnow() + timedelta(minutes=10) if state == "retry_wait" else utcnow()
                 )
         identifiers = {name: str(source.id) for name, source in sources.items()}
-    drain_pipeline(database)
+    card_publication(database)
     response = admin_client.get(
         "/v1/admin/article-pipeline", params={"group_by": "source", "limit": 1}
     )
@@ -415,7 +415,7 @@ def test_source_groups_count_complete_columns_before_group_pagination(
 @pytest.mark.integration
 @pytest.mark.parametrize("stage", ["ingested", "published", "rejected"])
 def test_group_expansion_uses_displayed_source_with_multi_origin_unknown_and_filters(
-    admin_client, database, stage
+    admin_client, database, stage, card_publication
 ):
     with database.begin() as session:
         first = Source(
@@ -460,7 +460,7 @@ def test_group_expansion_uses_displayed_source_with_multi_origin_unknown_and_fil
         first_id, second_id = str(first.id), str(second.id)
         multi_id, own_id, unknown_id = str(multi.id), str(own.id), str(unknown.id)
     params = {"group_by": "source", "q": "Grouped Python"}
-    drain_pipeline(database)
+    card_publication(database)
     response = admin_client.get(f"/v1/admin/article-pipeline/{stage}", params=params)
     assert response.status_code == 200, response.text
     column = response.json()
@@ -527,11 +527,13 @@ def test_resume_revision_guard_and_terminal_protection(admin_client, database):
 
 
 @pytest.mark.integration
-def test_failed_waiting_articles_are_visible_and_not_automatically_retried(admin_client, database):
+def test_failed_waiting_articles_are_visible_and_not_automatically_retried(
+    admin_client, database, card_publication
+):
     with database.begin() as session:
         article = make_article(session, state="failed_enrichment", age=40)
         identifier = str(article.id)
-    drain_pipeline(database)
+    card_publication(database)
     board = admin_client.get("/v1/admin/article-pipeline?needs_attention=true").json()
     column = next(column for column in board["columns"] if column["stage"] == "enrichment")
     assert column["total"] == 1
@@ -544,13 +546,13 @@ def test_failed_waiting_articles_are_visible_and_not_automatically_retried(admin
 
 
 @pytest.mark.integration
-def test_projected_board_avoids_cold_evidence_reads_and_updates_after_worker(
-    admin_client, database
+def test_native_board_avoids_cold_evidence_reads_and_updates_after_worker(
+    admin_client, database, card_publication
 ):
-    from devfeed_admin_api import article_pipeline
+    from devfeed_core import analytics_article_cards
 
-    with article_pipeline._readiness_lock:
-        article_pipeline._readiness_cache.clear()
+    with analytics_article_cards._readiness_lock:
+        analytics_article_cards._readiness_cache.clear()
     with database.begin() as session:
         article = make_article(session)
         identifier = article.id
@@ -576,10 +578,12 @@ def test_projected_board_avoids_cold_evidence_reads_and_updates_after_worker(
             "input_hash": job.input_hash,
         }
         engine = session.bind
-    drain_pipeline(database)
+    card_publication(database)
     assert admin_client.get("/v1/admin/article-pipeline").json()["counts"]["ready"] == 1
-    with article_pipeline._readiness_lock:
-        article_pipeline._readiness_cache.clear()
+    from devfeed_core import analytics_article_cards
+
+    with analytics_article_cards._readiness_lock:
+        analytics_article_cards._readiness_cache.clear()
     queries = []
 
     def observe(*args):
@@ -594,7 +598,7 @@ def test_projected_board_avoids_cold_evidence_reads_and_updates_after_worker(
     assert not any("article_analysis_jobs.input_snapshot" in query for query in queries)
     with database.begin() as session:
         session.get(Article, identifier).ai_description = None
-    drain_pipeline(database)
+    card_publication(database)
     changed = admin_client.get("/v1/admin/article-pipeline").json()
     assert changed["counts"]["ready"] == 0 and changed["counts"]["analysis"] == 1
     with database.begin() as session:
@@ -605,7 +609,7 @@ def test_projected_board_avoids_cold_evidence_reads_and_updates_after_worker(
         )
         job.status = "failed"
         job.error = "Analysis failed"
-    drain_pipeline(database)
+    card_publication(database)
     failed = admin_client.get("/v1/admin/article-pipeline?needs_attention=true").json()
     assert failed["counts"]["analysis"] == 1
     card = next(column for column in failed["columns"] if column["stage"] == "analysis")["items"][0]
@@ -613,7 +617,7 @@ def test_projected_board_avoids_cold_evidence_reads_and_updates_after_worker(
 
 
 @pytest.mark.integration
-def test_active_old_run_wins_over_newer_terminal_history(admin_client, database):
+def test_active_old_run_wins_over_newer_terminal_history(admin_client, database, card_publication):
     with database.begin() as session:
         article = make_article(session)
         identifier = str(article.id)
@@ -623,7 +627,7 @@ def test_active_old_run_wins_over_newer_terminal_history(admin_client, database)
         session.add(active)
         session.flush()
         active_id = str(active.id)
-    drain_pipeline(database)
+    card_publication(database)
     board = admin_client.get("/v1/admin/article-pipeline").json()
     assert board["counts"]["ready"] == 0 and board["counts"]["analysis"] == 1
     card = next(column for column in board["columns"] if column["stage"] == "analysis")["items"][0]
@@ -635,7 +639,7 @@ def test_active_old_run_wins_over_newer_terminal_history(admin_client, database)
 
 @pytest.mark.integration
 def test_cutoff_changes_invalidate_warm_counts_and_prevent_noop_resume(
-    admin_client, database, monkeypatch
+    admin_client, database, monkeypatch, card_publication
 ):
     from datetime import UTC, datetime
 
@@ -648,7 +652,7 @@ def test_cutoff_changes_invalidate_warm_counts_and_prevent_noop_resume(
         article = make_article(session)
         article.published_at = datetime(2026, 10, 18, tzinfo=UTC)
         identifier = str(article.id)
-    drain_pipeline(database)
+    card_publication(database)
     assert admin_client.get("/v1/admin/article-pipeline").json()["counts"]["ready"] == 1
     with database.begin() as session:
         session.get(Article, uuid.UUID(identifier)).published_at = datetime(2026, 9, 30, tzinfo=UTC)
@@ -659,7 +663,7 @@ def test_cutoff_changes_invalidate_warm_counts_and_prevent_noop_resume(
         )
         job.status = "succeeded"
         no_analysis_id = str(no_analysis.id)
-    drain_pipeline(database)
+    card_publication(database)
     board = admin_client.get("/v1/admin/article-pipeline").json()
     assert board["counts"]["ready"] == 0 and board["counts"]["analysis"] == 2
     detail = admin_client.get(f"/v1/admin/articles/{no_analysis_id}/pipeline").json()
@@ -705,17 +709,39 @@ def test_missing_source_evidence_offers_explicit_refetch_only(admin_client, data
 
 
 @pytest.mark.integration
-def test_pipeline_views_release_connection_before_response_validation(database):
+def test_pipeline_views_release_connection_before_response_validation(database, card_publication):
     from devfeed_admin_api import article_pipeline
 
     with database.begin() as session:
         identifier = make_article(session).id
-    drain_pipeline(database)
+    card_publication(database)
     with database() as session:
-        article_pipeline.board(session, q=None, source_id=None, needs_attention=False, limit=20)
+        from functools import partial
+
+        card_publication.http.portal.call(
+            partial(
+                article_pipeline.board,
+                session,
+                card_publication.runtime,
+                q=None,
+                source_id=None,
+                needs_attention=False,
+                limit=20,
+            )
+        )
         assert not session.in_transaction()
-        article_pipeline.column(
-            "ready", session, q=None, source_id=None, needs_attention=False, limit=20, cursor=0
+        card_publication.http.portal.call(
+            partial(
+                article_pipeline.column,
+                "ready",
+                session,
+                card_publication.runtime,
+                q=None,
+                source_id=None,
+                needs_attention=False,
+                limit=20,
+                cursor=0,
+            )
         )
         assert not session.in_transaction()
         result = article_pipeline.detail(identifier, session)
@@ -724,7 +750,9 @@ def test_pipeline_views_release_connection_before_response_validation(database):
 
 
 @pytest.mark.integration
-def test_pipeline_exposes_specialist_progress_without_private_results(admin_client, database):
+def test_pipeline_exposes_specialist_progress_without_private_results(
+    admin_client, database, card_publication
+):
     from devfeed_core.article_analysis_steps import STEP_SPECS
 
     with database.begin() as session:
@@ -753,7 +781,7 @@ def test_pipeline_exposes_specialist_progress_without_private_results(admin_clie
         records["overview"]["error"] = "invalid_analysis_result"
         records["overview"]["available_at"] = job.available_at.isoformat()
         job.steps = records
-    drain_pipeline(database)
+    card_publication(database)
     board = admin_client.get("/v1/admin/article-pipeline")
     assert board.status_code == 200, board.text
     card = next(column for column in board.json()["columns"] if column["stage"] == "analysis")[
@@ -771,3 +799,33 @@ def test_pipeline_exposes_specialist_progress_without_private_results(admin_clie
     assert "DO_NOT_EXPOSE_DRAFT_OUTPUT" not in response.text + board.text
     assert "PRIVATE_CONTEXT_IDENTITY" not in response.text + board.text
     assert detail["can_publish"] is False
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("query", ["İstanbul", "i̇stanbul", "½", "___", "%", "\n", "first second"])
+def test_native_search_keeps_exact_unicode_and_literal_per_field_semantics(
+    admin_client,
+    database,
+    card_publication,
+    query,
+):
+    from devfeed_core.analytics_article_cards import _statement
+
+    with database.begin() as session:
+        for title in (
+            "İstanbul C++ Введение",
+            "i̇stanbul",
+            "½ fractions",
+            "Nanos___ 100%",
+            "First\nSecond",
+        ):
+            make_article(session, state="ingested", title=title)
+        split = make_article(session, state="ingested", title="First")
+        split.ai_title = "Second"
+    with database() as session:
+        expected = {str(article.id) for article in session.scalars(_statement(query, None))}
+    card_publication()
+    response = admin_client.get("/v1/admin/article-pipeline", params={"q": query})
+    assert response.status_code == 200, response.text
+    actual = {item["id"] for column in response.json()["columns"] for item in column["items"]}
+    assert actual == expected

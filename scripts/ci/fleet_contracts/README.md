@@ -8,12 +8,13 @@ establish ARM64 release-image readiness.
 
 `commands.json` records the supported DevFeed Fleet commands and probes, based on the
 home-lab checkout at revision `76bd4d280e00031e31b05f7c2b3e7fa15b1135c2`.
-The prepared migration/backfill/publisher files can include uncommitted release
-preparation; the recorded per-file SHA-256 values identify those baseline inputs.
-The backfill preparation contract tracks the application's current configuration:
-it uses `DEVFEED_DATABASE_URL` with short-lived connections for native capture,
-pipeline projections, and saved-report metadata. Historical calculations use
-ClickHouse. Coordinate the final Fleet preparation command with these image requirements.
+The recorded per-file SHA-256 values identify the prepared baseline inputs. The
+native exporter and preparation commands adapt that baseline to the current
+ClickHouse architecture: one exporter owns historical facts, gauges, and current
+operator cards, using `DEVFEED_DATABASE_URL` for independent short-lived source
+connections. No saved-report or pipeline projection worker remains. Coordinate
+these adapted commands with the final Fleet manifests before deployment; the
+provenance hashes do not claim byte identity for subsequently adapted commands.
 The consumer wrapper is the byte-identical `infra/chimely/consumer.py` from this
 repository. CI never fetches the private infrastructure repository. Before final
 deployment, compare each invoked command/probe and consumer payload with the
@@ -32,12 +33,13 @@ user, partner and dedicated worker images deliberately use packaged
 `Base.metadata.create_all()` for their separate runtime fixtures. Their output
 labels that setup as metadata-only: it is not evidence that Alembic ran there.
 
-The admin image executes the backfill preparation contract, validates current pipeline
-content and all 11 default report snapshots, and starts both publishers. Their
-real probes must accept a fresh heartbeat and reject a stale one. The backend
-starts every configured worker queue/group, verifies actual RQ registration and
-heartbeats, runs the scheduler and its successful-cycle probe, and runs search
-setup plus the indexer against real Typesense. Dedicated worker images start
+The backend image executes native preparation, checks historical readiness and
+current card policy coverage in ClickHouse, validates retained source records,
+and starts the sole analytics exporter. Its real health probe must accept a fresh
+heartbeat and reject a stale one. The backend starts every configured worker
+queue/group, verifies actual RQ registration and heartbeats, runs the scheduler
+and its successful-cycle probe, and runs search setup plus the indexer against
+real Typesense. Dedicated worker images start
 their own commands and health probes. All API images execute their Fleet command
 and must reject an incompatible database revision. Frontends start with their
 writable cache/tmp mounts, and web also executes its preStop command.

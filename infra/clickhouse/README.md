@@ -1,7 +1,7 @@
 # ClickHouse resource budgets
 
 Compose mounts `resources.xml` and `users.xml` read-only. These enforce limits in
-ClickHouse across all API and report-projector replicas, in addition to each
+ClickHouse across all API replicas and the native exporter, in addition to each
 application process's request semaphore and timeout.
 
 | Budget                    | Default                                |

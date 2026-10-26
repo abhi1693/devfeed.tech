@@ -21,10 +21,10 @@ from devfeed_core.article_lifecycle import derive_processing_readiness
 from devfeed_core.editorial import publication_blockers
 from devfeed_core.models import ArticleAnalysisJob, ArticleContent, ArticleImageJob
 
-from tests.admin.reporting.projections.test_pipeline_pending_evidence_projection_unit import (
+from tests.articles.test_processing_retry_eligibility_unit import active_job, scenario
+from tests.support.article_readiness import (
     awaiting_first_analysis as awaiting_first_analysis,
 )
-from tests.articles.test_processing_retry_eligibility_unit import active_job, scenario
 from tests.support.article_readiness import processing_case as processing_case
 from tests.support.source_readiness import configuration
 

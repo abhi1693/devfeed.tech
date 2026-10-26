@@ -27,6 +27,7 @@ from devfeed_core.topic_verification import (
 )
 from sqlalchemy import select
 
+from tests.support.analytics_cards import card_publication as card_publication
 from tests.support.overview import publish_section
 from tests.support.paths import REPO_ROOT
 from tests.taxonomy.test_topic_analysis import pending as pending
@@ -268,7 +269,12 @@ def test_scope_review_blocks_catalog_writes_even_with_supported_identity(
 @pytest.mark.integration
 @pytest.mark.parametrize("alias", ["rfc4287", "paper", "hdl", "ilp"])
 def test_bad_imported_alias_stays_pending_despite_verified_research(
-    admin_client, database, pending, monkeypatch, alias
+    admin_client,
+    database,
+    pending,
+    monkeypatch,
+    alias,
+    card_publication,
 ):
     enable(monkeypatch)
     with database.begin() as session:
@@ -290,8 +296,8 @@ def test_bad_imported_alias_stays_pending_despite_verified_research(
         assert proposal.proposed["facts"]
         assert session.get(ResearchVerificationJob, identifier).outcome == "review_required"
         assert session.scalar(select(Topic)) is None
-    publish_section(database)
-    overview = admin_client.get("/v1/admin/overview/operations").json()
+    publish_section(card_publication)
+    overview = admin_client.get("/v1/admin/overview/charts/attention").json()
     blockers = overview["data"]["blockers"]
     assert next(group for group in blockers if group["code"] == "evidence_unverified")["count"] == 1
 

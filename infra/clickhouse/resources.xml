@@ -1,5 +1,5 @@
 <clickhouse>
-    <!-- Shared server limits apply across API and projector replicas. -->
+    <!-- Shared server limits apply across API replicas and the native exporter. -->
     <max_server_memory_usage from_env="DEVFEED_CLICKHOUSE_SERVER_MAX_MEMORY_BYTES" />
     <max_concurrent_queries from_env="DEVFEED_CLICKHOUSE_SERVER_MAX_QUERIES" />
     <max_concurrent_select_queries from_env="DEVFEED_CLICKHOUSE_SERVER_MAX_SELECTS" />

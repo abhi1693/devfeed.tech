@@ -74,7 +74,7 @@ async def _snapshot(client, session, now):
     await client.initialize()
     client.insert_settings = {"async_insert_busy_timeout_ms": 1}
     session.flush()
-    events = []
+    events: list[dict] = []
     for source, table in TABLES.items():
         for record in session.scalars(text(f'SELECT {table.record_sql("r")} FROM "{source}" r')):
             events.append(

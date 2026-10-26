@@ -2484,166 +2484,60 @@ for _target in (TopicAnalysisJob.topic_id, TopicAnalysisJob.proposal_id):
     )
 
 
-class PipelineProjection(Base):
-    """Disposable operator read model; durable entities retain mutation authority."""
+_CARD_KINDS = "'article','source','candidate','topic-proposal','relationship-proposal'"
 
-    __tablename__ = "pipeline_projections"
+
+class AnalyticsCardRefresh(Base):
+    """Coalesced native current-card invalidations owned by the analytics lease."""
+
+    __tablename__ = "analytics_card_refresh"
     __table_args__ = (
-        CheckConstraint(
-            "kind IN ('article','source','candidate')", name="ck_pipeline_projection_kind"
-        ),
+        CheckConstraint(f"kind IN ({_CARD_KINDS})", name="ck_analytics_card_refresh_kind"),
+        Index("ix_analytics_card_refresh_due", "available_at", "kind", "entity_id"),
     )
 
-    policy_version: Mapped[str] = mapped_column(String(100), primary_key=True)
-    kind: Mapped[str] = mapped_column(String(20), primary_key=True)
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
     entity_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
-    payload: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
-    stage: Mapped[str] = mapped_column(String(30))
-    state: Mapped[str] = mapped_column(String(20))
-    source_id: Mapped[uuid.UUID | None] = mapped_column()
-    source_name: Mapped[str | None] = mapped_column(String(200))
-    search_text: Mapped[str] = mapped_column(Text, default="", server_default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    activity_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    terminal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    has_active_work: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    next_transition_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
-Index(
-    "ix_pipeline_projection_lane",
-    PipelineProjection.policy_version,
-    PipelineProjection.kind,
-    PipelineProjection.stage,
-    # Preserve PostgreSQL's reflected CASE layout for Alembic expression comparison.
-    text("(\nCASE\n    WHEN state::text = 'running'::text THEN 0\n    ELSE 1\nEND)"),
-    PipelineProjection.created_at,
-    PipelineProjection.entity_id,
-)
-Index(
-    "ix_pipeline_projection_source",
-    PipelineProjection.policy_version,
-    PipelineProjection.kind,
-    PipelineProjection.source_id,
-    PipelineProjection.stage,
-    PipelineProjection.state,
-)
-Index(
-    "ix_pipeline_projection_terminal",
-    PipelineProjection.policy_version,
-    PipelineProjection.kind,
-    PipelineProjection.stage,
-    PipelineProjection.terminal_at.desc(),
-    PipelineProjection.entity_id,
-)
-Index(
-    "ix_pipeline_projection_transition",
-    PipelineProjection.policy_version,
-    PipelineProjection.next_transition_at,
-    PipelineProjection.kind,
-    PipelineProjection.entity_id,
-    postgresql_where=PipelineProjection.next_transition_at.is_not(None),
-)
-
-
-class ReadModelEvent(Base):
-    """Transactional changes survive crashes, deletes, and out-of-order commits."""
-
-    __tablename__ = "read_model_events"
-    __table_args__ = (
-        CheckConstraint(
-            "kind IN ('article','source','candidate','catalog','policy',"
-            "'backfill_article','backfill_source','backfill_candidate','source_fanout')",
-            name="ck_read_model_event_kind",
-        ),
-        CheckConstraint(
-            "entity_id IS NOT NULL OR kind IN ('catalog','policy',"
-            "'backfill_article','backfill_source','backfill_candidate')",
-            name="ck_read_model_event_entity",
-        ),
-        Index("ix_read_model_event_created", "created_at", "id"),
-    )
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    kind: Mapped[str] = mapped_column(String(20))
-    entity_id: Mapped[uuid.UUID | None] = mapped_column()
-    after_id: Mapped[uuid.UUID | None] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("now()")
-    )
-
-
-class ReadModelState(Base):
-    __tablename__ = "read_model_states"
-
-    name: Mapped[str] = mapped_column(String(100), primary_key=True)
-    payload: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("now()")
-    )
-
-
-_REPORT_WINDOW_CHECK = (
-    "(\"group\" = 'operations' AND window_key = 'current' AND days = 1 "
-    "AND window_start IS NULL AND window_end IS NULL) OR "
-    "(\"group\" <> 'operations' AND window_start IS NOT NULL AND window_end IS NOT NULL "
-    "AND window_end > window_start AND days = window_end - window_start "
-    "AND window_key = to_char(window_start,'YYYY-MM-DD') || ':' || "
-    "to_char(window_end,'YYYY-MM-DD'))"
-)
-
-
-class ReportSnapshot(Base):
-    """Last complete report, independent of refresh availability or failure."""
-
-    __tablename__ = "report_snapshots"
-    __table_args__ = (
-        CheckConstraint("days BETWEEN 1 AND 3660", name="ck_report_snapshot_days"),
-        CheckConstraint(_REPORT_WINDOW_CHECK, name="ck_report_snapshot_window"),
-        Index("ix_report_snapshot_requested", "last_requested_at", "group", "window_key"),
-    )
-
-    group: Mapped[str] = mapped_column(String(50), primary_key=True)
-    window_key: Mapped[str] = mapped_column(String(21), primary_key=True)
-    window_start: Mapped[date | None] = mapped_column(Date)
-    window_end: Mapped[date | None] = mapped_column(Date)
-    days: Mapped[int] = mapped_column(Integer)
-    last_requested_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("now()")
-    )
-    payload: Mapped[dict] = mapped_column(JSONB)
-    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    policy_version: Mapped[str] = mapped_column(String(100))
-
-
-class ReportRefresh(Base):
-    """Durable demand and token-guarded refresh leases for report snapshots."""
-
-    __tablename__ = "report_refreshes"
-    __table_args__ = (
-        CheckConstraint("days BETWEEN 1 AND 3660", name="ck_report_refresh_days"),
-        CheckConstraint(_REPORT_WINDOW_CHECK, name="ck_report_refresh_window"),
-        CheckConstraint("attempts >= 0", name="ck_report_refresh_attempts"),
-        Index("ix_report_refresh_due", "available_at", "group", "window_key"),
-        Index("ix_report_refresh_requested", "last_requested_at", "group", "window_key"),
-    )
-
-    group: Mapped[str] = mapped_column(String(50), primary_key=True)
-    window_key: Mapped[str] = mapped_column(String(21), primary_key=True)
-    window_start: Mapped[date | None] = mapped_column(Date)
-    window_end: Mapped[date | None] = mapped_column(Date)
-    days: Mapped[int] = mapped_column(Integer)
-    last_requested_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("now()")
-    )
+    generation: Mapped[int] = mapped_column(BigInteger)
     requested_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+        DateTime(timezone=True), default=utcnow, server_default=text("clock_timestamp()")
     )
     available_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+        DateTime(timezone=True), default=utcnow, server_default=text("clock_timestamp()")
     )
-    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lease_token: Mapped[uuid.UUID | None] = mapped_column()
-    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    last_error: Mapped[str | None] = mapped_column(String(100))
+    initial_pending: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+
+class AnalyticsCardBackfill(Base):
+    """Current-card coverage cursors, independent of historical fact backfill."""
+
+    __tablename__ = "analytics_card_backfills"
+    __table_args__ = (
+        CheckConstraint(f"kind IN ({_CARD_KINDS})", name="ck_analytics_card_backfill_kind"),
+    )
+
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    cursor: Mapped[uuid.UUID | None] = mapped_column()
+    complete: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+
+class AnalyticsCardFanout(Base):
+    """Bounded source/catalog fan-out without a second publisher or source history."""
+
+    __tablename__ = "analytics_card_fanout"
+    __table_args__ = (
+        CheckConstraint("kind IN ('source','catalog')", name="ck_analytics_card_fanout_kind"),
+        Index("ix_analytics_card_fanout_due", "available_at", "kind", "entity_id"),
+    )
+
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    entity_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    cursor: Mapped[uuid.UUID | None] = mapped_column()
+    generation: Mapped[int] = mapped_column(BigInteger)
+    initial_pending: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("clock_timestamp()")
+    )
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("clock_timestamp()")
+    )

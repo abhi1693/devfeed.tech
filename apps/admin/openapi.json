@@ -53,7 +53,7 @@
           "snapshot": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ReadModelSnapshot"
+                "$ref": "#/components/schemas/AnalyticsSnapshot"
               },
               {
                 "type": "null"
@@ -149,7 +149,7 @@
           "snapshot": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ReadModelSnapshot"
+                "$ref": "#/components/schemas/AnalyticsSnapshot"
               },
               {
                 "type": "null"
@@ -2739,6 +2739,142 @@
         "title": "AnalysisStepOut",
         "type": "object"
       },
+      "AnalyticsSnapshot": {
+        "properties": {
+          "article_generation": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Article Generation"
+          },
+          "catalog_generation": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Generation"
+          },
+          "catalog_lag_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Lag Seconds"
+          },
+          "catalog_revision": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Revision"
+          },
+          "catalog_target_revision": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Target Revision"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "generation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation"
+          },
+          "lag_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lag Seconds"
+          },
+          "policy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Version"
+          },
+          "status": {
+            "enum": [
+              "fresh",
+              "stale",
+              "refreshing",
+              "catching_up",
+              "rebuilding"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "AnalyticsSnapshot",
+        "type": "object"
+      },
       "AppearanceSettings": {
         "additionalProperties": false,
         "properties": {
@@ -3699,7 +3835,7 @@
           "snapshot": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ReadModelSnapshot"
+                "$ref": "#/components/schemas/AnalyticsSnapshot"
               },
               {
                 "type": "null"
@@ -3809,7 +3945,7 @@
           "snapshot": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ReadModelSnapshot"
+                "$ref": "#/components/schemas/AnalyticsSnapshot"
               },
               {
                 "type": "null"
@@ -7930,7 +8066,7 @@
           "snapshot": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ReadModelSnapshot"
+                "$ref": "#/components/schemas/AnalyticsSnapshot"
               },
               {
                 "type": "null"
@@ -10174,7 +10310,7 @@
           "snapshot": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ReadModelSnapshot"
+                "$ref": "#/components/schemas/AnalyticsSnapshot"
               },
               {
                 "type": "null"
@@ -10276,7 +10412,7 @@
           "snapshot": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ReadModelSnapshot"
+                "$ref": "#/components/schemas/AnalyticsSnapshot"
               },
               {
                 "type": "null"
@@ -11849,7 +11985,7 @@
           "snapshot": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ReadModelSnapshot"
+                "$ref": "#/components/schemas/AnalyticsSnapshot"
               },
               {
                 "type": "null"
@@ -12063,7 +12199,7 @@
           "snapshot": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ReadModelSnapshot"
+                "$ref": "#/components/schemas/AnalyticsSnapshot"
               },
               {
                 "type": "null"
@@ -12317,7 +12453,7 @@
           "snapshot": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ReadModelSnapshot"
+                "$ref": "#/components/schemas/AnalyticsSnapshot"
               },
               {
                 "type": "null"
@@ -12356,142 +12492,6 @@
           }
         },
         "title": "QueuePressureData",
-        "type": "object"
-      },
-      "ReadModelSnapshot": {
-        "properties": {
-          "article_generation": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Article Generation"
-          },
-          "catalog_generation": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Catalog Generation"
-          },
-          "catalog_lag_seconds": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Catalog Lag Seconds"
-          },
-          "catalog_revision": {
-            "anyOf": [
-              {
-                "items": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Catalog Revision"
-          },
-          "catalog_target_revision": {
-            "anyOf": [
-              {
-                "items": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Catalog Target Revision"
-          },
-          "generated_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Generated At"
-          },
-          "generation": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Generation"
-          },
-          "lag_seconds": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Lag Seconds"
-          },
-          "policy_version": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Policy Version"
-          },
-          "status": {
-            "enum": [
-              "fresh",
-              "stale",
-              "refreshing",
-              "catching_up",
-              "rebuilding"
-            ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "ReadModelSnapshot",
         "type": "object"
       },
       "ReaderColumn": {
@@ -13825,7 +13825,7 @@
           "snapshot": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ReadModelSnapshot"
+                "$ref": "#/components/schemas/AnalyticsSnapshot"
               },
               {
                 "type": "null"
@@ -14046,7 +14046,7 @@
           "snapshot": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ReadModelSnapshot"
+                "$ref": "#/components/schemas/AnalyticsSnapshot"
               },
               {
                 "type": "null"
@@ -15377,7 +15377,7 @@
           "snapshot": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ReadModelSnapshot"
+                "$ref": "#/components/schemas/AnalyticsSnapshot"
               },
               {
                 "type": "null"
@@ -15626,7 +15626,7 @@
           "snapshot": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ReadModelSnapshot"
+                "$ref": "#/components/schemas/AnalyticsSnapshot"
               },
               {
                 "type": "null"

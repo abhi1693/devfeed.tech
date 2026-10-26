@@ -61,8 +61,8 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ### Upgrade Notes
 
-- Coordinate migration `0034` with backend replacement because `0.1.1` services reject the new schema. Allow for review-index creation to block writes to `article_reviews`; follow the [read-model rollout guide](https://github.com/abhi1693/devfeed.tech/blob/master/apps/admin-api/READ_MODELS.md#migration-and-rollout).
-- Run separate pipeline and report publishers. Complete the initial pipeline backfill and publish required reports before promoting admin readers, as described in the [worker configuration](https://github.com/abhi1693/devfeed.tech/blob/master/apps/admin-api/READ_MODELS.md#workers-and-capacity).
+- Coordinate migration `0034` with backend replacement because `0.1.1` services reject the new schema. Allow for review-index creation to block writes to `article_reviews`; follow the [read-model rollout guide](https://github.com/abhi1693/devfeed.tech/blob/df0576f4/apps/admin-api/READ_MODELS.md#migration-and-rollout).
+- Run separate pipeline and report publishers. Complete the initial pipeline backfill and publish required reports before promoting admin readers, as described in the [worker configuration](https://github.com/abhi1693/devfeed.tech/blob/df0576f4/apps/admin-api/READ_MODELS.md#workers-and-capacity).
 - Deploy the updated APIs and reader before distributing browser extensions `0.1.23`, which use the new saved layout and Columns settings.
 
 ## 0.1.1 — 2026-10-20

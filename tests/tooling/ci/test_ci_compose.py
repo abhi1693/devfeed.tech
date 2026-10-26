@@ -85,7 +85,7 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
     assert "--user devfeed_ingest" in " ".join(clickhouse["healthcheck"]["test"])
     for name, service in services.items():
         environment = service.get("environment", {})
-        expected = name in {"analytics-exporter", "report-projector", "admin-api"}
+        expected = name in {"analytics-exporter", "admin-api"}
         assert ("DEVFEED_CLICKHOUSE_PASSWORD" in environment) == expected
         if expected:
             credential = (

@@ -2,7 +2,7 @@
 
 Requires DEVFEED_TEST_CLICKHOUSE_URL, DATABASE, USERNAME, and PASSWORD. The profiler
 never connects to PostgreSQL, seeds data, or switches reporting implementations.
-Prepare the disposable fixture with profile_read_models before measuring it.
+Prepare the disposable fixture with scale_fixture before measuring it.
 """
 
 import argparse
@@ -19,7 +19,7 @@ from devfeed_admin_api.overview_windows import parse_report_window
 from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable, _parameter
 from devfeed_core.config import Settings
 
-from scripts.profile_read_models import analytics_environment
+from scripts.scale_fixture import analytics_environment
 
 GROUPS = ["publishing", "audience", "processing", "inference", "coverage"]
 SECTION = contextvars.ContextVar("analytical_profile_section", default="metadata")

@@ -37,30 +37,43 @@ def test_fleet_metadata_fixture_keeps_source_records_and_can_activate_native_cap
     )
     fixture = engine.execution_options(schema_translate_map={None: schema})
     monkeypatch.setattr(runtime, "get_engine", lambda: fixture)
+    with owner.connect() as connection:
+        public_capture = connection.scalar(
+            text("SELECT 'public.analytics_capture_articles()'::regprocedure::oid")
+        )
     try:
         runtime.metadata_setup()
+        with owner.connect() as connection:
+            assert (
+                connection.scalar(
+                    text("SELECT 'public.analytics_capture_articles()'::regprocedure::oid")
+                )
+                == public_capture
+            )
         runtime.retained()
         with fixture.connect() as connection:
             state = connection.execute(text("SELECT * FROM analytics_pipeline_state")).one()
             assert state.enabled is False and state.native_import_complete is False
             assert state.native_bootstrap_barrier is False
             assert state.native_bootstrap_complete is False
+            assert state.card_bootstrap_complete is False and state.card_bootstrap_barrier is False
+            assert state.card_target_policy is None and state.card_serving_policy is None
             assert state.native_capture_started_at is None and state.reader_coverage_start is None
             assert (
                 connection.scalar(
                     text(
-                        "INSERT INTO analytics_capture_events(source_table,operation,record) "
+                        "INSERT INTO analytics_ingest_events(source_table,operation,record) "
                         "VALUES('articles','I','{}'::jsonb) RETURNING format_version"
                     )
                 )
-                == 2
+                == 3
             )
             with pytest.raises(IntegrityError), connection.begin_nested():
                 connection.execute(
                     text(
-                        "INSERT INTO analytics_capture_events("
+                        "INSERT INTO analytics_ingest_events("
                         "source_table,operation,record,format_version) "
-                        "VALUES('articles','I','{}'::jsonb,3)"
+                        "VALUES('articles','I','{}'::jsonb,4)"
                     )
                 )
             indexes = set(
@@ -88,6 +101,9 @@ def test_fleet_metadata_fixture_keeps_source_records_and_can_activate_native_cap
                 "analytics_fact_refresh",
                 "analytics_rollup_compaction",
                 "analytics_upgrade_checkpoint",
+                "analytics_card_refresh",
+                "analytics_card_backfills",
+                "analytics_card_fanout",
             ):
                 assert connection.scalar(text(f"SELECT count(*) FROM {table}")) == 0
 

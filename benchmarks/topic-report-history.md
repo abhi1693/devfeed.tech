@@ -96,4 +96,4 @@ moved to ClickHouse. These notes describe the earlier measurement methodology an
 production reference; they do not describe the current reporting implementation or
 establish ClickHouse performance. Use `scripts/profile_analytics_reports.py` against
 a prepared disposable ClickHouse fixture for current report measurements. See
-[the administration read-model guide](../apps/admin-api/READ_MODELS.md).
+[the native analytics guide](../apps/admin-api/ANALYTICS.md).

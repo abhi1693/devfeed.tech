@@ -7,8 +7,10 @@ facts intact; replay and delayed commits cannot skip or double-count facts.
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import math
+import signal
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -20,11 +22,12 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from devfeed_core.analytics import AnalyticsClient
+from devfeed_core.analytics_cards import CardPublisher
 from devfeed_core.analytics_gauges import Gauges
 from devfeed_core.analytics_rollups import RollupPublisher
 from devfeed_core.analytics_schema import BACKFILL_TABLES, TABLES
 from devfeed_core.analytics_transform import transform_events
-from devfeed_core.analytics_upgrade import NativeUpgrade
+from devfeed_core.analytics_upgrade import V1_KEYS, NativeUpgrade
 from devfeed_core.config import get_settings
 from devfeed_core.logging import configure_logging
 from devfeed_core.models import Base
@@ -51,8 +54,12 @@ class AnalyticsExporter:
         self.gauges = Gauges(self.settings, self.client)
         self.rollups = RollupPublisher(self.client)
         self.upgrade = NativeUpgrade(self.settings, self.client)
+        self.cards = CardPublisher(self.client, self.settings)
         self.capture_started_at = None
         self.bootstrapping = True
+
+    def close(self):
+        self.cards.close()
 
     async def _enable_capture(self, connection):
         deadline = time.monotonic() + 30
@@ -224,23 +231,32 @@ class AnalyticsExporter:
                 await connection.execute(
                     "SELECT id,source_table,operation,record,before_record,"
                     "created_at,format_version "
-                    "FROM analytics_capture_events ORDER BY id LIMIT %s",
+                    "FROM analytics_ingest_events ORDER BY id LIMIT %s",
                     (self.settings.analytics_batch_size,),
                 )
             ).fetchall()
         if not events:
             return 0
         captured = events
+        # Fail closed before any acknowledgement, including old-format
+        # reconciliation. A future producer cannot silently lose its changes.
+        for event in captured:
+            if event["format_version"] not in {1, 2, 3}:
+                raise ValueError("Unsupported analytical capture format")
+            sources = set(TABLES) | set(V1_KEYS) if event["format_version"] == 1 else TABLES
+            if event["source_table"] not in sources:
+                raise ValueError("Unsupported analytical capture source")
         events = await self.upgrade.normalize_pending(connection, captured, generation)
         facts = await transform_events(connection, events, generation)
         await self.client.insert("analytics_fact_events", facts)
         await self.gauges.ingest(connection, events, generation=generation)
+        await self.cards.ingest(connection, captured, generation, fence=self._check_lease)
         async with connection.transaction():
             await self._check_lease(connection)
             await self.rollups.mark_dirty(connection, facts, generation)
             await self.gauges.mark_dirty(connection, events)
             await connection.execute(
-                "DELETE FROM analytics_capture_events WHERE id=ANY(%s)",
+                "DELETE FROM analytics_ingest_events WHERE id=ANY(%s)",
                 ([event["id"] for event in captured],),
             )
         return len(captured)
@@ -259,7 +275,7 @@ class AnalyticsExporter:
                 "SELECT native_import_complete,NOT EXISTS(SELECT 1 FROM "
                 "analytics_bootstrap_cursors WHERE NOT complete) AS sources_complete,"
                 "CASE WHEN native_bootstrap_complete THEN true ELSE "
-                "NOT EXISTS(SELECT 1 FROM analytics_capture_events "
+                "NOT EXISTS(SELECT 1 FROM analytics_ingest_events "
                 "WHERE format_version=1) END AS legacy_complete "
                 "FROM analytics_pipeline_state WHERE singleton"
             )
@@ -274,7 +290,7 @@ class AnalyticsExporter:
                     "SELECT *,NOT EXISTS(SELECT 1 FROM "
                     "analytics_bootstrap_cursors WHERE NOT complete) "
                     "AS sources_complete,CASE WHEN native_bootstrap_complete THEN true ELSE "
-                    "NOT EXISTS(SELECT 1 FROM analytics_capture_events "
+                    "NOT EXISTS(SELECT 1 FROM analytics_ingest_events "
                     "WHERE format_version=1) END AS legacy_complete "
                     "FROM analytics_pipeline_state WHERE singleton FOR UPDATE"
                 )
@@ -297,7 +313,7 @@ class AnalyticsExporter:
                     "SELECT *,NOT EXISTS(SELECT 1 FROM analytics_fact_refresh "
                     "WHERE initial_pending) "
                     "AS facts_complete,least((SELECT min(created_at) FROM "
-                    "analytics_capture_events), "
+                    "analytics_ingest_events), "
                     "(SELECT min(requested_at) FROM analytics_fact_refresh), "
                     "(SELECT min(available_at) FROM analytics_gauge_refreshes "
                     "WHERE available_at<=clock_timestamp())) AS oldest "
@@ -315,7 +331,7 @@ class AnalyticsExporter:
                     "UPDATE analytics_pipeline_state SET "
                     "native_bootstrap_complete=true WHERE singleton"
                 )
-        self.bootstrapping = not ready
+        self.bootstrapping = not ready or self.cards.bootstrapping
         if ready == self._last_ready and time.monotonic() - self._last_status < 30:
             return
         updated_at = min(observed_at, state["oldest"]) if state["oldest"] else observed_at
@@ -386,7 +402,7 @@ class AnalyticsExporter:
             # import is durable. Retain dirty cohorts while importing, rather
             # than rebuilding partial history after each bounded source page.
             raw_complete = await self._raw_backfill_complete(connection)
-            published = gauges = False
+            published = gauges = cards = False
             if raw_complete:
                 published = await self.rollups.refresh_one(
                     connection, generation, fence=self._check_lease
@@ -395,6 +411,16 @@ class AnalyticsExporter:
             lease = await self._lease(connection)
             if lease is None:
                 raise RuntimeError("Analytics publisher lease was superseded")
+            if raw_complete:
+                cards = await self.cards.once(
+                    connection,
+                    lease["lease_generation"],
+                    fence=self._check_lease,
+                    renew=self._lease,
+                )
+                lease = await self._lease(connection)
+                if lease is None:
+                    raise RuntimeError("Analytics publisher lease was superseded")
             compacted = (
                 await self.rollups.compact_one(
                     connection, fence=self._check_lease, renew=self._lease
@@ -410,7 +436,7 @@ class AnalyticsExporter:
                     "lease_token=NULL,lease_until=NULL WHERE singleton"
                 )
         write_runtime_marker(runtime_marker("analytics-worker"), str(time.time()))
-        return upgrading or backfilling or count > 0 or published or gauges or compacted
+        return upgrading or backfilling or count > 0 or published or gauges or cards or compacted
 
 
 def connection_dialect():
@@ -433,12 +459,17 @@ async def record_backlog(settings):
         await connection.execute("SET statement_timeout = '2s'")
         row = await (
             await connection.execute(
-                "SELECT min(created_at) AS oldest FROM analytics_capture_events"
+                "SELECT min(created_at) AS oldest FROM analytics_ingest_events"
             )
         ).fetchone()
     assert row is not None  # An aggregate without GROUP BY always returns one row.
     age = max(0.0, (datetime.now(UTC) - row["oldest"]).total_seconds()) if row["oldest"] else 0.0
-    runtime.instruments["read_model_oldest"].set(age, {"kind": "analytics"})
+    runtime.instruments["analytics_oldest"].set(age, {"kind": "analytics"})
+
+
+async def pause(stopping, delay):
+    with contextlib.suppress(TimeoutError):
+        await asyncio.wait_for(stopping.wait(), timeout=delay)
 
 
 async def run(once=False, initialize=False):
@@ -451,36 +482,48 @@ async def run(once=False, initialize=False):
         failures = 0
         initialized = False
         last_sample = None
-        while True:
-            sampled_at = time.monotonic()
-            if last_sample is None or sampled_at - last_sample >= 30:
-                last_sample = sampled_at
+        stopping = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        signals = (signal.SIGINT, signal.SIGTERM)
+        for item in signals:
+            loop.add_signal_handler(item, stopping.set)
+        try:
+            while not stopping.is_set():
+                sampled_at = time.monotonic()
+                if last_sample is None or sampled_at - last_sample >= 30:
+                    last_sample = sampled_at
+                    try:
+                        await record_backlog(settings)
+                    except Exception:
+                        # Metrics failures cannot prevent durable fact delivery.
+                        logger.warning("analytics_backlog_sample_failed")
                 try:
-                    await record_backlog(settings)
+                    with background_cycle("analytics.export"):
+                        if not initialized:
+                            await client.initialize()
+                            initialized = True
+                        busy = await exporter.once()
+                    failures = 0
                 except Exception:
-                    # Metrics failures cannot prevent durable fact delivery.
-                    logger.warning("analytics_backlog_sample_failed")
-            try:
-                with background_cycle("analytics.export"):
-                    if not initialized:
-                        await client.initialize()
-                        initialized = True
-                    busy = await exporter.once()
-                failures = 0
-            except Exception:
-                logger.exception("analytics_export_failed")
+                    logger.exception("analytics_export_failed")
+                    if once:
+                        raise
+                    failures += 1
+                    busy = False
                 if once:
-                    raise
-                failures += 1
-                busy = False
-            if once:
-                return
-            delay = (
-                settings.analytics_backfill_poll_seconds
-                if busy and exporter.bootstrapping
-                else settings.analytics_poll_seconds
-            )
-            await asyncio.sleep(max(delay, min(60, 2 ** min(failures, 6))) if failures else delay)
+                    return
+                delay = (
+                    settings.analytics_backfill_poll_seconds
+                    if busy and exporter.bootstrapping
+                    else settings.analytics_poll_seconds
+                )
+                await pause(
+                    stopping, max(delay, min(60, 2 ** min(failures, 6))) if failures else delay
+                )
+        finally:
+            for item in signals:
+                loop.remove_signal_handler(item)
+            exporter.close()
 
 
 def main():

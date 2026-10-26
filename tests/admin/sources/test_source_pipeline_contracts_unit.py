@@ -124,41 +124,6 @@ def test_source_detail_contains_current_evidence_review_attribution_and_last_tas
     assert [task.job_id for task in detail.tasks] == [failed.id]
 
 
-def test_offline_columns_keep_running_work_first_after_large_population_and_page_exactly(
-    monkeypatch,
-):
-    values = []
-    for index in range(225):
-        current = source(created_at=NOW - timedelta(days=2) + timedelta(minutes=index))
-        values.append(facts(current))
-    running_source = source(created_at=NOW - timedelta(minutes=1))
-    running = facts(running_source, jobs={"profile": profile(running_source, status="running")})
-    values.append(running)
-    values.append(facts(source(approval="approved")))
-    monkeypatch.setattr(pipeline, "_facts", lambda *_: iter(values))
-
-    first = pipeline._columns(object(), query(monkeypatch), NOW, stage="profile")[0]
-    second = pipeline._columns(object(), query(monkeypatch), NOW, stage="profile", cursor=2)[0]
-    beyond = pipeline._columns(object(), query(monkeypatch), NOW, stage="profile", cursor=500)[0]
-
-    assert first.total == second.total == beyond.total == 226
-    assert [card.id for card in first.items] == [running_source.id, values[0].source.id]
-    assert [card.id for card in second.items] == [values[1].source.id, values[2].source.id]
-    assert (first.next_cursor, second.next_cursor, beyond.next_cursor) == (2, 4, None)
-    assert beyond.items == []
-
-
-def test_terminal_columns_show_recent_activity_first_instead_of_source_age(monkeypatch):
-    older = facts(source(approval="approved", updated_at=NOW - timedelta(days=2)))
-    recent = facts(source(approval="approved", updated_at=NOW - timedelta(minutes=1)))
-    monkeypatch.setattr(pipeline, "_facts", lambda *_: iter([older, recent]))
-    columns = pipeline._columns(object(), query(monkeypatch), NOW)
-    active = next(column for column in columns if column.stage == "active")
-    assert [card.id for card in active.items] == [recent.source.id, older.source.id]
-    assert active.next_cursor is None
-    assert all(column.total == 0 for column in columns if column.stage != "active")
-
-
 @pytest.mark.parametrize(
     "since,message",
     [

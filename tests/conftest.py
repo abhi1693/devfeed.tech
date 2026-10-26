@@ -176,12 +176,15 @@ def database(integration_environment, monkeypatch, rss_bytes):
                 "last_success_at = NULL, lease_token = NULL, lease_until = NULL, "
                 "native_import_complete=false,native_capture_started_at=NULL, "
                 "reader_coverage_start=NULL,native_bootstrap_barrier=false, "
-                "native_bootstrap_complete=false"
+                "native_bootstrap_complete=false,card_target_policy=NULL,card_serving_policy=NULL,"
+                "card_bootstrap_complete=false,card_bootstrap_barrier=false,"
+                "card_catalog_revision=NULL,card_catalog_target_revision=NULL,"
+                "card_catalog_progress_at=NULL"
             )
         )
         connection.execute(
             text(
-                "TRUNCATE analytics_capture_events, analytics_bootstrap_cursors, "
+                "TRUNCATE analytics_ingest_events, analytics_bootstrap_cursors, "
                 "analytics_upgrade_checkpoint, analytics_fact_refresh, "
                 "analytics_rollup_compaction, "
                 "analytics_gauge_refreshes RESTART IDENTITY"
@@ -224,13 +227,11 @@ def admin_client(database):
     # flow and unauthorized access are covered separately in test_admin_auth.py.
     from devfeed_admin_api.auth import AdminIdentity, require_admin
     from devfeed_admin_api.main import create_app
-    from devfeed_admin_api.overview import session_factory as reporting_sessions
     from fastapi.testclient import TestClient
 
     app = create_app()
     # Keep ordinary SQL-budget tests on the instrumented disposable engine.
     # Dedicated reporting isolation is exercised by the concurrency tests.
-    app.dependency_overrides[reporting_sessions] = lambda: database
     app.dependency_overrides[require_admin] = lambda: AdminIdentity(
         subject="integration-admin",
         issuer="https://identity.example",

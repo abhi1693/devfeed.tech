@@ -428,26 +428,23 @@ class Smoke:
         self.stop(process)
         print("PASS native Fleet search setup, real Typesense and indexer heartbeat")
 
-    def publishers(self):
+    def exporter(self):
         output = self.run(CONTRACTS["backfill"]["command"])
         assert '"cutover_ready": true' in output
-        self.run(["python", "/fleet/runtime.py", "projection"])
-        for kind in ("pipeline", "reports"):
-            name = self.start(CONTRACTS[kind]["command"])
-            probe = CONTRACTS[kind]["probes"]["readinessProbe"]
-            self.wait_probe(name, probe)
-            self.execute(name, "python", "/fleet/runtime.py", "permissions")
-            # Stop the publisher before aging its marker, so a fresh cycle cannot race the check.
-            command("docker", "kill", "--signal=STOP", name)
-            try:
-                self.execute(name, "python", "/fleet/runtime.py", "heartbeat", kind)
-                assert self.execute(name, *probe, check=False).returncode != 0
-            finally:
-                command("docker", "kill", "--signal=CONT", name)
-            self.stop(name)
-        print(
-            "PASS native Fleet backfill and both publishers; fresh probes pass, stale probes fail"
-        )
+        self.run(["python", "/fleet/runtime.py", "current-cards"])
+        name = self.start(CONTRACTS["analytics-exporter"]["command"])
+        probe = CONTRACTS["analytics-exporter"]["probes"]["readinessProbe"]
+        self.wait_probe(name, probe)
+        self.execute(name, "python", "/fleet/runtime.py", "permissions")
+        # Freeze the owner so a new cycle cannot overwrite the stale test marker.
+        command("docker", "kill", "--signal=STOP", name)
+        try:
+            self.execute(name, "python", "/fleet/runtime.py", "heartbeat")
+            assert self.execute(name, *probe, check=False).returncode != 0
+        finally:
+            command("docker", "kill", "--signal=CONT", name)
+        self.stop(name)
+        print("PASS native Fleet exporter; fresh probe passes, stale probe fails")
 
     def frontend(self):
         name = self.start(frontend=True, env={"DEBUG": "next:start-server", "DEBUG_COLORS": "0"})
@@ -487,14 +484,12 @@ def main():
                 smoke.ca()
             smoke.schema()
             if component == "backend":
+                smoke.exporter()
                 smoke.workers()
                 smoke.indexer()
                 smoke.scheduler()
                 smoke.api()
-            elif component == "admin-api":
-                smoke.publishers()
-                smoke.api()
-            elif component in {"user-api", "partner-api"}:
+            elif component in {"admin-api", "user-api", "partner-api"}:
                 smoke.api()
             else:
                 smoke.workers()

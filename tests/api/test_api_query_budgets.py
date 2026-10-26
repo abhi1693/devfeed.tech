@@ -38,6 +38,7 @@ from devfeed_core.models import (
 )
 from sqlalchemy import event, insert, text
 
+from tests.support.analytics_cards import card_publication as card_publication
 from tests.support.overview import publish_section
 
 pytestmark = pytest.mark.integration
@@ -411,13 +412,10 @@ def profile_request(http, path, budget, repeats=1, *, plans=False, expected_stat
     return row, response.json()
 
 
-def test_populated_api_query_budgets(profile_data, database, client, admin_client, monkeypatch):
-    from devfeed_admin_api.pipeline_projection import drain_pipeline
-
-    # A healthy dependent report requires the current, completed pipeline too.
-    # Without it, serving the saved payload correctly adds coalesced rebuild demand.
-    drain_pipeline(database)
-    publish_section(database)
+def test_populated_api_query_budgets(
+    profile_data, database, client, admin_client, monkeypatch, card_publication
+):
+    publish_section(card_publication)
     report_path = os.environ.get("DEVFEED_PROFILE_REPORT")
     repeats = int(os.environ.get("DEVFEED_PROFILE_REPEATS", "1"))
     assert 1 <= repeats <= 100
@@ -516,169 +514,9 @@ def test_populated_api_query_budgets(profile_data, database, client, admin_clien
         )
 
 
-def test_populated_overview_rebuild_demand_query_budget(profile_data, database, admin_client):
-    from devfeed_core.models import ReportRefresh
-    from sqlalchemy import func, select
-
-    saved = publish_section(database)
-    from devfeed_core.models import ReadModelState
-
-    with database.begin() as session:
-        session.delete(session.get(ReadModelState, "pipeline"))
-    # Keep the populated article/job history, but omit the pipeline dependency.
-    # Each poll may coalesce demand; it must never rebuild or scan evidence on GET.
-    _, result = profile_request(
-        admin_client, "/v1/admin/overview/charts/attention?from=now-29d/d&to=now", 5, repeats=3
-    )
-    assert result["snapshot"]["status"] == "rebuilding"
-    assert result["data"] == saved.data.model_dump(mode="json", exclude={"section"})
-    with database() as session:
-        assert session.scalar(select(func.count()).select_from(ReportRefresh)) == 1
-        assert session.get(ReportRefresh, ("operations", "current")) is not None
-
-
-def test_historical_custom_window_serves_exact_saved_kpi_without_source_or_clickhouse_queries(
-    profile_data, database, admin_client, monkeypatch
+def test_blocker_text_threshold_and_overlapping_latest_results(
+    database, admin_client, card_publication
 ):
-    from unittest.mock import AsyncMock
-
-    from devfeed_admin_api.overview_windows import ReportWindow
-    from devfeed_core.analytics import AnalyticsClient
-
-    start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
-        days=30
-    )
-    end = start + timedelta(days=3)
-    with database.begin() as session:
-        for number, at in enumerate(
-            (start, end - timedelta(microseconds=1), start - timedelta(microseconds=1), end)
-        ):
-            session.get(Article, identity("published", number)).published_to_feed_at = at
-    window = ReportWindow(start.date(), end.date())
-    saved = publish_section(database, "publishing", window=window)
-    assert saved.data.summary.published == 2
-    native = AsyncMock(side_effect=AssertionError("A saved HTTP report queried ClickHouse"))
-    monkeypatch.setattr(AnalyticsClient, "query", native)
-    _, result = profile_request(
-        admin_client,
-        f"/v1/admin/overview/charts/publication-rate?from={window.start}&to={window.inclusive_end}",
-        4,
-        repeats=3,
-    )
-    assert result["data"]["summary"]["published"] == 2
-    assert result["start"] == window.start.isoformat()
-    assert result["end"] == (window.end - timedelta(days=1)).isoformat()
-    assert result["days"] == 3
-    native.assert_not_called()
-
-
-@pytest.fixture
-def chart_documents(database):
-    from devfeed_admin_api.overview_charts import CHART_SECTIONS
-    from devfeed_admin_api.overview_projection import report_policy_version
-    from devfeed_admin_api.overview_sections import PublicationBucket
-    from devfeed_core.models import ReportSnapshot, utcnow
-
-    from tests.support.overview import ready_pipeline, section_document, window_fields
-
-    now = utcnow()
-    ready_pipeline(database, now=now)
-    documents = {}
-    with database.begin() as session:
-        for section in sorted(set(CHART_SECTIONS.values())):
-            report = section_document(group=section, generated_at=now, days=30, count=23)
-            if section == "publishing":
-                report.data.summary.p50_seconds = 2
-                report.data.summary.p95_seconds = 5
-                report.data.activity = [
-                    PublicationBucket(
-                        bucket=now.isoformat(),
-                        published=23,
-                        automated=7,
-                        p50_seconds=2,
-                        p95_seconds=5,
-                    )
-                ]
-            fields = window_fields(section, days=30, now=now)
-            documents[section] = fields["window_key"]
-            session.add(
-                ReportSnapshot(
-                    group=section,
-                    **fields,
-                    payload=report.model_dump(mode="json"),
-                    generated_at=now,
-                    policy_version=report_policy_version(),
-                )
-            )
-    return documents
-
-
-def test_all_twelve_chart_gets_return_narrow_saved_payloads_with_four_sql_and_no_clickhouse(
-    chart_documents, admin_client, monkeypatch
-):
-    from unittest.mock import AsyncMock
-
-    from devfeed_admin_api.overview_charts import CHART_SECTIONS
-    from devfeed_core.analytics import AnalyticsClient
-
-    assert set(CHART_FIELDS) == set(CHART_SECTIONS) and len(CHART_FIELDS) == 12
-    native = AsyncMock(side_effect=AssertionError("Saved chart GET queried ClickHouse"))
-    monkeypatch.setattr(AnalyticsClient, "query", native)
-    responses = {}
-    for chart, fields in CHART_FIELDS.items():
-        _, payload = profile_request(
-            admin_client, f"/v1/admin/overview/charts/{chart}?from=now-29d/d&to=now", 4
-        )
-        assert payload["chart"] == chart and set(payload["data"]) == fields
-        assert "section" not in payload["data"] and "root" not in payload
-        responses[chart] = payload
-    output = responses["publication-rate"]["data"]
-    latency = responses["publication-latency"]["data"]
-    assert output["summary"]["published"] == 23
-    assert set(output["summary"]) == {"published", "automatic_percent"}
-    assert set(output["activity"][0]) == {"bucket", "published", "automated"}
-    assert latency["summary"] == {"p50_seconds": 2, "p95_seconds": 5}
-    assert set(latency["activity"][0]) == {"bucket", "p50_seconds", "p95_seconds"}
-    native.assert_not_called()
-
-
-@pytest.mark.parametrize("chart", CHART_FIELDS)
-def test_each_cold_chart_coalesces_parent_demand_while_an_unrelated_card_remains_available(
-    chart_documents, database, admin_client, monkeypatch, chart
-):
-    from unittest.mock import AsyncMock
-
-    from devfeed_admin_api.overview_charts import CHART_SECTIONS
-    from devfeed_core.analytics import AnalyticsClient
-    from devfeed_core.models import ReportRefresh, ReportSnapshot
-    from sqlalchemy import select
-
-    group = CHART_SECTIONS[chart]
-    key = (group, chart_documents[group])
-    with database.begin() as session:
-        session.delete(session.get(ReportSnapshot, key))
-    native = AsyncMock(side_effect=AssertionError("Cold chart GET queried ClickHouse"))
-    monkeypatch.setattr(AnalyticsClient, "query", native)
-    _, error = profile_request(
-        admin_client,
-        f"/v1/admin/overview/charts/{chart}?from=now-29d/d&to=now",
-        4,
-        repeats=2,
-        expected_status=503,
-    )
-    assert error["detail"]["code"] == "report_refreshing"
-    neighbor = "publication-rate" if group == "operations" else "attention"
-    _, available = profile_request(
-        admin_client, f"/v1/admin/overview/charts/{neighbor}?from=now-29d/d&to=now", 4
-    )
-    assert available["chart"] == neighbor
-    with database() as session:
-        requested = session.scalars(select(ReportRefresh)).all()
-        assert [(row.group, row.window_key) for row in requested] == [key]
-    native.assert_not_called()
-
-
-def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_client):
     from types import SimpleNamespace
 
     from devfeed_core.editorial import meaningful_text
@@ -792,7 +630,7 @@ def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_c
             ),
             key=lambda row: row.id,
         )
-    publish_section(database)
+    publish_section(card_publication)
     response = admin_client.get("/v1/admin/overview/charts/attention")
     assert response.status_code == 200, response.text
     blockers = {b["code"]: b for b in response.json()["data"]["blockers"]}

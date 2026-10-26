@@ -262,12 +262,11 @@ def check() -> None:
     assert services["analytics-exporter"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == (
         "devfeed_ingest"
     )
-    assert services["report-projector"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed"
     assert services["analytics-exporter"]["cpus"] == 0.5
     assert int(services["analytics-exporter"]["mem_limit"]) == 512 * 1024**2
     for name, service in services.items():
         assert ("DEVFEED_CLICKHOUSE_PASSWORD" in service.get("environment", {})) == (
-            name in {"analytics-exporter", "report-projector", "admin-api"}
+            name in {"analytics-exporter", "admin-api"}
         ), name
     assert "clickhouse" not in services["admin-api"]["depends_on"]
     assert "clickhouse" not in services["api"]["depends_on"]

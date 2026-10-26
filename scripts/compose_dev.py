@@ -21,8 +21,6 @@ APPLICATIONS = [
     "scheduler",
     "codex-client",
     "analytics-exporter",
-    "pipeline-projector",
-    "report-projector",
 ]
 IGNORED = {
     ".git",
@@ -164,11 +162,8 @@ def rebuild() -> None:
         if name.endswith("-worker") and service.get("environment", {}).get("DEVFEED_WORKER_QUEUE")
     ]
     targets = ["migrate", "api", "worker", "scheduler", "admin-api", "admin", *dedicated_workers]
-    targets.extend(
-        name
-        for name in ("analytics-exporter", "pipeline-projector", "report-projector")
-        if name in services
-    )
+    if "analytics-exporter" in services:
+        targets.append("analytics-exporter")
     if "codex-server" in services:
         targets.extend(("codex-server", "codex-client"))
     print("Building replacement images; current app containers keep running.", flush=True)

@@ -5,7 +5,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from devfeed_core.config import get_settings
-from devfeed_core.models import ArticleImageJob
+from devfeed_core.models import Article, ArticleImageJob, ArticleOrigin
+from devfeed_core.urls import fingerprint
 
 from tests.articles.test_article_lifecycle import facts as completed_facts
 
@@ -59,3 +60,50 @@ def image_job(
         attempts=1,
         **details,
     )
+
+
+@pytest.fixture
+def awaiting_first_analysis(processing_case):
+    previous, completed = processing_case
+    # A metadata-only extraction legitimately retains useful RSS evidence without a body row.
+    completed["enrichment"].outcome = "metadata_only"
+    source = previous.origins[0].source
+    article = Article(
+        id=previous.id,
+        canonical_url=previous.canonical_url,
+        url_hash=fingerprint(previous.canonical_url),
+        title=previous.title,
+        summary=previous.summary,
+        ai_title=None,
+        ai_summary=None,
+        ai_description=None,
+        language=None,
+        content_type=None,
+        content_format=None,
+        classification_provenance={},
+        review_status="pending",
+        publication_status="unpublished",
+        editorial_revision=0,
+        discovered_at=previous.discovered_at,
+        image_url=None,
+        managed_image={},
+        origins=[
+            ArticleOrigin(
+                id=uuid.uuid4(),
+                article_id=previous.id,
+                source=source,
+                source_id=source.id,
+                entry_key=str(previous.id),
+                original_url=previous.canonical_url,
+            )
+        ],
+        topic_links=[],
+    )
+    facts = {
+        "enrichment": {article.id: completed["enrichment"]},
+        "analysis": {},
+        "content": {},
+        "discovery": {},
+        "storage": {},
+    }
+    return article, facts, completed["taxonomy"], completed["now"]

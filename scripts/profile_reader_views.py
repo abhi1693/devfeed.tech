@@ -122,7 +122,7 @@ def source_identity(root):
         ),
         "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "seed_helper_sha256": hashlib.sha256(
-            (ROOT / "scripts/profile_read_models.py").read_bytes()
+            (ROOT / "scripts/scale_fixture.py").read_bytes()
         ).hexdigest(),
     }
 
@@ -167,7 +167,7 @@ def revision_imports(root):
 
 def helper_module():
     spec = importlib.util.spec_from_file_location(
-        "reader_profile_helpers", ROOT / "scripts/profile_read_models.py"
+        "reader_profile_helpers", ROOT / "scripts/scale_fixture.py"
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -252,7 +252,7 @@ def seed_fixture(engine, counts, helper):
             JOIN pg_namespace ns ON ns.oid=c.relnamespace
             WHERE ns.nspname=current_schema() AND NOT t.tgisinternal AND t.tgenabled='O'
               AND (t.tgname LIKE 'recommendation_%' OR t.tgname LIKE 'search_%'
-                   OR t.tgname='read_model_changed'
+                   OR t.tgname IN ('analytics_capture','analytics_capture_truncate')
                    OR t.tgname='partner_matching_source_changed')
             ORDER BY c.relname,t.tgname
         """)

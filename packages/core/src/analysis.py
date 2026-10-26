@@ -7,6 +7,7 @@ import re
 import unicodedata
 import uuid
 from collections import OrderedDict
+from collections.abc import Iterable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import timedelta
@@ -53,6 +54,8 @@ PROMPT_VERSION = "article-analysis-v9-specialist-steps"
 TOPIC_CONTEXT_BYTES = 640
 ARTICLE_INPUT_BYTES = 250_000
 ARTICLE_SOURCE_BYTES = 190_000
+CANDIDATE_PROMPT_CACHE_ENTRIES = 2048
+CANDIDATE_PROMPT_CACHE_BYTES = 2 * 1024 * 1024
 ARTICLE_INPUT_RESERVE_BYTES = 32_000
 VALIDATION_VERSION = "article-validation-v4-specialist-steps"
 TERMINAL_ANALYSIS_ERRORS = frozenset(
@@ -320,8 +323,9 @@ def candidate_terms(names: tuple[str, ...], keywords: tuple[str, ...]):
     )
 
 
-def candidate_score(item: dict, snapshot: dict, *, evidence=None) -> int:
-    identities, keywords = candidate_terms(
+def candidate_score(item: dict, snapshot: dict, *, evidence=None, cache_terms=True) -> int:
+    terms_for = candidate_terms if cache_terms else candidate_terms.__wrapped__
+    identities, keywords = terms_for(
         (item["name"], item["slug"], *item.get("aliases", [])),
         tuple(item.get("keywords", [])),
     )
@@ -332,7 +336,7 @@ def candidate_score(item: dict, snapshot: dict, *, evidence=None) -> int:
     )
 
 
-def candidate_index(terms: tuple[tuple[frozenset[str], frozenset[str]], ...]) -> dict:
+def candidate_index(terms: Iterable[tuple[frozenset[str], frozenset[str]]]) -> dict:
     """Build an index owned by the prepared catalog, never a process-wide generation."""
     root: dict = {}
     for index, groups in enumerate(terms):
@@ -345,9 +349,9 @@ def candidate_index(terms: tuple[tuple[frozenset[str], frozenset[str]], ...]) ->
     return root
 
 
-def candidate_description_index(descriptions: tuple[tuple[str | None, str | None], ...]):
+def candidate_description_index(descriptions: Iterable[tuple[str | None, str | None]]):
     """Build retrieval vocabulary with the same lifetime as its prepared catalog."""
-    description_terms = [
+    description_terms = (
         {
             word
             for value in pair
@@ -355,7 +359,7 @@ def candidate_description_index(descriptions: tuple[tuple[str | None, str | None
             for word in re.findall(r"[\w+#]{3,}", candidate_text(value))
         }
         for pair in descriptions
-    ]
+    )
     document_frequency: dict[str, int] = {}
     postings: dict[str, list[int]] = {}
     for index, description_words in enumerate(description_terms):
@@ -365,15 +369,18 @@ def candidate_description_index(descriptions: tuple[tuple[str | None, str | None
     return document_frequency, postings
 
 
-def _candidate_indexes(items):
-    terms = tuple(
-        candidate_terms(
+def _candidate_indexes(items, *, cache_terms=True):
+    # Prepared catalogues already own every normalized term through their trie.
+    # Filling the process LRU as well duplicates a complete large generation.
+    terms_for = candidate_terms if cache_terms else candidate_terms.__wrapped__
+    terms = (
+        terms_for(
             (item["name"], item["slug"], *item.get("aliases", [])),
             tuple(item.get("keywords", [])),
         )
         for item in items
     )
-    descriptions = tuple((item.get("description"), item.get("ai_description")) for item in items)
+    descriptions = ((item.get("description"), item.get("ai_description")) for item in items)
     frequency, postings = candidate_description_index(descriptions)
     return candidate_index(terms), frequency, postings
 
@@ -425,8 +432,12 @@ class _PreparedCatalog:
         self.sort_keys = [
             (item["name"].casefold(), item["id"], field) for field, item in self.entries
         ]
-        self.indexes = _candidate_indexes([item for _, item in self.entries])
-        self.prompt_items: dict[int, tuple[dict, int]] = {}
+        # Zero-score candidates retain catalogue order. Prepare it once, rather
+        # than sorting the entire catalogue again for every article's few fallbacks.
+        self.fallback_order = sorted(range(len(self.entries)), key=self.sort_keys.__getitem__)
+        self.indexes = _candidate_indexes([item for _, item in self.entries], cache_terms=False)
+        self.prompt_items: OrderedDict[int, tuple[dict, int]] = OrderedDict()
+        self.prompt_bytes = 0
         self.identities: dict[str, dict] = {}
         self.results: OrderedDict[tuple, dict] = OrderedDict()
 
@@ -435,17 +446,43 @@ class _PreparedCatalog:
             self.identities[field] = {item["id"]: item for item in self.taxonomy[field]}
         return self.identities[field]
 
+    def ranked(self, scores):
+        # Retrieval weights are nonnegative. Only matching entries need a fresh
+        # score sort; the fallback tail stays lazy so the caller can stop at quota.
+        yield from sorted(
+            (index for index, score in enumerate(scores) if score > 0),
+            key=lambda index: (-scores[index], self.sort_keys[index]),
+        )
+        yield from (index for index in self.fallback_order if scores[index] == 0)
+
+    def prompt_item(self, index):
+        if index in self.prompt_items:
+            self.prompt_items.move_to_end(index)
+            return self.prompt_items[index]
+        item = _prompt_catalog_item(self.entries[index][1])
+        size = len(json.dumps(item, ensure_ascii=False).encode()) + 2
+        if size <= CANDIDATE_PROMPT_CACHE_BYTES:
+            while self.prompt_items and (
+                len(self.prompt_items) >= CANDIDATE_PROMPT_CACHE_ENTRIES
+                or self.prompt_bytes + size > CANDIDATE_PROMPT_CACHE_BYTES
+            ):
+                _, removed = self.prompt_items.popitem(last=False)
+                self.prompt_bytes -= removed[1]
+            self.prompt_items[index] = item, size
+            self.prompt_bytes += size
+        return item, size
+
 
 _ranking: ContextVar[list[_PreparedCatalog] | None] = ContextVar("catalog_ranking", default=None)
 
 
 @contextmanager
-def reuse_candidates(*, reuse_existing=False):
+def reuse_candidates(*, reuse_existing=False, retained=None):
     """Reuse ranking only within an explicit scope, never a cached publication decision."""
     if reuse_existing and _ranking.get() is not None:
         yield
         return
-    token = _ranking.set([])
+    token = _ranking.set([] if retained is None else retained)
     try:
         yield
     finally:
@@ -456,6 +493,10 @@ def _prepared_catalog(taxonomy):
     values = _ranking.get()
     if values and values[0].taxonomy is taxonomy:
         return values[0]
+    if values is not None:
+        # A changed catalogue can be large. Release the previous generation
+        # before allocating its replacement, including after a failed rebuild.
+        values.clear()
     prepared = _PreparedCatalog(taxonomy)
     if values is not None:
         for field in ("topics", "tags"):
@@ -490,7 +531,7 @@ def analysis_candidates(taxonomy: dict, snapshot: dict) -> dict:
         240_000 - _json_bytes(bounded_analysis_source(snapshot)) - ARTICLE_INPUT_RESERVE_BYTES
     )
     fallback = {"topics": 0, "tags": 0}
-    for index in sorted(range(len(scores)), key=lambda i: (-scores[i], *prepared.sort_keys[i])):
+    for index in prepared.ranked(scores):
         score = scores[index]
         if score == 0 and all(
             len(result[field]) >= settings.analysis_max_candidates
@@ -503,13 +544,7 @@ def analysis_candidates(taxonomy: dict, snapshot: dict) -> dict:
             continue
         if score == 0 and fallback[field] >= settings.analysis_fallback_candidates:
             continue
-        if index not in prepared.prompt_items:
-            prompt_item = _prompt_catalog_item(item)
-            prepared.prompt_items[index] = (
-                prompt_item,
-                len(json.dumps(prompt_item, ensure_ascii=False).encode()) + 2,
-            )
-        prompt_item, size = prepared.prompt_items[index]
+        prompt_item, size = prepared.prompt_item(index)
         if size <= remaining:
             result[field].append(prompt_item)
             remaining -= size
@@ -549,12 +584,12 @@ def analysis_catalog_current(job, taxonomy: dict, snapshot: dict) -> bool:
         relevant_old = {
             key: item
             for key, item in old.items()
-            if candidate_score(item, snapshot, evidence=evidence) > 0
+            if candidate_score(item, snapshot, evidence=evidence, cache_terms=False) > 0
         }
         relevant_new = {
             key: item
             for key, item in new.items()
-            if candidate_score(item, snapshot, evidence=evidence) > 0
+            if candidate_score(item, snapshot, evidence=evidence, cache_terms=False) > 0
         }
         if relevant_old != relevant_new:
             return False

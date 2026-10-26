@@ -11,13 +11,13 @@ import ssl
 import sys
 import time
 import uuid
-from datetime import UTC, datetime
 from pathlib import Path
 
+from devfeed_core.analytics_capture import native_capture_statements
 from devfeed_core.db import get_engine
-from devfeed_core.models import Article, Base, ReadModelEvent, UserAccount
+from devfeed_core.models import Article, Base, UserAccount
 from devfeed_core.version import SCHEMA_REVISION
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 ARTICLE = uuid.UUID("00000000-0000-4000-8000-000000000001")
@@ -66,19 +66,24 @@ def metadata_setup():
                 native_import_complete boolean NOT NULL DEFAULT false,
                 native_capture_started_at timestamptz, reader_coverage_start date,
                 native_bootstrap_barrier boolean NOT NULL DEFAULT false,
-                native_bootstrap_complete boolean NOT NULL DEFAULT false)""",
+                native_bootstrap_complete boolean NOT NULL DEFAULT false,
+                card_target_policy text, card_serving_policy text,
+                card_bootstrap_complete boolean NOT NULL DEFAULT false,
+                card_bootstrap_barrier boolean NOT NULL DEFAULT false,
+                card_catalog_revision jsonb,card_catalog_target_revision jsonb,
+                card_catalog_progress_at timestamptz)""",
             "INSERT INTO analytics_pipeline_state(singleton) VALUES(true)",
             "CREATE SEQUENCE analytics_export_generation AS bigint",
             """CREATE TABLE analytics_bootstrap_cursors (
                 source_table text PRIMARY KEY, cursor jsonb,
                 complete boolean NOT NULL DEFAULT false)""",
-            """CREATE TABLE analytics_capture_events (
+            """CREATE TABLE analytics_ingest_events (
                 id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 source_table text NOT NULL, operation char(1) NOT NULL,
                 record jsonb NOT NULL, before_record jsonb,
-                format_version smallint NOT NULL DEFAULT 2 CHECK(format_version IN (1,2)),
+                format_version smallint NOT NULL DEFAULT 3 CHECK(format_version IN (1,2,3)),
                 created_at timestamptz NOT NULL DEFAULT clock_timestamp())""",
-            "CREATE INDEX ix_analytics_capture_created ON analytics_capture_events(created_at,id)",
+            "CREATE INDEX ix_analytics_capture_created ON analytics_ingest_events(created_at,id)",
             """CREATE TABLE analytics_fact_refresh (
                 domain text NOT NULL, bucket timestamptz NOT NULL, generation bigint NOT NULL,
                 requested_at timestamptz NOT NULL DEFAULT clock_timestamp(),
@@ -113,7 +118,12 @@ def metadata_setup():
             "INSERT INTO analytics_gauge_refreshes(domain,shard) "
             "VALUES('queues',0),('feed',0),('sources',0),('topics',0)",
         )
-        for statement in statements:
+        # Metadata fixtures can live beside the migrated public schema. Resolve
+        # capture functions only inside this fixture, never through its fallback.
+        schema = connection.scalar(text("SELECT current_schema()"))
+        quoted = connection.dialect.identifier_preparer.quote_schema(schema)
+        connection.execute(text(f"SET LOCAL search_path TO {quoted}"))
+        for statement in (*statements, *native_capture_statements()):
             connection.execute(text(statement))
         connection.execute(
             text("CREATE TABLE alembic_version (version_num varchar(32) PRIMARY KEY)")
@@ -122,8 +132,6 @@ def metadata_setup():
             text("INSERT INTO alembic_version VALUES (:revision)"), {"revision": SCHEMA_REVISION}
         )
     seed()
-    with Session(get_engine()) as session, session.begin():
-        session.add(ReadModelEvent(kind="policy"))
     print("Metadata-only disposable runtime schema; this does not prove Alembic migration")
 
 
@@ -134,56 +142,45 @@ def retained():
         assert session.get(UserAccount, USER).profile == {"bio": "Retained fixture profile"}
 
 
-def projection():
-    from devfeed_admin_api.overview_projection import (
-        INDEPENDENT_GROUPS,
-        REPORT_GROUPS,
-        report_key,
-        report_policy_version,
-    )
-    from devfeed_admin_api.overview_windows import current_window, recent_window
-    from devfeed_admin_api.pipeline_reads import serving_projection
-    from devfeed_core.models import PipelineProjection, ReportSnapshot
-    from devfeed_core.read_models import pipeline_policy_version
+def current_cards():
+    import asyncio
 
-    with Session(get_engine()) as session:
-        generation, snapshot = serving_projection(session)
-        assert generation == pipeline_policy_version()
-        assert snapshot.status != "rebuilding"
-        assert snapshot.lag_seconds is not None and snapshot.lag_seconds <= 60
-        article = session.scalar(
-            select(PipelineProjection).where(
-                PipelineProjection.policy_version == generation,
-                PipelineProjection.kind == "article",
-                PipelineProjection.entity_id == ARTICLE,
+    from devfeed_core.analytics import AnalyticsClient
+    from devfeed_core.analytics_observation import pipeline_policy_version
+
+    async def check():
+        async with AnalyticsClient() as client:
+            rows = await client.query("SELECT * FROM analytics_card_status FINAL")
+            assert len(rows) == 1
+            status = rows[0]
+            assert status["ready"] and status["policy"] == pipeline_policy_version()
+            assert status["lag_seconds"] <= 60
+            rows = await client.query(
+                "SELECT payload FROM analytics_cards AS c "
+                "INNER JOIN (SELECT policy,kind,shard,generation "
+                "FROM analytics_card_manifest FINAL) AS m "
+                "ON c.policy=m.policy AND c.kind=m.kind AND c.shard=m.shard "
+                "AND c.generation=m.generation "
+                "WHERE c.policy={policy:String} AND c.kind='article' "
+                "AND c.entity_id={id:UUID}",
+                {"policy": status["policy"], "id": str(ARTICLE)},
             )
-        )
-        assert article is not None and article.payload["title"] == TITLE
-        now = datetime.now(UTC)
-        required = {
-            report_key(
-                group, current_window() if group in INDEPENDENT_GROUPS else recent_window(days, now)
-            )
-            for group in REPORT_GROUPS
-            for days in ((1,) if group in INDEPENDENT_GROUPS else (7, 30))
-        }
-        assert len(REPORT_GROUPS) == 6 and len(required) == 11
-        for key in required:
-            report = session.get(ReportSnapshot, key)
-            assert report is not None and report.policy_version == report_policy_version()
+            assert len(rows) == 1 and json.loads(rows[0]["payload"])["title"] == TITLE
+
+    asyncio.run(check())
     retained()
-    print("Native backfill retained records and published all 11 current section snapshots")
+    print("Native exporter retained records and published current ClickHouse cards")
 
 
-def heartbeat(kind):
-    from devfeed_admin_api.projection_worker import heartbeat_marker
+def heartbeat():
+    from devfeed_core.runtime_files import runtime_marker
 
-    marker = heartbeat_marker(kind)
+    marker = runtime_marker("analytics-worker")
     assert marker.is_file() and marker.stat().st_uid == 10001
     assert marker.parent.stat().st_mode & 0o777 == 0o700
     assert marker.stat().st_mode & 0o777 == 0o600
-    assert 0 <= time.time() - marker.stat().st_mtime < 60
-    os.utime(marker, (1, 1))
+    assert 0 <= time.time() - float(marker.read_text()) < 120
+    marker.write_text("1")
 
 
 def permissions():
@@ -254,10 +251,10 @@ if __name__ == "__main__":
         seed()
     elif action == "retained":
         retained()
-    elif action == "projection":
-        projection()
+    elif action == "current-cards":
+        current_cards()
     elif action == "heartbeat":
-        heartbeat(sys.argv[2])
+        heartbeat()
     elif action == "permissions":
         permissions()
     elif action == "ca":

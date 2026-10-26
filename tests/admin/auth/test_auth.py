@@ -20,7 +20,6 @@ from devfeed_admin_api.main import create_app
 from devfeed_http import oidc as oidc_protocol
 from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError
-from sqlalchemy.orm import sessionmaker
 
 ISSUER = "https://identity.example"
 ORIGIN = "https://admin.example"
@@ -818,14 +817,14 @@ def test_authenticated_overview_returns_private_snapshot(oidc_app, monkeypatch):
     )
     calls = []
 
-    def metrics(session, window):
+    async def metrics(group, window):
+        assert group == "operations"
         calls.append(window.key)
         return snapshot.model_copy(update={"days": window.days})
 
-    monkeypatch.setattr(
-        overview, "read_report", lambda sessions, group, window, model: metrics(None, window)
+    oidc_app.client.app.dependency_overrides[overview.get_analytics] = lambda: SimpleNamespace(
+        section=metrics
     )
-    oidc_app.client.app.dependency_overrides[overview.session_factory] = lambda: sessionmaker()
     for query in ("", "?from=now-6d/d&to=now"):
         response = oidc_app.client.get(f"/v1/admin/overview/charts/attention{query}")
         assert response.status_code == 200

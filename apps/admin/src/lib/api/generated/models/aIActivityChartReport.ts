@@ -8,7 +8,7 @@
 import type { AIActivityChartReportChart } from './aIActivityChartReportChart';
 import type { AIActivityChartReportGranularity } from './aIActivityChartReportGranularity';
 import type { AIActivityData } from './aIActivityData';
-import type { ReadModelSnapshot } from './readModelSnapshot';
+import type { AnalyticsSnapshot } from './analyticsSnapshot';
 
 export interface AIActivityChartReport {
   chart: AIActivityChartReportChart;
@@ -17,6 +17,6 @@ export interface AIActivityChartReport {
   end?: string | null;
   generated_at: string;
   granularity?: AIActivityChartReportGranularity;
-  snapshot?: ReadModelSnapshot | null;
+  snapshot?: AnalyticsSnapshot | null;
   start?: string | null;
 }

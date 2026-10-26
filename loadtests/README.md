@@ -1,7 +1,7 @@
 # Locust load tests
 
 For administration boards, Overview, and partner analytics at production scale,
-see the [durable read-model profiler](../apps/admin-api/READ_MODELS.md#reproducible-scale-checks).
+see [native analytics profiling](../apps/admin-api/ANALYTICS.md#disposable-profiling).
 
 These tests exercise real public API reader journeys over HTTP: Latest feed,
 cursor pagination, article detail, feed options, and topic/source-filtered feeds.

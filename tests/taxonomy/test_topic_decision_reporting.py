@@ -14,13 +14,10 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from devfeed_core.models import (
     Article,
-    PipelineProjection,
-    ReadModelEvent,
     TopicDecisionRun,
     TopicProposal,
 )
-from devfeed_core.read_models import set_state
-from sqlalchemy import delete, select, text
+from sqlalchemy import select, text
 
 pytestmark = pytest.mark.integration
 START = datetime(2026, 10, 20, tzinfo=UTC)
@@ -365,24 +362,8 @@ def test_topic_migration_round_trip_keeps_scheduler_clock_capture_and_source_his
         session.add(article)
         session.flush()
         article_id = article.id
-        set_state(session, "pipeline", {"target_policy": "retained", "serving_policy": "retained"})
-        session.add(
-            PipelineProjection(
-                policy_version="retained",
-                kind="article",
-                entity_id=article_id,
-                payload={"next_check_at": START.isoformat(), "title": article.title},
-                stage="analysis",
-                state="waiting",
-                created_at=START,
-                activity_at=START,
-                evaluated_at=START,
-            )
-        )
-        session.flush()
-        session.execute(delete(ReadModelEvent))
         retained_triggers = session.execute(capture_sql).all()
-        assert len(retained_triggers) == 2
+        assert retained_triggers == []
         source_state = copy.deepcopy(session.get(TopicDecisionRun, proposal_id).state)
         expected_facts = facts(session, proposal_id)
     # Exercise this migration in one rolled-back transaction. The newer native
@@ -425,16 +406,14 @@ def test_topic_migration_round_trip_keeps_scheduler_clock_capture_and_source_his
                     text("UPDATE articles SET automation_next_check_at=:clock WHERE id=:id"),
                     {"clock": clock, "id": article_id},
                 )
-                card = connection.execute(
-                    select(PipelineProjection.payload, PipelineProjection.evaluated_at).where(
-                        PipelineProjection.policy_version == "retained",
-                        PipelineProjection.kind == "article",
-                        PipelineProjection.entity_id == article_id,
+                assert (
+                    connection.scalar(
+                        text("SELECT automation_next_check_at FROM articles WHERE id=:id"),
+                        {"id": article_id},
                     )
-                ).one()
-                assert datetime.fromisoformat(card.payload["next_check_at"]) == clock
-                assert card.evaluated_at == START
-                assert connection.scalar(text("SELECT count(*) FROM read_model_events")) == 0
+                    == clock
+                )
+                assert connection.scalar(text("SELECT to_regclass('read_model_events')")) is None
         transaction.rollback()
 
 

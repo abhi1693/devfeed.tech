@@ -33,6 +33,13 @@ FIELDS = {
         "model reasoning_effort tokens web_searches duration_ms"
     ),
     "article_reviews": "id article_id created_at action automation",
+    "source_candidates": (
+        "id status approval_status selected_feed_id source_id created_at updated_at"
+    ),
+    "article_contents": "article_id content_hash method retrieved_at",
+    "source_reviews": "id source_id decision created_at",
+    "source_discovery_jobs": "id candidate_id stage status attempts available_at finished_at",
+    "catalog_revisions": "name revision",
 }
 JOB_TABLES = (
     "ingestion_jobs",
@@ -78,12 +85,14 @@ for _job_table in JOB_TABLES:
             "attempts",
             "created_at",
             "finished_at",
+            "available_at",
             "duration_ms",
             "outcome",
             "source_id",
             "article_id",
             "proposal_id",
             "topic_id",
+            "relationships",
             *(
                 ()
                 if _job_table
@@ -144,6 +153,77 @@ TABLES = {name: _table(name, fields.split()) for name, fields in FIELDS.items()}
 
 # Children enrich publication facts through bounded article-ID probes. Existing
 # historical articles already include those associations during initial capture.
-BACKFILL_TABLES = tuple(
-    name for name in TABLES if name not in {"article_topics", "article_origins", "article_reviews"}
-) + ("overview_daily",)
+BACKFILL_TABLES = (
+    "articles",
+    "sources",
+    "topics",
+    "user_accounts",
+    "article_opens",
+    "user_topics",
+    "user_interests",
+    "user_recommendation_states",
+    "topic_proposals",
+    "topic_relation_proposals",
+    "topic_decision_runs",
+    "topic_decision_calls",
+    "inference_calls",
+    "ingestion_jobs",
+    "article_enrichment_jobs",
+    "article_image_jobs",
+    "source_enrichment_jobs",
+    "article_analysis_jobs",
+    "topic_analysis_jobs",
+    "research_verification_jobs",
+    "notification_deliveries",
+    "overview_daily",
+)
+
+# These have independent current-card cursors. Adding current dependencies must
+# never restart the completed historical source import.
+CARD_BACKFILL_TABLES = {
+    "article": "articles",
+    "source": "sources",
+    "candidate": "source_candidates",
+    "topic-proposal": "topic_proposals",
+    "relationship-proposal": "topic_relation_proposals",
+}
+
+# A current card can depend on columns deliberately absent from the exported
+# payload. PostgreSQL compares those fields in place; capture still contains only
+# TABLES' narrow allowlist, never bodies, evidence, prompts or credentials.
+CARD_SOURCES = frozenset(
+    {
+        "articles",
+        "sources",
+        "source_candidates",
+        "article_contents",
+        "article_origins",
+        "article_topics",
+        "article_reviews",
+        "source_reviews",
+        "source_discovery_jobs",
+        "article_enrichment_jobs",
+        "article_analysis_jobs",
+        "article_image_jobs",
+        "source_enrichment_jobs",
+        "ingestion_jobs",
+        "topics",
+        "topic_proposals",
+        "topic_relation_proposals",
+        "topic_analysis_jobs",
+        "research_verification_jobs",
+        "topic_decision_runs",
+        "topic_decision_calls",
+        "catalog_revisions",
+    }
+)
+WATCH_FIELDS = {
+    name: tuple(
+        column.name
+        for column in Base.metadata.tables[name].columns
+        if not (name == "articles" and column.name == "automation_next_check_at")
+    )
+    if name in CARD_SOURCES
+    else spec.fields
+    for name, spec in TABLES.items()
+}

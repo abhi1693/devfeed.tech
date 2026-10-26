@@ -8,7 +8,7 @@
 import type { AIBreakdownChartReportChart } from './aIBreakdownChartReportChart';
 import type { AIBreakdownChartReportGranularity } from './aIBreakdownChartReportGranularity';
 import type { AIBreakdownData } from './aIBreakdownData';
-import type { ReadModelSnapshot } from './readModelSnapshot';
+import type { AnalyticsSnapshot } from './analyticsSnapshot';
 
 export interface AIBreakdownChartReport {
   chart: AIBreakdownChartReportChart;
@@ -17,6 +17,6 @@ export interface AIBreakdownChartReport {
   end?: string | null;
   generated_at: string;
   granularity?: AIBreakdownChartReportGranularity;
-  snapshot?: ReadModelSnapshot | null;
+  snapshot?: AnalyticsSnapshot | null;
   start?: string | null;
 }

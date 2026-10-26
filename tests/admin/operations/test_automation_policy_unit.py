@@ -5,6 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 from devfeed_admin_api import automation
+from devfeed_core import analytics_blockers
 from devfeed_core.models import ArticleAnalysisJob, ArticleEnrichmentJob
 
 from tests.support.admin_editorial import operator_api
@@ -155,7 +156,7 @@ def test_compact_blockers_keep_overlapping_causes_and_original_recovery_actions(
             cause("analysis_failed", "analyze", [first, second]),
         ]
     )
-    monkeypatch.setattr(automation, "automation_blockers", reader)
+    monkeypatch.setattr(analytics_blockers, "automation_blockers", reader)
     session = object()
     result = automation.automation_blocker_rows(session, [first, second])
     assert result == {
@@ -175,11 +176,11 @@ def test_compact_blockers_keep_overlapping_causes_and_original_recovery_actions(
 
 
 @pytest.mark.parametrize("count", [0, 201])
-def test_compact_blocker_projection_skips_empty_batches_and_rejects_unbounded_work(
+def test_compact_blocker_classification_skips_empty_batches_and_rejects_unbounded_work(
     monkeypatch, count
 ):
     reader = Mock()
-    monkeypatch.setattr(automation, "automation_blockers", reader)
+    monkeypatch.setattr(analytics_blockers, "automation_blockers", reader)
     if count:
         with pytest.raises(ValueError, match="at most 200"):
             automation.automation_blocker_rows(object(), [uuid.uuid4() for _ in range(count)])

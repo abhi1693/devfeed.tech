@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from devfeed_core.read_models import ReadModelSnapshot
+from devfeed_core.analytics_observation import AnalyticsSnapshot
 from pydantic import BaseModel, Field, RootModel
 
 from devfeed_admin_api.automation import AutomationBlocker
@@ -58,7 +58,7 @@ class ChartMetadata(BaseModel):
     start: date | None = None
     end: date | None = None
     granularity: Literal["hour", "day", "week", "month"] | None = None
-    snapshot: ReadModelSnapshot | None = None
+    snapshot: AnalyticsSnapshot | None = None
 
 
 class AttentionData(BaseModel):

@@ -42,24 +42,22 @@ from devfeed_admin_api import (
     users,
     workers,
 )
+from devfeed_admin_api.analytics_runtime import AnalyticsRuntime
 from devfeed_admin_api.codex_connection import CodexConnection
 from devfeed_admin_api.config import get_settings
 from devfeed_admin_api.dependencies import database_session, get_redis
-from devfeed_admin_api.reporting import close_reporting
 
 logger = logging.getLogger(__name__)
 
 
 def close_clients():
-    try:
-        close_reporting()
-    finally:
-        close_shared_clients(get_redis)
+    close_shared_clients(get_redis)
 
 
 @asynccontextmanager
 async def admin_resources(app):
     async with AsyncExitStack() as stack:
+        stack.push_async_callback(app.state.analytics.close)
         stack.push_async_callback(app.state.codex.close)
         app.state.codex.start()
         yield
@@ -82,6 +80,7 @@ def create_app() -> FastAPI:
         description="Private administration API. OIDC sessions and CSRF protection required.",
     )
     app.state.codex = CodexConnection(settings)
+    app.state.analytics = AnalyticsRuntime(settings)
     # No cross-origin cookie access: the Next.js admin service proxies same-origin requests.
     service.configure(app, settings, private=True)
 

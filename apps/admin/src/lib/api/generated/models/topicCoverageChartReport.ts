@@ -5,7 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.1.4
  */
-import type { ReadModelSnapshot } from './readModelSnapshot';
+import type { AnalyticsSnapshot } from './analyticsSnapshot';
 import type { TopicCoverageChartReportChart } from './topicCoverageChartReportChart';
 import type { TopicCoverageChartReportGranularity } from './topicCoverageChartReportGranularity';
 import type { TopicCoverageData } from './topicCoverageData';
@@ -17,6 +17,6 @@ export interface TopicCoverageChartReport {
   end?: string | null;
   generated_at: string;
   granularity?: TopicCoverageChartReportGranularity;
-  snapshot?: ReadModelSnapshot | null;
+  snapshot?: AnalyticsSnapshot | null;
   start?: string | null;
 }
