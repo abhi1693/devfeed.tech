@@ -418,6 +418,8 @@ services:
     healthcheck:
       <<: *healthcheck
       test: [CMD, python, -m, devfeed_core.analytics_worker, --check]
+      # Module startup under the exporter's half-CPU budget can exceed five seconds.
+      timeout: 10s
       start_period: 180s
 
   pipeline-projector:

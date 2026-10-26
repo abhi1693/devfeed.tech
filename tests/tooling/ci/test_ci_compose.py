@@ -111,6 +111,7 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
     )
     assert services["analytics-exporter"]["cpus"] == 0.5
     assert int(services["analytics-exporter"]["mem_limit"]) == 512 * 1024**2
+    assert services["analytics-exporter"]["healthcheck"]["timeout"] == "10s"
 
 
 def test_server_profiles_reserve_capacity_for_exporter_across_reader_replicas():
