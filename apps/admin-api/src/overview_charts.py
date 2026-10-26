@@ -42,7 +42,7 @@ CHART_SECTIONS = {
     "publication-latency": "publishing",
     "audience-activity": "audience",
     "personalization": "audience",
-    "queue-pressure": "processing",
+    "queue-pressure": "queues",
     "throughput": "processing",
     "job-outcomes": "processing",
     "ai-activity": "inference",

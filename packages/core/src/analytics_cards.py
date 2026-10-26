@@ -28,6 +28,10 @@ from devfeed_core.config import get_settings
 KINDS = tuple(CARD_BACKFILL_TABLES)
 SHARDS = 256
 BUILD_BATCH_SIZE = 200
+# Publish several dirty shards together without hydrating more source rows or
+# allowing a population-sized INSERT SELECT. Each batch uses one serving insert
+# and one manifest insert rather than separate writes for every dirty shard.
+PUBLISH_SHARD_BATCH_SIZE = 8
 SCAN_BATCH_SIZE = 1000
 QUEUE_HIGH_WATERMARK = 2000
 ZERO_UUID = uuid.UUID(int=0)
@@ -321,17 +325,20 @@ class CardPublisher:
         )
 
     async def _fanout_mark(self, connection, fanout, generation, initial):
-        for kind, entity_id in sorted(fanout):
-            # requested_at is the newest invalidation, available_at the active
-            # cohort. Finish that pass before restarting for later changes.
-            await connection.execute(
-                "INSERT INTO analytics_card_fanout(kind,entity_id,generation,initial_pending) "
-                "VALUES (%s,%s,%s,%s) ON CONFLICT(kind,entity_id) DO UPDATE SET "
-                "generation=greatest(analytics_card_fanout.generation,excluded.generation),"
-                "requested_at=excluded.requested_at,"
-                "initial_pending=analytics_card_fanout.initial_pending OR excluded.initial_pending",
-                (kind, entity_id, generation, initial),
-            )
+        if not fanout:
+            return
+        ordered = sorted(fanout)
+        # requested_at is the newest invalidation, available_at the active
+        # cohort. Finish that pass before restarting for later changes.
+        await connection.execute(
+            "INSERT INTO analytics_card_fanout(kind,entity_id,generation,initial_pending) "
+            "SELECT kind,entity_id,%s,%s FROM unnest(%s::text[],%s::uuid[]) AS d(kind,entity_id) "
+            "ON CONFLICT(kind,entity_id) DO UPDATE SET "
+            "generation=greatest(analytics_card_fanout.generation,excluded.generation),"
+            "requested_at=excluded.requested_at,"
+            "initial_pending=analytics_card_fanout.initial_pending OR excluded.initial_pending",
+            (generation, initial, [kind for kind, _ in ordered], [value for _, value in ordered]),
+        )
 
     async def _reset(self, connection, policy, generation, *, fence):
         now = datetime.now(UTC)
@@ -568,20 +575,30 @@ class CardPublisher:
         return bool(row and row["saturated"])
 
     async def _publish_shard(self, connection, policy, kind, shard, generation, *, fence):
+        await self._publish_shards(connection, policy, kind, [shard], generation, fence=fence)
+
+    async def _publish_shards(self, connection, policy, kind, shards, generation, *, fence):
+        shards = sorted(set(shards))
+        if not shards:
+            return
+        if len(shards) > PUBLISH_SHARD_BATCH_SIZE:
+            raise ValueError("Too many analytical shards in one publication")
         now = datetime.now(UTC)
-        parameters = dict(policy=policy, kind=kind, shard=shard, generation=generation, now=now)
+        parameters = dict(policy=policy, kind=kind, shards=shards, generation=generation, now=now)
+        scope = "policy={policy:String} AND kind={kind:String} AND shard IN {shards:Array(UInt16)}"
         await self.client.execute(
             "INSERT INTO analytics_cards (" + COLUMN_NAMES + ",generation,built_at) "
             "SELECT " + COLUMN_NAMES + ",{generation:UInt64},{now:DateTime64(6,'UTC')} "
-            "FROM analytics_card_canonical FINAL PREWHERE " + SCOPE + " "
+            "FROM analytics_card_canonical FINAL PREWHERE " + scope + " "
             "WHERE deleted=0 AND version>=" + RESET + " SETTINGS max_block_size=1024",
             parameters,
         )
         rows = await self.client.query(
-            "SELECT count() AS count FROM analytics_cards WHERE " + SCOPE + " "
-            "AND generation={generation:UInt64}",
+            "SELECT shard,count() AS count FROM analytics_cards WHERE " + scope + " "
+            "AND generation={generation:UInt64} GROUP BY shard",
             parameters,
         )
+        counts = {int(row["shard"]): int(row["count"]) for row in rows}
         async with connection.transaction():
             await fence(connection)
             await self.client.insert(
@@ -593,8 +610,9 @@ class CardPublisher:
                         shard=shard,
                         generation=generation,
                         updated_at=now,
-                        item_count=int(rows[0]["count"]),
+                        item_count=counts.get(shard, 0),
                     )
+                    for shard in shards
                 ],
             )
 
@@ -604,12 +622,19 @@ class CardPublisher:
                 await connection.execute(
                     "WITH oldest AS (SELECT kind,get_byte(uuid_send(entity_id),0) AS shard "
                     "FROM analytics_card_refresh WHERE available_at<=clock_timestamp() "
-                    "ORDER BY initial_pending DESC,available_at,kind,entity_id LIMIT 1) "
-                    "SELECT kind,entity_id,generation FROM analytics_card_refresh "
-                    "WHERE available_at<=clock_timestamp() AND kind=(SELECT kind FROM oldest) "
-                    "AND get_byte(uuid_send(entity_id),0)=(SELECT shard FROM oldest) "
-                    "ORDER BY initial_pending DESC,entity_id LIMIT %s",
-                    (BUILD_BATCH_SIZE,),
+                    "ORDER BY initial_pending DESC,available_at,kind,entity_id LIMIT 1), "
+                    "shards AS (SELECT get_byte(uuid_send(entity_id),0) AS shard,"
+                    "bool_or(initial_pending) AS initial,min(available_at) AS available "
+                    "FROM analytics_card_refresh WHERE available_at<=clock_timestamp() "
+                    "AND kind=(SELECT kind FROM oldest) GROUP BY shard "
+                    "ORDER BY initial DESC,available,shard LIMIT %s) "
+                    "SELECT r.kind,r.entity_id,r.generation FROM analytics_card_refresh AS r "
+                    "JOIN shards AS s ON get_byte(uuid_send(r.entity_id),0)=s.shard "
+                    "WHERE r.available_at<=clock_timestamp() AND r.kind=(SELECT kind FROM oldest) "
+                    "ORDER BY r.initial_pending DESC,s.initial DESC,s.available,s.shard,"
+                    "r.entity_id "
+                    "LIMIT %s",
+                    (PUBLISH_SHARD_BATCH_SIZE, BUILD_BATCH_SIZE),
                 )
             ).fetchall()
         if not row:
@@ -624,13 +649,12 @@ class CardPublisher:
             normalize_card(observed.get(identity(value)), policy, kind, value, generation, now)
             for value in identifiers
         ]
-        shard = shard_of(identifiers[0])
+        shards = sorted({shard_of(value) for value in identifiers})
         existing = await self.client.query(
             "SELECT entity_id,semantic_hash,version FROM analytics_card_canonical FINAL PREWHERE "
-            + SCOPE
-            + " "
+            "policy={policy:String} AND kind={kind:String} AND shard IN {shards:Array(UInt16)} "
             "AND entity_id IN {ids:Array(UUID)} WHERE version>=" + RESET,
-            dict(policy=policy, kind=kind, shard=shard, ids=identifiers),
+            dict(policy=policy, kind=kind, shards=shards, ids=identifiers),
         )
         hashes = {identity(item["entity_id"]): item["semantic_hash"] for item in existing}
         changed = [
@@ -642,26 +666,37 @@ class CardPublisher:
             async with connection.transaction():
                 await fence(connection)
                 await self.client.insert("analytics_card_canonical", changed)
-        publish = bool(changed)
-        if not changed:
+        publish = {item["shard"] for item in changed}
+        unchanged = sorted(set(shards) - publish)
+        if unchanged:
             manifests = await self.client.query(
-                "SELECT generation FROM analytics_card_manifest FINAL WHERE " + SCOPE,
-                dict(policy=policy, kind=kind, shard=shard),
+                "SELECT shard,generation FROM analytics_card_manifest FINAL WHERE "
+                "policy={policy:String} AND kind={kind:String} AND shard IN {shards:Array(UInt16)}",
+                dict(policy=policy, kind=kind, shards=unchanged),
             )
-            published = (int(manifests[0]["generation"]) << 64) if manifests else -1
+            published = {int(item["shard"]): int(item["generation"]) << 64 for item in manifests}
             # Canonical insertion can succeed before a manifest failure. The
-            # replay must publish that durable change even when its hash agrees.
-            publish = any(int(item["version"]) > published for item in existing)
+            # replay must publish every such shard even in a batch with changes.
+            publish.update(
+                shard_of(item["entity_id"])
+                for item in existing
+                if shard_of(item["entity_id"]) in unchanged
+                and int(item["version"]) > published.get(shard_of(item["entity_id"]), -1)
+            )
         if publish:
-            await self._publish_shard(connection, policy, kind, shard, generation, fence=fence)
+            await self._publish_shards(connection, policy, kind, publish, generation, fence=fence)
         async with connection.transaction():
             await fence(connection)
-            for record in row:
-                await connection.execute(
-                    "DELETE FROM analytics_card_refresh WHERE kind=%s AND entity_id=%s "
-                    "AND generation<=%s",
-                    (kind, record["entity_id"], record["generation"]),
-                )
+            await connection.execute(
+                "DELETE FROM analytics_card_refresh AS r USING "
+                "unnest(%s::uuid[],%s::bigint[]) AS done(entity_id,generation) "
+                "WHERE r.kind=%s AND r.entity_id=done.entity_id AND r.generation<=done.generation",
+                (
+                    [record["entity_id"] for record in row],
+                    [record["generation"] for record in row],
+                    kind,
+                ),
+            )
         return True
 
     async def _timers_one(self, connection, generation, state, *, fence):

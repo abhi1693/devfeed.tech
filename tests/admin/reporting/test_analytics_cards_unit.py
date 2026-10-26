@@ -188,7 +188,7 @@ def test_changed_card_is_canonical_then_snapshotted_then_manifested_before_ack()
         subject, client = publisher()
         connection = dirty_connection()
         subject._build = Mock(return_value=[observation()])
-        client.query.side_effect = [[], [{"count": 1}]]
+        client.query.side_effect = [[], [{"shard": 18, "count": 1}]]
         order = []
         client.insert.side_effect = lambda table, rows: order.append(table)
         client.execute.side_effect = lambda *args: order.append("snapshot")
@@ -204,8 +204,8 @@ def test_changed_card_is_canonical_then_snapshotted_then_manifested_before_ack()
         assert order == ["analytics_card_canonical", "snapshot", "analytics_card_manifest", "ack"]
         assert subject._build.call_args.args[1] == [ENTITY]
         selected = connection.calls[0]
-        assert selected[1] == (200,) and "get_byte(uuid_send(entity_id),0)" in selected[0]
-        assert "AND generation<=%s" in connection.calls[-1][0]
+        assert selected[1] == (8, 200) and "get_byte(uuid_send(entity_id),0)" in selected[0]
+        assert "r.generation<=done.generation" in connection.calls[-1][0]
         assert "max_block_size=1024" in client.execute.call_args.args[0]
 
     asyncio.run(verify())
@@ -221,7 +221,7 @@ def test_unchanged_card_acks_without_churning_payload_or_page_generation():
                 observation(payload={**json.loads(row["payload"]), "next_check_at": None})
             ]
         )
-        client.query.side_effect = [[row], [{"generation": 1}]]
+        client.query.side_effect = [[row], [{"shard": 18, "generation": 1}]]
 
         assert await subject._refresh_one(connection, 3, STATE, fence=AsyncMock())
 
@@ -232,13 +232,84 @@ def test_unchanged_card_acks_without_churning_payload_or_page_generation():
     asyncio.run(verify())
 
 
+def test_mixed_shards_batch_changes_and_replayed_canonical_before_one_fenced_ack():
+    async def verify():
+        subject, client = publisher()
+        other = uuid.UUID("13000000-0000-4000-8000-000000000002")
+        connection = Connection(
+            lambda statement, parameters: (
+                [
+                    dict(kind="article", entity_id=ENTITY, generation=2),
+                    dict(kind="article", entity_id=other, generation=7),
+                ]
+                if statement.startswith("WITH oldest")
+                else None
+            )
+        )
+        subject._build = Mock(
+            return_value=[observation(), observation(entity_id=other, payload={"id": str(other)})]
+        )
+        previous = cards.normalize_card(observation(), "policy", "article", ENTITY, 2, NOW)
+        client.query.side_effect = [
+            [previous],
+            [{"shard": 18, "generation": 1}],
+            [{"shard": 18, "count": 5}, {"shard": 19, "count": 4}],
+        ]
+
+        assert await subject._refresh_one(connection, 8, STATE, fence=AsyncMock())
+
+        # One durable canonical insert and one complete publication for both the
+        # newly changed shard and the orphan canonical shard from a failed flush.
+        canonical, manifest = client.insert.call_args_list
+        assert canonical.args[0] == "analytics_card_canonical"
+        assert [item["entity_id"] for item in canonical.args[1]] == [str(other)]
+        client.execute.assert_awaited_once()
+        assert client.execute.call_args.args[1]["shards"] == [18, 19]
+        assert manifest.args[0] == "analytics_card_manifest"
+        assert [(item["shard"], item["item_count"]) for item in manifest.args[1]] == [
+            (18, 5),
+            (19, 4),
+        ]
+        acknowledgements = [call for call in connection.calls if call[0].startswith("DELETE")]
+        assert len(acknowledgements) == 1
+        assert acknowledgements[0][1] == ([ENTITY, other], [2, 7], "article")
+
+    asyncio.run(verify())
+
+
+def test_empty_shard_has_a_zero_manifest_and_failed_batch_keeps_every_dirty_identity():
+    async def verify():
+        subject, client = publisher()
+        connection = Connection()
+        client.query.return_value = [{"shard": 19, "count": 4}]
+        await subject._publish_shards(
+            connection, "policy", "article", [18, 19], 8, fence=AsyncMock()
+        )
+        assert [
+            (item["shard"], item["item_count"]) for item in client.insert.call_args.args[1]
+        ] == [
+            (18, 0),
+            (19, 4),
+        ]
+        with pytest.raises(ValueError, match="Too many"):
+            await subject._publish_shards(
+                connection, "policy", "article", range(9), 8, fence=AsyncMock()
+            )
+
+    asyncio.run(verify())
+
+
 def test_canonical_success_manifest_failure_replay_publishes_despite_equal_hash():
     async def verify():
         subject, client = publisher()
         connection = dirty_connection()
         row = cards.normalize_card(observation(), "policy", "article", ENTITY, 2, NOW)
         subject._build = Mock(return_value=[observation()])
-        client.query.side_effect = [[row], [{"generation": 1}], [{"count": 1}]]
+        client.query.side_effect = [
+            [row],
+            [{"shard": 18, "generation": 1}],
+            [{"shard": 18, "count": 1}],
+        ]
 
         assert await subject._refresh_one(connection, 3, STATE, fence=AsyncMock())
 
@@ -257,7 +328,7 @@ def test_failed_manifest_keeps_dirty_identity_for_replay():
         subject, client = publisher()
         connection = dirty_connection()
         subject._build = Mock(return_value=[])
-        client.query.side_effect = [[], [{"count": 0}]]
+        client.query.side_effect = [[], []]
 
         async def insert(table, rows):
             if table == "analytics_card_manifest":
@@ -290,7 +361,7 @@ def test_superseded_lease_cannot_publish_manifest_or_ack_current_work():
             "DELETE FROM analytics_card_refresh" in query for query, _ in connection.calls
         )
 
-        client.query.return_value = [{"count": 1}]
+        client.query.return_value = [{"shard": 18, "count": 1}]
         with pytest.raises(RuntimeError, match="superseded"):
             await subject._publish_shard(connection, "policy", "article", 18, 3, fence=fence)
         client.execute.assert_awaited_once()  # An orphan immutable shard is never visible.

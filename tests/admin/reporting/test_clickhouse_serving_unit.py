@@ -417,7 +417,7 @@ async def test_sixteen_readers_and_twelve_charts_coalesce_by_section_and_window(
         ]
     )
     assert len(results) == 192
-    assert client.status_reads == 5
+    assert client.status_reads == 6
     assert sum("admin:card-status" in sql for sql, _ in client.queries) == 2
     assert len(client.queries) <= 21
     before = len(client.queries)
@@ -425,6 +425,36 @@ async def test_sixteen_readers_and_twelve_charts_coalesce_by_section_and_window(
     assert len(client.queries) == before
     await reads.close()
     assert client.closed
+
+
+@run_async
+async def test_queue_polling_coalesces_and_refreshes_without_recalculating_historical_charts():
+    time = [NOW]
+    client = Client({"overview:queues": [{"kind": "analysis", "queued": 9, "running": 2}]})
+    reads = runtime(client, clock=lambda: time[0])
+    window = recent_window(30, NOW)
+    queue_group = CHART_SECTIONS["queue-pressure"]
+    results = await asyncio.gather(*[reads.section(queue_group, window) for _ in range(16)])
+    assert all(result.data.queues[0].queued == 9 for result in results)
+    assert client.status_reads == 1
+    assert len(client.queries) == 1 and "overview:queues" in client.queries[0][0]
+    historical = await reads.section(CHART_SECTIONS["throughput"], window)
+    assert historical.data.section == "processing" and len(historical.data.throughput) == 30
+    assert client.status_reads == 2
+    assert len(client.queries) == 3
+    time[0] += timedelta(seconds=31)
+    client.results["overview:queues"][0]["queued"] = 4
+    refreshed = await reads.section(queue_group, window)
+    assert refreshed.data.queues[0].queued == 4 and refreshed.snapshot.status == "fresh"
+    assert client.status_reads == 3
+    assert len(client.queries) == 4 and "overview:queues" in client.queries[-1][0]
+    assert sum("overview:job-outcomes" in sql for sql, _ in client.queries) == 1
+    assert sum("overview:throughput" in sql for sql, _ in client.queries) == 1
+    time[0] += timedelta(seconds=31)
+    client.failed = True
+    stale = await reads.section(queue_group, window)
+    assert stale.snapshot.status == "stale" and stale.data.queues[0].queued == 4
+    assert len(client.queries) == 4
 
 
 @run_async

@@ -58,3 +58,42 @@ hourly cohorts per cycle; source/topic day cohorts rebuild one at a time. After
 bootstrap completes, the exporter polls at the normal one-second cadence even
 when busy. New changes coalesce into rollups for up to 30 seconds without moving
 their original publication deadline.
+
+## Ingestion and read practices
+
+The exporter follows ClickHouse's [insert strategy guide](https://clickhouse.com/docs/concepts/best-practices/selecting-an-insert-strategy)
+and [asynchronous insert guidance](https://clickhouse.com/docs/concepts/features/operations/insert/asyncinserts):
+
+- Capture and historical backfill use 1,000 source records per page by default.
+  Native, LZ4-compressed inserts avoid repeatedly parsing JSON on the server.
+  Column types are discovered once per table/column shape; concurrent inserts
+  use independent driver contexts, as required by the [Python insertion guide](https://clickhouse.com/docs/integrations/language-clients/python/advanced-inserting).
+- Every client insert sets `async_insert=1, wait_for_async_insert=1`. The exporter
+  waits for the flush and dependent materialized views before acknowledging
+  captured IDs. It never acknowledges an in-memory buffer or drops failed work.
+  Replays rerun idempotent fact/change materialized views even after partial failure.
+- A current-card batch hydrates at most 200 identities across at most eight
+  shards of one kind. Canonical changes, complete shard snapshots, and manifests
+  each use one insert for the batch. Snapshot copying streams 1,024-row blocks
+  under the existing query memory cap. The manifest is published last under the
+  native lease; exact identity/generation acknowledgements preserve racing changes.
+- Small status/manifest writes remain separate where publication ordering requires
+  it. Async buffering combines only matching insert shapes and settings, and a
+  single publisher waiting for a flush cannot combine its next sequential insert.
+  Application batching therefore matters even with async inserts enabled.
+- Queue pressure has its own cached gauge query. Its refresh does not scan
+  historical outcomes or throughput. Historical charts share their calculations
+  and refresh only on demand; only Queue pressure polls after a successful load.
+
+Keep the existing application, account, and container budgets when adopting these
+changes in k3s. The table above describes checked-in defaults; local `.env`
+overrides can differ. Avoid increasing worker batch size or query concurrency
+without measuring the resident catalogue, insertion buffers, merges, and reads
+together. See [the scale results](../../benchmarks/clickhouse-current-serving.md).
+
+Use `system.parts` to watch active part counts and bytes per table, and compare
+`system.query_log` read rows/bytes, memory, CPU, and exceptions with exporter lag.
+`system.asynchronous_insert_log` records flush failures and flush CPU. More async
+requests alone do not prove fewer parts. Leave background merges enabled in the
+application; [routine `OPTIMIZE FINAL`](https://clickhouse.com/docs/concepts/best-practices/avoid-optimize-final)
+adds merge work and does not solve an excessive insert rate.

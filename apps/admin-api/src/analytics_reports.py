@@ -304,7 +304,7 @@ class Reports:
         )
 
     async def processing(self):
-        outcomes, throughput, queues = await _gather(
+        outcomes, throughput = await _gather(
             self.query(f"""/* overview:job-outcomes */ SELECT r.kind AS kind,
                 sum(r.completed) AS completed, sum(r.failed) AS failed,
                 {QUANTILES}(r.duration_seconds_state) AS percentiles
@@ -321,9 +321,6 @@ class Reports:
                   UNION ALL SELECT {self.bucket}, sum(r.published), 0, 0
                   FROM {self.rollup("publishing_hourly", "publishing")} GROUP BY {self.bucket}
                 ) GROUP BY chart_bucket ORDER BY chart_bucket"""),
-            self.query(f"""/* overview:queues */ SELECT g.kind AS kind, sum(g.queued) AS queued,
-                sum(g.running) AS running, min(g.oldest_queued_at) AS oldest_queued_at
-                FROM {self.gauge("queue_gauges", "queues")} GROUP BY g.kind ORDER BY g.kind"""),
         )
         activity = {
             bucket.isoformat(): ThroughputBucket(bucket=bucket.isoformat())
@@ -345,10 +342,16 @@ class Reports:
                 )
             )
         return ProcessingSection(
-            queues=[QueuePressure(**row) for row in queues],
             throughput=list(activity.values()),
             outcomes=jobs,
         )
+
+    async def queues(self):
+        rows = await self.query(f"""/* overview:queues */ SELECT g.kind AS kind,
+            sum(g.queued) AS queued, sum(g.running) AS running,
+            min(g.oldest_queued_at) AS oldest_queued_at
+            FROM {self.gauge("queue_gauges", "queues")} GROUP BY g.kind ORDER BY g.kind""")
+        return ProcessingSection(queues=[QueuePressure(**row) for row in rows])
 
     async def inference(self):
         sums = ", ".join(
@@ -437,7 +440,7 @@ class Reports:
         )
 
     async def section(self, section):
-        if section not in ANALYTICAL_GROUPS:
+        if section not in ANALYTICAL_GROUPS and section != "queues":
             raise ValueError("Operations require current transactional controls")
         async with asyncio.timeout(20):
             data = await getattr(self, section)()

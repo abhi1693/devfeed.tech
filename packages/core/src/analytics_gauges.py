@@ -273,16 +273,13 @@ class Gauges:
                     # Account presence changes only with account lifecycle events.
                     # Feed-only generations must not duplicate stable account history.
                     account = {
-                        key: base[key]
-                        for key in (
-                            "entity_id",
-                            "target_id",
-                            "shard",
-                            "event_id",
-                            "delivery_generation",
-                            "captured_at",
-                            "deleted",
-                        )
+                        **base,
+                        "interest_count": 0,
+                        "invalidated": 0,
+                        "has_generation": 0,
+                        "has_recommendations": 0,
+                        "expires_at": None,
+                        "next_refresh_at": None,
                     }
                     audience.append({**account, "kind": "account"})
                 audience.append({**base, "kind": "feed"})

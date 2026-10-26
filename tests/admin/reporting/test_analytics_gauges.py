@@ -432,7 +432,9 @@ def test_feed_generation_changes_do_not_rewrite_stable_account_history():
     )
     rows = driver.insert.await_args.args[1]
     account = next(row for row in rows if row["kind"] == "account")
-    assert "interest_count" not in account and "has_recommendations" not in account
+    assert account["interest_count"] == account["has_recommendations"] == 0
+    assert account["expires_at"] is account["next_refresh_at"] is None
+    assert set(account) == set(next(row for row in rows if row["kind"] == "feed"))
     assert account["deleted"] == 0 and account["delivery_generation"] == 9
 
 

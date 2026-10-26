@@ -40,7 +40,9 @@ three small native control tables:
 - `analytics_card_fanout` checkpoints source/catalog invalidation passes.
 
 Builders hydrate at most 200 combined identities before evaluating lifecycle
-rules. Source fanout uses bounded origin keysets. Catalog fanout considers
+rules. Each publication batches up to eight shards of the same kind into one
+canonical insert, one snapshot copy, and one manifest insert. Bulk control-table
+updates retain per-identity generation checks. Source fanout uses bounded origin keysets. Catalog fanout considers
 catalog-sensitive current ClickHouse cards. Concurrent changes coalesce without
 repeatedly rewinding a running scan. Timed job availability transitions enqueue
 bounded due-card work. Article scheduler-clock changes create no capture event or
@@ -76,6 +78,11 @@ Results remain fresh for 30 seconds; complete local/Redis fallback results may b
 served with explicit stale metadata during failures. Cold ClickHouse failures
 return the retryable preparing response, and the admin automatically retries.
 There is no PostgreSQL historical aggregation fallback or saved-report worker.
+
+Queue pressure uses a separate gauge-only calculation and cache key; polling it
+does not refresh historical processing charts. Historical throughput and outcomes
+share their two summary queries. Only Queue pressure polls after success; other
+charts retain preparing retries and explicit reload behavior.
 
 Overview accepts Grafana-style `from`/`to` date math or inclusive UTC dates.
 Resolved bounds identify caches, so equal-length custom intervals do not replace

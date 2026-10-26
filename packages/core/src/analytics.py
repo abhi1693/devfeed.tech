@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 from datetime import UTC, date, datetime
+from functools import lru_cache
 from typing import Any
 
 import aiohttp
@@ -32,11 +33,53 @@ def _parameter(value):
     return str(value)
 
 
+def _insert_datetime(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if isinstance(value, datetime):
+        if value.tzinfo is UTC:
+            return value
+        return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+    return value
+
+
+def _insert_date(value):
+    if isinstance(value, str):
+        return date.fromisoformat(value)
+    if isinstance(value, datetime):
+        return value.astimezone(UTC).date() if value.tzinfo else value.date()
+    return value
+
+
+@lru_cache(maxsize=128)
+def _insert_converter(kind: str):
+    """Compile only necessary coercions; numeric/string columns stay untouched."""
+    while kind.startswith(("Nullable(", "LowCardinality(")):
+        kind = kind[kind.index("(") + 1 : -1]
+    if kind.startswith("Array("):
+        converter = _insert_converter(kind[6:-1])
+        if converter is not None:
+            return lambda values: (
+                [converter(value) for value in values] if values is not None else None
+            )
+    if kind == "UUID":
+        return lambda value: str(value) if value is not None else None
+    if kind.startswith("DateTime"):
+        return _insert_datetime
+    if kind in {"Date", "Date32"}:
+        return _insert_date
+    return None
+
+
 class AnalyticsClient:
     def __init__(self, settings: Settings | None = None, *, driver=None):
         self.settings = settings or get_settings()
         self._semaphore = asyncio.Semaphore(self.settings.clickhouse_max_concurrent_queries)
         self._connect_lock = asyncio.Lock()
+        self._insert_schema_lock = asyncio.Lock()
+        self._insert_schemas: dict[tuple[str, tuple[str, ...]], tuple[str, ...]] = {}
         self._driver = driver
         self.insert_settings: dict[str, Any] = {}
 
@@ -77,6 +120,7 @@ class AnalyticsClient:
                     connector_limit_per_host=self.settings.clickhouse_max_concurrent_queries,
                     autogenerate_session_id=False,
                     show_clickhouse_errors=False,
+                    compress="lz4",
                 )
         return self._driver
 
@@ -126,12 +170,27 @@ class AnalyticsClient:
         for statement in card_initialization_sql():
             await self.execute(statement)
 
+    async def _insert_types(self, table: str, columns: tuple[str, ...]):
+        key = (table, columns)
+        if key in self._insert_schemas:
+            return self._insert_schemas[key]
+        async with self._insert_schema_lock:
+            if key not in self._insert_schemas:
+                schema = {
+                    row["name"]: row["type"] for row in await self.query("DESCRIBE TABLE " + table)
+                }
+                self._insert_schemas[key] = tuple(schema[name] for name in columns)
+            return self._insert_schemas[key]
+
     async def insert(self, table: str, rows: list[dict[str, Any]]):
         if not rows:
             return
         if re.fullmatch(r"analytics_[a-z][a-z0-9_]*", table) is None:
             raise ValueError("Unknown analytical table")
-        data = "\n".join(json.dumps(row, default=_parameter, separators=(",", ":")) for row in rows)
+        columns = tuple(sorted(rows[0]))
+        expected = set(columns)
+        if not columns or any(set(row) != expected for row in rows):
+            raise ValueError("Analytical insert rows must have the same columns")
         settings = (
             self._limits()
             | self.insert_settings
@@ -149,13 +208,34 @@ class AnalyticsClient:
             # argMax materialized states are idempotent; replay must rerun the
             # projection even after an earlier partial materialized-view failure.
             settings.update(insert_deduplicate=0, async_insert_deduplicate=0)
-        await self._operation(
-            "raw_insert",
-            table=table,
-            insert_block=data.encode(),
-            fmt="JSONEachRow",
-            settings=settings,
-        )
+        try:
+            # Discovery is cached by table and column shape. Each driver insert
+            # gets a fresh context: sharing its mutable row/block cursor across
+            # concurrent gauge writes would corrupt batches. Explicit types also
+            # avoid a DESCRIBE pre-query on every Native insert.
+            async with asyncio.timeout(self.settings.clickhouse_timeout_seconds):
+                kinds = await self._insert_types(table, columns)
+                # Native is column oriented. Prepare columns directly instead of
+                # allocating row tuples which the driver must transpose again.
+                data = []
+                for name, kind in zip(columns, kinds, strict=True):
+                    converter = _insert_converter(kind)
+                    data.append(
+                        [converter(row[name]) for row in rows]
+                        if converter is not None
+                        else [row[name] for row in rows]
+                    )
+                await self._operation(
+                    "insert",
+                    table=table,
+                    data=data,
+                    column_names=columns,
+                    column_type_names=kinds,
+                    column_oriented=True,
+                    settings=settings,
+                )
+        except TimeoutError as error:
+            raise AnalyticsUnavailable("ClickHouse request failed") from error
 
     async def status(self) -> dict[str, Any]:
         rows = await self.query("SELECT * FROM analytics_pipeline_status FINAL")

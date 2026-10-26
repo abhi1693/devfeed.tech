@@ -5,7 +5,7 @@ import json
 import os
 import socket
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -52,8 +52,10 @@ def test_official_driver_bindings_budgets_and_durable_async_ack():
             _env_file=None, database_url="postgresql://unused", redis_url="redis://unused"
         )
         driver = SimpleNamespace(
-            raw_query=AsyncMock(return_value=b'{"value":1}\n'),
-            raw_insert=AsyncMock(),
+            raw_query=AsyncMock(
+                side_effect=[b'{"value":1}\n', b'{"name":"event_id","type":"UInt64"}\n']
+            ),
+            insert=AsyncMock(),
             close=AsyncMock(),
         )
         async with AnalyticsClient(settings, driver=driver) as client:
@@ -61,12 +63,109 @@ def test_official_driver_bindings_budgets_and_durable_async_ack():
                 {"value": 1}
             ]
             await client.insert("analytics_fact_events", [{"event_id": 1}])
-        assert driver.raw_query.call_args.kwargs["parameters"] == {"value": "'unsafe SQL;"}
-        limits = driver.raw_insert.call_args.kwargs["settings"]
+        assert driver.raw_query.call_args_list[0].kwargs["parameters"] == {"value": "'unsafe SQL;"}
+        limits = driver.insert.call_args.kwargs["settings"]
         assert limits["max_threads"] == 2
         assert limits["async_insert"] == limits["wait_for_async_insert"] == 1
         assert limits["insert_deduplicate"] == limits["async_insert_deduplicate"] == 0
         driver.close.assert_awaited_once()
+
+    asyncio.run(verify())
+
+
+def test_native_insert_caches_types_and_keeps_concurrent_batches_independent():
+    async def verify():
+        settings = Settings(
+            _env_file=None, database_url="postgresql://unused", redis_url="redis://unused"
+        )
+        columns = {
+            "id": "Nullable(UUID)",
+            "ids": "Array(UUID)",
+            "at": "Nullable(DateTime64(6,'UTC'))",
+            "day": "Date",
+            "version": "UInt128",
+            "usage": "Int128",
+        }
+        schema = "\n".join(
+            json.dumps({"name": name, "type": kind}) for name, kind in columns.items()
+        )
+        driver = SimpleNamespace(
+            raw_query=AsyncMock(return_value=schema.encode()),
+            insert=AsyncMock(),
+            close=AsyncMock(),
+        )
+        identifier = uuid.uuid4()
+        instant = datetime(2026, 10, 27, 1, 2, 3, 456789, tzinfo=UTC)
+        first = dict(
+            id=None,
+            ids=[identifier, str(identifier)],
+            at=instant.isoformat(),
+            day="2026-10-27",
+            version=2**100 + 19,
+            usage=-(2**90),
+        )
+        second = dict(first, id=identifier, at=instant.astimezone(timezone(timedelta(hours=5))))
+        async with AnalyticsClient(settings, driver=driver) as client:
+            await asyncio.gather(
+                client.insert("analytics_type_probe", [first, second]),
+                client.insert("analytics_type_probe", [second]),
+            )
+        driver.raw_query.assert_awaited_once()
+        calls = [call.kwargs for call in driver.insert.call_args_list]
+        assert len(calls) == 2
+        assert calls[0]["data"] is not calls[1]["data"]
+        assert all("context" not in call for call in calls)
+        for call, originals in zip(calls, ([first, second], [second]), strict=True):
+            assert call["column_type_names"] == tuple(columns[name] for name in sorted(columns))
+            assert call["column_oriented"] is True
+            decoded = [
+                dict(zip(call["column_names"], row, strict=True))
+                for row in zip(*call["data"], strict=True)
+            ]
+            assert decoded == [
+                dict(
+                    original,
+                    id=str(identifier) if original["id"] else None,
+                    ids=[str(identifier), str(identifier)],
+                    at=instant,
+                    day=date(2026, 10, 27),
+                )
+                for original in originals
+            ]
+
+    asyncio.run(verify())
+
+
+def test_native_insert_rejects_mixed_columns_without_silently_filling_defaults():
+    async def verify():
+        driver = SimpleNamespace(close=AsyncMock())
+        settings = Settings(
+            _env_file=None, database_url="postgresql://unused", redis_url="redis://unused"
+        )
+        async with AnalyticsClient(settings, driver=driver) as client:
+            with pytest.raises(ValueError, match="same columns"):
+                await client.insert("analytics_fact_events", [{"event_id": 1}, {"side": 0}])
+            with pytest.raises(ValueError, match="Unknown analytical table"):
+                await client.insert("untrusted; SQL", [{"event_id": 1}])
+
+    asyncio.run(verify())
+
+
+def test_native_insert_includes_schema_discovery_in_total_deadline():
+    async def verify():
+        async def describe(*_args, **_kwargs):
+            await asyncio.Event().wait()
+
+        driver = SimpleNamespace(raw_query=AsyncMock(side_effect=describe), close=AsyncMock())
+        settings = Settings(
+            _env_file=None,
+            database_url="postgresql://unused",
+            redis_url="redis://unused",
+            clickhouse_timeout_seconds=0.01,
+        )
+        async with AnalyticsClient(settings, driver=driver) as client:
+            with pytest.raises(AnalyticsUnavailable, match="ClickHouse request failed"):
+                await client.insert("analytics_fact_events", [{"event_id": 1}])
 
     asyncio.run(verify())
 
@@ -247,6 +346,72 @@ def _settings():
         clickhouse_password=os.environ.get("DEVFEED_TEST_CLICKHOUSE_PASSWORD", ""),
         analytics_rollup_interval_seconds=1,
     )
+
+
+@pytest.mark.integration
+def test_native_compressed_batches_preserve_capture_types_and_omitted_server_defaults():
+    settings = _settings()
+
+    async def verify():
+        target = f"native_types_{uuid.uuid4().hex}_test"
+        async with AnalyticsClient(
+            settings.model_copy(update={"clickhouse_database": "default"})
+        ) as admin:
+            await admin.execute(f"CREATE DATABASE `{target}`")
+            try:
+                async with AnalyticsClient(
+                    settings.model_copy(update={"clickhouse_database": target})
+                ) as client:
+                    client.insert_settings = {"async_insert_busy_timeout_ms": 1}
+                    await client.execute(
+                        "CREATE TABLE analytics_type_probe (position UInt8,identity Nullable(UUID),"
+                        "identities Array(UUID),at Nullable(DateTime64(6,'UTC')),day Date,"
+                        "version UInt128,usage Int128,label String,server_default UInt8 DEFAULT 7) "
+                        "ENGINE=MergeTree ORDER BY position"
+                    )
+                    identifier = uuid.uuid4()
+                    instant = datetime(2026, 10, 27, 1, 2, 3, 456789, tzinfo=UTC)
+                    batch = [
+                        dict(
+                            position=0,
+                            identity=None,
+                            identities=[identifier, str(identifier)],
+                            at=None,
+                            day="2026-10-27",
+                            version=2**100 + 19,
+                            usage=-(2**90),
+                            label="Unicode: λ — native",
+                        ),
+                        dict(
+                            position=1,
+                            identity=identifier,
+                            identities=[],
+                            at=instant.isoformat(),
+                            day=instant,
+                            version=2**100 + 20,
+                            usage=2**90,
+                            label="",
+                        ),
+                    ]
+                    await client.insert("analytics_type_probe", batch)
+                    rows = await client.query(
+                        "SELECT * FROM analytics_type_probe ORDER BY position"
+                    )
+                    assert len(rows) == 2
+                    assert rows[0]["identity"] is rows[0]["at"] is None
+                    assert rows[0]["identities"] == [str(identifier), str(identifier)]
+                    assert rows[1]["identity"] == str(identifier) and rows[1]["identities"] == []
+                    assert datetime.fromisoformat(rows[1]["at"]) == instant
+                    for index, row in enumerate(rows):
+                        assert row["day"] == "2026-10-27"
+                        assert row["version"] == batch[index]["version"]
+                        assert row["usage"] == batch[index]["usage"]
+                        assert row["label"] == batch[index]["label"]
+                        assert row["server_default"] == 7
+            finally:
+                await admin.execute(f"DROP DATABASE `{target}`")
+
+    asyncio.run(verify())
 
 
 async def _reset(client):

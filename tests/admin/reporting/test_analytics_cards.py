@@ -259,3 +259,101 @@ def test_native_current_cards_bootstrap_fanout_noop_delete_and_reset(database):
             )["native_bootstrap_complete"]
 
     asyncio.run(verify())
+
+
+def test_native_card_batch_bounds_shards_and_keeps_racing_generations(database):
+    now = datetime.now(UTC)
+    identifiers = [
+        uuid.UUID(int=(shard << 120) + number) for shard in range(16, 25) for number in (1, 2)
+    ]
+    with database() as session:
+        session.add_all(
+            Article(
+                id=value,
+                title="Before batch",
+                canonical_url=f"https://example.invalid/{value}",
+                url_hash=f"{index:064x}",
+                discovered_at=now,
+            )
+            for index, value in enumerate(identifiers)
+        )
+        session.commit()
+
+    async def verify():
+        async with native_publisher() as (publisher, client, connection, fence, drain):
+            await drain()
+            generation = (
+                await (
+                    await connection.execute(
+                        "SELECT nextval('analytics_export_generation') AS value"
+                    )
+                ).fetchone()
+            )["value"]
+            with database() as session:
+                session.execute(text("UPDATE articles SET title='Queued batch'"))
+                session.commit()
+            await publisher._mark(
+                connection, {("article", value) for value in identifiers}, generation, False
+            )
+            # The highest UUID shard is oldest and must make progress even when
+            # lower UUID shards can fill the bounded builder batch.
+            raced = identifiers[-1]
+            await connection.execute(
+                "UPDATE analytics_card_refresh SET "
+                "available_at=clock_timestamp()-interval '1 hour' "
+                "WHERE entity_id=%s",
+                (raced,),
+            )
+            original = publisher._build
+            built = []
+            dsn = settings().database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+
+            def build(kind, values, policy, observed):
+                built.append(list(values))
+                result = original(kind, values, policy, observed)
+                if raced in values:
+                    with psycopg.connect(dsn) as writer:
+                        writer.execute(
+                            "UPDATE articles SET title='Racing batch' WHERE id=%s", (raced,)
+                        )
+                        writer.execute(
+                            "UPDATE analytics_card_refresh SET generation=%s WHERE entity_id=%s",
+                            (generation + 2, raced),
+                        )
+                return result
+
+            publisher._build = build
+            state = await publisher._state(connection)
+            assert await publisher._refresh_one(connection, generation + 1, state, fence=fence)
+            assert raced in built[0]
+            assert len(built[0]) == 16
+            assert len({value.bytes[0] for value in built[0]}) == 8
+            pending = await (
+                await connection.execute("SELECT entity_id,generation FROM analytics_card_refresh")
+            ).fetchall()
+            assert len(pending) == 3
+            assert {row["entity_id"] for row in pending} == {
+                value for value in identifiers if value not in built[0]
+            } | {raced}
+            assert next(row["generation"] for row in pending if row["entity_id"] == raced) == (
+                generation + 2
+            )
+            manifests = await client.query(
+                "SELECT shard,item_count FROM analytics_card_manifest FINAL "
+                "WHERE kind='article' AND generation={generation:UInt64}",
+                {"generation": generation + 1},
+            )
+            assert len(manifests) == 8 and sum(row["item_count"] for row in manifests) == 16
+            publisher._build = original
+            assert await publisher._refresh_one(connection, generation + 3, state, fence=fence)
+            assert not await (
+                await connection.execute("SELECT 1 FROM analytics_card_refresh")
+            ).fetchall()
+            assert (
+                await client.query(
+                    "SELECT title FROM analytics_card_canonical FINAL WHERE entity_id={id:UUID}",
+                    {"id": raced},
+                )
+            )[0]["title"] == "Racing batch"
+
+    asyncio.run(verify())

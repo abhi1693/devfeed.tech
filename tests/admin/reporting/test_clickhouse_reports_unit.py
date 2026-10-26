@@ -257,14 +257,6 @@ async def test_processing_combines_useful_output_without_mixing_decision_rows_in
                     "topic_decisions": 2,
                 }
             ],
-            "queues": [
-                {
-                    "kind": "analysis",
-                    "queued": 9,
-                    "running": 2,
-                    "oldest_queued_at": NOW - timedelta(hours=2),
-                }
-            ],
         }
     )
     result = await reports(client).processing()
@@ -273,12 +265,36 @@ async def test_processing_combines_useful_output_without_mixing_decision_rows_in
         "article_analyses": 4,
         "topic_decisions": 2,
     }
-    assert result.queues[0].queued == 9 and result.queues[0].running == 2
-    assert result.queues[0].oldest_queued_at == NOW - timedelta(hours=2)
+    assert not result.queues
+    assert len(client.queries) == 2
     assert result.outcomes[0].p95_seconds == 8
     assert result.outcomes[1].p50_seconds is None
     outcome_sql = next(sql for sql, _ in client.queries if "overview:job-outcomes" in sql)
     assert "r.kind != 'topic-decision'" in outcome_sql
+
+
+@run_async
+async def test_queue_pressure_reads_only_current_gauges_without_scanning_processing_history():
+    client = Client(
+        {
+            "queues": [
+                {
+                    "kind": "analysis",
+                    "queued": 9,
+                    "running": 2,
+                    "oldest_queued_at": NOW - timedelta(hours=2),
+                }
+            ]
+        }
+    )
+    result = await reports(client).section("queues")
+    assert result.data.queues[0].queued == 9 and result.data.queues[0].running == 2
+    assert result.data.queues[0].oldest_queued_at == NOW - timedelta(hours=2)
+    assert not result.data.outcomes and not result.data.throughput
+    assert len(client.queries) == 1
+    sql = client.queries[0][0]
+    assert "analytics_queue_gauges" in sql and "analytics_gauge_manifest" in sql
+    assert "analytics_processing_hourly" not in sql and "analytics_publishing_hourly" not in sql
 
 
 @pytest.mark.parametrize("bad", [None, float("nan"), float("inf"), float("-inf")])
