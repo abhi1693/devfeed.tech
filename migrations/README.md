@@ -205,3 +205,23 @@ older binaries. Downgrade removes only the checkpoints and new indexes. It canno
 previously redacted inputs, catalogs or specialist outputs; durable job identities,
 results, accounting and failures remain. Rolling back also restores the old retention
 policy, so keep the scheduler stopped until that cost and policy are acceptable.
+
+## ClickHouse analytics export (0038)
+
+Revision `0038` adds the transactional analytical outbox, exporter checkpoints,
+backfill cursors, and narrow source capture triggers. It removes PostgreSQL's
+inference aggregate maintenance triggers. Historical reports require ClickHouse;
+there is no PostgreSQL reporting fallback or feature switch.
+
+The migration installs capture without scanning source history. The asynchronous
+exporter activates capture behind a short writer barrier, then imports existing
+records in restart-safe keyset batches while exporting committed changes. It
+acknowledges exact outbox identities only after ClickHouse confirms insertion.
+Keep the exporter running during normal operation and back up ClickHouse together
+with PostgreSQL. See [the read-model rollout guide](../apps/admin-api/READ_MODELS.md).
+
+Stop the new runtimes before a deliberate downgrade. Downgrade reconstructs the
+former PostgreSQL inference aggregates once and reinstalls their maintenance
+triggers; that operation locks ledger writes and can be expensive on a large
+history. Retain ClickHouse backups because older PostgreSQL detail may already
+have expired. Ordinary application startup never performs that reconstruction.

@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/catalog-refresh-benchmark.yml
       - apps/admin-api/src/overview_projection.py
+      - apps/admin-api/src/overview_operations.py
       - apps/admin-api/src/pipeline_projection.py
       - apps/admin-api/src/pipeline_reads.py
       - packages/core/src/read_models.py
@@ -19,7 +20,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   native-scale:
-    name: PostgreSQL 17 / ARM64 / 150k articles
+    name: PostgreSQL catalog + operations / ARM64 / 150k articles
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     services:
@@ -28,7 +29,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: disposable
-          POSTGRES_DB: devfeed_catalog_base_test
+          POSTGRES_DB: devfeed_catalog_test
         ports:
           - 5432:5432
         options: >-
@@ -43,7 +44,7 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 5s --health-retries 20
     env:
-      DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://postgres@127.0.0.1:5432/devfeed_catalog_base_test
+      DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://postgres@127.0.0.1:5432/devfeed_catalog_test
       # libpq supplies the isolated service's test-only password outside the URL.
       PGPASSWORD: disposable
       DEVFEED_TEST_REDIS_URL: redis://127.0.0.1:6379/15
@@ -55,11 +56,6 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: candidate
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
-          path: baseline
-          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -67,67 +63,25 @@ jobs:
         with:
           version: "0.13.5"
           enable-cache: true
-          cache-dependency-glob: |
-            candidate/uv.lock
-            baseline/uv.lock
+          cache-dependency-glob: candidate/uv.lock
           cache-suffix: catalog-scale
-      - name: Install isolated applications
-        run: |
-          sh candidate/scripts/ci/python-bootstrap.sh candidate --editable --all-packages
-          sh candidate/scripts/ci/python-bootstrap.sh baseline --editable --all-packages
-          cp candidate/scripts/profile_catalog_refresh.py baseline/scripts/profile_catalog_refresh.py
-          cp candidate/scripts/profile_read_models.py baseline/scripts/profile_read_models.py
-      - name: Prepare the shared fixed fixture
-        working-directory: baseline
+      - name: Install isolated application
+        run: sh candidate/scripts/ci/python-bootstrap.sh candidate --editable --all-packages
+      - name: Measure current architecture
+        working-directory: candidate
         run: |
           mkdir -p ../reports
-          .venv/bin/python scripts/profile_catalog_refresh.py --seed --prepare-only \
+          .venv/bin/python scripts/profile_catalog_refresh.py --seed --expect fixed \
             --require-native-arm64 --scale 1 --history-bytes 8192 --batch 200 \
-            --output ../reports/prepared.json
-          .venv/bin/python - <<'PY'
-          import json
-          from pathlib import Path
-          dataset = json.loads(Path("../reports/prepared.json").read_text())["dataset"]
-          assert dataset["articles"] == 150000, dataset
-          assert dataset["retained_article_cards"] >= 19679, dataset
-          PY
-      - name: Clone the fixture before either scenario
-        id: clone-fixture
-        working-directory: candidate
-        run: |
-          .venv/bin/python - <<'PY'
-          import os
-          from sqlalchemy import create_engine
-          from sqlalchemy.engine import make_url
-          url = make_url(os.environ["DEVFEED_TEST_DATABASE_URL"])
-          engine = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
-          with engine.connect() as connection:
-              connection.exec_driver_sql(
-                  "CREATE DATABASE devfeed_catalog_head_test "
-                  "TEMPLATE devfeed_catalog_base_test STRATEGY FILE_COPY"
-              )
-          engine.dispose()
-          PY
-      - name: Measure baseline
-        working-directory: baseline
-        run: |
-          .venv/bin/python scripts/profile_catalog_refresh.py --expect either --require-native-arm64 \
-            --batch 200 --batches 20 --age-refresh-seconds 61 --output ../reports/baseline.json
-      - name: Measure candidate on the same runner
-        if: always() && !cancelled() && steps.clone-fixture.outcome == 'success'
-        working-directory: candidate
-        run: |
-          DEVFEED_TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:5432/devfeed_catalog_head_test \
-            .venv/bin/python scripts/profile_catalog_refresh.py --expect fixed --require-native-arm64 \
-            --batch 200 --batches 20 --age-refresh-seconds 61 --output ../reports/candidate.json
-      - name: Summarize before, after, and signed changes
+            --batches 20 --age-refresh-seconds 61 --output ../reports/candidate.json
+      - name: Summarize current architecture
         if: always()
         env:
           MEASUREMENT_RESULT: ${{ job.status }}
         run: |
           report_status=0
           python3 candidate/scripts/ci/catalog_refresh_report.py \
-            --job-result "$MEASUREMENT_RESULT" || report_status=$?
+            --candidate-only --job-result "$MEASUREMENT_RESULT" || report_status=$?
           cat reports/summary.md >> "$GITHUB_STEP_SUMMARY"
           exit "$report_status"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

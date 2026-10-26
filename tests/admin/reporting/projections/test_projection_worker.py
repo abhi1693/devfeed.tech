@@ -1,12 +1,13 @@
 """Publisher process controls, health signals and connection isolation without services."""
 
+import asyncio
 import os
 import signal
 import sys
 from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace as NS
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from devfeed_admin_api import overview_projection
@@ -195,21 +196,7 @@ def test_pipeline_once_uses_its_own_unpooled_connection_settings_and_cleans_up(r
     runtime.finish.assert_called_once_with(runtime.telemetry)
 
 
-def test_report_once_does_not_run_the_pipeline_publisher(runtime):
-    worker.run(once=True, kind="reports")
-
-    runtime.reports.assert_called_once_with(runtime.factory, limit=1, now=NOW)
-    runtime.pipeline.assert_not_called()
-    runtime.drain.assert_not_called()
-    runtime.backlog.assert_called_once_with(runtime.factory, "reports")
-    assert (runtime.directory / "reports-heartbeat").exists()
-    assert not (runtime.directory / "pipeline-heartbeat").exists()
-    assert runtime.waits == []
-    runtime.engine.dispose.assert_called_once_with()
-    runtime.finish.assert_called_once_with(runtime.telemetry)
-
-
-@pytest.mark.parametrize("kind", ["pipeline", "reports"])
+@pytest.mark.parametrize("kind", ["pipeline"])
 @pytest.mark.parametrize("link", ["symbolic", "hard"])
 def test_successful_cycle_replaces_heartbeat_links_without_touching_their_target(
     runtime, tmp_path, kind, link
@@ -284,7 +271,7 @@ def test_operator_run_propagates_failure_without_refreshing_health_and_cleans_up
     runtime.finish.assert_called_once_with(runtime.telemetry)
 
 
-@pytest.mark.parametrize("kind", ["pipeline", "reports"])
+@pytest.mark.parametrize("kind", ["pipeline"])
 @pytest.mark.parametrize("shutdown_signal", [signal.SIGTERM, signal.SIGINT])
 def test_service_retries_failed_cycles_and_stops_on_a_shutdown_signal(
     runtime, kind, shutdown_signal, caplog
@@ -331,7 +318,7 @@ def test_backlog_failure_does_not_advertise_a_successful_heartbeat(runtime):
     runtime.finish.assert_called_once_with(runtime.telemetry)
 
 
-@pytest.mark.parametrize("kind", ["pipeline", "reports"])
+@pytest.mark.parametrize("kind", ["pipeline"])
 def test_queue_metrics_are_sampled_without_delaying_publication_or_heartbeats(
     runtime, monkeypatch, kind
 ):
@@ -388,3 +375,140 @@ def test_disabled_telemetry_does_not_open_a_backlog_connection(monkeypatch):
     worker.record_backlog(factory, "pipeline")
 
     factory.assert_not_called()
+
+
+def test_report_dispatch_uses_async_worker_before_opening_pipeline_resources(monkeypatch, runtime):
+    calls = []
+
+    async def publish(**options):
+        calls.append(options)
+
+    monkeypatch.setattr(worker, "run_reports", publish)
+    worker.run(kind="reports", once=True)
+    assert calls == [{"once": True, "drain": False}]
+    runtime.create_engine.assert_not_called()
+    runtime.pipeline.assert_not_called()
+
+
+@pytest.fixture
+def async_runtime(monkeypatch, runtime):
+    from devfeed_admin_api import report_retention
+    from devfeed_core import analytics
+
+    handlers, removed, waits = {}, [], []
+    state = NS(stopped=False, on_wait=lambda: None)
+
+    async def wait():
+        state.on_wait()
+
+    stopping = NS(
+        is_set=lambda: state.stopped, set=lambda: setattr(state, "stopped", True), wait=wait
+    )
+
+    async def wait_for(awaitable, seconds):
+        waits.append(seconds)
+        await awaitable
+        if not state.stopped:
+            raise TimeoutError
+
+    async def to_thread(function, *args):
+        return function(*args)
+
+    loop = NS(
+        add_signal_handler=lambda name, callback: handlers.update({name: callback}),
+        remove_signal_handler=lambda name: removed.append(name),
+    )
+    monkeypatch.setattr(
+        worker,
+        "asyncio",
+        NS(
+            Event=lambda: stopping,
+            get_running_loop=lambda: loop,
+            to_thread=to_thread,
+            wait_for=wait_for,
+        ),
+    )
+
+    class Client:
+        entered = 0
+        closed = 0
+
+        async def __aenter__(self):
+            self.entered += 1
+            return self
+
+        async def __aexit__(self, *_args):
+            self.closed += 1
+
+    client = Client()
+    create_client = Mock(return_value=client)
+    publish = AsyncMock(return_value=1)
+    monkeypatch.setattr(analytics, "AnalyticsClient", create_client)
+    monkeypatch.setattr(overview_projection, "refresh_overview_projections_async", publish)
+    prune = Mock()
+    monkeypatch.setattr(report_retention, "ReportRetention", lambda factory: NS(prune=prune))
+    return NS(
+        base=runtime,
+        state=state,
+        waits=waits,
+        handlers=handlers,
+        removed=removed,
+        client=client,
+        create_client=create_client,
+        publish=publish,
+        prune=prune,
+    )
+
+
+@pytest.mark.parametrize("mode", ["once", "drain"])
+def test_async_report_operator_run_reuses_one_client_and_closes_all_resources(async_runtime, mode):
+    runtime = async_runtime
+    asyncio.run(worker.run_reports(**{mode: True}))
+    runtime.publish.assert_awaited_once_with(runtime.base.factory, limit=1, client=runtime.client)
+    runtime.create_client.assert_called_once_with()
+    assert runtime.client.entered == runtime.client.closed == 1
+    runtime.prune.assert_called_once_with()
+    assert runtime.waits == []
+    assert set(runtime.removed) == {signal.SIGTERM, signal.SIGINT}
+    assert (runtime.base.directory / "reports-heartbeat").exists()
+    runtime.base.pipeline.assert_not_called()
+    runtime.base.engine.dispose.assert_called_once_with()
+    runtime.base.finish.assert_called_once_with(runtime.base.telemetry)
+
+
+@pytest.mark.parametrize("mode", ["once", "drain"])
+def test_async_report_operator_failure_preserves_health_and_cleans_up(async_runtime, mode):
+    runtime = async_runtime
+    runtime.publish.side_effect = RuntimeError("ClickHouse is unavailable")
+    with pytest.raises(RuntimeError, match="ClickHouse is unavailable"):
+        asyncio.run(worker.run_reports(**{mode: True}))
+    assert not (runtime.base.directory / "reports-heartbeat").exists()
+    runtime.prune.assert_not_called()
+    assert runtime.client.closed == 1
+    assert runtime.waits == []
+    runtime.base.engine.dispose.assert_called_once_with()
+    runtime.base.finish.assert_called_once_with(runtime.base.telemetry)
+
+
+@pytest.mark.parametrize("shutdown_signal", [signal.SIGTERM, signal.SIGINT])
+def test_async_report_service_retries_and_reuses_client_until_shutdown(
+    async_runtime, shutdown_signal
+):
+    runtime = async_runtime
+    runtime.publish.side_effect = [RuntimeError("Temporary ClickHouse failure"), 1]
+    health = []
+
+    def on_wait():
+        health.append((runtime.base.directory / "reports-heartbeat").exists())
+        if len(health) == 2:
+            runtime.handlers[shutdown_signal]()
+
+    runtime.state.on_wait = on_wait
+    asyncio.run(worker.run_reports())
+    assert health == [False, True]
+    assert runtime.publish.await_count == 2
+    assert all(call.kwargs["client"] is runtime.client for call in runtime.publish.await_args_list)
+    assert runtime.waits == [0.25, 0.25]
+    assert runtime.client.entered == runtime.client.closed == 1
+    runtime.create_client.assert_called_once_with()
+    runtime.base.finish.assert_called_once_with(runtime.base.telemetry)

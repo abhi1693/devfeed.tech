@@ -21,6 +21,7 @@ def render(values: dict[str, str], *, build: bool = False) -> dict:
                 "COMPOSE_",
                 "POSTGRES_",
                 "CHIMELY_",
+                "CLICKHOUSE_",
                 "CODEX_",
                 "OPENAI_",
                 "OTEL_",
@@ -128,7 +129,7 @@ def check() -> None:
                 expected = image  # Local build tags never become remote pull targets.
             elif registry == "ghcr.io":
                 expected = "registry.home/" + image
-            elif registry == "typesense":
+            elif registry in {"typesense", "clickhouse"}:
                 expected = "registry.home/docker.io/" + image
             else:
                 expected = "registry.home/docker.io/library/" + image
@@ -238,8 +239,54 @@ def check() -> None:
     assert services["web"]["depends_on"]["api"]["condition"] == "service_healthy"
     for name in ("admin", "admin-api"):
         assert services[name]["environment"]["DEVFEED_ADMIN_BASE_URL"] == "http://localhost:3001"
-    for name in ("postgres", "redis", "admin-api"):
+    for name in ("postgres", "redis", "clickhouse", "admin-api"):
         assert not services[name].get("ports")
+    clickhouse = services["clickhouse"]
+    assert set(clickhouse["networks"]) == {"data"}
+    assert clickhouse["environment"]["CLICKHOUSE_PASSWORD"] == base["POSTGRES_PASSWORD"]
+    assert clickhouse["cpus"] == 2
+    assert int(clickhouse["mem_limit"]) == 2 * 1024**3
+    assert {volume["source"] for volume in clickhouse["volumes"] if volume["type"] == "volume"} == {
+        "clickhouse-data",
+        "clickhouse-logs",
+    }
+    assert {volume["target"] for volume in clickhouse["volumes"] if volume["type"] == "bind"} == {
+        "/etc/clickhouse-server/config.d/devfeed-resources.xml",
+        "/etc/clickhouse-server/users.d/devfeed-analytics.xml",
+    }
+    assert all(
+        volume.get("read_only") for volume in clickhouse["volumes"] if volume["type"] == "bind"
+    )
+    assert clickhouse["environment"]["DEVFEED_CLICKHOUSE_SERVER_MAX_SELECTS"] == "3"
+    assert clickhouse["environment"]["DEVFEED_CLICKHOUSE_SERVER_MAX_INSERTS"] == "2"
+    assert services["analytics-exporter"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == (
+        "devfeed_ingest"
+    )
+    assert services["report-projector"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed"
+    assert services["analytics-exporter"]["cpus"] == 0.5
+    assert int(services["analytics-exporter"]["mem_limit"]) == 512 * 1024**2
+    for name, service in services.items():
+        assert ("DEVFEED_CLICKHOUSE_PASSWORD" in service.get("environment", {})) == (
+            name in {"analytics-exporter", "report-projector", "admin-api"}
+        ), name
+    assert "clickhouse" not in services["admin-api"]["depends_on"]
+    assert "clickhouse" not in services["api"]["depends_on"]
+    assert services["analytics-exporter"]["depends_on"]["clickhouse"]["condition"] == (
+        "service_healthy"
+    )
+    management = services["ch-ui"]
+    assert management["ports"][0]["host_ip"] == "127.0.0.1"
+    assert management["ports"][0]["published"] == "4000"
+    assert set(management["networks"]) == {"default", "data"}
+    assert set(management["depends_on"]) == {"clickhouse"}
+    assert management["environment"]["CLICKHOUSE_URL"] == "http://clickhouse:8123"
+    assert "CLICKHOUSE_PASSWORD" not in management["environment"]
+    assert management["read_only"]
+    assert management["command"] == ["--pid-file", "/tmp/ch-ui-server.pid"]
+    assert int(management["mem_limit"]) == 512 * 1024**2
+    for name, service in services.items():
+        assert ("APP_SECRET_KEY" in service.get("environment", {})) == (name == "ch-ui")
+        assert "ch-ui" not in service.get("depends_on", {})
     assert default["networks"]["data"]["internal"]
     assert services["admin-api"]["environment"].get("DEVFEED_OIDC_ISSUER_URL") is None
     assert services["api"]["environment"].get("DEVFEED_CORS_ORIGINS") is None

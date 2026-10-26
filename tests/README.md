@@ -46,6 +46,26 @@ The `integration` and `failure_recovery` markers determine CI selection. Directo
 names and filename suffixes do not replace those markers. Some existing modules
 contain both kinds of cases; retain per-case markers when moving them.
 
+Integration runs require disposable `DEVFEED_TEST_DATABASE_URL` and
+`DEVFEED_TEST_REDIS_URL`, plus `DEVFEED_TEST_CLICKHOUSE_URL`,
+`DEVFEED_TEST_CLICKHOUSE_DATABASE`, `DEVFEED_TEST_CLICKHOUSE_USERNAME`, and
+`DEVFEED_TEST_CLICKHOUSE_PASSWORD` for analytical behavior. PostgreSQL and
+ClickHouse database names must end in `_test`; Redis must use database 15.
+Fixtures truncate PostgreSQL tables and flush Redis. Migration tests also create
+private databases, so the PostgreSQL test role needs `CREATEDB`, and the
+ClickHouse test role needs database, table, and materialized-view creation and
+cleanup permissions. These credentials must belong only to disposable services.
+
+The session fixture upgrades PostgreSQL to Alembic `head`, including native
+capture functions and bootstrap state. Analytical fixtures initialize ClickHouse
+facts and serving generations; pytest does not require a separately running
+exporter or report worker. Native migration `0039` is forward-only: use a fresh
+disposable database when testing an earlier schema instead of downgrading through
+the native cutover. Creating ORM tables alone does not install this pipeline.
+Migration `0041` rebuilds only saved-report caches for explicit date-window keys;
+date-range tests must run against that schema. It preserves source records and
+retained analytical history.
+
 CI discovers nested test paths and balances whole files across its workers. Moving
 or merging files changes shard assignments but must retain cases, parametrizations,
 fixture behavior, and unit/integration selection. The merged unit report enforces

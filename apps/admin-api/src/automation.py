@@ -1,14 +1,13 @@
 """Explain current pipeline blockers and provide revision-checked, targeted recovery."""
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Literal
 
 from devfeed_core.ai_content import eligible_articles
 from devfeed_core.analysis import request_analysis
 from devfeed_core.article_jobs import approved_sources, request_article_enrichment
 from devfeed_core.config import get_settings
-from devfeed_core.inference_metrics import InferenceCharts, inference_charts
 from devfeed_core.json_types import JsonValue
 from devfeed_core.models import (
     Article,
@@ -17,9 +16,7 @@ from devfeed_core.models import (
     ArticleEnrichmentJob,
     ArticleOrigin,
     ArticlePublicationDecision,
-    ArticleReview,
     ArticleTopic,
-    ResearchVerificationJob,
     Source,
     SourcePublicationPolicyReview,
     Topic,
@@ -27,20 +24,16 @@ from devfeed_core.models import (
     TopicProposal,
     TopicRelationProposal,
 )
-from devfeed_core.pipeline_metrics import PipelineThroughput, pipeline_throughput
 from devfeed_core.publication_policy import apply_publication_policy
 from devfeed_core.research_evidence import VERIFICATION_VERSION
 from devfeed_core.schemas import InputModel, ORMModel
 from devfeed_core.services import OperationConflict
 from devfeed_core.text_search import text_search
-from devfeed_core.topic_decision_metrics import TopicDecisionMetrics, decision_metrics
 from devfeed_core.topics import lock_topics
 from devfeed_http.pagination import Listing, Page, paginate, record, require_record
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import (
-    BigInteger,
-    DateTime,
     String,
     and_,
     case,
@@ -48,13 +41,12 @@ from sqlalchemy import (
     false,
     func,
     literal,
-    literal_column,
     or_,
     select,
     true,
     union_all,
 )
-from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
+from sqlalchemy.dialects.postgresql import JSONPATH
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
@@ -77,95 +69,6 @@ class AutomationBlocker(BaseModel):
     count: int
     action: Literal["enrich", "analyze", "evaluate"] | None = None
     targets: list[RecoveryTarget]
-
-
-class AnalysisTokenDay(BaseModel):
-    date: str
-    article_analysis: int = 0
-    topic_analysis: int = 0
-    research_verification: int = 0
-    reported_runs: int = 0
-    unreported_runs: int = 0
-
-
-class AutomationOverview(BaseModel):
-    full_automation: bool = Field(default_factory=lambda: get_settings().full_automation)
-    blockers: list[AutomationBlocker]
-    published_in_window: int
-    published_without_intervention: int
-    automatic_publication_percent: float | None
-    median_ingestion_to_publication_seconds: float | None
-    analysis_tokens: int
-    analysis_duration_ms: int
-    usage_reported_runs: int
-    usage_unreported_runs: int = 0
-    token_activity: list[AnalysisTokenDay] = Field(default_factory=list)
-    topic_decisions: TopicDecisionMetrics = Field(default_factory=TopicDecisionMetrics)
-    inference: InferenceCharts = Field(default_factory=InferenceCharts)
-    throughput: PipelineThroughput = Field(default_factory=PipelineThroughput)
-
-
-def analysis_token_activity(session, start: datetime, now: datetime):
-    """Aggregate stored cumulative job usage once, on the UTC completion date."""
-    statements = []
-    for kind, model in (
-        ("article_analysis", ArticleAnalysisJob),
-        ("topic_analysis", TopicAnalysisJob),
-        ("research_verification", ResearchVerificationJob),
-    ):
-        # Two OFFSET 0 fences keep JSON extraction and numeric validation once
-        # per row while streaming values directly into the daily aggregates.
-        # Project the UTC date before grouping so its estimate does not inherit
-        # near-unique completion timestamps. Literal offsets also let generic
-        # plans remove the runtime Limit nodes. Nineteen characters preserve
-        # the eighteen-digit validity rule for oversized malformed telemetry.
-        raw_usage = (
-            select(
-                func.date(func.timezone("UTC", model.finished_at)).label("date"),
-                model.duration_ms,
-                func.left(model.usage["totalTokens"].astext, 19).label("raw_tokens"),
-            )
-            .where(
-                model.finished_at >= start,
-                model.finished_at <= now,
-                model.status.in_(("succeeded", "failed")),
-            )
-            .offset(literal_column("0"))
-            .subquery(f"{kind}_raw_usage")
-        )
-        raw = raw_usage.c.raw_tokens
-        validated = case((raw.op("~")(r"^[0-9]{1,18}$"), cast(raw, BigInteger)), else_=None)
-        usage = (
-            select(raw_usage.c.date, raw_usage.c.duration_ms, validated.label("tokens"))
-            .offset(literal_column("0"))
-            .subquery(f"{kind}_usage")
-        )
-        day = usage.c.date
-        tokens = usage.c.tokens
-        statements.append(
-            select(
-                day.label("date"),
-                literal(kind).label("kind"),
-                func.coalesce(func.sum(tokens), 0).label("tokens"),
-                func.count(tokens).label("reported"),
-                (func.count() - func.count(tokens)).label("unreported"),
-                func.coalesce(func.sum(usage.c.duration_ms), 0).label("duration"),
-            ).group_by(day)
-        )
-    days = {
-        (start.date() + timedelta(days=index)).isoformat(): AnalysisTokenDay(
-            date=(start.date() + timedelta(days=index)).isoformat()
-        )
-        for index in range((now.date() - start.date()).days + 1)
-    }
-    duration = 0
-    for row in session.execute(union_all(*statements)).mappings():
-        point = days[row["date"].isoformat()]
-        setattr(point, row["kind"], int(row["tokens"]))
-        point.reported_runs += row["reported"]
-        point.unreported_runs += row["unreported"]
-        duration += row["duration"]
-    return list(days.values()), duration
 
 
 def automation_blockers(session, article_ids=None, *, include_proposals=True, target_limit=5):
@@ -612,109 +515,6 @@ def automation_blocker_rows(session, article_ids):
                 {"code": blocker.code, "label": blocker.label, "action": blocker.action}
             )
     return output
-
-
-def _publication_automation_query(start, now):
-    # Keep cohort selectivity visible to prepared generic plans, which otherwise
-    # estimate an unknown date range as small and return to per-article probes.
-    # SQLAlchemy caches the statement and renders these values with its typed
-    # literal processor only at execution; other parameters remain bound.
-    start_bound = literal(start, type_=DateTime(timezone=True), literal_execute=True)
-    now_bound = literal(now, type_=DateTime(timezone=True), literal_execute=True)
-    publications = (
-        select(Article.id, Article.published_to_feed_at, Article.discovered_at)
-        .where(
-            Article.published_to_feed_at >= start_bound, Article.published_to_feed_at <= now_bound
-        )
-        .cte("publications")
-        .prefix_with("MATERIALIZED")
-    )
-    # EXISTS in a WHERE clause can become a semi-join: unlike probes inside the
-    # aggregate FILTER, PostgreSQL can scan narrow evidence indexes once for a
-    # broad report, or stop at the first match for a selective cohort. Semi/anti
-    # joins retain one row per publication even with repeated review facts.
-    # Fixed predicates match the partial indexes for prepared generic plans too.
-    empty = literal_column("'{}'::jsonb", type_=JSONB)
-    cutoff = (
-        ArticleReview.article_id == publications.c.id,
-        ArticleReview.created_at <= publications.c.published_to_feed_at,
-    )
-    automatic = (
-        select(ArticleReview.article_id)
-        .where(
-            *cutoff,
-            ArticleReview.action == literal_column("'publish'"),
-            ArticleReview.automation != empty,
-        )
-        .exists()
-    )
-    manual = (
-        select(ArticleReview.article_id).where(*cutoff, ArticleReview.automation == empty).exists()
-    )
-    totals = (
-        select(
-            func.count().label("published"),
-            func.percentile_cont(0.5)
-            .within_group(
-                func.extract(
-                    "epoch", publications.c.published_to_feed_at - publications.c.discovered_at
-                )
-            )
-            .filter(publications.c.published_to_feed_at >= publications.c.discovered_at)
-            .label("median"),
-        )
-        .select_from(publications)
-        .subquery("publication_totals")
-    )
-    autonomous = (
-        select(func.count().label("automatic"))
-        .select_from(publications)
-        .where(automatic, ~manual)
-        .subquery("autonomous_publications")
-    )
-    return (
-        select(totals.c.published, autonomous.c.automatic, totals.c.median)
-        .select_from(totals)
-        .join(autonomous, true())
-    )
-
-
-def publication_automation(session, start, now):
-    published, autonomous, median = session.execute(_publication_automation_query(start, now)).one()
-    return dict(
-        published_in_window=published,
-        published_without_intervention=autonomous,
-        automatic_publication_percent=round(100 * autonomous / published, 1) if published else None,
-        median_ingestion_to_publication_seconds=median,
-    )
-
-
-def automation_metrics(
-    session, start: datetime, now: datetime, *, projected=False
-) -> AutomationOverview:
-    if projected:
-        from devfeed_admin_api.overview_projection import projected_blockers
-
-        blockers = projected_blockers(session)
-    else:
-        blockers = automation_blockers(session)
-    publication = publication_automation(session, start, now)
-    token_activity, duration = analysis_token_activity(session, start, now)
-    return AutomationOverview(
-        blockers=blockers,
-        **publication,
-        analysis_tokens=sum(
-            day.article_analysis + day.topic_analysis + day.research_verification
-            for day in token_activity
-        ),
-        analysis_duration_ms=duration,
-        usage_reported_runs=sum(day.reported_runs for day in token_activity),
-        usage_unreported_runs=sum(day.unreported_runs for day in token_activity),
-        token_activity=token_activity,
-        topic_decisions=decision_metrics(session, start, now),
-        inference=inference_charts(session, start, now),
-        throughput=pipeline_throughput(session, now),
-    )
 
 
 class RecoveryRequest(InputModel):

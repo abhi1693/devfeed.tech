@@ -481,7 +481,7 @@ describe("Orval transport", () => {
             Response.json({ detail: { code, message: "private diagnostic" } }, { status: 503 }),
           ),
       );
-      await expect(adminFetch("/v1/admin/overview/panels/workload")).rejects.toEqual(
+      await expect(adminFetch("/v1/admin/overview/processing")).rejects.toEqual(
         new ApiError(503, "The saved report is being prepared. Please retry shortly.", {}, code),
       );
     },

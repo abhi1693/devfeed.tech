@@ -96,6 +96,49 @@ def render(before, after, *, job_result="success"):
     )
 
 
+def test_current_catalog_artifact_counts_only_the_operational_report():
+    document = artifact(fixed=True)
+    document["workload"]["report_groups"] = ["operations"]
+    for sample in document["continuous"]:
+        row = sample["reports"]["result"][0]
+        sample["reports"]["result"] = [dict(row, group="operations", days=1)]
+    result = report.summarize(document)
+    assert result["reports_per_batch"] == 1
+    assert result["published"] == result["attempts"] == 20
+    assert result["suppressed"] == 0 and report.scenario_passed(result)
+    status, markdown = report.render_current(result, job_result="success", head_sha=HEAD_SHA)
+    assert status == "passed" and "PostgreSQL catalog + operations" in markdown
+
+
+def test_current_catalog_artifact_cannot_include_analytical_sections():
+    document = artifact(fixed=True)
+    document["workload"]["report_groups"] = ["coverage"]
+    assert not report.scenario_passed(report.summarize(document))
+
+
+@pytest.mark.parametrize("job_result", ["success", "failure", "cancelled"])
+def test_current_architecture_report_requires_complete_gates_and_never_claims_a_delta(job_result):
+    status, markdown = report.render_current(
+        report.summarize(artifact(fixed=True)),
+        job_result=job_result,
+        head_sha=HEAD_SHA,
+    )
+    assert status == ("passed" if job_result == "success" else "failed")
+    assert "| Metric | Current |" in markdown
+    assert "no paired baseline or performance delta is claimed" in markdown
+    assert "| Before | After |" not in markdown
+    assert HEAD_SHA[:12] in markdown
+
+
+def test_current_architecture_report_rejects_missing_or_partial_evidence():
+    status, markdown = report.render_current(
+        report.summarize(None),
+        job_result="success",
+        head_sha=HEAD_SHA,
+    )
+    assert status == "incomplete" and "not a passing scale check" in markdown
+
+
 def row(markdown, title):
     for line in markdown.splitlines():
         if line.startswith("| "):

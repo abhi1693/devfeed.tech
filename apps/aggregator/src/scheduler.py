@@ -22,7 +22,6 @@ from devfeed_core.models import (
     Source,
     utcnow,
 )
-from devfeed_core.overview_daily import refresh_overview_daily
 from devfeed_core.partner_matching import refresh_partner_matches
 from devfeed_core.partner_promotions import sync_partner_promotions
 from devfeed_core.partner_tracking import prune_partner_delivery_history
@@ -90,13 +89,9 @@ def _tick() -> dict[str, int]:
 
     refresh_quota()
     factory = session_factory()
-    try:
-        refresh_overview_daily(factory)
-    except Exception:
-        # Retain source events if aggregation fails, without stopping feed ingestion.
-        logger.exception("overview_daily_refresh_failed")
-    else:
-        prune_article_opens(factory)
+    # The exporter preserves expired opens before their transactional rows
+    # are removed. Historical aggregation belongs to ClickHouse.
+    prune_article_opens(factory)
     from devfeed_core.job_retention import prune_job_payloads
 
     try:

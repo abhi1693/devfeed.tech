@@ -2584,14 +2584,34 @@ class ReadModelState(Base):
     )
 
 
+_REPORT_WINDOW_CHECK = (
+    "(\"group\" = 'operations' AND window_key = 'current' AND days = 1 "
+    "AND window_start IS NULL AND window_end IS NULL) OR "
+    "(\"group\" <> 'operations' AND window_start IS NOT NULL AND window_end IS NOT NULL "
+    "AND window_end > window_start AND days = window_end - window_start "
+    "AND window_key = to_char(window_start,'YYYY-MM-DD') || ':' || "
+    "to_char(window_end,'YYYY-MM-DD'))"
+)
+
+
 class ReportSnapshot(Base):
     """Last complete report, independent of refresh availability or failure."""
 
     __tablename__ = "report_snapshots"
-    __table_args__ = (CheckConstraint("days BETWEEN 1 AND 90", name="ck_report_snapshot_days"),)
+    __table_args__ = (
+        CheckConstraint("days BETWEEN 1 AND 3660", name="ck_report_snapshot_days"),
+        CheckConstraint(_REPORT_WINDOW_CHECK, name="ck_report_snapshot_window"),
+        Index("ix_report_snapshot_requested", "last_requested_at", "group", "window_key"),
+    )
 
     group: Mapped[str] = mapped_column(String(50), primary_key=True)
-    days: Mapped[int] = mapped_column(Integer, primary_key=True)
+    window_key: Mapped[str] = mapped_column(String(21), primary_key=True)
+    window_start: Mapped[date | None] = mapped_column(Date)
+    window_end: Mapped[date | None] = mapped_column(Date)
+    days: Mapped[int] = mapped_column(Integer)
+    last_requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
     payload: Mapped[dict] = mapped_column(JSONB)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     policy_version: Mapped[str] = mapped_column(String(100))
@@ -2602,13 +2622,21 @@ class ReportRefresh(Base):
 
     __tablename__ = "report_refreshes"
     __table_args__ = (
-        CheckConstraint("days BETWEEN 1 AND 90", name="ck_report_refresh_days"),
+        CheckConstraint("days BETWEEN 1 AND 3660", name="ck_report_refresh_days"),
+        CheckConstraint(_REPORT_WINDOW_CHECK, name="ck_report_refresh_window"),
         CheckConstraint("attempts >= 0", name="ck_report_refresh_attempts"),
-        Index("ix_report_refresh_due", "available_at", "group", "days"),
+        Index("ix_report_refresh_due", "available_at", "group", "window_key"),
+        Index("ix_report_refresh_requested", "last_requested_at", "group", "window_key"),
     )
 
     group: Mapped[str] = mapped_column(String(50), primary_key=True)
-    days: Mapped[int] = mapped_column(Integer, primary_key=True)
+    window_key: Mapped[str] = mapped_column(String(21), primary_key=True)
+    window_start: Mapped[date | None] = mapped_column(Date)
+    window_end: Mapped[date | None] = mapped_column(Date)
+    days: Mapped[int] = mapped_column(Integer)
+    last_requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
     requested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=text("now()")
     )

@@ -168,6 +168,30 @@ def database(integration_environment, monkeypatch, rss_bytes):
     get_redis.cache_clear()
     # Only the explicitly configured, name-checked test database is modified.
     with get_engine().begin() as connection:
+        # Export checkpoints are migration-owned and deliberately absent from the
+        # application ORM. Disable capture before resetting source fixtures.
+        connection.execute(
+            text(
+                "UPDATE analytics_pipeline_state SET enabled = false, capture_started_at = NULL, "
+                "last_success_at = NULL, lease_token = NULL, lease_until = NULL, "
+                "native_import_complete=false,native_capture_started_at=NULL, "
+                "reader_coverage_start=NULL,native_bootstrap_barrier=false, "
+                "native_bootstrap_complete=false"
+            )
+        )
+        connection.execute(
+            text(
+                "TRUNCATE analytics_capture_events, analytics_bootstrap_cursors, "
+                "analytics_upgrade_checkpoint, analytics_fact_refresh, "
+                "analytics_rollup_compaction, "
+                "analytics_gauge_refreshes RESTART IDENTITY"
+            )
+        )
+        connection.execute(text("UPDATE analytics_gauge_bootstrap SET started=false"))
+        connection.execute(
+            text("""INSERT INTO analytics_gauge_refreshes(domain,shard)
+                VALUES('queues',0),('feed',0),('sources',0),('topics',0)""")
+        )
         names = ", ".join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
         connection.execute(text(f"TRUNCATE TABLE {names} CASCADE"))
         # Migration 0037 creates durable cadence rows. Restore their initial

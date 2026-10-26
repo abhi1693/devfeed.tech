@@ -147,7 +147,6 @@ def test_specialist_recovery_uses_its_own_attempts_and_preserves_completed_work(
         "all",
         "retention-failed",
         "partner-retention-failed",
-        "overview-failed",
         "partner-matching-failed",
         "partner-promotion-failed",
         "dispatch-failed",
@@ -191,8 +190,6 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
     monkeypatch.setattr(scheduler, "session_factory", lambda: factory)
     monkeypatch.setattr(scheduler, "utcnow", lambda: NOW)
     monkeypatch.setattr(quota_monitor, "refresh_quota", Mock())
-    refresh = Mock(side_effect=RuntimeError("overview")) if mode == "overview-failed" else Mock()
-    monkeypatch.setattr(scheduler, "refresh_overview_daily", refresh)
     prune = Mock()
     monkeypatch.setattr(scheduler, "prune_article_opens", prune)
     monkeypatch.setattr(
@@ -270,7 +267,7 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
         heartbeat_queue.connection.set.assert_called_once_with(
             "devfeed:scheduler:heartbeat", NOW.isoformat(), ex=120
         )
-    assert prune.call_count == int(mode != "overview-failed")
+    prune.assert_called_once_with(factory)
     partner_retention.assert_called_once_with(factory)
     scheduler.dispatch_partner_pipeline.assert_called_once_with(factory, limit=5)
     scheduler.dispatch_partner_evaluations.assert_called_once_with(factory, limit=5)

@@ -35,6 +35,43 @@ def test_build_then_stop_then_migrate_then_recreate_without_data_recreation(comm
     assert all("down" not in c and "--volumes" not in c for c in commands)
 
 
+def test_analytics_rebuild_starts_data_before_migration_and_recreates_publishers(
+    monkeypatch, commands
+):
+    monkeypatch.setattr(
+        dev,
+        "configuration",
+        lambda: {"services": {**{name: {} for name in dev.APPLICATIONS}, "clickhouse": {}}},
+    )
+    dev.rebuild()
+    data_start = next(command for command in commands if command[:3] == ("up", "-d", "--wait"))
+    assert data_start[-3:] == ("postgres", "redis", "clickhouse")
+    for name in ("analytics-exporter", "pipeline-projector", "report-projector"):
+        assert name in commands[0]
+        assert name in next(command for command in commands if command[0] == "stop")
+        assert name in commands[-1]
+    assert "clickhouse" not in commands[-1]
+
+
+def test_management_ui_starts_after_apps_without_gating_their_health(monkeypatch, commands):
+    monkeypatch.setattr(
+        dev,
+        "configuration",
+        lambda: {
+            "services": {
+                **{name: {} for name in dev.APPLICATIONS},
+                "clickhouse": {},
+                "ch-ui": {},
+            }
+        },
+    )
+    dev.rebuild()
+    assert commands[-1] == ("up", "-d", "--no-deps", "ch-ui")
+    assert "--wait" in commands[-2] and "--force-recreate" in commands[-2]
+    assert "ch-ui" not in commands[-2]
+    assert "ch-ui" not in commands[0]
+
+
 @pytest.mark.parametrize(
     "failure,expected",
     [

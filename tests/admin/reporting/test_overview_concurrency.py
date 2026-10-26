@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from devfeed_admin_api import main, overview
+from devfeed_admin_api import overview_projection as projections
 from devfeed_admin_api.dependencies import get_session
 from devfeed_core import cache
 from devfeed_core.config import get_settings
@@ -51,14 +52,19 @@ def test_cold_dashboard_burst_records_one_demand_without_loading(
     from sqlalchemy import func, select
 
     engine, sessions = single_connection
-    monkeypatch.setattr(overview, "overview_metrics", lambda *_: pytest.fail("GET computed report"))
+    monkeypatch.setattr(
+        projections, "calculate_report_async", lambda *_: pytest.fail("GET computed report")
+    )
 
     async def burst():
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=admin_client.app), base_url="http://testserver"
         ) as client:
             responses = await asyncio.wait_for(
-                asyncio.gather(*[client.get("/v1/admin/overview") for _ in range(50)]), 5
+                asyncio.gather(
+                    *[client.get("/v1/admin/overview/charts/attention") for _ in range(50)]
+                ),
+                5,
             )
             assert all(response.status_code == 503 for response in responses)
             others = await asyncio.gather(
@@ -81,15 +87,17 @@ def test_stale_dashboard_returns_connection_and_survives_cache_failure(
     from devfeed_admin_api.pipeline_projection import drain_pipeline
     from devfeed_core.models import utcnow
 
-    from tests.admin.reporting.projections.test_overview_projections import save_overview
+    from tests.support.overview import save_section
 
     engine, sessions = single_connection
     if pipeline_ready:
         drain_pipeline(sessions)
-    save_overview(sessions, generated_at=utcnow() - timedelta(days=2))
+    save_section(sessions, "operations", 1, generated_at=utcnow() - timedelta(days=2))
     monkeypatch.setattr(cache, "get_cache", lambda: pytest.fail("Redis contacted while serving"))
-    monkeypatch.setattr(overview, "overview_metrics", lambda *_: pytest.fail("stale GET rebuilt"))
-    response = admin_client.get("/v1/admin/overview")
+    monkeypatch.setattr(
+        projections, "calculate_report_async", lambda *_: pytest.fail("stale GET rebuilt")
+    )
+    response = admin_client.get("/v1/admin/overview/charts/attention")
     assert response.status_code == 200
     assert response.headers["x-overview-stale"] == "true"
     assert response.json()["snapshot"]["status"] == (
@@ -104,15 +112,15 @@ def test_saved_dashboard_still_requires_admin_authentication(
     from devfeed_admin_api import auth
     from devfeed_admin_api.auth import require_admin
 
-    from tests.admin.reporting.projections.test_overview_projections import save_overview
+    from tests.support.overview import save_section
 
     _, sessions = single_connection
-    save_overview(sessions)
+    save_section(sessions, "operations", 1)
     monkeypatch.setattr(auth, "require_config", lambda: None)
-    assert admin_client.get("/v1/admin/overview").status_code == 200
+    assert admin_client.get("/v1/admin/overview/charts/attention").status_code == 200
     override = admin_client.app.dependency_overrides.pop(require_admin)
     try:
-        assert admin_client.get("/v1/admin/overview").status_code == 401
+        assert admin_client.get("/v1/admin/overview/charts/attention").status_code == 401
     finally:
         admin_client.app.dependency_overrides[require_admin] = override
 
@@ -129,7 +137,8 @@ def test_readiness_does_not_hold_database_connection_during_redis_ping(
 
     with monkeypatch.context() as scoped:
         scoped.setattr(main, "get_redis", lambda: SimpleNamespace(ping=ping))
-        assert admin_client.get("/health/ready").status_code == 200
+        response = admin_client.get("/health/ready")
+        assert response.status_code == 200, response.text
 
 
 def test_settings_materialize_before_returning_database_connection(single_connection):

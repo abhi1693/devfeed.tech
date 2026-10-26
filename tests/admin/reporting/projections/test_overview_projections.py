@@ -2,14 +2,11 @@
 
 import uuid
 from datetime import timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 from devfeed_admin_api import overview_projection as projections
-from devfeed_admin_api.overview_panel_data import OverviewPanel
-from devfeed_admin_api.overview_processing import processing_facts, refresh_processing_facts
 from devfeed_core.models import (
-    Article,
-    ArticleAnalysisJob,
     PipelineProjection,
     ReadModelState,
     ReportRefresh,
@@ -19,43 +16,15 @@ from devfeed_core.models import (
 from devfeed_core.read_models import ReadModelSnapshot, pipeline_policy_version
 from sqlalchemy import event, func, select
 
+from tests.support.overview import (
+    ready_pipeline,
+    save_section,
+    section_document,
+    window_fields,
+    window_for,
+)
+
 pytestmark = pytest.mark.integration
-
-
-def save_panel(database, group="daily", days=7, *, generated_at=None, policy=None):
-    now = generated_at or utcnow()
-    panel = OverviewPanel(generated_at=now, days=days, articles_pending_review=23)
-    with database.begin() as session:
-        session.merge(
-            ReportSnapshot(
-                group=group,
-                days=days,
-                payload=panel.model_dump(mode="json"),
-                generated_at=now,
-                policy_version=policy or projections.report_policy_version(),
-            )
-        )
-    return panel
-
-
-def save_overview(database, days=30, *, generated_at=None):
-    from devfeed_admin_api.overview import overview_metrics
-
-    with database() as session:
-        report = overview_metrics(session, days)
-    if generated_at is not None:
-        report.generated_at = generated_at
-    with database.begin() as session:
-        session.merge(
-            ReportSnapshot(
-                group="overview",
-                days=days,
-                payload=report.model_dump(mode="json"),
-                generated_at=report.generated_at,
-                policy_version=projections.report_policy_version(),
-            )
-        )
-    return report
 
 
 def test_cold_reads_only_coalesce_demand_and_never_calculate(database, admin_client, monkeypatch):
@@ -71,7 +40,9 @@ def test_cold_reads_only_coalesce_demand_and_never_calculate(database, admin_cli
     event.listen(engine, "before_cursor_execute", record)
     try:
         for _ in range(5):
-            response = admin_client.get("/v1/admin/overview/panels/readers?days=17")
+            response = admin_client.get(
+                "/v1/admin/overview/charts/publication-rate?from=now-16d/d&to=now"
+            )
             assert response.status_code == 503
             assert response.json()["detail"]["code"] == "report_refreshing"
         assert admin_client.get("/health/live").status_code == 200
@@ -81,7 +52,10 @@ def test_cold_reads_only_coalesce_demand_and_never_calculate(database, admin_cli
     assert not any("article_contents" in statement for statement in statements)
     with database() as session:
         assert session.scalar(select(func.count()).select_from(ReportRefresh)) == 1
-        assert session.get(ReportRefresh, ("daily", 17)) is not None
+        assert (
+            session.get(ReportRefresh, ("publishing", window_for("publishing", 17, utcnow()).key))
+            is not None
+        )
         assert session.scalar(select(func.count()).select_from(ReportSnapshot)) == 0
 
 
@@ -94,21 +68,21 @@ def test_last_complete_survives_redis_outage_and_process_restart(
     from fastapi.testclient import TestClient
 
     generated = utcnow() - timedelta(days=2)
-    save_panel(database, generated_at=generated)
+    save_section(database, generated_at=generated)
     monkeypatch.setattr(get_settings(), "cache_enabled", True)
     monkeypatch.setattr(cache, "get_cache", lambda: pytest.fail("report serving contacted Redis"))
-    first = admin_client.get("/v1/admin/overview/panels/readers?days=7")
+    first = admin_client.get("/v1/admin/overview/charts/publication-rate?from=now-6d/d&to=now")
     assert first.status_code == 200
-    assert first.json()["articles_pending_review"] == 23
+    assert first.json()["data"]["summary"]["published"] == 23
     assert first.json()["snapshot"]["status"] == "refreshing"
     assert first.headers["x-overview-stale"] == "true"
     app = create_app()
     app.dependency_overrides.update(admin_client.app.dependency_overrides)
     with TestClient(app) as restarted:
-        second = restarted.get("/v1/admin/overview/panels/readers?days=7")
+        second = restarted.get("/v1/admin/overview/charts/publication-rate?from=now-6d/d&to=now")
     assert second.status_code == 200
     assert second.json()["generated_at"] == first.json()["generated_at"]
-    assert second.json()["articles_pending_review"] == 23
+    assert second.json()["data"]["summary"]["published"] == 23
     with database() as session:
         assert session.scalar(select(func.count()).select_from(ReportRefresh)) == 1
 
@@ -116,44 +90,59 @@ def test_last_complete_survives_redis_outage_and_process_restart(
 def test_worker_failure_preserves_snapshot_and_persistent_cooldown(
     database, admin_client, monkeypatch
 ):
-    from devfeed_admin_api import overview_processing
-
     now = utcnow()
     monkeypatch.setattr(projections, "utcnow", lambda: now)
-    monkeypatch.setattr(overview_processing, "refresh_processing_facts", lambda *_: False)
-    save_panel(database, generated_at=now - timedelta(minutes=5))
+    save_section(database, generated_at=now - timedelta(minutes=5))
     with database.begin() as session:
-        projections.request_refresh(session, "daily", 7, now)
+        projections.request_refresh(session, "publishing", window_for("publishing", 7, now), now)
     calls = []
 
     def fail(*args):
         calls.append(1)
         raise ValueError("unavailable dependency")
 
-    monkeypatch.setattr(projections, "calculate_report", fail)
-    assert projections.refresh_overview_projections(database, limit=1, seed=False) == 0
+    monkeypatch.setattr(
+        projections, "calculate_report_async", AsyncMock(side_effect=lambda *args: fail(*args[:4]))
+    )
+    assert projections.refresh_overview_projections(database, limit=1, client=object()) == 0
     for _ in range(8):
-        response = admin_client.get("/v1/admin/overview/panels/readers?days=7")
+        response = admin_client.get(
+            "/v1/admin/overview/charts/publication-rate?from=now-6d/d&to=now"
+        )
         assert response.status_code == 200
         assert response.json()["snapshot"]["status"] == "stale"
-    assert projections.refresh_overview_projections(database, limit=1, seed=False) == 0
+    assert projections.refresh_overview_projections(database, limit=1, client=object()) == 0
     with database() as session:
-        queued = session.get(ReportRefresh, ("daily", 7))
+        queued = session.get(
+            ReportRefresh, ("publishing", window_for("publishing", 7, utcnow()).key)
+        )
         assert queued.available_at == now + timedelta(seconds=15)
         assert queued.last_error == "ValueError"
-        assert session.get(ReportSnapshot, ("daily", 7)).generated_at < now
+        assert (
+            session.get(
+                ReportSnapshot, ("publishing", window_for("publishing", 7, utcnow()).key)
+            ).generated_at
+            < now
+        )
     assert calls == [1]
     now += timedelta(seconds=16)
     monkeypatch.setattr(
         projections,
-        "calculate_report",
-        lambda factory, group, days, stamp: OverviewPanel(generated_at=stamp, days=days),
+        "calculate_report_async",
+        AsyncMock(
+            side_effect=lambda factory, group, window, stamp, client: section_document(
+                generated_at=stamp, window=window
+            )
+        ),
     )
-    assert projections.refresh_overview_projections(database, limit=1, seed=False) == 1
-    response = admin_client.get("/v1/admin/overview/panels/readers?days=7")
+    assert projections.refresh_overview_projections(database, limit=1, client=object()) == 1
+    response = admin_client.get("/v1/admin/overview/charts/publication-rate?from=now-6d/d&to=now")
     assert response.status_code == 200 and response.json()["snapshot"]["status"] == "fresh"
     with database() as session:
-        assert session.get(ReportRefresh, ("daily", 7)) is None
+        assert (
+            session.get(ReportRefresh, ("publishing", window_for("publishing", 7, utcnow()).key))
+            is None
+        )
 
 
 def test_dependency_catchup_resets_old_failure_backoff_and_recovers_after_restart(
@@ -167,7 +156,7 @@ def test_dependency_catchup_resets_old_failure_backoff_and_recovers_after_restar
     for module in (projections, pipeline_reads):
         monkeypatch.setattr(module, "utcnow", lambda: now)
     policy = pipeline_policy_version()
-    save_panel(database, "blockers", 1, generated_at=now - timedelta(hours=2))
+    save_section(database, "operations", 1, generated_at=now - timedelta(hours=2))
     with database.begin() as session:
         session.add(
             ReadModelState(
@@ -186,23 +175,27 @@ def test_dependency_catchup_resets_old_failure_backoff_and_recovers_after_restar
                 updated_at=now,
             )
         )
-        projections.request_refresh(session, "blockers", 1, now)
+        projections.request_refresh(session, "operations", window_for("operations", 1, now), now)
         session.flush()
-        session.get(ReportRefresh, ("blockers", 1)).attempts = 30
-    assert projections.refresh_overview_projections(database, limit=1, seed=False) == 0
+        session.get(
+            ReportRefresh, ("operations", window_for("operations", 1, utcnow()).key)
+        ).attempts = 30
+    assert projections.refresh_overview_projections(database, limit=1, client=object()) == 0
     with database() as session:
-        demand = session.get(ReportRefresh, ("blockers", 1))
+        demand = session.get(
+            ReportRefresh, ("operations", window_for("operations", 1, utcnow()).key)
+        )
         assert demand.available_at == now + timedelta(seconds=5)
         assert demand.attempts == 0 and demand.last_error == "ProjectionNotReady"
         assert demand.lease_token is None and demand.lease_until is None
     restarted = create_app()
     restarted.dependency_overrides.update(admin_client.app.dependency_overrides)
     with TestClient(restarted) as client:
-        response = client.get("/v1/admin/overview/panels/blockers?days=30")
+        response = client.get("/v1/admin/overview/charts/attention?from=now-29d/d&to=now")
         assert response.status_code == 200
-        assert response.json()["articles_pending_review"] == 23
+        assert response.json()["data"]["reviews"][0]["count"] == 23
         assert response.json()["snapshot"]["status"] == "stale"
-    assert projections.refresh_overview_projections(database, limit=1, seed=False) == 0
+    assert projections.refresh_overview_projections(database, limit=1, client=object()) == 0
     now += timedelta(seconds=6)
     with database.begin() as session:
         state = session.get(ReadModelState, "pipeline")
@@ -211,13 +204,21 @@ def test_dependency_catchup_resets_old_failure_backoff_and_recovers_after_restar
             "catalog_refresh": {**state.payload["catalog_refresh"], "progress_at": now.isoformat()},
         }
         state.updated_at = now
-    assert projections.refresh_overview_projections(database, limit=1, seed=False) == 1
-    response = admin_client.get("/v1/admin/overview/panels/blockers?days=30")
+    assert projections.refresh_overview_projections(database, limit=1, client=object()) == 1
+    response = admin_client.get("/v1/admin/overview/charts/attention?from=now-29d/d&to=now")
     assert response.status_code == 200
     assert response.json()["snapshot"]["status"] == "catching_up"
     with database() as session:
-        assert session.get(ReportRefresh, ("blockers", 1)) is None
-        assert session.get(ReportSnapshot, ("blockers", 1)).generated_at == now
+        assert (
+            session.get(ReportRefresh, ("operations", window_for("operations", 1, utcnow()).key))
+            is None
+        )
+        assert (
+            session.get(
+                ReportSnapshot, ("operations", window_for("operations", 1, utcnow()).key)
+            ).generated_at
+            == now
+        )
 
 
 @pytest.mark.parametrize("operational_lag,status", [(40, "catching_up"), (59, "stale")])
@@ -227,9 +228,11 @@ def test_saved_dependency_ages_with_report_without_scanning_projection_rows(
     now = utcnow()
     monkeypatch.setattr(projections, "utcnow", lambda: now)
     policy = pipeline_policy_version()
-    save_panel(database, "blockers", 1, generated_at=now - timedelta(seconds=10))
+    save_section(database, "operations", 1, generated_at=now - timedelta(seconds=10))
     with database.begin() as session:
-        saved = session.get(ReportSnapshot, ("blockers", 1))
+        saved = session.get(
+            ReportSnapshot, ("operations", window_for("operations", 1, utcnow()).key)
+        )
         saved.payload = {
             **saved.payload,
             "_projection_snapshot": ReadModelSnapshot(
@@ -266,7 +269,7 @@ def test_saved_dependency_ages_with_report_without_scanning_projection_rows(
 
     event.listen(database.kw["bind"], "before_cursor_execute", record)
     try:
-        response = admin_client.get("/v1/admin/overview/panels/blockers?days=30")
+        response = admin_client.get("/v1/admin/overview/charts/attention?from=now-29d/d&to=now")
     finally:
         event.remove(database.kw["bind"], "before_cursor_execute", record)
     assert response.status_code == 200
@@ -280,14 +283,16 @@ def test_saved_dependency_ages_with_report_without_scanning_projection_rows(
 def test_expired_worker_cannot_replace_new_lease_snapshot(database):
     now = utcnow()
     with database.begin() as session:
-        projections.request_refresh(session, "daily", 17, now)
+        projections.request_refresh(session, "publishing", window_for("publishing", 17, now), now)
     old = projections.claim_refresh(database, now)
     assert old is not None
     with database.begin() as session:
-        session.get(ReportRefresh, ("daily", 17)).lease_until = now - timedelta(seconds=1)
+        session.get(
+            ReportRefresh, ("publishing", window_for("publishing", 17, utcnow()).key)
+        ).lease_until = now - timedelta(seconds=1)
     current = projections.claim_refresh(database, now)
     assert current is not None and current[2] != old[2]
-    result = OverviewPanel(generated_at=now, days=17)
+    result = section_document(generated_at=now, days=17)
     assert not projections.publish_report(database, old, result, now)
     assert projections.publish_report(database, current, result, now)
 
@@ -311,12 +316,13 @@ def test_report_publication_cannot_replace_newer_observed_generation_or_document
                 updated_at=now,
             )
         )
-        projections.request_refresh(session, "blockers", 1, now)
+        projections.request_refresh(session, "operations", window_for("operations", 1, now), now)
     current = projections.claim_refresh(database, now)
-    result = OverviewPanel(
+    result = section_document(
+        group="operations",
         generated_at=now,
         days=1,
-        articles_pending_review=11,
+        count=11,
         snapshot=ReadModelSnapshot(
             status="catching_up",
             policy_version=policy,
@@ -329,10 +335,10 @@ def test_report_publication_cannot_replace_newer_observed_generation_or_document
     )
     assert projections.publish_report(database, current, result, now)
     with database.begin() as session:
-        projections.request_refresh(session, "blockers", 1, now)
+        projections.request_refresh(session, "operations", window_for("operations", 1, now), now)
     later = projections.claim_refresh(database, now)
     outdated = result.model_copy(deep=True)
-    outdated.articles_pending_review = 99
+    outdated.data.reviews[0].count = 99
     if regression == "generation":
         outdated.generated_at = now + timedelta(seconds=1)
         outdated.snapshot.article_generation = 8
@@ -341,11 +347,15 @@ def test_report_publication_cannot_replace_newer_observed_generation_or_document
         outdated.generated_at = now - timedelta(seconds=1)
     assert not projections.publish_report(database, later, outdated, now)
     with database() as session:
-        saved = session.get(ReportSnapshot, ("blockers", 1))
+        saved = session.get(
+            ReportSnapshot, ("operations", window_for("operations", 1, utcnow()).key)
+        )
         assert saved.generated_at == now
-        assert saved.payload["articles_pending_review"] == 11
+        assert saved.payload["data"]["reviews"][0]["count"] == 11
         assert saved.payload["_projection_snapshot"]["article_generation"] == 9
-        demand = session.get(ReportRefresh, ("blockers", 1))
+        demand = session.get(
+            ReportRefresh, ("operations", window_for("operations", 1, utcnow()).key)
+        )
         assert demand is not None and demand.lease_token is None
 
 
@@ -365,16 +375,23 @@ def test_calculated_dependency_cannot_publish_after_policy_changes(database, mon
                 updated_at=now,
             )
         )
-        projections.request_refresh(session, "blockers", 1, now)
+        projections.request_refresh(session, "operations", window_for("operations", 1, now), now)
     claim = projections.claim_refresh(database, now)
-    result = projections.calculate_report(database, "blockers", 1, now)
+    result = projections.calculate_report(
+        database, "operations", window_for("operations", 1, now), now
+    )
     assert result.snapshot.policy_version == policy
     assert result.snapshot.article_generation == 7
     monkeypatch.setattr(projections, "pipeline_policy_version", lambda: "replacement-policy")
     assert not projections.publish_report(database, claim, result, now)
     with database() as session:
-        assert session.get(ReportSnapshot, ("blockers", 1)) is None
-        demand = session.get(ReportRefresh, ("blockers", 1))
+        assert (
+            session.get(ReportSnapshot, ("operations", window_for("operations", 1, utcnow()).key))
+            is None
+        )
+        demand = session.get(
+            ReportRefresh, ("operations", window_for("operations", 1, utcnow()).key)
+        )
         assert demand is not None and demand.lease_token is None
 
 
@@ -397,9 +414,11 @@ def test_report_publication_checks_live_policy_without_requiring_globally_quiet_
                 updated_at=now,
             )
         )
-        projections.request_refresh(session, "blockers", 1, now)
+        projections.request_refresh(session, "operations", window_for("operations", 1, now), now)
     claim = projections.claim_refresh(database, now)
-    result = projections.calculate_report(database, "blockers", 1, now)
+    result = projections.calculate_report(
+        database, "operations", window_for("operations", 1, now), now
+    )
     assert result.snapshot.article_generation == 7
     with database.begin() as session:
         state = session.get(ReadModelState, "pipeline")
@@ -417,10 +436,10 @@ def test_report_publication_checks_live_policy_without_requiring_globally_quiet_
             # still has the old configuration hash loaded.
             session.add(
                 ReportSnapshot(
-                    group="blockers",
-                    days=1,
-                    payload=OverviewPanel(
-                        generated_at=now, days=1, articles_pending_review=77
+                    group="operations",
+                    **window_fields("operations", 1, now=utcnow()),
+                    payload=section_document(
+                        group="operations", generated_at=now, days=1, count=77
                     ).model_dump(mode="json"),
                     generated_at=now,
                     policy_version="replacement-report-policy",
@@ -429,133 +448,86 @@ def test_report_publication_checks_live_policy_without_requiring_globally_quiet_
     assert projections.pipeline_policy_version() == policy
     assert projections.publish_report(database, claim, result, now) is (not policy_cutover)
     with database() as session:
-        saved = session.get(ReportSnapshot, ("blockers", 1))
+        saved = session.get(
+            ReportSnapshot, ("operations", window_for("operations", 1, utcnow()).key)
+        )
         if policy_cutover:
             assert saved.policy_version == "replacement-report-policy"
-            assert saved.payload["articles_pending_review"] == 77
-            assert session.get(ReportRefresh, ("blockers", 1)).lease_token is None
+            assert saved.payload["data"]["reviews"][0]["count"] == 77
+            assert (
+                session.get(
+                    ReportRefresh, ("operations", window_for("operations", 1, utcnow()).key)
+                ).lease_token
+                is None
+            )
         else:
             assert saved.payload["_projection_snapshot"]["article_generation"] == 7
-            assert session.get(ReportRefresh, ("blockers", 1)) is None
+            assert (
+                session.get(
+                    ReportRefresh, ("operations", window_for("operations", 1, utcnow()).key)
+                )
+                is None
+            )
 
 
 def test_report_worker_rejects_policy_changed_since_calculation_started(database, monkeypatch):
     now = utcnow()
     old_policy = projections.report_policy_version()
     with database.begin() as session:
-        projections.request_refresh(session, "daily", 7, now)
+        projections.request_refresh(session, "publishing", window_for("publishing", 7, now), now)
     claim = projections.claim_refresh(database, now)
-    result = OverviewPanel(generated_at=now, days=7)
+    result = section_document(generated_at=now, days=7)
     monkeypatch.setattr(projections, "report_policy_version", lambda: "replacement-report-policy")
     assert not projections.publish_report(database, claim, result, now, policy_version=old_policy)
     with database() as session:
-        assert session.get(ReportSnapshot, ("daily", 7)) is None
-        demand = session.get(ReportRefresh, ("daily", 7))
+        assert (
+            session.get(ReportSnapshot, ("publishing", window_for("publishing", 7, utcnow()).key))
+            is None
+        )
+        demand = session.get(
+            ReportRefresh, ("publishing", window_for("publishing", 7, utcnow()).key)
+        )
         assert demand is not None and demand.lease_token is None
 
 
-def test_background_publisher_refreshes_known_ranges_without_page_views(database, monkeypatch):
-    from devfeed_admin_api import overview_processing
-
-    now = utcnow()
-    monkeypatch.setattr(projections, "utcnow", lambda: now)
-    monkeypatch.setattr(overview_processing, "refresh_processing_facts", lambda *_: False)
-    save_panel(database, days=17, generated_at=now - timedelta(minutes=10))
-    loaded = []
-
-    def calculate(factory, group, days, stamp):
-        loaded.append((group, days))
-        return OverviewPanel(generated_at=stamp, days=days)
-
-    monkeypatch.setattr(projections, "calculate_report", calculate)
-    assert projections.refresh_overview_projections(database, limit=100) > 0
-    assert ("daily", 17) in loaded
-    loaded.clear()
-    now += timedelta(seconds=61)
-    assert projections.refresh_overview_projections(database, limit=100) > 0
-    assert ("daily", 17) in loaded
-
-
-def test_range_independent_panels_share_one_durable_snapshot(database, admin_client):
-    save_panel(database, "attention", 1)
+def test_range_independent_sections_share_one_durable_snapshot(database, admin_client):
+    ready_pipeline(database)
+    save_section(database, "operations", 1)
     for days in (1, 17, 90):
-        response = admin_client.get(f"/v1/admin/overview/panels/attention?days={days}")
-        assert response.status_code == 200 and response.json()["days"] == days
+        response = admin_client.get(
+            f"/v1/admin/overview/charts/attention?from=now-{days - 1}d/d&to=now"
+        )
+        assert response.status_code == 200 and response.json()["days"] == 1
     with database() as session:
         assert session.scalar(select(func.count()).select_from(ReportSnapshot)) == 1
         assert session.scalar(select(func.count()).select_from(ReportRefresh)) == 0
 
 
 def test_policy_rebuild_serves_last_complete_and_retains_demand(database, admin_client):
-    save_panel(database, policy="old-report-policy")
-    response = admin_client.get("/v1/admin/overview/panels/readers?days=7")
+    save_section(database, policy="old-report-policy")
+    response = admin_client.get("/v1/admin/overview/charts/publication-rate?from=now-6d/d&to=now")
     assert response.status_code == 200
     assert response.json()["snapshot"]["status"] == "rebuilding"
     with database() as session:
-        assert session.get(ReportRefresh, ("daily", 7)) is not None
+        assert (
+            session.get(ReportRefresh, ("publishing", window_for("publishing", 7, utcnow()).key))
+            is not None
+        )
 
 
 def test_missing_pipeline_keeps_saved_blockers_rebuilding_and_records_refresh_demand(
     database, admin_client
 ):
-    save_panel(database, "blockers", 1)
-    response = admin_client.get("/v1/admin/overview/panels/blockers?days=30")
+    save_section(database, "operations", 1)
+    response = admin_client.get("/v1/admin/overview/charts/attention?from=now-29d/d&to=now")
     assert response.status_code == 200
-    assert response.json()["articles_pending_review"] == 23
+    assert response.json()["data"]["reviews"][0]["count"] == 23
     assert response.json()["snapshot"]["status"] == "rebuilding"
     with database() as session:
-        assert session.get(ReportRefresh, ("blockers", 1)) is not None
-
-
-def test_processing_rollups_cover_arbitrary_ranges_and_old_active_work(database):
-    now = utcnow()
-    identity = uuid.uuid4()
-    with database.begin() as session:
-        session.add(
-            Article(
-                id=identity,
-                canonical_url="https://example.test/jobs",
-                url_hash="a" * 64,
-                title="Jobs",
-            )
+        assert (
+            session.get(ReportRefresh, ("operations", window_for("operations", 1, utcnow()).key))
+            is not None
         )
-        session.flush()
-        session.add_all(
-            [
-                ArticleAnalysisJob(
-                    article_id=identity, status="queued", created_at=now - timedelta(days=120)
-                ),
-                ArticleAnalysisJob(
-                    article_id=identity,
-                    status="succeeded",
-                    finished_at=now - timedelta(days=16),
-                    duration_ms=100,
-                ),
-                ArticleAnalysisJob(
-                    article_id=identity,
-                    status="failed",
-                    finished_at=now - timedelta(days=2),
-                    duration_ms=200,
-                ),
-            ]
-        )
-    assert refresh_processing_facts(database, now)
-    with database() as session:
-        short = next(
-            row
-            for row in processing_facts(session, now - timedelta(days=6), now)
-            if row["kind"] == "analysis"
-        )
-        long = next(
-            row
-            for row in processing_facts(session, now - timedelta(days=16), now)
-            if row["kind"] == "analysis"
-        )
-    assert short["completed"] == 0 and short["failed"] == 1
-    assert long["completed"] == long["failed"] == 1
-    assert short["queued"] == long["queued"] == 1
-    assert long["duration_ms"] == 300 and long["duration_runs"] == 2
-    assert not refresh_processing_facts(database, now)
 
 
 @pytest.mark.parametrize("title_padding", ["", "x" * 450])
@@ -630,21 +602,24 @@ def test_corrupt_saved_document_queues_rebuild_without_calculation(database, adm
     with database.begin() as session:
         session.add(
             ReportSnapshot(
-                group="daily",
-                days=7,
+                group="publishing",
+                **window_fields("publishing", 7, now=utcnow()),
                 payload={"invalid": True},
                 generated_at=utcnow(),
                 policy_version=projections.report_policy_version(),
             )
         )
-    response = admin_client.get("/v1/admin/overview/panels/readers?days=7")
+    response = admin_client.get("/v1/admin/overview/charts/publication-rate?from=now-6d/d&to=now")
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "report_rebuilding"
     with database() as session:
-        assert session.get(ReportRefresh, ("daily", 7)) is not None
+        assert (
+            session.get(ReportRefresh, ("publishing", window_for("publishing", 7, utcnow()).key))
+            is not None
+        )
 
 
-def test_background_worker_publishes_every_report_group(database, admin_client):
+def test_background_worker_publishes_requested_panel_groups(database, admin_client, monkeypatch):
     policy = pipeline_policy_version()
     with database.begin() as session:
         session.add(
@@ -658,18 +633,38 @@ def test_background_worker_publishes_every_report_group(database, admin_client):
                 updated_at=utcnow(),
             )
         )
-    published = projections.refresh_overview_projections(database, limit=100)
-    assert published > 0
+    groups_to_request = projections.REPORT_GROUPS
+    with database.begin() as session:
+        for group in groups_to_request:
+            projections.request_refresh(
+                session,
+                group,
+                window_for(group, 1 if group in projections.INDEPENDENT_GROUPS else 7, utcnow()),
+                utcnow(),
+            )
+
+    async def calculate(factory, group, window, now, client):
+        return section_document(group=group, generated_at=now, window=window)
+
+    monkeypatch.setattr(projections, "calculate_report_async", calculate)
+    published = projections.refresh_overview_projections(database, limit=100, client=object())
+    assert published == 6
     with database() as session:
         groups = set(session.scalars(select(ReportSnapshot.group)))
         pending = list(session.scalars(select(ReportRefresh)))
-    assert groups == projections.REPORT_GROUPS
+    assert groups == groups_to_request
     assert not pending
-    assert admin_client.get("/v1/admin/overview/panels/readers?days=17").status_code == 503
-    assert projections.refresh_overview_projections(database, limit=1, seed=False) == 1
-    response = admin_client.get("/v1/admin/overview/panels/readers?days=17")
+    assert (
+        admin_client.get(
+            "/v1/admin/overview/charts/publication-rate?from=now-16d/d&to=now"
+        ).status_code
+        == 503
+    )
+    assert projections.refresh_overview_projections(database, limit=1, client=object()) == 1
+    response = admin_client.get("/v1/admin/overview/charts/publication-rate?from=now-16d/d&to=now")
     assert response.status_code == 200
-    assert len(response.json()["insights"]["reader_activity"]) == 17
+    assert response.json()["chart"] == "publication-rate"
+    assert response.json()["days"] == 17
 
 
 def test_report_budget_cancels_sql_with_a_supplied_factory(database):
@@ -692,7 +687,7 @@ def test_unready_projection_cannot_publish_fresh_looking_blocker_counts(
     from devfeed_core.models import ReadModelEvent
 
     now = utcnow()
-    save_panel(database, "blockers", 1, generated_at=now - timedelta(minutes=5))
+    save_section(database, "operations", 1, generated_at=now - timedelta(minutes=5))
     with database.begin() as session:
         session.add(
             ReadModelState(
@@ -725,16 +720,21 @@ def test_unready_projection_cannot_publish_fresh_looking_blocker_counts(
                     kind="article", entity_id=uuid.uuid4(), created_at=now - timedelta(seconds=61)
                 )
             )
-        projections.request_refresh(session, "blockers", 1, now)
-    assert projections.refresh_overview_projections(database, limit=1, seed=False) == 0
-    response = admin_client.get("/v1/admin/overview/panels/blockers?days=30")
+        projections.request_refresh(session, "operations", window_for("operations", 1, now), now)
+    assert projections.refresh_overview_projections(database, limit=1, client=object()) == 0
+    response = admin_client.get("/v1/admin/overview/charts/attention?from=now-29d/d&to=now")
     assert response.status_code == 200
     assert response.json()["snapshot"]["status"] == (
         "rebuilding" if reason == "rebuild" else "stale"
     )
-    assert response.json()["articles_pending_review"] == 23
+    assert response.json()["data"]["reviews"][0]["count"] == 23
     with database() as session:
-        assert session.get(ReportRefresh, ("blockers", 1)).last_error == "ProjectionNotReady"
-        assert session.get(ReportSnapshot, ("blockers", 1)).generated_at == now - timedelta(
-            minutes=5
+        assert (
+            session.get(
+                ReportRefresh, ("operations", window_for("operations", 1, utcnow()).key)
+            ).last_error
+            == "ProjectionNotReady"
         )
+        assert session.get(
+            ReportSnapshot, ("operations", window_for("operations", 1, utcnow()).key)
+        ).generated_at == now - timedelta(minutes=5)

@@ -470,7 +470,34 @@ def test_profile_gates_reject_slow_unbounded_or_failed_reads():
         "article-attention",
         "article-deep-column",
     } <= routes
-    assert {"source-search", "source-type", "source-attention", "overview-main"} <= routes
+    assert {"source-search", "source-type", "source-attention"} <= routes
+    charts = {
+        "attention",
+        "publication-rate",
+        "publication-latency",
+        "audience-activity",
+        "personalization",
+        "queue-pressure",
+        "throughput",
+        "job-outcomes",
+        "ai-activity",
+        "ai-breakdown",
+        "source-output",
+        "topic-coverage",
+    }
+    overview = [
+        (route, service, path)
+        for route, service, path in profile.workload()
+        if route.startswith("overview-")
+    ]
+    assert {route for route, _, _ in overview} == {"overview-" + name for name in charts}
+    assert len(overview) == 12
+    assert all(
+        service == "admin"
+        and path
+        == f"/v1/admin/overview/charts/{route.removeprefix('overview-')}?from=now-29d/d&to=now"
+        for route, service, path in overview
+    )
     for invalid in (float("nan"), float("inf"), -1, 0):
         with pytest.raises(ValueError):
             profile.profile_gates({}, p95_budget_ms=invalid)

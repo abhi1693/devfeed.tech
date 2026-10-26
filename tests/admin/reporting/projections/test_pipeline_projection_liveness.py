@@ -12,6 +12,7 @@ from devfeed_admin_api import (
     pipeline_projection,
     pipeline_reads,
 )
+from devfeed_admin_api.overview_windows import current_window
 from devfeed_admin_api.pipeline_projection import drain_pipeline, project_batch
 from devfeed_core import read_models
 from devfeed_core.models import (
@@ -39,10 +40,12 @@ def edit_catalog(database, number):
         session.execute(text("UPDATE tags SET name=:name"), {"name": f"Catalog revision {number}"})
 
 
-def publish_blockers(database, *, now=None):
+def publish_operations(database, *, now=None):
     with database.begin() as session:
-        overview_projection.request_refresh(session, "blockers", 1, now or utcnow())
-    assert overview_projection.refresh_overview_projections(database, limit=1, seed=False) == 1
+        overview_projection.request_refresh(
+            session, "operations", current_window(), now or utcnow()
+        )
+    assert overview_projection.refresh_overview_projections(database, limit=1, client=object()) == 1
 
 
 def test_truncate_after_article_backfill_replays_before_marking_coverage_complete(database):
@@ -214,11 +217,11 @@ def test_saved_blockers_are_available_during_churn_and_become_fresh_after_catchu
     with database() as session:
         state = session.get(ReadModelState, "pipeline").payload
         assert state["backfill_complete"] and state["catalog_refresh"]
-    publish_blockers(database)
+    publish_operations(database)
     with database() as session:
-        saved = session.get(ReportSnapshot, ("blockers", 1))
+        saved = session.get(ReportSnapshot, ("operations", "current"))
         assert saved.payload["_projection_snapshot"]["status"] == "catching_up"
-        expected = saved.payload["automation"]["blockers"]
+        expected = saved.payload["data"]["blockers"]
         assert any(item["count"] > 0 for item in expected)
     statements = []
 
@@ -233,30 +236,27 @@ def test_saved_blockers_are_available_during_churn_and_become_fresh_after_catchu
         )
         event.listen(database.kw["bind"], "before_cursor_execute", record)
         try:
-            response = admin_client.get("/v1/admin/overview/panels/blockers?days=30")
+            response = admin_client.get("/v1/admin/overview/charts/attention")
         finally:
             event.remove(database.kw["bind"], "before_cursor_execute", record)
     assert response.status_code == 200
     assert response.json()["snapshot"]["status"] == "catching_up"
-    assert response.json()["automation"]["blockers"] == expected
+    assert response.json()["data"]["blockers"] == expected
     assert not any("pipeline_projections" in statement for statement in statements)
     assert not any("read_model_events" in statement for statement in statements)
     drain_pipeline(database, batch=2)
-    publish_blockers(database)
-    response = admin_client.get("/v1/admin/overview/panels/blockers?days=30")
+    publish_operations(database)
+    response = admin_client.get("/v1/admin/overview/charts/attention")
     assert response.json()["snapshot"]["status"] == "fresh"
-    assert response.json()["automation"]["blockers"] == expected
+    assert response.json()["data"]["blockers"] == expected
     with database.begin() as session:
         session.add(ReadModelEvent(kind="article", entity_id=identifiers[0]))
-    publish_blockers(database)
-    response = admin_client.get("/v1/admin/overview/panels/blockers?days=30")
+    publish_operations(database)
+    response = admin_client.get("/v1/admin/overview/charts/attention")
     assert response.json()["snapshot"]["status"] == "refreshing"
     drain_pipeline(database, batch=2)
-    publish_blockers(database)
-    assert (
-        admin_client.get("/v1/admin/overview/panels/blockers?days=30").json()["snapshot"]["status"]
-        == "fresh"
-    )
+    publish_operations(database)
+    assert admin_client.get("/v1/admin/overview/charts/attention").json()["snapshot"]["status"] == "fresh"
 
 
 def test_blocker_calculation_keeps_one_snapshot_across_policy_cutover_and_pruning(
@@ -288,9 +288,11 @@ def test_blocker_calculation_keeps_one_snapshot_across_policy_cutover_and_prunin
         return original(session, *args, **kwargs)
 
     monkeypatch.setattr(automation, "automation_blockers", cutover)
-    result = overview_projection.calculate_report(database, "blockers", 1, utcnow())
+    result = overview_projection.calculate_report(
+        database, "operations", current_window(), utcnow()
+    )
     assert isolation == ["repeatable read"]
-    assert [item.model_dump(mode="json") for item in result.automation.blockers] == expected
+    assert [item.model_dump(mode="json") for item in result.data.blockers] == expected
     assert result.snapshot.status == "fresh"
 
 
@@ -381,9 +383,11 @@ def test_long_catalog_churn_publishes_observed_generations_with_live_ingestion_a
         source_id = source.id
         session.add(Tag(name="Original", slug="original"))
     drain_pipeline(database, batch=2)
-    publish_blockers(database, now=now)
+    publish_operations(database, now=now)
     with database() as session:
-        blockers = session.get(ReportSnapshot, ("blockers", 1)).payload["automation"]["blockers"]
+        blockers = session.get(ReportSnapshot, ("operations", "current")).payload["data"][
+            "blockers"
+        ]
         saved_target = next(
             target
             for blocker in blockers
@@ -457,10 +461,10 @@ def test_long_catalog_churn_publishes_observed_generations_with_live_ingestion_a
         with database() as session:
             dependency = pipeline_reads.serving_projection(session, kind="article")[1]
             assert dependency.lag_seconds <= 60
-        publish_blockers(database, now=now)
+        publish_operations(database, now=now)
         with database() as session:
             state = session.get(ReadModelState, "pipeline").payload
-            saved = session.get(ReportSnapshot, ("blockers", 1))
+            saved = session.get(ReportSnapshot, ("operations", "current"))
             dependency = saved.payload["_projection_snapshot"]
             assert state["backfill_complete"] and not state["pending_backfills"]
             assert dependency["policy_version"] == state["serving_policy"]
@@ -488,16 +492,24 @@ def test_long_catalog_churn_publishes_observed_generations_with_live_ingestion_a
                 for card in cards
                 for blocker in card.payload["_automation_blockers"]
             )
-            for blocker in saved.payload["automation"]["blockers"]:
+            for blocker in saved.payload["data"]["blockers"]:
                 assert blocker["count"] == expected[blocker["code"]]
                 assert len(blocker["targets"]) <= 5
                 for target in blocker["targets"]:
                     card = by_id[target["id"]]
                     assert target["revision"] == card["editorial_revision"]
                     assert target["title"] == card["_search"]["title"]
-        response = admin_client.get("/v1/admin/overview/panels/blockers?days=30")
+        response = admin_client.get("/v1/admin/overview/charts/attention")
         assert response.status_code == 200
-        assert response.json()["snapshot"]["status"] == "catching_up"
+        observed = response.json()["snapshot"]
+        assert observed["lag_seconds"] == dependency["lag_seconds"]
+        # At the refresh threshold the saved generation stays available while
+        # GET requests its replacement; younger observations remain catching up.
+        assert observed["status"] == (
+            "refreshing"
+            if dependency["lag_seconds"] >= overview_projection.FRESH_SECONDS
+            else "catching_up"
+        )
     assert max(catalog_ages) > 60
     assert interruptions == 1
     assert generations == sorted(generations) and len(set(generations)) > 2
@@ -506,8 +518,8 @@ def test_long_catalog_churn_publishes_observed_generations_with_live_ingestion_a
     assert max(map(len, batches)) == 2
     monkeypatch.setattr(pipeline_projection, "article_rows", original)
     drain_pipeline(database, batch=2)
-    publish_blockers(database, now=now)
-    response = admin_client.get("/v1/admin/overview/panels/blockers?days=30")
+    publish_operations(database, now=now)
+    response = admin_client.get("/v1/admin/overview/charts/attention")
     assert response.json()["snapshot"]["status"] == "fresh"
     with database() as session:
         state = session.get(ReadModelState, "pipeline").payload

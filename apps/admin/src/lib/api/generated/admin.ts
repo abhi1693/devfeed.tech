@@ -25,9 +25,7 @@ import type {
   AdminJobLogsParams,
   AdminJobOut,
   AdminJobsListParams,
-  AdminOverview,
-  AdminOverviewPanelParams,
-  AdminOverviewParams,
+  AdminOverviewChartParams,
   AdminPartnerAudienceTopicsCatalogParams,
   AdminPartnerAudienceTopicsParams,
   AdminPartnerCampaignsListParams,
@@ -118,7 +116,7 @@ import type {
   MetricInput,
   NotificationConfig,
   NotificationSettings,
-  OverviewPanel,
+  OverviewChartReport,
   PageAdminArticleOut,
   PageAdminJobOut,
   PageAdminTopicOut,
@@ -1263,7 +1261,8 @@ export const adminNotificationRetry = async (identifier: string, options?: Param
 
 
 
-export const getAdminOverviewUrl = (params?: AdminOverviewParams,) => {
+export const getAdminOverviewChartUrl = (chart: 'attention' | 'publication-rate' | 'publication-latency' | 'audience-activity' | 'personalization' | 'queue-pressure' | 'throughput' | 'job-outcomes' | 'ai-activity' | 'ai-breakdown' | 'source-output' | 'topic-coverage',
+    params?: AdminOverviewChartParams,) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
@@ -1275,48 +1274,16 @@ export const getAdminOverviewUrl = (params?: AdminOverviewParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/v1/admin/overview?${stringifiedParams}` : `/v1/admin/overview`
+  return stringifiedParams.length > 0 ? `/v1/admin/overview/charts/${chart}?${stringifiedParams}` : `/v1/admin/overview/charts/${chart}`
 }
 
 /**
- * @summary Overview
+ * @summary Overview Chart
  */
-export const adminOverview = async (params?: AdminOverviewParams, options?: Parameters<typeof adminFetch>[1]): Promise<AdminOverview> => {
+export const adminOverviewChart = async (chart: 'attention' | 'publication-rate' | 'publication-latency' | 'audience-activity' | 'personalization' | 'queue-pressure' | 'throughput' | 'job-outcomes' | 'ai-activity' | 'ai-breakdown' | 'source-output' | 'topic-coverage',
+    params?: AdminOverviewChartParams, options?: Parameters<typeof adminFetch>[1]): Promise<OverviewChartReport> => {
 
-  return adminFetch<AdminOverview>(getAdminOverviewUrl(params),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-export const getAdminOverviewPanelUrl = (panel: 'publications' | 'clicks' | 'accounts' | 'publication-time' | 'attention' | 'readers' | 'click-depth' | 'new-accounts' | 'adoption' | 'publishing' | 'reader-activity' | 'popular-articles' | 'topic-coverage' | 'feed-health' | 'recommendation-reasons' | 'sources' | 'publication-automation' | 'job-tokens' | 'job-reliability' | 'workload' | 'blockers' | 'throughput' | 'decision-efficiency' | 'inference-tokens' | 'tokens-by-task' | 'tokens-by-model' | 'reasoning-effort' | 'inference-outcomes' | 'web-searches' | 'topic-outcomes' | 'topic-backlog' | 'repeated-stages' | 'inference-duration',
-    params?: AdminOverviewPanelParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/v1/admin/overview/panels/${panel}?${stringifiedParams}` : `/v1/admin/overview/panels/${panel}`
-}
-
-/**
- * @summary Overview Panel
- */
-export const adminOverviewPanel = async (panel: 'publications' | 'clicks' | 'accounts' | 'publication-time' | 'attention' | 'readers' | 'click-depth' | 'new-accounts' | 'adoption' | 'publishing' | 'reader-activity' | 'popular-articles' | 'topic-coverage' | 'feed-health' | 'recommendation-reasons' | 'sources' | 'publication-automation' | 'job-tokens' | 'job-reliability' | 'workload' | 'blockers' | 'throughput' | 'decision-efficiency' | 'inference-tokens' | 'tokens-by-task' | 'tokens-by-model' | 'reasoning-effort' | 'inference-outcomes' | 'web-searches' | 'topic-outcomes' | 'topic-backlog' | 'repeated-stages' | 'inference-duration',
-    params?: AdminOverviewPanelParams, options?: Parameters<typeof adminFetch>[1]): Promise<OverviewPanel> => {
-
-  return adminFetch<OverviewPanel>(getAdminOverviewPanelUrl(panel,params),
+  return adminFetch<OverviewChartReport>(getAdminOverviewChartUrl(chart,params),
   {
     ...options,
     method: 'GET'

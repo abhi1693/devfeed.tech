@@ -1,0 +1,43 @@
+<clickhouse>
+    <profiles>
+        <!-- The official image assigns its configured user to the default profile. -->
+        <default>
+            <max_threads from_env="DEVFEED_CLICKHOUSE_MAX_THREADS" />
+            <max_execution_time from_env="DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS" />
+            <max_memory_usage from_env="DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES" />
+            <max_concurrent_queries_for_user from_env="DEVFEED_CLICKHOUSE_READER_MAX_QUERIES" />
+            <max_memory_usage_for_user from_env="DEVFEED_CLICKHOUSE_READER_MAX_MEMORY_BYTES" />
+            <constraints>
+                <max_threads><min>1</min><max from_env="DEVFEED_CLICKHOUSE_MAX_THREADS" /></max_threads>
+                <max_execution_time><min>1</min><max from_env="DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS" /></max_execution_time>
+                <max_memory_usage><min>16777216</min><max from_env="DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES" /></max_memory_usage>
+                <max_concurrent_queries_for_user><readonly /></max_concurrent_queries_for_user>
+                <max_memory_usage_for_user><readonly /></max_memory_usage_for_user>
+            </constraints>
+        </default>
+        <devfeed_ingest>
+            <max_threads from_env="DEVFEED_CLICKHOUSE_MAX_THREADS" />
+            <max_execution_time from_env="DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS" />
+            <max_memory_usage from_env="DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES" />
+            <max_concurrent_queries_for_user from_env="DEVFEED_CLICKHOUSE_INGEST_MAX_QUERIES" />
+            <max_memory_usage_for_user from_env="DEVFEED_CLICKHOUSE_INGEST_MAX_MEMORY_BYTES" />
+            <constraints>
+                <max_threads><min>1</min><max from_env="DEVFEED_CLICKHOUSE_MAX_THREADS" /></max_threads>
+                <max_execution_time><min>1</min><max from_env="DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS" /></max_execution_time>
+                <max_memory_usage><min>16777216</min><max from_env="DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES" /></max_memory_usage>
+                <max_concurrent_queries_for_user><readonly /></max_concurrent_queries_for_user>
+                <max_memory_usage_for_user><readonly /></max_memory_usage_for_user>
+            </constraints>
+        </devfeed_ingest>
+    </profiles>
+    <users>
+        <!-- Configuration users retain schema/read/write access; this account cannot manage users. -->
+        <devfeed_ingest>
+            <password from_env="DEVFEED_CLICKHOUSE_INGEST_PASSWORD" />
+            <networks><ip>::/0</ip></networks>
+            <profile>devfeed_ingest</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+        </devfeed_ingest>
+    </users>
+</clickhouse>

@@ -6,15 +6,12 @@ import json
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from threading import Barrier, Event
 
 import pytest
-from alembic import command
-from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from devfeed_core.inference_metrics import inference_charts
 from devfeed_core.models import (
     Article,
     PipelineProjection,
@@ -23,11 +20,7 @@ from devfeed_core.models import (
     TopicProposal,
 )
 from devfeed_core.read_models import set_state
-from devfeed_core.topic_decision_metrics import decision_metrics
-from devfeed_core.version import SCHEMA_REVISION
-from sqlalchemy import delete, event, text
-
-from tests.support.paths import REPO_ROOT
+from sqlalchemy import delete, select, text
 
 pytestmark = pytest.mark.integration
 START = datetime(2026, 10, 20, tzinfo=UTC)
@@ -86,236 +79,6 @@ def facts(session, identifier):
     ).all()
 
 
-def legacy_usage(session, start=START, now=END):
-    # Retain the released SQL as an independent oracle for well-formed history.
-    return dict(
-        session.execute(
-            text("""
-            WITH calls AS (
-              SELECT r.proposal_id, c, n,
-                (p.status IN ('approved', 'rejected')
-                  AND p.reviewed_at BETWEEN :start AND :now) AS completed
-              FROM topic_decision_runs r JOIN topic_proposals p ON p.id=r.proposal_id,
-                jsonb_array_elements(r.state->'calls') WITH ORDINALITY AS items(c,n)
-            ), totals AS (
-              SELECT *, greatest(coalesce((c->'tokens'->>'totalTokens')::bigint,0),
-                coalesce((c->'tokens'->>'inputTokens')::bigint,0)
-                + coalesce((c->'tokens'->>'outputTokens')::bigint,0)) AS tokens,
-                (c->>'started_at')::timestamptz BETWEEN :start AND :now AS in_window,
-                row_number() OVER (PARTITION BY proposal_id,c->>'stage' ORDER BY n) AS stage_call
-              FROM calls
-            )
-            SELECT count(*) FILTER (WHERE in_window) AS calls,
-              coalesce(sum(tokens) FILTER (WHERE in_window),0) AS tokens,
-              coalesce(sum((c->>'charged_tokens')::bigint) FILTER (WHERE in_window),0)
-                AS charged_tokens,
-              count(*) FILTER (WHERE in_window AND tokens=0) AS unreported_calls,
-              count(*) FILTER (WHERE in_window AND (c->>'escalated')::boolean) AS escalations,
-              count(*) FILTER (WHERE in_window AND stage_call>1) AS repeat_calls,
-              CASE WHEN bool_and(tokens>0) FILTER (WHERE completed)
-                THEN sum(tokens) FILTER (WHERE completed)::float
-                  / nullif(count(DISTINCT proposal_id) FILTER (WHERE completed),0)
-                ELSE NULL END AS tokens_per_completed_topic FROM totals
-            """),
-            {"start": start, "now": now},
-        )
-        .mappings()
-        .one()
-    )
-
-
-def test_reports_match_released_contract_for_statuses_and_whole_workflows(database):
-    with database.begin() as session:
-        add_run(
-            session,
-            [
-                call("discovery", START - timedelta(hours=1), 12),
-                call(
-                    tokens={"totalTokens": 4, "inputTokens": 10, "outputTokens": 5},
-                    charged_tokens=20,
-                    status="failed",
-                ),
-                call(started_at=START + timedelta(hours=25), tokens=30, escalated=True),
-                call("verification", END, 40),
-            ],
-            status="approved",
-            reviewed_at=START + timedelta(hours=2),
-            run_status="decided",
-        )
-        add_run(
-            session,
-            [
-                call("draft", START - timedelta(hours=1), 5),
-                call("verification", START + timedelta(hours=26), 25),
-            ],
-            status="rejected",
-            reviewed_at=END,
-            run_status="decided",
-        )
-        add_run(
-            session,
-            [call("discovery", START + timedelta(hours=27), 50)],
-            status="approved",
-            reviewed_at=START - timedelta(days=1),
-            run_status="decided",
-        )
-        add_run(
-            session,
-            [
-                call(started_at=START - timedelta(days=1), tokens=8),
-                call(started_at=START + timedelta(hours=28), tokens=11, escalated=True),
-            ],
-        )
-        identifier = add_run(
-            session,
-            [call("discovery", START + timedelta(hours=30), 0, charged_tokens=100)],
-            run_status="deferred",
-            reason="rate_limit",
-        )
-        session.get(TopicDecisionRun, identifier).updated_at = START + timedelta(hours=29)
-        identifier = add_run(session, run_status="deferred")
-        session.get(TopicDecisionRun, identifier).updated_at = START - timedelta(days=1)
-        add_run(session, run_status="review")
-        add_run(session, run_status=None)
-        add_run(session, status="approved", reviewed_at=START, run_status="decided")
-    with database() as session:
-        result = decision_metrics(session, START, END).model_dump()
-        assert {key: result[key] for key in legacy_usage(session)} == legacy_usage(session)
-        assert result == {
-            "pending": 5,
-            "actionable": 2,
-            "deferred": 2,
-            "awaiting_review": 1,
-            "approved": 2,
-            "rejected": 1,
-            "decisions_per_hour": 0.06,
-            "estimated_drain_hours": 33.3,
-            "calls": 7,
-            "tokens": 171,
-            "charged_tokens": 276,
-            "unreported_calls": 1,
-            "repeat_calls": 2,
-            "escalations": 2,
-            "escalation_percent": 28.6,
-            "tokens_per_completed_topic": 63.5,
-            "deferred_reasons": {"rate_limit": 1, "unspecified": 1},
-        }
-        assert inference_charts(session, START, END).model_dump() == {
-            "first_recorded_at": None,
-            "activity": [],
-            "topic_activity": [
-                {
-                    "date": "2026-10-20",
-                    "approved": 2,
-                    "rejected": 0,
-                    "deferred": 0,
-                    "calls": 1,
-                    "escalations": 0,
-                    "repeated_stages": 0,
-                },
-                {
-                    "date": "2026-10-21",
-                    "approved": 0,
-                    "rejected": 0,
-                    "deferred": 1,
-                    "calls": 5,
-                    "escalations": 2,
-                    "repeated_stages": 2,
-                },
-                {
-                    "date": "2026-10-22",
-                    "approved": 0,
-                    "rejected": 1,
-                    "deferred": 0,
-                    "calls": 1,
-                    "escalations": 0,
-                    "repeated_stages": 0,
-                },
-            ],
-        }
-
-
-@pytest.mark.parametrize("unknown", [False, True])
-def test_completion_uses_undated_and_outside_window_calls_without_empty_denominators(
-    database, unknown
-):
-    with database.begin() as session:
-        add_run(
-            session,
-            [
-                call(started_at=None, tokens=0 if unknown else 20),
-                call(started_at=START - timedelta(days=30), tokens=30),
-                call("verification", START, 10),
-            ],
-            status="approved",
-            reviewed_at=END,
-            run_status="decided",
-        )
-        add_run(session, status="rejected", reviewed_at=START, run_status="decided")
-        add_run(
-            session,
-            [call(tokens=1000)],
-            status="approved",
-            reviewed_at=END + timedelta(microseconds=1),
-            run_status="decided",
-        )
-    with database() as session:
-        result = decision_metrics(session, START, END)
-        assert result.calls == 2 and result.tokens == 1010
-        assert result.tokens_per_completed_topic == (None if unknown else 60)
-        assert (
-            result.model_dump()["tokens_per_completed_topic"]
-            == legacy_usage(session)["tokens_per_completed_topic"]
-        )
-
-
-def test_chart_buckets_and_inclusive_boundaries_use_utc_for_offset_ranges(database):
-    offset = timezone(timedelta(hours=5, minutes=30))
-    start = datetime(2026, 10, 20, 1, 30, tzinfo=offset)
-    end = start + timedelta(days=1)
-    with database.begin() as session:
-        add_run(
-            session,
-            [
-                call(started_at=start - timedelta(microseconds=1)),
-                call(started_at=start),
-                call(started_at=end),
-                call(started_at=end + timedelta(microseconds=1)),
-            ],
-            status="approved",
-            reviewed_at=start,
-            run_status="decided",
-        )
-        identifier = add_run(session, run_status="deferred")
-        session.get(TopicDecisionRun, identifier).updated_at = end
-    with database() as session:
-        session.execute(text("SET LOCAL TIME ZONE 'Pacific/Honolulu'"))
-        result = decision_metrics(session, start, end)
-        assert result.calls == 2 and result.repeat_calls == 2 and result.approved == 1
-        assert [
-            day.model_dump() for day in inference_charts(session, start, end).topic_activity
-        ] == [
-            {
-                "date": "2026-10-19",
-                "approved": 1,
-                "rejected": 0,
-                "deferred": 0,
-                "calls": 1,
-                "escalations": 0,
-                "repeated_stages": 1,
-            },
-            {
-                "date": "2026-10-20",
-                "approved": 0,
-                "rejected": 0,
-                "deferred": 1,
-                "calls": 1,
-                "escalations": 0,
-                "repeated_stages": 1,
-            },
-        ]
-
-
 def test_missing_and_malformed_calls_are_safe_unknown_facts(database):
     malformed = [
         None,
@@ -359,16 +122,13 @@ def test_missing_and_malformed_calls_are_safe_unknown_facts(database):
         assert rows[5].charged_tokens is None and rows[6].charged_tokens == 11
         assert not rows[5].escalated and rows[6].escalated
         assert rows[7].started_at is None
-        result = decision_metrics(session, START, END)
-        assert (result.calls, result.tokens, result.charged_tokens, result.unreported_calls) == (
-            3,
-            9,
-            11,
-            2,
-        )
-        assert result.repeat_calls == 2 and result.escalations == 1
-        assert result.tokens_per_completed_topic is None
-        assert inference_charts(session, START, END).topic_activity[0].calls == 3
+        timed = [row for row in rows if row.started_at and START <= row.started_at <= END]
+        assert len(timed) == 3
+        assert sum(int(row.tokens) for row in timed) == 9
+        assert sum(row.charged_tokens or 0 for row in timed) == 11
+        assert sum(row.tokens == 0 for row in timed) == 2
+        assert sum(row.stage_call > 1 for row in timed) == 2
+        assert sum(row.escalated for row in timed) == 1
 
 
 def test_special_timestamps_stay_undated_and_large_token_addition_cannot_overflow(database):
@@ -384,54 +144,8 @@ def test_special_timestamps_stay_undated_and_large_token_addition_cannot_overflo
         assert all(row.started_at is None for row in rows[:-1])
         assert rows[-1].tokens == 2 * (2**63 - 1)
         assert facts(session, naive)[0].started_at == START
-        result = decision_metrics(session, START, END)
-        assert result.calls == 2 and result.tokens == 2 * (2**63 - 1) + 10
-        assert result.tokens_per_completed_topic == float(2 * (2**63 - 1) + 50)
-
-
-def test_report_plans_read_the_window_without_expanding_or_ranking_old_calls(database):
-    with database.begin() as session:
-        add_run(
-            session,
-            [call(started_at=START - timedelta(days=365)) for _ in range(1000)]
-            + [call(started_at=START)],
-        )
-        session.execute(text("ANALYZE topic_decision_calls"))
-        session.execute(text("ANALYZE topic_proposals"))
-    captured = []
-
-    def capture(connection, cursor, statement, parameters, context, executemany):
-        if "topic_decision_calls" in statement:
-            captured.append((statement, parameters))
-
-    with database() as session:
-        engine = session.get_bind()
-        event.listen(engine, "before_cursor_execute", capture)
-        try:
-            assert decision_metrics(session, START, END).calls == 1
-            assert inference_charts(session, START, END).topic_activity[0].calls == 1
-        finally:
-            event.remove(engine, "before_cursor_execute", capture)
-        assert len(captured) == 2
-        for statement, parameters in captured:
-            document = (
-                session.connection()
-                .exec_driver_sql("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + statement, parameters)
-                .scalar_one()[0]
-            )
-            pending = [document["Plan"]]
-            nodes = []
-            while pending:
-                node = pending.pop()
-                nodes.append(node)
-                pending.extend(node.get("Plans", []))
-            assert not {"Function Scan", "WindowAgg"}.intersection(
-                node["Node Type"] for node in nodes
-            )
-            scans = [node for node in nodes if node.get("Relation Name") == "topic_decision_calls"]
-            assert scans and all(node["Actual Rows"] <= 1 for node in scans)
-            assert any("started_at" in node.get("Index Cond", "") for node in nodes)
-            assert document["Plan"]["Temp Written Blocks"] == 0
+        assert sum(int(row.tokens) for row in rows) == 2 * (2**63 - 1) + 50
+        assert sum(row.started_at is not None for row in rows) == 1
 
 
 def test_facts_follow_append_settlement_correction_reorder_removal_and_noop(database):
@@ -462,7 +176,7 @@ def test_facts_follow_append_settlement_correction_reorder_removal_and_noop(data
             ).all()
         )
         assert after[1] == before[1] and after[2] == before[2] and after[3] != before[3]
-        assert decision_metrics(session, START, END).tokens == 60
+        assert sum(int(row.tokens) for row in facts(session, identifier)) == 60
     with database.begin() as session:
         # Checkpoints and exact replay must not rewrite facts on every state save.
         session.execute(
@@ -503,7 +217,7 @@ def test_facts_follow_append_settlement_correction_reorder_removal_and_noop(data
         session.get(TopicDecisionRun, identifier).state = {"calls": corrected[:1]}
     with database() as session:
         assert len(facts(session, identifier)) == 1
-        assert decision_metrics(session, START, END).tokens == 30
+        assert sum(int(row.tokens) for row in facts(session, identifier)) == 30
     with database.begin() as session:
         session.get(TopicDecisionRun, identifier).state = {}
     with database() as session:
@@ -572,8 +286,8 @@ def test_concurrent_atomic_appends_never_duplicate_or_lose_fact_occurrences(data
         assert [row.ordinal for row in rows] == [1, 2, 3, 4, 5]
         assert [row.stage_call for row in rows] == [1, 2, 3, 4, 5]
         assert sorted(int(row.tokens) for row in rows) == [1, 2, 3, 4, 5]
-        result = decision_metrics(session, START, END)
-        assert (result.calls, result.tokens, result.repeat_calls) == (5, 15, 4)
+        assert sum(int(row.tokens) for row in rows) == 15
+        assert sum(row.stage_call > 1 for row in rows) == 4
 
 
 @pytest.mark.parametrize("deleted", ["run", "proposal", "truncate"])
@@ -636,7 +350,7 @@ def test_migration_backfill_matches_live_projection_and_downgrade_preserves_json
 
 
 def test_topic_migration_round_trip_keeps_scheduler_clock_capture_and_source_history(database):
-    config = Config(str(REPO_ROOT / "alembic.ini"))
+    migration = importlib.import_module("migrations.versions.0036_topic_decision_calls")
     capture_sql = text("""SELECT tgname, pg_get_triggerdef(oid) FROM pg_trigger
         WHERE tgrelid='articles'::regclass
         AND tgname IN ('read_model_changed','read_model_article_clock_changed') ORDER BY tgname""")
@@ -671,41 +385,57 @@ def test_topic_migration_round_trip_keeps_scheduler_clock_capture_and_source_his
         assert len(retained_triggers) == 2
         source_state = copy.deepcopy(session.get(TopicDecisionRun, proposal_id).state)
         expected_facts = facts(session, proposal_id)
-    try:
-        command.downgrade(config, "0035")
-        with database.begin() as session:
-            assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0035"
-            assert session.scalar(text("SELECT to_regclass('topic_decision_calls')")) is None
-            assert session.execute(capture_sql).all() == retained_triggers
-            assert session.get(TopicDecisionRun, proposal_id).state == source_state
-            clock = START + timedelta(hours=1)
-            session.execute(
-                text("UPDATE articles SET automation_next_check_at=:clock WHERE id=:id"),
-                {"clock": clock, "id": article_id},
-            )
-            assert session.scalar(text("SELECT count(*) FROM read_model_events")) == 0
-            card = session.get(PipelineProjection, ("retained", "article", article_id))
-            assert datetime.fromisoformat(card.payload["next_check_at"]) == clock
-            assert card.evaluated_at == START
-        command.upgrade(config, "head")
-        with database.begin() as session:
+    # Exercise this migration in one rolled-back transaction. The newer native
+    # capture migration deliberately rejects a full database downgrade because
+    # that would discard analytical facts, so walking through head is unsafe.
+    with database.kw["bind"].connect() as connection, connection.begin() as transaction:
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.downgrade()
+            assert connection.scalar(text("SELECT to_regclass('topic_decision_calls')")) is None
+            assert connection.execute(capture_sql).all() == retained_triggers
             assert (
-                session.scalar(text("SELECT version_num FROM alembic_version")) == SCHEMA_REVISION
+                connection.scalar(
+                    select(TopicDecisionRun.state).where(
+                        TopicDecisionRun.proposal_id == proposal_id
+                    )
+                )
+                == source_state
             )
-            assert facts(session, proposal_id) == expected_facts
-            assert session.get(TopicDecisionRun, proposal_id).state == source_state
-            assert session.execute(capture_sql).all() == retained_triggers
-            clock = START + timedelta(hours=2)
-            session.execute(
-                text("UPDATE articles SET automation_next_check_at=:clock WHERE id=:id"),
-                {"clock": clock, "id": article_id},
-            )
-            card = session.get(PipelineProjection, ("retained", "article", article_id))
-            assert datetime.fromisoformat(card.payload["next_check_at"]) == clock
-            assert card.evaluated_at == START
-            assert session.scalar(text("SELECT count(*) FROM read_model_events")) == 0
-    finally:
-        command.upgrade(config, "head")
+            for index in (1, 2):
+                if index == 2:
+                    migration.upgrade()
+                    rebuilt = connection.execute(
+                        text("""SELECT ordinal,stage,stage_call,started_at,
+                                tokens,charged_tokens,escalated
+                            FROM topic_decision_calls WHERE proposal_id=:id ORDER BY ordinal"""),
+                        {"id": proposal_id},
+                    ).all()
+                    assert rebuilt == expected_facts
+                    assert connection.execute(capture_sql).all() == retained_triggers
+                    assert (
+                        connection.scalar(
+                            select(TopicDecisionRun.state).where(
+                                TopicDecisionRun.proposal_id == proposal_id
+                            )
+                        )
+                        == source_state
+                    )
+                clock = START + timedelta(hours=index)
+                connection.execute(
+                    text("UPDATE articles SET automation_next_check_at=:clock WHERE id=:id"),
+                    {"clock": clock, "id": article_id},
+                )
+                card = connection.execute(
+                    select(PipelineProjection.payload, PipelineProjection.evaluated_at).where(
+                        PipelineProjection.policy_version == "retained",
+                        PipelineProjection.kind == "article",
+                        PipelineProjection.entity_id == article_id,
+                    )
+                ).one()
+                assert datetime.fromisoformat(card.payload["next_check_at"]) == clock
+                assert card.evaluated_at == START
+                assert connection.scalar(text("SELECT count(*) FROM read_model_events")) == 0
+        transaction.rollback()
 
 
 @pytest.fixture

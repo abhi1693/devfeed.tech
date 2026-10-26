@@ -1,11 +1,12 @@
 """Read-model identities, metadata, range bounds, and retry clocks require no database."""
 
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 from devfeed_admin_api import overview_projection
+from devfeed_admin_api.overview_windows import MAX_REPORT_DAYS, ReportWindow, current_window
 from devfeed_admin_api.pipeline_projection import _next_transition
 from devfeed_core import (
     analysis,
@@ -90,25 +91,42 @@ def test_snapshot_metadata_rejects_unknown_status_and_negative_lag(values):
 
 
 @pytest.mark.parametrize("group", sorted(overview_projection.REPORT_GROUPS))
-def test_report_range_keys_preserve_all_supported_days_and_share_independent_groups(group):
-    keys = {overview_projection.report_key(group, days) for days in range(1, 91)}
+def test_report_window_keys_preserve_every_supported_span_and_exact_calendar_dates(group):
+    end = date(2026, 10, 27)
+    windows = [
+        ReportWindow(end - timedelta(days=days), end) for days in range(1, MAX_REPORT_DAYS + 1)
+    ]
+    keys = {overview_projection.report_key(group, window) for window in windows}
+    independent = group in overview_projection.INDEPENDENT_GROUPS
     assert keys == (
-        {(group, 1)}
-        if group in overview_projection.INDEPENDENT_GROUPS
-        else {(group, days) for days in range(1, 91)}
+        {(group, "current")} if independent else {(group, window.key) for window in windows}
     )
+    assert len(keys) == (1 if independent else 3660)
+    earlier = ReportWindow(date(2024, 11, 1), date(2024, 11, 17))
+    later = ReportWindow(date(2025, 11, 1), date(2025, 11, 17))
+    assert earlier.days == later.days == 16
+    assert (
+        overview_projection.report_key(group, earlier)
+        == overview_projection.report_key(group, later)
+    ) is independent
+    if independent:
+        assert overview_projection.report_key(group, current_window()) == (group, "current")
 
 
-@pytest.mark.parametrize(("group", "days"), [("unknown", 7), ("daily", 0), ("daily", 91)])
-def test_report_refresh_key_space_rejects_unknown_groups_and_unbounded_days(group, days):
-    with pytest.raises(ValueError, match="Unknown report group or date range"):
-        overview_projection.report_key(group, days)
+@pytest.mark.parametrize(
+    ("group", "days"), [("unknown", 7), ("publishing", 0), ("publishing", 3661)]
+)
+def test_report_window_identity_rejects_unknown_groups_and_unbounded_calendar_spans(group, days):
+    end = date(2026, 10, 27)
+    with pytest.raises(ValueError, match="Unknown report group|between 1 and 3660"):
+        window = ReportWindow(end - timedelta(days=days), end)
+        overview_projection.report_key(group, window)
 
 
 def test_report_policy_tracks_its_own_contract_and_bounded_pipeline_identity(monkeypatch):
     monkeypatch.setattr(overview_projection, "pipeline_policy_version", lambda: "a" * 100)
     original = overview_projection.report_policy_version()
-    assert original == overview_projection.POLICY_VERSION + ":" + "a" * 64
+    assert original == overview_projection.POLICY_VERSION + ":clickhouse-v2:" + "a" * 64
     monkeypatch.setattr(overview_projection, "POLICY_VERSION", "next-report-contract")
     assert overview_projection.report_policy_version() != original
     assert len(overview_projection.report_policy_version()) <= 100

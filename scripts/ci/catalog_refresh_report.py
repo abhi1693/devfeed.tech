@@ -84,12 +84,21 @@ def summarize(document, error=None):
     for key in ("articles", "retained_article_cards"):
         values[key] = integer(dataset.get(key))
     workload = mapping(document.get("workload"))
+    declared_groups = workload.get("report_groups")
+    allowed_groups = (
+        {"operations"}
+        if declared_groups == ["operations"]
+        else GROUPS
+        if declared_groups is None
+        else set()
+    )
+    values["reports_per_batch"] = len(allowed_groups)
     values["planned_batches"] = integer(workload.get("batches"))
     samples = document.get("continuous")
     if isinstance(samples, list):
         values["completed_batches"] = len(samples)
         results = []
-        valid = bool(samples) and len(samples) == values["planned_batches"]
+        valid = bool(allowed_groups) and bool(samples) and len(samples) == values["planned_batches"]
         for sample in samples:
             batch_results = mapping(mapping(sample).get("reports")).get("result")
             if not isinstance(batch_results, list) or any(
@@ -99,8 +108,8 @@ def summarize(document, error=None):
                 break
             groups = [row.get("group") for row in batch_results]
             if (
-                len(groups) > len(GROUPS)
-                or any(group not in GROUPS for group in groups if isinstance(group, str))
+                len(groups) > len(allowed_groups)
+                or any(group not in allowed_groups for group in groups if isinstance(group, str))
                 or any(not isinstance(group, str) for group in groups)
                 or len(set(groups)) != len(groups)
                 or any(type(row.get("published")) is not bool for row in batch_results)
@@ -114,7 +123,7 @@ def summarize(document, error=None):
                 attempts=len(results),
                 published=sum(row.get("published") is True for row in results),
                 readiness_errors=sum(row.get("error") == "ProjectionNotReady" for row in results),
-                suppressed=len(samples) * len(GROUPS) - len(results),
+                suppressed=len(samples) * len(allowed_groups) - len(results),
             )
             snapshots = [row.get("snapshot") for row in results if row.get("published") is True]
             lags = [
@@ -122,14 +131,17 @@ def summarize(document, error=None):
                 for row in snapshots
             ]
             values["max_lag"] = (
-                max(lags) if lags and all(value is not None for value in lags) else None
+                max(value for value in lags if value is not None)
+                if lags and all(value is not None for value in lags)
+                else None
             )
             catalog = [
                 number(row.get("catalog_lag_seconds")) if isinstance(row, dict) else None
                 for row in snapshots
             ]
             if catalog and all(value is not None for value in catalog):
-                values["catalog_lag_min"], values["catalog_lag_max"] = min(catalog), max(catalog)
+                known = [value for value in catalog if value is not None]
+                values["catalog_lag_min"], values["catalog_lag_max"] = min(known), max(known)
             values["catching_up"] = sum(
                 isinstance(row, dict) and row.get("status") == "catching_up" for row in snapshots
             )
@@ -181,41 +193,43 @@ def summarize(document, error=None):
     return values
 
 
+def scenario_passed(side):
+    metrics = (
+        "convergence_wall_seconds",
+        "convergence_application_cpu_seconds",
+        "projector_cpu",
+        "report_cpu",
+        "temp_mb",
+    )
+    if not (
+        side.get("gates_passed")
+        and side.get("native")
+        and side.get("planned_batches", 0)
+        and side.get("completed_batches") == side.get("planned_batches")
+        and integer(side.get("attempts")) is not None
+        and all(number(side.get(key)) is not None for key in metrics)
+        and side.get("pending_events") == 0
+        and side.get("parity") is True
+    ):
+        return False
+    if side.get("behavior") == "Starvation":
+        return (
+            side.get("published") == 0
+            and side.get("readiness_errors") == side["attempts"]
+            and side["attempts"] > 0
+        )
+    return (
+        side.get("published")
+        == side["planned_batches"] * side.get("reports_per_batch", len(GROUPS))
+        and side["attempts"] == side["published"]
+        and side.get("catching_up") == side["published"]
+        and number(side.get("max_lag")) is not None
+        and side["max_lag"] <= 60
+    )
+
+
 def render(before, after, *, job_result, base_sha, head_sha):
     missing = any(not side.get("complete") for side in (before, after))
-
-    def scenario_passed(side):
-        metrics = (
-            "convergence_wall_seconds",
-            "convergence_application_cpu_seconds",
-            "projector_cpu",
-            "report_cpu",
-            "temp_mb",
-        )
-        if not (
-            side.get("gates_passed")
-            and side.get("native")
-            and side.get("planned_batches", 0)
-            and side.get("completed_batches") == side.get("planned_batches")
-            and integer(side.get("attempts")) is not None
-            and all(number(side.get(key)) is not None for key in metrics)
-            and side.get("pending_events") == 0
-            and side.get("parity") is True
-        ):
-            return False
-        if side.get("behavior") == "Starvation":
-            return (
-                side.get("published") == 0
-                and side.get("readiness_errors") == side["attempts"]
-                and side["attempts"] > 0
-            )
-        return (
-            side.get("published") == side["planned_batches"] * len(GROUPS)
-            and side["attempts"] == side["published"]
-            and side.get("catching_up") == side["published"]
-            and number(side.get("max_lag")) is not None
-            and side["max_lag"] <= 60
-        )
 
     passed = (
         job_result == "success"
@@ -266,7 +280,7 @@ def render(before, after, *, job_result, base_sha, head_sha):
     def slots(side):
         published, planned = side.get("published"), side.get("planned_batches")
         return (
-            f"**{published}/{planned * 2}**"
+            f"**{published}/{planned * side.get('reports_per_batch', 2)}**"
             if published is not None and planned is not None
             else "Unavailable"
         )
@@ -277,9 +291,10 @@ def render(before, after, *, job_result, base_sha, head_sha):
         number(old) is not None
         and number(new) is not None
         and before.get("planned_batches") == after.get("planned_batches")
+        and before.get("reports_per_batch") == after.get("reports_per_batch")
         and after.get("planned_batches")
     ):
-        points = (new - old) / (after["planned_batches"] * 2) * 100
+        points = (new - old) / (after["planned_batches"] * after.get("reports_per_batch", 2)) * 100
         change = f"{new - old:+,} reports ({points:+.0f} pp)"
     lines.append(
         f"| **Published / requested reports** | {slots(before)} | {slots(after)} | **{change}** |"
@@ -347,9 +362,53 @@ def render(before, after, *, job_result, base_sha, head_sha):
     return status, "\n".join(lines) + "\n"
 
 
+def render_current(after, *, job_result, head_sha):
+    complete = after.get("complete")
+    passed = (
+        job_result == "success"
+        and complete
+        and scenario_passed(after)
+        and after.get("behavior") == "Publishes during catch-up"
+        and number(after.get("articles")) is not None
+        and after["articles"] >= 100000
+        and number(after.get("retained_article_cards")) is not None
+        and after["retained_article_cards"] >= 19679
+    )
+    status = "passed" if passed else "incomplete" if not complete else "failed"
+    label = {"passed": "PASS", "failed": "FAIL", "incomplete": "INCOMPLETE"}[status]
+    lines = [
+        "### Catalog refresh scale",
+        "",
+        f"**{label}** · PostgreSQL catalog + operations / native ARM64 · current `{head_sha[:12]}`",
+        "",
+        "Current architecture measurement; no paired baseline or performance delta is claimed.",
+        "",
+        "| Metric | Current |",
+        "| --- | ---: |",
+    ]
+    for title, key, unit, digits in (
+        ("Articles", "articles", "", 0),
+        ("Retained cards", "retained_article_cards", "", 0),
+        ("Published reports", "published", "", 0),
+        ("Readiness errors", "readiness_errors", "", 0),
+        ("Maximum operational lag", "max_lag", "s", 3),
+        ("Pending events after convergence", "pending_events", "", 0),
+        ("Recovery wall time", "convergence_wall_seconds", "s", 2),
+        ("Report application CPU", "report_cpu", "s", 2),
+        ("Observed PostgreSQL temporary writes", "temp_mb", "MB", 2),
+    ):
+        lines.append(f"| {title} | {metric(after.get(key), unit, digits=digits)} |")
+    if status != "passed":
+        lines.extend(
+            ["", "**This is not a passing scale check.** Missing evidence is unavailable."]
+        )
+    return status, "\n".join(lines) + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--job-result", choices=("success", "failure", "cancelled"), required=True)
+    parser.add_argument("--candidate-only", action="store_true")
     args = parser.parse_args()
     run_id, attempt = os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_RUN_ATTEMPT", "")
     base, head = os.environ.get("BASE_SHA", ""), os.environ.get("HEAD_SHA", "")
@@ -365,11 +424,17 @@ def main():
     metadata = directory / "summary.json"
     if directory.is_symlink() or output.is_symlink() or metadata.is_symlink():
         parser.error("Report artifacts must use ordinary files in the fixed reports directory")
-    sides = []
-    for name in ("baseline", "candidate"):
-        document, error = read_document(directory / f"{name}.json")
-        sides.append(summarize(document, error))
-    status, markdown = render(*sides, job_result=args.job_result, base_sha=base, head_sha=head)
+    if args.candidate_only:
+        document, error = read_document(directory / "candidate.json")
+        status, markdown = render_current(
+            summarize(document, error), job_result=args.job_result, head_sha=head
+        )
+    else:
+        sides = []
+        for name in ("baseline", "candidate"):
+            document, error = read_document(directory / f"{name}.json")
+            sides.append(summarize(document, error))
+        status, markdown = render(*sides, job_result=args.job_result, base_sha=base, head_sha=head)
     directory.mkdir(parents=True, exist_ok=True)
     output.write_text(markdown)
     metadata.write_text(

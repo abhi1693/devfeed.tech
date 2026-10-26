@@ -357,7 +357,6 @@ def test_both_publishers_share_serialized_write_job_without_checking_out_artifac
     assert "head.repo.full_name == github.repository" in job["if"]
     assert not any("checkout@" in step.get("uses", "") for step in job["steps"])
     for workflow_name, section in [
-        ("token-usage-performance", "token-usage"),
         ("performance", "reader-api"),
     ]:
         workflow = yaml.safe_load(

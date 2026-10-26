@@ -4,6 +4,7 @@ HTTP readers only load the last complete document and record coalesced demand.
 Neither Redis availability nor browser retries can start report calculations.
 """
 
+import asyncio
 import logging
 import time as clock
 import uuid
@@ -22,17 +23,17 @@ from fastapi import HTTPException
 from sqlalchemy import cast, func, or_, select, text, true, update
 from sqlalchemy.dialects.postgresql import JSONB, insert
 
-from devfeed_admin_api.overview_panel_data import GROUPS, PanelName, panel_data
+from devfeed_admin_api.overview_operations import operations_report
+from devfeed_admin_api.overview_sections import SectionName
+from devfeed_admin_api.overview_windows import ReportWindow, current_window
 
 logger = logging.getLogger(__name__)
 FRESH_SECONDS = 60
 LEASE_SECONDS = 45
-POLICY_VERSION = "overview-v4"
+POLICY_VERSION = "overview-v6"
 DEPENDENCY_RETRY_SECONDS = 5
-INDEPENDENT_GROUPS = frozenset(
-    {"adoption", "personalization", "attention", "blockers", "throughput"}
-)
-REPORT_GROUPS = frozenset(GROUPS.get(panel, panel) for panel in get_args(PanelName)) | {"overview"}
+INDEPENDENT_GROUPS = frozenset({"operations"})
+REPORT_GROUPS = frozenset(get_args(SectionName))
 
 
 class ProjectionNotReady(RuntimeError):
@@ -131,43 +132,58 @@ def projected_blockers(session):
 
 
 def report_policy_version():
-    return f"{POLICY_VERSION}:{pipeline_policy_version()[:64]}"
+    return f"{POLICY_VERSION}:clickhouse-v2:{pipeline_policy_version()[:64]}"
 
 
-def report_key(group: str, days: int) -> tuple[str, int]:
-    if group not in REPORT_GROUPS or not 1 <= days <= 90:
-        raise ValueError("Unknown report group or date range")
-    return group, 1 if group in INDEPENDENT_GROUPS else days
+def report_key(group: str, window: ReportWindow) -> tuple[str, str]:
+    if group not in REPORT_GROUPS:
+        raise ValueError("Unknown report group")
+    if group not in INDEPENDENT_GROUPS and window.start is None:
+        raise ValueError("Analytical reports require explicit dates")
+    return group, "current" if group in INDEPENDENT_GROUPS else window.key
 
 
-def request_refresh(session, group, days, now):
-    """The finite group/range key space bounds demand even under repeated GETs.
-
-    Conflict handling deliberately leaves failure cooldowns and active leases
-    untouched. A process restart cannot turn polling into a refresh storm.
-    """
-    group, days = report_key(group, days)
+def request_refresh(session, group, window, now):
+    """Coalesce an exact calendar window without disturbing leases or cooldowns."""
+    group, key = report_key(group, window)
+    if group in INDEPENDENT_GROUPS:
+        window = current_window()
+    statement = insert(ReportRefresh).values(
+        group=group,
+        window_key=key,
+        window_start=window.start,
+        window_end=window.end,
+        days=window.days,
+        requested_at=now,
+        last_requested_at=now,
+        available_at=now,
+        attempts=0,
+    )
     session.execute(
-        insert(ReportRefresh)
-        .values(group=group, days=days, requested_at=now, available_at=now, attempts=0)
-        .on_conflict_do_nothing(index_elements=[ReportRefresh.group, ReportRefresh.days])
+        statement.on_conflict_do_update(
+            index_elements=[ReportRefresh.group, ReportRefresh.window_key],
+            set_={"last_requested_at": now},
+            where=ReportRefresh.last_requested_at <= now - timedelta(hours=1),
+        )
     )
 
 
-def read_report(factory, group, days, model, *, now=None):
+def read_report(factory, group, window, model, *, now=None):
     now = now or utcnow()
-    key = report_key(group, days)
+    key = report_key(group, window)
+    if group in INDEPENDENT_GROUPS:
+        window = current_window()
     version = report_policy_version()
     with factory.begin() as session:
         session.connection().info["report_deadline"] = clock.monotonic() + 2
         session.execute(text("SET LOCAL statement_timeout = '2s'"))
         session.execute(text("SET LOCAL lock_timeout = '500ms'"))
         pipeline = None
-        if group in {"blockers", "overview"}:
+        if group in {"operations"}:
             saved = session.execute(
                 select(ReportSnapshot, ReadModelState.payload)
                 .outerjoin(ReadModelState, ReadModelState.name == "pipeline")
-                .where(ReportSnapshot.group == key[0], ReportSnapshot.days == key[1])
+                .where(ReportSnapshot.group == key[0], ReportSnapshot.window_key == key[1])
             ).one_or_none()
             stored, pipeline = saved if saved is not None else (None, None)
         else:
@@ -178,15 +194,23 @@ def read_report(factory, group, days, model, *, now=None):
         result = None
         if stored is not None:
             try:
-                result = model.model_validate(stored.payload).model_copy(update={"days": days})
+                result = model.model_validate(stored.payload).model_copy(
+                    update={"days": window.days, "start": window.start, "end": window.inclusive_end}
+                )
+                if stored.last_requested_at <= now - timedelta(hours=1):
+                    stored.last_requested_at = now
                 if stored.payload.get("_projection_snapshot") is not None:
                     dependency = ReadModelSnapshot.model_validate(
                         stored.payload["_projection_snapshot"]
                     )
             except ValueError:
                 rebuilding = True
+        # Freshness includes the source age captured when this report was built.
+        # Waiting for document age alone leaves an already-expired source
+        # observation without refresh demand until the next full report interval.
+        lag = age + (dependency.lag_seconds or 0) if dependency else age
         catalog_refresh = pipeline.get("catalog_refresh") if pipeline else None
-        dependency_rebuilding = group in {"blockers", "overview"} and (
+        dependency_rebuilding = group in {"operations"} and (
             pipeline is None
             or (
                 pipeline.get("serving_policy") != pipeline_policy_version()
@@ -198,20 +222,21 @@ def read_report(factory, group, days, model, *, now=None):
             stored is None
             or rebuilding
             or dependency_rebuilding
-            or age >= FRESH_SECONDS
+            or lag >= FRESH_SECONDS
             or (
                 catalog_refresh is not None and (dependency is None or dependency.status == "fresh")
             )
         ):
-            request_refresh(session, key[0], key[1], now)
-        refresh = session.get(ReportRefresh, key)
+            request_refresh(session, key[0], window, now)
+        refresh = (
+            session.get(ReportRefresh, key) if result is not None and stored is not None else None
+        )
         if result is None or stored is None:
             raise_after_commit = True
         else:
             raise_after_commit = False
             # Preserve the exact observed projection generation. Reading a newer
             # pipeline pointer here must never relabel an older saved document.
-            lag = age + (dependency.lag_seconds or 0) if dependency else age
             if (
                 rebuilding
                 or dependency_rebuilding
@@ -222,7 +247,7 @@ def read_report(factory, group, days, model, *, now=None):
                 dependency is not None and (dependency.status == "stale" or lag > FRESH_SECONDS)
             ):
                 status = "stale"
-            elif age >= FRESH_SECONDS:
+            elif lag >= FRESH_SECONDS:
                 status = "refreshing" if refresh is not None else "stale"
             elif catalog_refresh is not None:
                 status = "catching_up"
@@ -263,32 +288,6 @@ def read_report(factory, group, days, model, *, now=None):
     return result
 
 
-def seed_refreshes(factory, now):
-    """Continuously refresh known ranges, including after the last viewer leaves."""
-    with factory.begin() as session:
-        for group in sorted(REPORT_GROUPS):
-            for days in (1,) if group in INDEPENDENT_GROUPS else (7, 30):
-                stored = session.get(ReportSnapshot, (group, days))
-                if (
-                    stored is None
-                    or stored.policy_version != report_policy_version()
-                    or stored.generated_at <= now - timedelta(seconds=FRESH_SECONDS)
-                ):
-                    request_refresh(session, group, days, now)
-        for group, days in session.execute(
-            select(ReportSnapshot.group, ReportSnapshot.days)
-            .where(
-                ReportSnapshot.group.in_(REPORT_GROUPS),
-                or_(
-                    ReportSnapshot.generated_at <= now - timedelta(seconds=FRESH_SECONDS),
-                    ReportSnapshot.policy_version != report_policy_version(),
-                ),
-            )
-            .limit(len(REPORT_GROUPS) * 90)
-        ):
-            request_refresh(session, group, days, now)
-
-
 def claim_refresh(factory, now):
     with factory.begin() as session:
         refresh = session.scalar(
@@ -307,47 +306,52 @@ def claim_refresh(factory, now):
         refresh.lease_token = uuid.uuid4()
         refresh.lease_until = now + timedelta(seconds=LEASE_SECONDS)
         refresh.attempts += 1
-        return refresh.group, refresh.days, refresh.lease_token, refresh.attempts
+        return (
+            refresh.group,
+            ReportWindow(refresh.window_start, refresh.window_end),
+            refresh.lease_token,
+            refresh.attempts,
+        )
 
 
-def calculate_report(factory, group, days, now):
-    """Worker-only entry point. Each calculation owns a short-lived connection."""
-    from devfeed_admin_api.overview import overview_metrics
-    from devfeed_admin_api.overview_processing import processing_facts
+def calculate_report(factory, group, window, now):
+    """Calculate current review and recovery controls in a bounded transaction."""
     from devfeed_admin_api.reporting import report_budget
 
+    if group != "operations":
+        raise ValueError("Historical reports require ClickHouse")
     with factory() as session, report_budget(session):
         session.connection().info["report_deadline"] = clock.monotonic() + 30
         session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
         session.execute(text("SET LOCAL statement_timeout = '10s'"))
         session.execute(text("SET LOCAL idle_in_transaction_session_timeout = '10s'"))
-        if group in {"processing", "overview"}:
-            from datetime import datetime, time
+        return operations_report(session, 1, now)
 
-            from devfeed_admin_api.overview_processing import STATE_NAME
 
-            start = datetime.combine(
-                now.date() - timedelta(days=days - 1), time.min, tzinfo=now.tzinfo
-            )
-            facts = session.get(ReadModelState, STATE_NAME)
-            if (
-                facts is None
-                or facts.updated_at < now - timedelta(seconds=FRESH_SECONDS)
-                or processing_facts(session, start, now) is None
-            ):
-                raise ProjectionNotReady("Processing rollups are still rebuilding")
-        if group == "overview":
-            result = overview_metrics(session, days, projected=True)
-            assert facts is not None
-            result.generated_at = min(result.generated_at, facts.updated_at)
-            result.snapshot = session.info.get("report_projection_snapshot")
-            return result
-        panel = panel_data(session, group, days, now)
-        if group == "processing":
-            assert facts is not None
-            panel.generated_at = min(panel.generated_at, facts.updated_at)
-        panel.snapshot = session.info.get("report_projection_snapshot")
-        return panel
+async def calculate_report_async(factory, group, window, now, client):
+    """Historical reports read compact ClickHouse rollups outside PG transactions."""
+    from devfeed_admin_api.analytics_reports import ANALYTICAL_GROUPS, Reports
+
+    if group == "operations":
+        return await asyncio.to_thread(calculate_report, factory, group, window, now)
+    if group not in ANALYTICAL_GROUPS:
+        raise ValueError("Unknown analytical section")
+    async with asyncio.timeout(30):
+        status = await client.status()
+        if not status.get("ready"):
+            raise ProjectionNotReady("ClickHouse analytical history is still backfilling")
+        capture_started_at = datetime.fromisoformat(status["capture_started_at"])
+        observed_at = datetime.fromisoformat(status["updated_at"])
+        reports = Reports(client, window, now, capture_started_at=capture_started_at)
+        result = await reports.section(group)
+    lag = max(0.0, (now - observed_at).total_seconds(), float(status.get("lag_seconds", 0)))
+    result.snapshot = ReadModelSnapshot(
+        status="stale" if lag > FRESH_SECONDS else "fresh",
+        generation=f"analytics:clickhouse:{observed_at.isoformat()}",
+        generated_at=observed_at,
+        lag_seconds=lag,
+    )
+    return result
 
 
 def _defer_refresh(owned, now):
@@ -359,14 +363,15 @@ def _defer_refresh(owned, now):
 
 
 def publish_report(factory, claim, result, now, *, policy_version=None):
-    group, days, token, _attempts = claim
+    group, window, token, _attempts = claim
+    key = report_key(group, window)[1]
     version = policy_version or report_policy_version()
     with factory.begin() as session:
         owned = session.scalar(
             select(ReportRefresh)
             .where(
                 ReportRefresh.group == group,
-                ReportRefresh.days == days,
+                ReportRefresh.window_key == key,
                 ReportRefresh.lease_token == token,
                 ReportRefresh.lease_until > now,
             )
@@ -395,7 +400,7 @@ def publish_report(factory, claim, result, now, *, policy_version=None):
             ):
                 _defer_refresh(owned, now)
                 return False
-        stored = session.get(ReportSnapshot, (group, days), with_for_update=True)
+        stored = session.get(ReportSnapshot, (group, key), with_for_update=True)
         if stored is not None and stored.policy_version == version:
             previous = stored.payload.get("_projection_snapshot") or {}
             previous_generation = previous.get("article_generation")
@@ -413,18 +418,25 @@ def publish_report(factory, claim, result, now, *, policy_version=None):
             payload["_projection_snapshot"] = result.snapshot.model_dump(mode="json")
         statement = insert(ReportSnapshot).values(
             group=group,
-            days=days,
+            window_key=key,
+            window_start=window.start,
+            window_end=window.end,
+            days=window.days,
+            last_requested_at=owned.last_requested_at,
             payload=payload,
             generated_at=result.generated_at,
             policy_version=version,
         )
         session.execute(
             statement.on_conflict_do_update(
-                index_elements=[ReportSnapshot.group, ReportSnapshot.days],
+                index_elements=[ReportSnapshot.group, ReportSnapshot.window_key],
                 set_={
                     "payload": statement.excluded.payload,
                     "generated_at": statement.excluded.generated_at,
                     "policy_version": statement.excluded.policy_version,
+                    "last_requested_at": func.greatest(
+                        ReportSnapshot.last_requested_at, statement.excluded.last_requested_at
+                    ),
                 },
             )
         )
@@ -433,13 +445,14 @@ def publish_report(factory, claim, result, now, *, policy_version=None):
 
 
 def fail_refresh(factory, claim, now, error):
-    group, days, token, attempts = claim
+    group, window, token, attempts = claim
+    key = report_key(group, window)[1]
     with factory.begin() as session:
         session.execute(
             update(ReportRefresh)
             .where(
                 ReportRefresh.group == group,
-                ReportRefresh.days == days,
+                ReportRefresh.window_key == key,
                 ReportRefresh.lease_token == token,
             )
             .values(
@@ -457,38 +470,49 @@ def fail_refresh(factory, claim, now, error):
         )
 
 
-def refresh_overview_projections(factory=None, *, limit=4, now=None, seed=True):
-    """Publish at most ``limit`` reports; failure never removes the last complete one."""
-    from devfeed_admin_api.overview_processing import refresh_processing_facts
+def refresh_overview_projections(factory=None, *, limit=4, now=None, client=None):
+    """Run the required asynchronous ClickHouse publisher from an operator command."""
+    if not 1 <= limit <= 100:
+        raise ValueError("Report refresh limit must be between 1 and 100")
+    return asyncio.run(
+        refresh_overview_projections_async(factory, limit=limit, now=now, client=client)
+    )
+
+
+async def refresh_overview_projections_async(factory=None, *, limit=4, now=None, client=None):
+    """Publish coalesced demand only; idle cycles perform no historical queries."""
+    from devfeed_core.analytics import AnalyticsClient
+
     from devfeed_admin_api.reporting import reporting_sessions
 
     if not 1 <= limit <= 100:
         raise ValueError("Report refresh limit must be between 1 and 100")
     factory = factory or reporting_sessions()
     now = now or utcnow()
-    try:
-        refresh_processing_facts(factory, now)
-    except Exception as error:
-        # Other panels remain independently publishable while one rollup fails.
-        logger.warning(
-            "overview_processing_refresh_failed", extra={"error_type": type(error).__name__}
-        )
-    if seed:
-        seed_refreshes(factory, now)
+    if client is None:
+        async with AnalyticsClient() as owned:
+            return await refresh_overview_projections_async(
+                factory, limit=limit, now=now, client=owned
+            )
     published = 0
     for _ in range(limit):
-        claim_now = max(now, utcnow())
-        claim = claim_refresh(factory, claim_now)
+        claim = await asyncio.to_thread(claim_refresh, factory, max(now, utcnow()))
         if claim is None:
             break
         try:
             version = report_policy_version()
-            result = calculate_report(factory, claim[0], claim[1], claim_now)
-            published += publish_report(factory, claim, result, utcnow(), policy_version=version)
+            result = await calculate_report_async(factory, claim[0], claim[1], utcnow(), client)
+            published += await asyncio.to_thread(
+                publish_report, factory, claim, result, utcnow(), policy_version=version
+            )
         except Exception as error:
-            fail_refresh(factory, claim, utcnow(), error)
+            await asyncio.to_thread(fail_refresh, factory, claim, utcnow(), error)
             logger.warning(
                 "overview_projection_failed",
-                extra={"group": claim[0], "days": claim[1], "error_type": type(error).__name__},
+                extra={
+                    "group": claim[0],
+                    "window": claim[1].key,
+                    "error_type": type(error).__name__,
+                },
             )
     return published

@@ -5,8 +5,9 @@ import importlib.util
 import json
 import os
 import sys
+from contextlib import nullcontext
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from sqlalchemy import column, delete, select, table
@@ -45,10 +46,53 @@ def report(group, generation=10):
     }
 
 
+@pytest.mark.parametrize("outcome", ["published", "declined", "empty", "failed"])
+def test_catalog_measurement_publishes_only_operations_without_clickhouse(monkeypatch, outcome):
+    from devfeed_admin_api import overview_projection as reports
+
+    factory = SimpleNamespace(begin=lambda: nullcontext(object()))
+    from devfeed_admin_api.overview_windows import current_window
+
+    claim = ("operations", current_window(), "fixture-token", 0)
+    request = Mock()
+    failed = Mock()
+    calculate = Mock(
+        return_value=SimpleNamespace(snapshot=None),
+        side_effect=RuntimeError("fixture calculation failed") if outcome == "failed" else None,
+    )
+    publish = Mock(return_value=outcome == "published")
+    monkeypatch.setattr(reports, "request_refresh", request)
+    monkeypatch.setattr(
+        reports, "claim_refresh", lambda *_args: None if outcome == "empty" else claim
+    )
+    monkeypatch.setattr(reports, "calculate_report", calculate)
+    monkeypatch.setattr(reports, "publish_report", publish)
+    monkeypatch.setattr(reports, "fail_refresh", failed)
+    monkeypatch.setattr(
+        "devfeed_core.analytics.AnalyticsClient",
+        Mock(side_effect=AssertionError("Catalog benchmark connected to ClickHouse")),
+    )
+    result = profile.publish(factory)
+    assert request.call_args.args[1:3] == ("operations", current_window())
+    if outcome == "empty":
+        assert result == []
+        calculate.assert_not_called()
+    else:
+        assert result[0]["group"] == "operations"
+        assert calculate.call_args.args[1:3] == ("operations", current_window())
+        if outcome == "failed":
+            assert result[0]["error"] == "RuntimeError"
+            failed.assert_called_once()
+            publish.assert_not_called()
+        else:
+            assert result[0]["published"] == (outcome == "published")
+            failed.assert_not_called()
+
+
 def evidence(behavior="fixed"):
     samples = [
         {
-            "reports": {"result": [report("blockers", 10 + index), report("overview", 10 + index)]},
+            "reports": {"result": [report("operations", 10 + index)]},
             "state": {"catalog_cursors": [f"cursor-{index}"]},
         }
         for index in range(2)
@@ -56,13 +100,13 @@ def evidence(behavior="fixed"):
     if behavior == "baseline":
         samples[0]["reports"]["result"] = [
             {"group": group, "published": False, "error": "ProjectionNotReady"}
-            for group in ("blockers", "overview")
+            for group in ("operations",)
         ]
         # Failure cooldowns intentionally prevent immediate additional claims.
         samples[1]["reports"]["result"] = []
     return {
         "continuous": samples,
-        "stable_reports": {"result": [report("blockers"), report("overview")]},
+        "stable_reports": {"result": [report("operations")]},
         "concurrent_ingestion": {"commits": 2},
         "final_state": {"pending_events": 0, "pipeline": {}},
         "legacy_lifecycle_parity": {"matches_legacy_lifecycle": True},
@@ -87,23 +131,23 @@ def test_baseline_cannot_hide_partial_publication_or_an_unrelated_failure(failur
     output = evidence("baseline")
     results = output["continuous"][0]["reports"]["result"]
     if failure == "unexpected-error":
-        results[1]["error"] = "TimeoutError"
+        results[0]["error"] = "TimeoutError"
     elif failure == "missing-group":
         results.pop()
     else:
-        results[1] = report("overview")
+        results[0] = report("operations")
     assert not profile.gates(output, expected)["passed"]
 
 
 @pytest.mark.parametrize("failure", ["missing-report", "duplicate-group", "empty-batch"])
 @pytest.mark.parametrize("expected", ["fixed", "either"])
-def test_fixed_requires_both_reports_in_every_batch(failure, expected):
+def test_fixed_requires_requested_operational_report_in_every_batch(failure, expected):
     output = evidence()
     results = output["continuous"][1]["reports"]["result"]
     if failure == "missing-report":
         results.pop()
     elif failure == "duplicate-group":
-        results[1]["group"] = "blockers"
+        results.append(report("operations"))
     else:
         results.clear()
     assert not profile.gates(output, expected)["passed"]
@@ -113,7 +157,7 @@ def test_fixed_requires_both_reports_in_every_batch(failure, expected):
 def test_behavioral_success_cannot_hide_failed_setup_or_recovery(failure):
     output = evidence()
     if failure == "stable-report":
-        output["stable_reports"]["result"][1]["group"] = "blockers"
+        output["stable_reports"]["result"][0]["group"] = "coverage"
     elif failure == "writer":
         output["concurrent_ingestion"]["error"] = "Writer failed"
     elif failure == "backlog":
@@ -152,7 +196,7 @@ def test_fixed_requires_explicit_generation_and_honest_separate_freshness(field,
 
 def test_fixed_generations_cannot_move_backwards():
     output = evidence()
-    output["continuous"][1]["reports"]["result"] = [report("blockers", 9), report("overview", 9)]
+    output["continuous"][1]["reports"]["result"] = [report("operations", 9)]
     gates = profile.gates(output, "fixed")
     assert not gates["passed"] and not gates["checks"]["publication_generations_do_not_regress"]
 
@@ -251,6 +295,44 @@ def test_cli_refuses_unsafe_targets_and_unbounded_work_before_connecting(
     assert error.value.code == 2
     assert message in capsys.readouterr().err
     assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "origin,database,message",
+    [
+        ("http://analytics.example:8123", "analytics_test", "local ClickHouse"),
+        ("http://user:password@127.0.0.1:8123", "analytics_test", "local ClickHouse"),
+        ("http://127.0.0.1:8123/?query=DROP", "analytics_test", "local ClickHouse"),
+        ("http://127.0.0.1:8123", "production", "ending in _test"),
+        ("http://127.0.0.1:8123", "a;drop_test", "ending in _test"),
+    ],
+)
+def test_profiler_refuses_nonlocal_or_unowned_analytics_targets(origin, database, message):
+    with pytest.raises(ValueError, match=message):
+        sys.modules["profile_read_models"].analytics_environment(
+            {
+                "DEVFEED_TEST_CLICKHOUSE_URL": origin,
+                "DEVFEED_TEST_CLICKHOUSE_DATABASE": database,
+            }
+        )
+
+
+def test_profiler_analytics_settings_use_only_explicit_test_credentials():
+    values = sys.modules["profile_read_models"].analytics_environment(
+        {
+            "DEVFEED_TEST_CLICKHOUSE_URL": "http://127.0.0.1:8123/",
+            "DEVFEED_TEST_CLICKHOUSE_DATABASE": "analytics_test",
+            "DEVFEED_TEST_CLICKHOUSE_USERNAME": "fixture",
+            "DEVFEED_TEST_CLICKHOUSE_PASSWORD": "fixture-only-secret",
+            "DEVFEED_CLICKHOUSE_PASSWORD": "must-not-use-live-credentials",
+        }
+    )
+    assert values == {
+        "DEVFEED_CLICKHOUSE_URL": "http://127.0.0.1:8123",
+        "DEVFEED_CLICKHOUSE_DATABASE": "analytics_test",
+        "DEVFEED_CLICKHOUSE_USERNAME": "fixture",
+        "DEVFEED_CLICKHOUSE_PASSWORD": "fixture-only-secret",
+    }
 
 
 @pytest.mark.integration

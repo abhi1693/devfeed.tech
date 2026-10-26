@@ -133,7 +133,7 @@ def test_lifecycle_always_releases_resources_clients_and_telemetry(failure, monk
     logger.info.assert_any_call("test_api_stopped")
 
 
-@pytest.mark.parametrize("failure", ["start", "snapshots", "panels", "codex"])
+@pytest.mark.parametrize("failure", ["start", "codex"])
 def test_admin_owned_resources_cannot_prevent_process_cleanup(failure, monkeypatch):
     module = importlib.import_module("devfeed_admin_api.main")
     app = module.create_app()
@@ -153,8 +153,6 @@ def test_admin_owned_resources_cannot_prevent_process_cleanup(failure, monkeypat
             raise RuntimeError(name)
 
     app.state.codex = SimpleNamespace(start=start, close=lambda: close("codex"))
-    monkeypatch.setattr(module.overview, "close_snapshot_tasks", lambda app: close("snapshots"))
-    monkeypatch.setattr(module.overview_panels, "close_panel_tasks", lambda app: close("panels"))
 
     async def scenario():
         async with module.lifespan(app):
@@ -167,8 +165,6 @@ def test_admin_owned_resources_cannot_prevent_process_cleanup(failure, monkeypat
         assert events == [
             "start",
             "request",
-            "snapshots",
-            "panels",
             "codex",
             "clients",
             "telemetry",

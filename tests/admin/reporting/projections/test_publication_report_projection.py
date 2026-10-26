@@ -3,15 +3,20 @@
 from datetime import timedelta
 
 import pytest
-from devfeed_admin_api.automation import _publication_automation_query, publication_automation
-from devfeed_core.models import ArticleReview, utcnow
-from psycopg import sql
-from sqlalchemy import text
+from devfeed_core.models import ArticleReview
 
 from tests.admin.reporting.projections.test_pipeline_projection_safety import add_article
+from tests.support.analytics import load_section
 from tests.support.source_readiness import NOW
 
 pytestmark = pytest.mark.integration
+
+
+def publication_summary(session, start, now):
+    days = (now.date() - start.date()).days + 1
+    return load_section(session, "publishing", days, now).data.summary.model_dump(
+        exclude={"p95_seconds"}
+    )
 
 
 def test_review_facts_count_distinct_articles_and_do_not_weight_publication_duration(database):
@@ -45,12 +50,11 @@ def test_review_facts_count_distinct_articles_and_do_not_weight_publication_dura
                 for revision, (action, evidence) in enumerate(reviews, start=1)
             )
         session.flush()
-        assert publication_automation(session, start, NOW) == {
-            "published_in_window": 8,
-            "published_without_intervention": 2,
-            "automatic_publication_percent": 25.0,
-            "median_ingestion_to_publication_seconds": 270.0,
-        }
+        summary = publication_summary(session, start, NOW)
+        median = summary.pop("p50_seconds")
+        assert summary == {"published": 8, "automated": 2, "automatic_percent": 25.0}
+        # TDigest estimates need not interpolate the two central observations.
+        assert 240 <= median <= 300
 
 
 def test_review_cutoffs_are_inclusive_and_specific_to_each_publication(database):
@@ -80,16 +84,16 @@ def test_review_cutoffs_are_inclusive_and_specific_to_each_publication(database)
                 for revision, (action, evidence, offset) in enumerate(reviews, start=1)
             )
         session.flush()
-        assert publication_automation(session, start, NOW) == {
-            "published_in_window": 5,
-            "published_without_intervention": 2,
-            "automatic_publication_percent": 40.0,
-            "median_ingestion_to_publication_seconds": 60.0,
+        assert publication_summary(session, start, NOW) == {
+            "published": 5,
+            "automated": 2,
+            "automatic_percent": 40.0,
+            "p50_seconds": 60.0,
         }
 
 
 def test_report_keeps_old_review_facts_and_excludes_unrelated_publications(database):
-    start = NOW - timedelta(days=1)
+    start = (NOW - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     old = start - timedelta(days=90)
     automatic = {"policy": "automatic"}
     with database.begin() as session:
@@ -103,7 +107,7 @@ def test_report_keeps_old_review_facts_and_excludes_unrelated_publications(datab
             ),
             (NOW, []),
             (start - timedelta(microseconds=1), [("publish", automatic, old)]),
-            (NOW + timedelta(microseconds=1), [("approve", {}, old)]),
+            (NOW + timedelta(hours=1), [("approve", {}, old)]),
             (None, [("publish", automatic, old)]),
         ]:
             article = add_article(session, published=True, published_at=published)
@@ -119,18 +123,18 @@ def test_report_keeps_old_review_facts_and_excludes_unrelated_publications(datab
                 for revision, (action, evidence, created_at) in enumerate(reviews, start=1)
             )
         session.flush()
-        assert publication_automation(session, start, NOW) == {
-            "published_in_window": 3,
-            "published_without_intervention": 1,
-            "automatic_publication_percent": 33.3,
-            "median_ingestion_to_publication_seconds": 120.0,
+        assert publication_summary(session, start, NOW) == {
+            "published": 3,
+            "automated": 1,
+            "automatic_percent": 33.3,
+            "p50_seconds": 120.0,
         }
 
 
 def test_publication_boundaries_keep_invalid_durations_out_of_median_without_losing_counts(
     database,
 ):
-    start = NOW - timedelta(days=1)
+    start = (NOW - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     with database.begin() as session:
         for published, delay in [
             (None, 0),
@@ -139,27 +143,27 @@ def test_publication_boundaries_keep_invalid_durations_out_of_median_without_los
             (NOW, 120),
             (NOW, 480),
             (NOW, -60),
-            (NOW + timedelta(microseconds=1), 900),
+            (NOW + timedelta(hours=1), 900),
         ]:
             article = add_article(session, published=True, published_at=published)
             article.discovered_at = (published or NOW) - timedelta(seconds=delay)
         session.flush()
-        assert publication_automation(session, start, NOW) == {
-            "published_in_window": 4,
-            "published_without_intervention": 0,
-            "automatic_publication_percent": 0.0,
-            "median_ingestion_to_publication_seconds": 120.0,
+        assert publication_summary(session, start, NOW) == {
+            "published": 4,
+            "automated": 0,
+            "automatic_percent": 0.0,
+            "p50_seconds": 120.0,
         }
         empty = {
-            "published_in_window": 0,
-            "published_without_intervention": 0,
-            "automatic_publication_percent": None,
-            "median_ingestion_to_publication_seconds": None,
+            "published": 0,
+            "automated": 0,
+            "automatic_percent": None,
+            "p50_seconds": None,
         }
-        assert publication_automation(session, NOW + timedelta(days=1), NOW) == empty
+        with pytest.raises(ValueError, match="between 1 and 3660"):
+            publication_summary(session, NOW + timedelta(days=1), NOW)
         assert (
-            publication_automation(session, NOW + timedelta(days=1), NOW + timedelta(days=2))
-            == empty
+            publication_summary(session, NOW + timedelta(days=1), NOW + timedelta(days=2)) == empty
         )
 
 
@@ -177,11 +181,11 @@ def test_publication_with_only_negative_durations_keeps_null_median(database):
             )
         )
         session.flush()
-        assert publication_automation(session, NOW, NOW) == {
-            "published_in_window": 1,
-            "published_without_intervention": 1,
-            "automatic_publication_percent": 100.0,
-            "median_ingestion_to_publication_seconds": None,
+        assert publication_summary(session, NOW, NOW) == {
+            "published": 1,
+            "automated": 1,
+            "automatic_percent": 100.0,
+            "p50_seconds": None,
         }
 
 
@@ -193,9 +197,9 @@ def test_report_reloads_review_facts_and_publication_cutoff_after_editorial_chan
 
         def report():
             session.flush()
-            return publication_automation(session, NOW - timedelta(days=1), NOW)
+            return publication_summary(session, NOW - timedelta(days=1), NOW)
 
-        assert report()["published_without_intervention"] == 0
+        assert report()["automated"] == 0
         session.add(
             ArticleReview(
                 article_id=article.id,
@@ -205,7 +209,7 @@ def test_report_reloads_review_facts_and_publication_cutoff_after_editorial_chan
                 created_at=published,
             )
         )
-        assert report()["published_without_intervention"] == 1
+        assert report()["automated"] == 1
         manual = ArticleReview(
             article_id=article.id,
             action="approve",
@@ -214,126 +218,31 @@ def test_report_reloads_review_facts_and_publication_cutoff_after_editorial_chan
             created_at=published + timedelta(microseconds=1),
         )
         session.add(manual)
-        assert report()["published_without_intervention"] == 1
+        assert report()["automated"] == 1
         article.published_to_feed_at = manual.created_at
         changed = report()
-        assert changed["published_in_window"] == 1
-        assert changed["published_without_intervention"] == 0
-        assert changed["median_ingestion_to_publication_seconds"] == pytest.approx(600.000001)
+        assert changed["published"] == 1
+        assert changed["automated"] == 0
+        assert changed["p50_seconds"] == pytest.approx(600.000001)
 
 
-def test_prepared_generic_report_keeps_exact_results_and_literal_window_bounds(database):
-    start = NOW - timedelta(days=7)
+def test_publication_window_uses_utc_calendar_days_and_the_current_hour_bucket(database):
+    start = NOW - timedelta(days=1)
+    first_day = start.replace(hour=0, minute=0, second=0, microsecond=0)
     with database.begin() as session:
-        for published, reviews in [
-            (start, [("publish", {"policy": "automatic"}, start)]),
-            (NOW, [("publish", {"policy": "automatic"}, NOW), ("approve", {}, start)]),
-            (NOW, []),
-            (start - timedelta(microseconds=1), [("publish", {"policy": "automatic"}, start)]),
-        ]:
+        for published in (
+            first_day - timedelta(microseconds=1),  # Previous calendar day.
+            first_day,
+            start - timedelta(microseconds=1),  # Still inside the first day.
+            NOW + timedelta(microseconds=1),  # Inside the current hour cohort.
+            NOW + timedelta(hours=1),  # Next hour is outside the published range.
+        ):
             article = add_article(session, published=True, published_at=published)
-            article.discovered_at = published - timedelta(seconds=120)
-            session.add_all(
-                ArticleReview(
-                    article_id=article.id,
-                    action=action,
-                    revision=revision,
-                    automation=evidence,
-                    created_at=created_at,
-                )
-                for revision, (action, evidence, created_at) in enumerate(reviews, start=1)
-            )
+            article.discovered_at = published - timedelta(seconds=60)
         session.flush()
-        session.execute(text("SET LOCAL plan_cache_mode = force_generic_plan"))
-        session.execute(text("SET LOCAL enable_seqscan = off"))
-        compiled = _publication_automation_query(start, NOW).compile(
-            session.get_bind(), compile_kwargs={"render_postcompile": True}
-        )
-        driver = session.connection().connection.driver_connection
-        before = dict(
-            driver.execute(
-                "SELECT name, generic_plans FROM pg_prepared_statements", prepare=False
-            ).fetchall()
-        )
-        for _ in range(3):
-            assert driver.execute(str(compiled), compiled.params, prepare=True).fetchone() == (
-                3,
-                1,
-                120.0,
-            )
-        prepared = next(
-            (
-                row
-                for row in driver.execute(
-                    "SELECT name, generic_plans FROM pg_prepared_statements "
-                    "WHERE statement LIKE 'WITH publications AS MATERIALIZED%'",
-                    prepare=False,
-                )
-                if row[1] - before.get(row[0], 0) >= 3
-            ),
-            None,
-        )
-        assert prepared is not None
-        plan = "\n".join(
-            row[0]
-            for row in driver.execute(
-                sql.SQL("EXPLAIN EXECUTE {} (0.5)").format(sql.Identifier(prepared[0])),
-                prepare=False,
-            )
-        )
-    # Even under a forced generic plan, selectivity estimates can see the actual
-    # cohort; the percentile fraction remains the sole prepared parameter.
-    assert "ix_article_reviews_manual_publication" in plan
-    assert "ix_article_reviews_automatic_publication" in plan
-    assert start.strftime("%Y-%m-%d %H:%M:%S") in plan
-    assert NOW.strftime("%Y-%m-%d %H:%M:%S") in plan
-
-
-def test_large_review_evidence_uses_partial_indexes_without_changing_manual_cutoff(database):
-    now = utcnow()
-    evidence = {"policy": "automatic", "evidence": "Unicode extraction evidence 設計 " * 3000}
-    with database.begin() as session:
-        for index in range(2):
-            article = add_article(session, published=True, published_at=now)
-            article.discovered_at = now - timedelta(hours=1)
-            session.add_all(
-                [
-                    ArticleReview(
-                        article_id=article.id,
-                        action="publish",
-                        revision=1,
-                        automation=evidence,
-                        created_at=now,
-                    ),
-                    ArticleReview(
-                        article_id=article.id,
-                        action="approve",
-                        revision=2,
-                        automation={},
-                        created_at=now + timedelta(microseconds=1) if index == 0 else now,
-                    ),
-                ]
-            )
-    with database() as session:
-        result = publication_automation(session, now - timedelta(days=1), now)
-        assert result == {
-            "published_in_window": 2,
-            "published_without_intervention": 1,
-            "automatic_publication_percent": 50.0,
-            "median_ingestion_to_publication_seconds": 3600.0,
+        assert publication_summary(session, start, NOW) == {
+            "published": 3,
+            "automated": 0,
+            "automatic_percent": 0.0,
+            "p50_seconds": 60.0,
         }
-        # Small fixtures normally favor a table scan. This verifies that both
-        # exact application predicates can use narrow indexes at large scale.
-        session.execute(text("SET LOCAL enable_seqscan = off"))
-        compiled = _publication_automation_query(now - timedelta(days=1), now).compile(
-            session.get_bind(), compile_kwargs={"render_postcompile": True}
-        )
-        plan = "\n".join(
-            row[0]
-            for row in session.connection().exec_driver_sql(
-                "EXPLAIN " + str(compiled), compiled.params
-            )
-        )
-    assert "ix_article_reviews_manual_publication" in plan
-    assert "ix_article_reviews_automatic_publication" in plan
-    assert "Seq Scan on article_reviews" not in plan

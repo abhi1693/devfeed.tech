@@ -37,7 +37,10 @@ from devfeed_core.read_models import (
 )
 from sqlalchemy import delete, select, text, update
 
+from tests.support import legacy_migrations
 from tests.support.paths import REPO_ROOT
+
+pre_native_database = legacy_migrations.pre_native_database
 
 
 def article(session):
@@ -238,7 +241,10 @@ def test_clock_and_card_dependency_changed_in_one_statement_still_invalidates(da
 
 
 @pytest.mark.integration
-def test_scheduler_clock_migration_round_trip_restores_capture_without_rebuilding(database):
+def test_scheduler_clock_migration_round_trip_restores_capture_without_rebuilding(
+    pre_native_database,
+):
+    database = pre_native_database
     config = Config(str(REPO_ROOT / "alembic.ini"))
     with database.begin() as session:
         identifier = article(session).id
@@ -573,7 +579,8 @@ def test_policy_generations_can_coexist_without_overwriting_complete_cards(datab
 
 
 @pytest.mark.integration
-def test_migration_round_trip_preserves_entities_and_requests_bounded_backfill(database):
+def test_migration_round_trip_preserves_entities_and_requests_bounded_backfill(pre_native_database):
+    database = pre_native_database
     config = Config(str(REPO_ROOT / "alembic.ini"))
     with database.begin() as session:
         identifier = article(session).id
@@ -588,3 +595,109 @@ def test_migration_round_trip_preserves_entities_and_requests_bounded_backfill(d
             assert changes(session) == {("policy", None)}
     finally:
         command.upgrade(config, "head")
+
+
+@pytest.mark.integration
+def test_date_window_migration_replaces_only_cache_and_enforces_calendar_identities(
+    pre_native_database,
+):
+    from datetime import date
+
+    from devfeed_core.models import ReportRefresh, ReportSnapshot
+    from sqlalchemy import inspect
+    from sqlalchemy.exc import IntegrityError
+
+    database = pre_native_database
+    config = Config(str(REPO_ROOT / "alembic.ini"))
+    command.upgrade(config, "0040")
+    with database.begin() as session:
+        identifier = article(session).id
+        session.execute(
+            text(
+                'INSERT INTO report_snapshots("group",days,payload,generated_at,policy_version) '
+                "VALUES('publishing',30,'{}',now(),'previous-cache')"
+            )
+        )
+        session.execute(
+            text("INSERT INTO report_refreshes(\"group\",days) VALUES('publishing',30)")
+        )
+        pending = session.scalar(
+            text(
+                "INSERT INTO analytics_capture_events(source_table,operation,record) "
+                "VALUES('articles','I',jsonb_build_object('retained',true)) RETURNING id"
+            )
+        )
+    command.upgrade(config, "head")
+    with database() as session:
+        assert session.get(Article, identifier) is not None
+        assert session.scalar(
+            text("SELECT record FROM analytics_capture_events WHERE id=:id"), {"id": pending}
+        ) == {"retained": True}
+        assert session.scalar(text("SELECT count(*) FROM report_snapshots")) == 0
+        assert session.scalar(text("SELECT count(*) FROM report_refreshes")) == 0
+    inspector = inspect(database.kw["bind"])
+    for table in ("report_snapshots", "report_refreshes"):
+        assert inspector.get_pk_constraint(table)["constrained_columns"] == ["group", "window_key"]
+    stamp = utcnow()
+    periods = (
+        ("2024-02-28:2024-03-01", date(2024, 2, 28), date(2024, 3, 1), 2),
+        ("2024-03-01:2024-03-03", date(2024, 3, 1), date(2024, 3, 3), 2),
+        ("2024-01-01:2025-01-01", date(2024, 1, 1), date(2025, 1, 1), 366),
+        ("2024-01-01:2026-01-01", date(2024, 1, 1), date(2026, 1, 1), 731),
+    )
+    with database.begin() as session:
+        for key, start, end, days in periods:
+            values = dict(
+                group="publishing", window_key=key, window_start=start, window_end=end, days=days
+            )
+            session.add(
+                ReportSnapshot(**values, payload={}, generated_at=stamp, policy_version="calendar")
+            )
+            session.add(ReportRefresh(**values))
+        session.add(
+            ReportSnapshot(
+                group="operations",
+                window_key="current",
+                days=1,
+                payload={},
+                generated_at=stamp,
+                policy_version="calendar",
+            )
+        )
+    with database() as session:
+        assert session.scalar(text("SELECT count(*) FROM report_snapshots")) == 5
+        assert session.scalar(text("SELECT count(*) FROM report_refreshes")) == 4
+    for values in (
+        dict(
+            group="publishing",
+            window_key="2010-01-01:2020-01-10",
+            window_start=date(2010, 1, 1),
+            window_end=date(2020, 1, 10),
+            days=3661,
+        ),
+        dict(
+            group="publishing",
+            window_key="2024-01-01:2024-01-02",
+            window_start=date(2024, 1, 1),
+            window_end=date(2024, 1, 2),
+            days=2,
+        ),
+        dict(group="publishing", window_key="current", days=1),
+        dict(
+            group="operations",
+            window_key="2024-01-01:2024-01-02",
+            window_start=date(2024, 1, 1),
+            window_end=date(2024, 1, 2),
+            days=1,
+        ),
+    ):
+        with pytest.raises(IntegrityError), database.begin() as session:
+            session.add(
+                ReportSnapshot(**values, payload={}, generated_at=stamp, policy_version="invalid")
+            )
+            session.flush()
+    with pytest.raises(RuntimeError, match="backup"):
+        command.downgrade(config, "0040")
+    with database() as session:
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0041"
+        assert session.scalar(text("SELECT count(*) FROM report_snapshots")) == 5

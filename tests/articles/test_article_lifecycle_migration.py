@@ -6,7 +6,10 @@ from alembic.config import Config
 from devfeed_core.models import Article
 from sqlalchemy import text
 
+from tests.support import legacy_migrations
 from tests.support.paths import REPO_ROOT
+
+pre_native_database = legacy_migrations.pre_native_database
 
 
 def parent_indexes(session):
@@ -22,7 +25,8 @@ def parent_indexes(session):
 
 
 @pytest.mark.integration
-def test_lifecycle_indexes_upgrade_downgrade_and_preserve_articles(database):
+def test_lifecycle_indexes_upgrade_downgrade_and_preserve_articles(pre_native_database):
+    database = pre_native_database
     config = Config(str(REPO_ROOT / "alembic.ini"))
     with database.begin() as session:
         article = Article(

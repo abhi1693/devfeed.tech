@@ -1,5 +1,6 @@
 """Exercise the actual installer against first-party and dependency build canaries."""
 
+import json
 import os
 import subprocess
 import sys
@@ -11,6 +12,7 @@ import pytest
 from tests.support.paths import REPO_ROOT
 
 BOOTSTRAP = REPO_ROOT / "scripts/ci/python-bootstrap.sh"
+CACHE_LZ4 = REPO_ROOT / "scripts/ci/cache-musl-lz4.sh"
 
 
 def project(tmp_path, *, workspace):
@@ -82,6 +84,60 @@ def project(tmp_path, *, workspace):
     assert locked.returncode == 0, locked.stdout + locked.stderr
     assert not (source / "build-ran").exists()
     return source, env
+
+
+@pytest.mark.parametrize(
+    "name,registry,source_hash,expected",
+    [
+        ("lz4", "https://pypi.org/simple", "sha256:" + "a" * 64, True),
+        ("unapproved", "https://pypi.org/simple", "sha256:" + "a" * 64, False),
+        ("lz4", "https://untrusted.invalid/simple", "sha256:" + "a" * 64, False),
+        ("lz4", "https://pypi.org/simple", "md5:" + "a" * 32, False),
+    ],
+)
+def test_musl_cache_builds_only_hash_locked_pypi_lz4(
+    tmp_path, name, registry, source_hash, expected
+):
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        f'[[package]]\nname = "{name}"\nversion = "4.4.5"\n'
+        f'source = {{registry = "{registry}"}}\n'
+        'sdist = {url = "https://files.pythonhosted.org/packages/lz4-4.4.5.tar.gz", '
+        f'hash = "{source_hash}"}}\n'
+    )
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    (binaries / "python").symlink_to(sys.executable)
+    capture = tmp_path / "installer.json"
+    installer = binaries / "uv"
+    installer.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\nfrom pathlib import Path\n"
+        'requirements = sys.argv[sys.argv.index("--requirements") + 1]\n'
+        'Path(os.environ["LZ4_TEST_CAPTURE"]).write_text(json.dumps({'
+        '"arguments": sys.argv[1:], "requirements": Path(requirements).read_text()}))\n'
+    )
+    installer.chmod(0o755)
+    result = subprocess.run(
+        ["sh", str(CACHE_LZ4), str(lock)],
+        env={
+            **os.environ,
+            "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
+            "LZ4_TEST_CAPTURE": str(capture),
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert (result.returncode == 0) is expected
+    assert capture.exists() is expected
+    if expected:
+        recorded = json.loads(capture.read_text())
+        arguments = recorded["arguments"]
+        assert arguments[:2] == ["pip", "install"]
+        assert "--no-deps" in arguments and "--require-hashes" in arguments
+        assert arguments[arguments.index("--only-binary") + 1] == ":all:"
+        assert arguments[arguments.index("--no-binary") + 1] == "lz4"
+        assert recorded["requirements"] == "lz4==4.4.5 --hash=sha256:" + "a" * 64 + "\n"
 
 
 @pytest.mark.parametrize("editable", [False, True])

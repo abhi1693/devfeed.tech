@@ -7,14 +7,12 @@ remain real; SQL eligibility and transaction isolation are separate contracts.
 import uuid
 from collections import OrderedDict
 from contextlib import contextmanager
-from datetime import timedelta
 from unittest.mock import Mock
 
 import pytest
-from devfeed_admin_api import article_pipeline, overview_insights, overview_processing
+from devfeed_admin_api import article_pipeline
 from devfeed_admin_api import pipeline_projection as projections
-from devfeed_core.job_definitions import JOB_DEFINITIONS
-from devfeed_core.models import Article, ArticleOrigin, ReadModelState
+from devfeed_core.models import Article, ArticleOrigin
 from devfeed_core.urls import fingerprint
 
 from tests.support.article_readiness import processing_case as processing_case
@@ -198,45 +196,3 @@ def test_pending_article_projection_evaluates_detached_evidence_without_inventin
     assert "current_analysis_required" in row["payload"]["blockers"]
     # Only the batched content read is requested; no analysis identity exists to hydrate.
     session.scalars.assert_called_once()
-
-
-@pytest.mark.parametrize("active", [False, True])
-def test_saved_processing_facts_use_typed_projection_without_recomputing_query_aggregates(
-    awaiting_first_analysis, active
-):
-    _, _, _, now = awaiting_first_analysis
-    start = now - timedelta(days=1)
-    oldest = now - timedelta(days=30) if active else None
-    payload = {
-        "version": overview_processing.VERSION,
-        "active": {
-            kind: {"queued": 0, "running": 0, "oldest_queued_at": None} for kind in JOB_DEFINITIONS
-        },
-        "daily": {str(start.date()): {}, str(now.date()): {}},
-    }
-    if active:
-        payload["active"]["analysis"] = {
-            "queued": 2,
-            "running": 1,
-            "oldest_queued_at": oldest.isoformat(),
-        }
-        payload["daily"][str(now.date())] = {
-            "analysis": {"completed": 4, "failed": 1, "duration_ms": 600, "duration_runs": 3}
-        }
-    stored = ReadModelState(name=overview_processing.STATE_NAME, payload=payload, updated_at=now)
-    session = Mock()
-    session.get.return_value = stored
-    session.execute.side_effect = AssertionError(
-        "Saved processing facts must avoid direct aggregation"
-    )
-
-    rows = overview_insights.processing(session, start, now)
-
-    assert {row.kind for row in rows} == set(JOB_DEFINITIONS)
-    row = next(row for row in rows if row.kind == "analysis")
-    assert (row.queued, row.running, row.completed, row.failed) == (
-        (2, 1, 4, 1) if active else (0, 0, 0, 0)
-    )
-    assert row.oldest_queued_at == oldest
-    assert (row.duration_ms, row.duration_runs) == ((600, 3) if active else (0, 0))
-    session.execute.assert_not_called()

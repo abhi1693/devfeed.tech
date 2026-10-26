@@ -96,6 +96,19 @@ x-chimely-environment: &chimely-environment
   DEVFEED_CHIMELY_ADMIN_ENVIRONMENT:
   DEVFEED_CHIMELY_USER_ENVIRONMENT: ${DEVFEED_CHIMELY_USER_ENVIRONMENT:-devfeed-users}
 
+# Only analytical readers and the exporter receive ClickHouse credentials.
+x-clickhouse-environment: &clickhouse-environment
+  DEVFEED_CLICKHOUSE_URL: ${DEVFEED_CLICKHOUSE_URL:-http://clickhouse:8123}
+  DEVFEED_CLICKHOUSE_DATABASE: ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}
+  DEVFEED_CLICKHOUSE_USERNAME: ${DEVFEED_CLICKHOUSE_USERNAME:-devfeed}
+  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}}
+  DEVFEED_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS: ${DEVFEED_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS:-3}
+  DEVFEED_CLICKHOUSE_TIMEOUT_SECONDS: ${DEVFEED_CLICKHOUSE_TIMEOUT_SECONDS:-30}
+  DEVFEED_CLICKHOUSE_MAX_THREADS: ${DEVFEED_CLICKHOUSE_MAX_THREADS:-2}
+  DEVFEED_CLICKHOUSE_MAX_CONCURRENT_QUERIES: ${DEVFEED_CLICKHOUSE_MAX_CONCURRENT_QUERIES:-2}
+  DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS: ${DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS:-20}
+  DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES:-268435456}
+
 x-host-access: &host-access
   # Also support host services on Docker Engine for Linux.
   extra_hosts:
@@ -158,6 +171,74 @@ services:
       <<: *healthcheck
       test: [CMD, pg_isready, -U, devfeed, -d, devfeed]
       interval: 5s
+
+  clickhouse:
+    image: ${DEVFEED_CLICKHOUSE_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/}clickhouse/clickhouse-server:26.8-alpine@sha256:7d2c6c7af374dfaacd6d7aec3403aa43cee5ea334cb2d82400bd3dfa6f62f697}
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}
+      CLICKHOUSE_USER: ${DEVFEED_CLICKHOUSE_USERNAME:-devfeed}
+      CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      DEVFEED_CLICKHOUSE_INGEST_PASSWORD: ${DEVFEED_CLICKHOUSE_INGEST_PASSWORD:-${DEVFEED_CLICKHOUSE_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}}}
+      DEVFEED_CLICKHOUSE_MAX_THREADS: ${DEVFEED_CLICKHOUSE_MAX_THREADS:-2}
+      DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS: ${DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS:-20}
+      DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES:-268435456}
+      DEVFEED_CLICKHOUSE_READER_MAX_QUERIES: ${DEVFEED_CLICKHOUSE_READER_MAX_QUERIES:-2}
+      DEVFEED_CLICKHOUSE_READER_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_READER_MAX_MEMORY_BYTES:-536870912}
+      DEVFEED_CLICKHOUSE_INGEST_MAX_QUERIES: ${DEVFEED_CLICKHOUSE_INGEST_MAX_QUERIES:-3}
+      DEVFEED_CLICKHOUSE_INGEST_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_INGEST_MAX_MEMORY_BYTES:-402653184}
+      DEVFEED_CLICKHOUSE_SERVER_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_SERVER_MAX_MEMORY_BYTES:-1610612736}
+      DEVFEED_CLICKHOUSE_SERVER_MAX_QUERIES: ${DEVFEED_CLICKHOUSE_SERVER_MAX_QUERIES:-6}
+      DEVFEED_CLICKHOUSE_SERVER_MAX_SELECTS: ${DEVFEED_CLICKHOUSE_SERVER_MAX_SELECTS:-3}
+      DEVFEED_CLICKHOUSE_SERVER_MAX_INSERTS: ${DEVFEED_CLICKHOUSE_SERVER_MAX_INSERTS:-2}
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+      - ./infra/clickhouse/resources.xml:/etc/clickhouse-server/config.d/devfeed-resources.xml:ro
+      - ./infra/clickhouse/users.xml:/etc/clickhouse-server/users.d/devfeed-analytics.xml:ro
+    networks: [data]
+    cpus: ${DEVFEED_CLICKHOUSE_CPUS:-2}
+    mem_limit: ${DEVFEED_CLICKHOUSE_MEMORY_LIMIT:-2g}
+    ulimits:
+      nofile: {soft: 262144, hard: 262144}
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD-SHELL, 'clickhouse-client --host 127.0.0.1 --user devfeed_ingest --password "$$DEVFEED_CLICKHOUSE_INGEST_PASSWORD" --database "$$CLICKHOUSE_DB" --query "SELECT 1" >/dev/null']
+      interval: 5s
+      start_period: 60s
+
+  ch-ui:
+    <<: *runtime
+    image: ${DEVFEED_CH_UI_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/caioricciuti/ch-ui:v2.31.0@sha256:4a51a2c1754ad8866dd50a073a4f388216b3d1fdcd58e9d531dbb065e3d1dfeb}
+    # The upstream entrypoint is `ch-ui server`; keep its PID off the read-only root.
+    command: [--pid-file, /tmp/ch-ui-server.pid]
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      PORT: "4000"
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CONNECTION_NAME: DevFeed analytics
+      DATABASE_PATH: /app/data/ch-ui.db
+      APP_URL: ${DEVFEED_CH_UI_URL:-http://localhost:${DEVFEED_CH_UI_PORT:-4000}}
+      APP_SECRET_KEY: ${DEVFEED_CH_UI_SECRET_KEY:-}
+      ALLOWED_ORIGINS: ${DEVFEED_CH_UI_URL:-http://localhost:${DEVFEED_CH_UI_PORT:-4000}}
+      ALLOW_LOGIN_URL: "false"
+      TRUSTED_PROXIES: none
+    volumes:
+      - ch-ui-data:/app/data
+    # Host port publishing needs the normal network; database traffic stays on data.
+    networks: [default, data]
+    ports:
+      - target: 4000
+        published: "${DEVFEED_CH_UI_PORT:-4000}"
+        host_ip: "${DEVFEED_CH_UI_BIND_IP:-127.0.0.1}"
+    cpus: ${DEVFEED_CH_UI_CPUS:-0.5}
+    mem_limit: ${DEVFEED_CH_UI_MEMORY_LIMIT:-512m}
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:4000/health]
 
   redis:
     image: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}redis:8-alpine@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
@@ -315,6 +396,30 @@ services:
       <<: *healthcheck
       test: [CMD, python, -c, "import os; from redis import Redis; r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert r.exists('devfeed:scheduler:heartbeat')"]
 
+  analytics-exporter:
+    <<: *backend
+    command: [python, -m, devfeed_core.analytics_worker]
+    depends_on:
+      <<: *ready
+      clickhouse:
+        condition: service_healthy
+    environment:
+      <<: [*core-environment, *clickhouse-environment]
+      # Separate user budgets reserve ingestion capacity across every reader replica.
+      DEVFEED_CLICKHOUSE_USERNAME: devfeed_ingest
+      DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_INGEST_PASSWORD:-${DEVFEED_CLICKHOUSE_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}}}
+      DEVFEED_ANALYTICS_BATCH_SIZE: ${DEVFEED_ANALYTICS_BATCH_SIZE:-1000}
+      DEVFEED_ANALYTICS_BACKFILL_BATCH_SIZE: ${DEVFEED_ANALYTICS_BACKFILL_BATCH_SIZE:-1000}
+      DEVFEED_ANALYTICS_POLL_SECONDS: ${DEVFEED_ANALYTICS_POLL_SECONDS:-1}
+      DEVFEED_ANALYTICS_BACKFILL_POLL_SECONDS: ${DEVFEED_ANALYTICS_BACKFILL_POLL_SECONDS:-0.1}
+      DEVFEED_ANALYTICS_ROLLUP_INTERVAL_SECONDS: ${DEVFEED_ANALYTICS_ROLLUP_INTERVAL_SECONDS:-30}
+    cpus: ${DEVFEED_ANALYTICS_EXPORTER_CPUS:-0.5}
+    mem_limit: ${DEVFEED_ANALYTICS_EXPORTER_MEMORY_LIMIT:-512m}
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, python, -m, devfeed_core.analytics_worker, --check]
+      start_period: 180s
+
   pipeline-projector:
     <<: [*runtime, *host-access]
     image: ${DEVFEED_ADMIN_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/admin-api:master}
@@ -338,7 +443,7 @@ services:
     depends_on: *ready
     networks: [default, data]
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-environment]
       DEVFEED_READ_MODEL_DATABASE_URL:
       DEVFEED_READ_MODEL_POLL_SECONDS: ${DEVFEED_READ_MODEL_POLL_SECONDS:-1}
     healthcheck:
@@ -364,7 +469,7 @@ services:
       - ./infra/chimely/consumer.py:/opt/devfeed/chimely-consumer.py:ro
       - chimely-admin-credentials:/run/devfeed-chimely:ro
     environment:
-      <<: [*core-environment, *chimely-environment]
+      <<: [*core-environment, *chimely-environment, *clickhouse-environment]
       # The inbox API uses its HMAC secret, never the management API key.
       DEVFEED_CHIMELY_ADMIN_HMAC_SECRET:
       DEVFEED_PARTNER_CREDENTIAL_KEY:
@@ -822,6 +927,9 @@ networks:
     internal: true
 
 volumes:
+  ch-ui-data:
+  clickhouse-data:
+  clickhouse-logs:
   search-data:
   postgres-data:
   redis-data:

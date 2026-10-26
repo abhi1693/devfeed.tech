@@ -141,6 +141,42 @@ def validate_targets(database_url, redis_url, *, environment=None):
     return database
 
 
+def analytics_environment(environment=None):
+    """Use only explicitly owned local ClickHouse test targets for destructive profiling."""
+    environment = os.environ if environment is None else environment
+    origin = environment["DEVFEED_TEST_CLICKHOUSE_URL"]
+    database = environment["DEVFEED_TEST_CLICKHOUSE_DATABASE"]
+    url = urlsplit(origin)
+    if (
+        url.scheme not in {"http", "https"}
+        or url.hostname not in {"localhost", "127.0.0.1", "::1"}
+        or url.username is not None
+        or url.password is not None
+        or url.path not in {"", "/"}
+        or url.query
+        or url.fragment
+        or any(ord(character) < 33 or ord(character) == 127 for character in origin)
+    ):
+        raise ValueError("Profiling requires an explicitly local ClickHouse service origin")
+    _ = url.port
+    if (
+        not database.endswith("_test")
+        or not database.replace("_", "a").isalnum()
+        or not (database[0].isalpha() or database[0] == "_")
+        or len(database) > 63
+        or not database.isascii()
+    ):
+        raise ValueError("Profiling ClickHouse database must be an identifier ending in _test")
+    return {
+        "DEVFEED_CLICKHOUSE_URL": origin.rstrip("/"),
+        "DEVFEED_CLICKHOUSE_DATABASE": database,
+        "DEVFEED_CLICKHOUSE_USERNAME": environment.get(
+            "DEVFEED_TEST_CLICKHOUSE_USERNAME", "devfeed"
+        ),
+        "DEVFEED_CLICKHOUSE_PASSWORD": environment.get("DEVFEED_TEST_CLICKHOUSE_PASSWORD", ""),
+    }
+
+
 def fixture_counts(scale):
     if not 0 < scale <= 2:
         raise ValueError("Fixture scale must be greater than zero and at most two")
@@ -831,25 +867,25 @@ def workload():
         ("source-search", "admin", "/v1/admin/source-pipeline?limit=20&q=publisher%201"),
         ("source-type", "admin", "/v1/admin/source-pipeline?limit=20&source_type=publisher"),
         ("source-attention", "admin", "/v1/admin/source-pipeline?limit=20&needs_attention=true"),
-        ("overview-main", "admin", "/v1/admin/overview?days=30"),
         *[
-            ("overview-" + group, "admin", "/v1/admin/overview/panels/" + group + "?days=30")
-            for group in (
+            (
+                "overview-" + chart,
+                "admin",
+                "/v1/admin/overview/charts/" + chart + "?from=now-29d/d&to=now",
+            )
+            for chart in (
                 "attention",
-                "workload",
-                "blockers",
-                "publications",
-                "adoption",
-                "publication-time",
-                "feed-health",
-                "topic-coverage",
-                "sources",
-                "popular-articles",
-                "publication-automation",
-                "job-tokens",
+                "publication-rate",
+                "publication-latency",
+                "audience-activity",
+                "personalization",
+                "queue-pressure",
                 "throughput",
-                "decision-efficiency",
-                "inference-tokens",
+                "job-outcomes",
+                "ai-activity",
+                "ai-breakdown",
+                "source-output",
+                "topic-coverage",
             )
         ],
         (
@@ -903,11 +939,87 @@ def profile_gates(phases, *, p95_budget_ms):
     }
 
 
+def publish_analytics(factory, *, reset=False):
+    """Prepare only explicitly disposable analytical fixtures for native queries."""
+    from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
+    from devfeed_core.analytics_worker import AnalyticsExporter
+    from devfeed_core.config import get_settings
+
+    # Validate before clearing anything, including for an already configured
+    # application process. Ambient production ClickHouse settings are ignored.
+    selected = analytics_environment()
+    settings = get_settings().model_copy(
+        update={
+            "clickhouse_url": selected["DEVFEED_CLICKHOUSE_URL"],
+            "clickhouse_database": selected["DEVFEED_CLICKHOUSE_DATABASE"],
+            "clickhouse_username": selected["DEVFEED_CLICKHOUSE_USERNAME"],
+        }
+    )
+    from pydantic import SecretStr
+
+    settings.clickhouse_password = SecretStr(selected["DEVFEED_CLICKHOUSE_PASSWORD"])
+    if reset:
+        with factory.begin() as session:
+            session.execute(
+                text(
+                    "UPDATE analytics_pipeline_state SET enabled=false, capture_started_at=NULL, "
+                    "last_success_at=NULL, lease_token=NULL, lease_until=NULL, "
+                    "native_import_complete=false,native_capture_started_at=NULL, "
+                    "reader_coverage_start=NULL,native_bootstrap_barrier=false, "
+                    "native_bootstrap_complete=false"
+                )
+            )
+            session.execute(
+                text(
+                    "TRUNCATE analytics_bootstrap_cursors, analytics_capture_events, "
+                    "analytics_fact_refresh, analytics_rollup_compaction, "
+                    "analytics_upgrade_checkpoint, analytics_gauge_refreshes RESTART IDENTITY"
+                )
+            )
+            session.execute(
+                text("UPDATE analytics_gauge_bootstrap SET started=false WHERE singleton")
+            )
+            session.execute(
+                text(
+                    "INSERT INTO analytics_gauge_refreshes(domain,shard) "
+                    "VALUES('queues',0),('feed',0),('sources',0),('topics',0)"
+                )
+            )
+
+    async def publish():
+        async with AnalyticsClient(settings) as client:
+            await client.initialize()
+            if reset:
+                # This database was explicitly validated as an owned local
+                # fixture. Clear physical data while retaining attached MVs.
+                tables = await client.query(
+                    "SELECT name FROM system.tables "
+                    "WHERE database=currentDatabase() AND engine NOT IN ('View','MaterializedView')"
+                )
+                for row in tables:
+                    name = row["name"].replace("`", "``")
+                    await client.execute(f"TRUNCATE TABLE `{name}`")
+            exporter = AnalyticsExporter(client, settings)
+            deadline = time.monotonic() + 300
+            while time.monotonic() < deadline:
+                busy = await exporter.once()
+                try:
+                    state = await client.status()
+                except AnalyticsUnavailable:
+                    continue
+                if not busy and state["ready"]:
+                    return state
+            raise RuntimeError("Disposable analytics backfill did not complete within five minutes")
+
+    return asyncio.run(publish())
+
+
 @reuse_snapshots()
 @reuse_candidates()
 def background_worker(kind, stop, ready, results):
     """Independent processes/engines model publishers competing with HTTP readers."""
     from devfeed_admin_api.overview_projection import refresh_overview_projections, request_refresh
+    from devfeed_admin_api.overview_windows import current_window, recent_window
     from devfeed_admin_api.pipeline_projection import project_batch
     from devfeed_core.config import get_settings
     from devfeed_core.db import create_database_engine
@@ -924,9 +1036,10 @@ def background_worker(kind, stop, ready, results):
                 counts["acknowledged_events"] += project_batch(factory, batch=40, token=token)
             elif kind == "reports":
                 with factory.begin() as session:
-                    request_refresh(session, "attention", 30, datetime.now(UTC))
-                    request_refresh(session, "processing", 30, datetime.now(UTC))
-                counts["published"] += refresh_overview_projections(factory, limit=2, seed=False)
+                    now = datetime.now(UTC)
+                    request_refresh(session, "operations", current_window(), now)
+                    request_refresh(session, "processing", recent_window(30, now), now)
+                counts["published"] += refresh_overview_projections(factory, limit=2)
             else:
                 # Ten edits per transaction, at most 400: ordinary triggers capture
                 # actual entity changes while readers and both publishers run.
@@ -1160,6 +1273,7 @@ def main():
                 "Supported bounds: repeats1..100, concurrency1..40, history-bytes128..65536, "
                 "p95-budget-ms greater than zero"
             )
+        analytical_settings = analytics_environment()
     except (ValueError, KeyError) as error:
         parser.error(str(error))
     os.environ.update(
@@ -1174,7 +1288,14 @@ def main():
     )
     os.environ.update(AUTH_ENV)
     os.environ.update(ISOLATED_ENV)
-    from devfeed_admin_api.overview_projection import refresh_overview_projections
+    os.environ.update(analytical_settings)
+    from devfeed_admin_api.overview_projection import (
+        INDEPENDENT_GROUPS,
+        REPORT_GROUPS,
+        refresh_overview_projections,
+        request_refresh,
+    )
+    from devfeed_admin_api.overview_windows import current_window, recent_window
     from devfeed_admin_api.pipeline_projection import drain_pipeline
     from devfeed_core.config import get_settings
     from devfeed_core.db import create_database_engine
@@ -1190,7 +1311,7 @@ def main():
     output = {
         "complete": False,
         "started_at": datetime.now(UTC).isoformat(),
-        "scope": "Synthetic local PostgreSQL and in-process authenticated ASGI APIs; "
+        "scope": "Synthetic local PostgreSQL and ClickHouse with authenticated ASGI APIs; "
         "excludes production infrastructure, proxy, network, and browser",
         "authentication": "Real local Redis sessions, expiry/policy/provider-logout "
         "and role checks, "
@@ -1210,8 +1331,8 @@ def main():
             "fixture_scale_requested": args.scale,
             "latency_scope": "Admitted fixed-concurrency request time; includes ASGI/threadpool/"
             "database waits, excludes load-generator semaphore queue",
-            "database_cache": "PostgreSQL buffers warmed by seeding/backfill/oracle; Redis "
-            "application response cache disabled",
+            "database_cache": "PostgreSQL buffers and ClickHouse rollups warmed by "
+            "seeding/backfill; Redis application response cache disabled",
             "normal_workers": "Paused after publishing; competition phase runs separate "
             "pipeline/report/update processes with independent database engines",
             "tail_samples_qualified": args.repeats >= 30,
@@ -1231,7 +1352,10 @@ def main():
     try:
         command.upgrade(Config(str(ROOT / "alembic.ini")), "head")
         if args.seed:
+            with factory.begin() as session:
+                session.execute(text("UPDATE analytics_pipeline_state SET enabled = false"))
             output["seed"] = seed_fixture(engine, counts, history_bytes=args.history_bytes)
+        output["analytics"] = publish_analytics(factory, reset=args.seed)
         started = time.perf_counter()
         output["projector"] = {
             "acknowledged_events": drain_pipeline(factory),
@@ -1245,9 +1369,19 @@ def main():
         output["first_requests_before_report_publish"] = asyncio.run(
             sample_apis(factory, engine, repeats=1, concurrency=args.concurrency)
         )
+        with factory.begin() as session:
+            now = datetime.now(UTC)
+            for group in REPORT_GROUPS:
+                for days in (1,) if group in INDEPENDENT_GROUPS else (7, 30):
+                    window = (
+                        current_window()
+                        if group in INDEPENDENT_GROUPS
+                        else recent_window(days, now)
+                    )
+                    request_refresh(session, group, window, now)
         started = time.perf_counter()
         output["overview_worker"] = {
-            "published": refresh_overview_projections(factory, limit=30, seed=False),
+            "published": refresh_overview_projections(factory, limit=30),
             "seconds": round(time.perf_counter() - started, 3),
         }
         checkpoint("reports")

@@ -41,56 +41,6 @@ def test_session_renewal_cas_preserves_revocation_and_concurrent_renewal(databas
         assert not connection.exists(key)
 
 
-def test_publication_metrics_preserve_manual_intervention_and_review_timing(database):
-    from devfeed_admin_api.automation import publication_automation
-    from devfeed_core.models import ArticleReview
-
-    now = utcnow()
-    with database.begin() as session:
-        _, article, _ = seed(session)
-        article.published_to_feed_at = now
-        article.discovered_at = now - timedelta(minutes=10)
-        session.add_all(
-            [
-                ArticleReview(
-                    article_id=article.id,
-                    action="publish",
-                    revision=1,
-                    automation={"policy": "test"},
-                    created_at=now - timedelta(seconds=1),
-                ),
-                ArticleReview(
-                    article_id=article.id,
-                    action="approve",
-                    revision=2,
-                    automation={},
-                    created_at=now + timedelta(seconds=1),
-                ),
-            ]
-        )
-        session.flush()
-        assert (
-            publication_automation(session, now - timedelta(days=1), now)[
-                "published_without_intervention"
-            ]
-            == 1
-        )
-        session.add(
-            ArticleReview(
-                article_id=article.id,
-                action="approve",
-                revision=3,
-                automation={},
-                created_at=now - timedelta(seconds=2),
-            )
-        )
-        session.flush()
-        metrics = publication_automation(session, now - timedelta(days=1), now)
-        assert metrics["published_in_window"] == 1
-        assert metrics["published_without_intervention"] == 0
-        assert metrics["median_ingestion_to_publication_seconds"] == 600
-
-
 def test_source_guards_share_approval_but_block_revocation(database):
     with database.begin() as session:
         source, article, _ = seed(session)

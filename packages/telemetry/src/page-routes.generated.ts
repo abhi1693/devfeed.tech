@@ -594,7 +594,7 @@ export const pageRouteCatalogs = {
       label: "/v1/admin/ingestion/article-jobs/:id",
     },
     { path: "/api/v1/admin/ingestion/jobs/:id", label: "/v1/admin/ingestion/jobs/:id" },
-    { path: "/api/v1/admin/overview/panels/:id", label: "/v1/admin/overview/panels/:id" },
+    { path: "/api/v1/admin/overview/charts/:id", label: "/v1/admin/overview/charts/:id" },
     {
       path: "/api/v1/admin/partner-accounts/:id/assets",
       label: "/v1/admin/partner-accounts/:id/assets",
@@ -967,7 +967,7 @@ export const pageRouteCatalogs = {
     { path: "/v1/admin/articles/:id/reviews", label: "/v1/admin/articles/:id/reviews" },
     { path: "/v1/admin/ingestion/article-jobs/:id", label: "/v1/admin/ingestion/article-jobs/:id" },
     { path: "/v1/admin/ingestion/jobs/:id", label: "/v1/admin/ingestion/jobs/:id" },
-    { path: "/v1/admin/overview/panels/:id", label: "/v1/admin/overview/panels/:id" },
+    { path: "/v1/admin/overview/charts/:id", label: "/v1/admin/overview/charts/:id" },
     {
       path: "/v1/admin/partner-accounts/:id/assets",
       label: "/v1/admin/partner-accounts/:id/assets",
@@ -1062,7 +1062,6 @@ export const pageRouteCatalogs = {
     { path: "/v1/admin/users/:id/topics", label: "/v1/admin/users/:id/topics" },
     { path: "/api/v1/admin/article-pipeline", label: "/v1/admin/article-pipeline" },
     { path: "/api/v1/admin/articles", label: "/v1/admin/articles" },
-    { path: "/api/v1/admin/overview", label: "/v1/admin/overview" },
     { path: "/api/v1/admin/partner-accounts", label: "/v1/admin/partner-accounts" },
     { path: "/api/v1/admin/partner-tools", label: "/v1/admin/partner-tools" },
     { path: "/api/v1/admin/search-analytics", label: "/v1/admin/search-analytics" },
@@ -1258,7 +1257,6 @@ export const pageRouteCatalogs = {
     { path: "/taxonomy/topics/new", label: "/taxonomy/topics/new" },
     { path: "/v1/admin/article-pipeline", label: "/v1/admin/article-pipeline" },
     { path: "/v1/admin/articles", label: "/v1/admin/articles" },
-    { path: "/v1/admin/overview", label: "/v1/admin/overview" },
     { path: "/v1/admin/partner-accounts", label: "/v1/admin/partner-accounts" },
     { path: "/v1/admin/partner-tools", label: "/v1/admin/partner-tools" },
     { path: "/v1/admin/search-analytics", label: "/v1/admin/search-analytics" },

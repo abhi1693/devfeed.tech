@@ -8,17 +8,28 @@ integration contract. No SQL text or transaction behavior is simulated.
 import asyncio
 from functools import lru_cache
 from types import SimpleNamespace
+from typing import get_args
 from unittest.mock import Mock
 
 import pytest
-from devfeed_admin_api import overview, overview_panels, reporting
-from devfeed_admin_api.overview_panel_data import GROUPS, OverviewPanel
+from devfeed_admin_api import overview, reporting
+from devfeed_admin_api import overview_projection as projections
+from devfeed_admin_api.overview_charts import CHART_SECTIONS, ChartName
+from devfeed_admin_api.overview_sections import (
+    AudienceSection,
+    CoverageSection,
+    InferenceSection,
+    OperationsSection,
+    OverviewSectionReport,
+    ProcessingSection,
+    PublishingSection,
+)
+from devfeed_admin_api.overview_windows import current_window, parse_report_window
 from devfeed_core.read_models import ReadModelSnapshot
 from fastapi import Response
 from sqlalchemy import create_engine
 from sqlalchemy.exc import TimeoutError as DatabaseTimeout
 
-from tests.admin.reporting.test_report_worker_policy_unit import overview_document
 from tests.support.admin_editorial import identity
 from tests.support.source_readiness import NOW, configuration
 
@@ -123,42 +134,49 @@ def test_reporting_factory_uses_unpooled_materialized_sessions_and_disposes_cach
     assert reporting.reporting_engine.cache_info().currsize == 0
 
 
+SECTION_MODELS = {
+    "operations": OperationsSection,
+    "publishing": PublishingSection,
+    "audience": AudienceSection,
+    "processing": ProcessingSection,
+    "inference": InferenceSection,
+    "coverage": CoverageSection,
+}
+
+
 @pytest.mark.parametrize("status", [None, "fresh", "refreshing", "rebuilding"])
-@pytest.mark.parametrize("panel", ["job-reliability", "publication-time"])
-def test_saved_panel_preserves_group_and_marks_only_stale_snapshots(monkeypatch, status, panel):
-    saved = OverviewPanel(generated_at=NOW, days=7)
+@pytest.mark.parametrize("chart", get_args(ChartName))
+def test_saved_chart_marks_incomplete_snapshots_and_never_calculates_inline(
+    monkeypatch, status, chart
+):
+    section = CHART_SECTIONS[chart]
+    window = (
+        current_window() if section == "operations" else parse_report_window("now-6d/d", "now", NOW)
+    )
+    saved = OverviewSectionReport(
+        generated_at=NOW, days=window.days, data=SECTION_MODELS[section]()
+    )
     if status:
         saved.snapshot = ReadModelSnapshot(
-            status=status, generated_at=NOW, generation="report-v1", lag_seconds=12.8
+            status=status, generated_at=NOW, generation="section-v1", lag_seconds=12.8
         )
     factory = object()
     read = Mock(return_value=saved)
-    monkeypatch.setattr(overview_panels, "read_report", read)
+    calculate = Mock(side_effect=AssertionError("Inline calculation is forbidden"))
+    monkeypatch.setattr(overview, "read_report", read)
+    monkeypatch.setattr(overview, "utcnow", lambda: NOW)
+    monkeypatch.setattr(projections, "calculate_report_async", calculate)
     response = Response()
     output = asyncio.run(
-        overview_panels.overview_panel(panel, response, identity(), factory, days=7)
+        overview.overview_chart(
+            chart, response, identity(), factory, from_value="now-6d/d", to_value="now"
+        )
     )
-    assert output is saved and output.generated_at == NOW and output.days == 7
-    read.assert_called_once_with(factory, GROUPS.get(panel, panel), 7, OverviewPanel)
+    assert output.root.chart == chart
+    assert output.root.generated_at == NOW and output.root.days == window.days
+    assert "section" not in output.root.data.model_dump()
+    read.assert_called_once_with(factory, section, window, OverviewSectionReport)
     stale = status in {"refreshing", "rebuilding"}
     assert response.headers.get("x-overview-stale") == ("true" if stale else None)
     assert response.headers.get("x-overview-age-seconds") == ("12" if stale else None)
-
-
-@pytest.mark.parametrize("status", ["fresh", "refreshing"])
-def test_saved_overview_uses_report_without_starting_an_inline_calculation(monkeypatch, status):
-    from devfeed_admin_api import overview_projection
-
-    saved = overview_document()
-    saved.snapshot = ReadModelSnapshot(
-        status=status, generated_at=NOW, generation="overview-v1", lag_seconds=32.4
-    )
-    read = Mock(return_value=saved)
-    calculate = Mock(side_effect=AssertionError("Inline calculation is forbidden"))
-    monkeypatch.setattr(overview_projection, "read_report", read)
-    monkeypatch.setattr(overview, "overview_metrics", calculate)
-    factory, response = object(), Response()
-    assert asyncio.run(overview.overview(response, identity(), factory, days=30)) is saved
-    read.assert_called_once_with(factory, "overview", 30, overview.AdminOverview)
-    assert response.headers.get("x-overview-stale") == ("true" if status == "refreshing" else None)
     calculate.assert_not_called()

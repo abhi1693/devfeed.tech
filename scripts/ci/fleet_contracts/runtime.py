@@ -11,6 +11,7 @@ import ssl
 import sys
 import time
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 from devfeed_core.db import get_engine
@@ -54,6 +55,66 @@ def seed():
 def metadata_setup():
     Base.metadata.create_all(get_engine())
     with get_engine().begin() as connection:
+        # This fixture tests commands independently of Alembic. The analytical
+        # exporter state is migration-owned rather than part of ORM metadata.
+        statements = (
+            """CREATE TABLE analytics_pipeline_state (
+                singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+                enabled boolean NOT NULL DEFAULT false, capture_started_at timestamptz,
+                last_success_at timestamptz, lease_token uuid, lease_until timestamptz,
+                lease_generation bigint NOT NULL DEFAULT 0,
+                native_import_complete boolean NOT NULL DEFAULT false,
+                native_capture_started_at timestamptz, reader_coverage_start date,
+                native_bootstrap_barrier boolean NOT NULL DEFAULT false,
+                native_bootstrap_complete boolean NOT NULL DEFAULT false)""",
+            "INSERT INTO analytics_pipeline_state(singleton) VALUES(true)",
+            "CREATE SEQUENCE analytics_export_generation AS bigint",
+            """CREATE TABLE analytics_bootstrap_cursors (
+                source_table text PRIMARY KEY, cursor jsonb,
+                complete boolean NOT NULL DEFAULT false)""",
+            """CREATE TABLE analytics_capture_events (
+                id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                source_table text NOT NULL, operation char(1) NOT NULL,
+                record jsonb NOT NULL, before_record jsonb,
+                format_version smallint NOT NULL DEFAULT 2 CHECK(format_version IN (1,2)),
+                created_at timestamptz NOT NULL DEFAULT clock_timestamp())""",
+            "CREATE INDEX ix_analytics_capture_created ON analytics_capture_events(created_at,id)",
+            """CREATE TABLE analytics_fact_refresh (
+                domain text NOT NULL, bucket timestamptz NOT NULL, generation bigint NOT NULL,
+                requested_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+                available_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+                initial_pending boolean NOT NULL DEFAULT false, PRIMARY KEY(domain,bucket))""",
+            "CREATE INDEX ix_analytics_fact_refresh_requested "
+            "ON analytics_fact_refresh(requested_at,domain,bucket)",
+            "CREATE INDEX ix_analytics_fact_refresh_due "
+            "ON analytics_fact_refresh(available_at,requested_at,domain,bucket)",
+            "CREATE INDEX ix_analytics_fact_refresh_domain_due "
+            "ON analytics_fact_refresh(domain,available_at,requested_at,bucket)",
+            """CREATE TABLE analytics_rollup_compaction (
+                table_name text NOT NULL, month integer NOT NULL,
+                publishes integer NOT NULL DEFAULT 0,
+                PRIMARY KEY(table_name,month))""",
+            """CREATE TABLE analytics_upgrade_checkpoint (
+                name text PRIMARY KEY, cursor jsonb, complete boolean NOT NULL DEFAULT false)""",
+            "CREATE SEQUENCE analytics_gauge_revision AS bigint",
+            """CREATE TABLE analytics_gauge_refreshes (
+                domain text NOT NULL CHECK(domain IN ('queues','feed','sources','topics')),
+                shard smallint NOT NULL CHECK(shard BETWEEN 0 AND 255),
+                revision bigint NOT NULL DEFAULT nextval('analytics_gauge_revision'),
+                available_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+                bootstrap_required boolean NOT NULL DEFAULT false,
+                bootstrap_generation bigint NOT NULL DEFAULT 0, PRIMARY KEY(domain,shard))""",
+            "CREATE INDEX ix_analytics_gauge_due "
+            "ON analytics_gauge_refreshes(available_at,domain,shard)",
+            """CREATE TABLE analytics_gauge_bootstrap (
+                singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+                started boolean NOT NULL DEFAULT false)""",
+            "INSERT INTO analytics_gauge_bootstrap(singleton) VALUES(true)",
+            "INSERT INTO analytics_gauge_refreshes(domain,shard) "
+            "VALUES('queues',0),('feed',0),('sources',0),('topics',0)",
+        )
+        for statement in statements:
+            connection.execute(text(statement))
         connection.execute(
             text("CREATE TABLE alembic_version (version_num varchar(32) PRIMARY KEY)")
         )
@@ -80,6 +141,7 @@ def projection():
         report_key,
         report_policy_version,
     )
+    from devfeed_admin_api.overview_windows import current_window, recent_window
     from devfeed_admin_api.pipeline_reads import serving_projection
     from devfeed_core.models import PipelineProjection, ReportSnapshot
     from devfeed_core.read_models import pipeline_policy_version
@@ -97,17 +159,20 @@ def projection():
             )
         )
         assert article is not None and article.payload["title"] == TITLE
+        now = datetime.now(UTC)
         required = {
-            report_key(group, days)
+            report_key(
+                group, current_window() if group in INDEPENDENT_GROUPS else recent_window(days, now)
+            )
             for group in REPORT_GROUPS
             for days in ((1,) if group in INDEPENDENT_GROUPS else (7, 30))
         }
-        assert len(REPORT_GROUPS) == 16 and len(required) == 27
+        assert len(REPORT_GROUPS) == 6 and len(required) == 11
         for key in required:
             report = session.get(ReportSnapshot, key)
             assert report is not None and report.policy_version == report_policy_version()
     retained()
-    print("Native backfill retained records and published all 27 current report snapshots")
+    print("Native backfill retained records and published all 11 current section snapshots")
 
 
 def heartbeat(kind):

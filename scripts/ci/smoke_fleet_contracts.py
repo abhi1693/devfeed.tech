@@ -22,6 +22,10 @@ TYPESENSE = (
     "typesense/typesense:30.2@sha256:"
     "610f2d34b1f93d00762869da2c67736775e5798d19a2c8b91b014b8a0cc1e110"
 )
+CLICKHOUSE = (
+    "clickhouse/clickhouse-server:26.8-alpine@sha256:"
+    "7d2c6c7af374dfaacd6d7aec3403aa43cee5ea334cb2d82400bd3dfa6f62f697"
+)
 
 
 def command(*args, timeout=180, check=True):
@@ -147,6 +151,7 @@ class Smoke:
     def services(self):
         pg = self.prefix + "-pg"
         redis = self.prefix + "-redis"
+        clickhouse = self.prefix + "-clickhouse"
         for name, image, args in (
             (
                 pg,
@@ -161,16 +166,53 @@ class Smoke:
                 ],
             ),
             (redis, "redis:8-alpine", []),
+            (
+                clickhouse,
+                CLICKHOUSE,
+                [
+                    "--cpus",
+                    "2",
+                    "--memory",
+                    "2g",
+                    "-e",
+                    "CLICKHOUSE_USER=ci",
+                    "-e",
+                    "CLICKHOUSE_PASSWORD=disposable-analytics-key",
+                    "-e",
+                    "CLICKHOUSE_DB=fleet_native_test",
+                    "-e",
+                    "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1",
+                ],
+            ),
         ):
             self.containers.append(name)
             command("docker", "run", "-d", "--name", name, "--network", self.network, *args, image)
         self.wait_probe(pg, ["pg_isready", "-U", "ci", "-d", "fleet_native_test"])
         self.wait_probe(redis, ["redis-cli", "-n", "15", "ping"])
+        self.wait_probe(
+            clickhouse,
+            [
+                "clickhouse-client",
+                "--user",
+                "ci",
+                "--password",
+                "disposable-analytics-key",
+                "--database",
+                "fleet_native_test",
+                "--query",
+                "SELECT 1",
+            ],
+            seconds=60,
+        )
         self.redis = redis
         self.env.update(
             DEVFEED_DATABASE_URL=f"postgresql+psycopg://ci:ci@{pg}/fleet_native_test",
             DEVFEED_REDIS_URL=f"redis://{redis}/15",
             DEVFEED_READ_MODEL_DATABASE_URL=f"postgresql+psycopg://ci:ci@{pg}/fleet_native_test",
+            DEVFEED_CLICKHOUSE_URL=f"http://{clickhouse}:8123",
+            DEVFEED_CLICKHOUSE_DATABASE="fleet_native_test",
+            DEVFEED_CLICKHOUSE_USERNAME="ci",
+            DEVFEED_CLICKHOUSE_PASSWORD="disposable-analytics-key",
         )
 
     def schema(self):

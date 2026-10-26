@@ -8,7 +8,13 @@ from typing import Literal
 
 
 def runtime_marker(
-    name: Literal["worker-name", "search-heartbeat", "pipeline-heartbeat", "reports-heartbeat"],
+    name: Literal[
+        "worker-name",
+        "analytics-worker",
+        "search-heartbeat",
+        "pipeline-heartbeat",
+        "reports-heartbeat",
+    ],
 ) -> Path:
     directory = Path(gettempdir()) / f"devfeed-runtime-{os.geteuid()}"
     directory.mkdir(mode=0o700, exist_ok=True)

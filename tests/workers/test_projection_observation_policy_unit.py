@@ -7,12 +7,11 @@ SQLAlchemy states exercised without a database connection or flush.
 
 import copy
 import uuid
-from datetime import UTC, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from devfeed_core import cache_events, inference_metrics, read_models
+from devfeed_core import cache_events, read_models
 from devfeed_core.article_lifecycle import derive_publication_readiness
 from devfeed_core.models import Article, ArticleTag, ReadModelEvent, ReadModelState
 from devfeed_core.urls import fingerprint
@@ -23,66 +22,6 @@ from tests.analysis.test_admission import admission as admission
 from tests.support.partner_accounts import account, asset, campaign
 from tests.support.partner_matching import product
 from tests.support.taxonomy_command_helpers import NOW
-
-
-@pytest.mark.parametrize("rollup", [False, True])
-@pytest.mark.parametrize("naive", [False, True])
-def test_inference_chart_preserves_preaggregated_counts_and_fills_inactive_calendar_days(
-    rollup, naive
-):
-    first, last = NOW - timedelta(days=2), NOW
-    if naive:
-        first, last = first.replace(tzinfo=None), last.replace(tzinfo=None)
-    key = (NOW - timedelta(days=1)).date().isoformat()
-    point = dict(
-        date=key,
-        operation="article_analysis",
-        model="unit-model",
-        effort="medium",
-        calls=3,
-        returned=1,
-        failed=1,
-        running=1,
-        unreported=1,
-        input_tokens=100,
-        cached_input_tokens=30,
-        output_tokens=40,
-        reasoning_tokens=10,
-        web_searches=1,
-        duration_ms=1200,
-    )
-    session = Mock()
-    session.scalar.side_effect = [rollup, NOW - timedelta(days=10)]
-    session.execute.side_effect = [
-        SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [point])),
-        SimpleNamespace(mappings=lambda: [{"date": key, "approved": 2, "rejected": 1}]),
-        SimpleNamespace(
-            mappings=lambda: [{"date": key, "calls": 4, "escalations": 1, "repeated_stages": 1}]
-        ),
-        SimpleNamespace(mappings=lambda: [{"date": key, "count": 1}]),
-    ]
-    report = inference_metrics.inference_charts(session, first, last)
-    assert report.first_recorded_at == NOW - timedelta(days=10)
-    assert [row.model_dump() for row in report.activity] == [point]
-    days = report.topic_activity
-    assert [day.date for day in days] == [
-        (NOW - timedelta(days=n)).date().isoformat() for n in (2, 1, 0)
-    ]
-    assert days[1].model_dump() == dict(
-        date=key, approved=2, rejected=1, deferred=1, calls=4, escalations=1, repeated_stages=1
-    )
-    assert all(
-        value == 0
-        for day in (days[0], days[2])
-        for field, value in day.model_dump().items()
-        if field != "date"
-    )
-    parameters = session.execute.call_args_list[0].args[1]
-    assert parameters["start"] == first and parameters["now"] == last
-    if rollup:
-        assert parameters["first_full_day"] == (NOW - timedelta(days=1)).replace(hour=0)
-        assert parameters["last_day"] == NOW.replace(hour=0)
-        assert parameters["first_full_day"].tzinfo == UTC
 
 
 def test_read_model_event_boundary_keeps_tombstones_and_acknowledges_only_captured_ids():

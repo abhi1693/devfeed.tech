@@ -36,7 +36,7 @@ from profile_read_models import (
 from sqlalchemy import event, func, select, text
 from sqlalchemy.orm import sessionmaker
 
-REPORT_GROUPS = frozenset({"blockers", "overview"})
+REPORT_GROUPS = frozenset({"operations"})
 
 
 def measure(operation):
@@ -149,43 +149,37 @@ def database_activity(factory):
 
 
 def publish(factory):
+    """Measure the bounded operational section during PG catalog refreshes."""
     from devfeed_admin_api import overview_projection as reports
-    from devfeed_admin_api.overview_processing import refresh_processing_facts
+    from devfeed_admin_api.overview_windows import current_window
 
-    refresh_processing_facts(factory, datetime.now(UTC))
     with factory.begin() as session:
-        for group, days in (("blockers", 1), ("overview", 30)):
-            reports.request_refresh(session, group, days, datetime.now(UTC))
-    results = []
-    for _ in range(2):
-        now = datetime.now(UTC)
-        claim = reports.claim_refresh(factory, now)
-        if claim is None:
-            break
-        try:
-            result = reports.calculate_report(factory, claim[0], claim[1], now)
-            accepted = reports.publish_report(factory, claim, result, datetime.now(UTC))
-            results.append(
-                {
-                    "group": claim[0],
-                    "days": claim[1],
-                    "published": accepted,
-                    "snapshot": result.snapshot.model_dump(mode="json")
-                    if result.snapshot
-                    else None,
-                }
-            )
-        except Exception as error:
-            reports.fail_refresh(factory, claim, datetime.now(UTC), error)
-            results.append(
-                {
-                    "group": claim[0],
-                    "days": claim[1],
-                    "published": False,
-                    "error": type(error).__name__,
-                }
-            )
-    return results
+        reports.request_refresh(session, "operations", current_window(), datetime.now(UTC))
+    now = datetime.now(UTC)
+    claim = reports.claim_refresh(factory, now)
+    if claim is None:
+        return []
+    try:
+        result = reports.calculate_report(factory, claim[0], claim[1], now)
+        accepted = reports.publish_report(factory, claim, result, datetime.now(UTC))
+        return [
+            {
+                "group": claim[0],
+                "days": claim[1].days,
+                "published": accepted,
+                "snapshot": result.snapshot.model_dump(mode="json") if result.snapshot else None,
+            }
+        ]
+    except Exception as error:
+        reports.fail_refresh(factory, claim, datetime.now(UTC), error)
+        return [
+            {
+                "group": claim[0],
+                "days": claim[1].days,
+                "published": False,
+                "error": type(error).__name__,
+            }
+        ]
 
 
 def mutate(factory, requests, completed, stats):
@@ -238,7 +232,7 @@ def gates(output, expected):
     generations = [row.get("article_generation") for row in snapshots]
     generations_valid = all(type(value) is int and value >= 0 for value in generations)
     checks = {
-        "stable_reports_publish": len(stable) == 2
+        "stable_reports_publish": len(stable) == 1
         and {row["group"] for row in stable} == REPORT_GROUPS
         and all(row.get("published") for row in stable),
         "writer_commits_match_batches": output["concurrent_ingestion"]["commits"] == len(samples)
@@ -260,7 +254,7 @@ def gates(output, expected):
         for row in reports
     )
     fixed_publication = bool(samples) and all(
-        len(sample["reports"]["result"]) == 2
+        len(sample["reports"]["result"]) == 1
         and {row["group"] for row in sample["reports"]["result"]} == REPORT_GROUPS
         and all(row.get("published") for row in sample["reports"]["result"])
         for sample in samples
@@ -368,8 +362,9 @@ def main():
             "load_average_start": os.getloadavg(),
             "note": args.environment_note,
         },
-        "scope": "Disposable local synthetic SQL/state benchmark; no production traffic",
-        "workload": vars(args) | {"output": str(args.output)},
+        "scope": "Disposable PG catalog/pipeline/operations benchmark; CH analytics excluded",
+        "workload": vars(args)
+        | {"output": str(args.output), "report_groups": sorted(REPORT_GROUPS)},
     }
 
     def checkpoint(phase):

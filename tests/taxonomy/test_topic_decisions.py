@@ -17,6 +17,7 @@ from devfeed_core.topic_decisions import (
     selected_sources,
 )
 
+from tests.support import analytics as analytics_reports
 from tests.taxonomy.test_topic_analysis import pending as pending
 
 IDENTIFIER = str(uuid.uuid4())
@@ -400,7 +401,6 @@ def test_worker_finishes_or_defers_once(database, pending, monkeypatch, ambiguou
     from devfeed_core.models import TopicAnalysisJob, TopicDecisionRun, TopicProposal
     from devfeed_core.research_verification import schedule_verification
     from devfeed_core.topic_decision_budget import schedule_decisions
-    from devfeed_core.topic_decision_metrics import decision_metrics
     from devfeed_core.topic_remediation import schedule_topic_corrections
     from sqlalchemy import select
 
@@ -438,10 +438,14 @@ def test_worker_finishes_or_defers_once(database, pending, monkeypatch, ambiguou
         assert run.status == ("deferred" if ambiguous else "decided")
         assert len(run.state["calls"]) == (5 if ambiguous else 3)
         assert job.usage["inputTokens"] == 100 * len(calls)
-        stats = decision_metrics(session, utcnow() - timedelta(hours=1), utcnow())
-        assert stats.calls == len(calls)
-        assert stats.deferred == int(ambiguous)
-        assert stats.tokens == len(calls) * 120
+        from sqlalchemy import text
+
+        measured = session.execute(
+            text("SELECT count(*), sum(tokens) FROM topic_decision_calls WHERE proposal_id=:id"),
+            {"id": proposal.id},
+        ).one()
+        assert measured[0] == len(calls)
+        assert measured[1] == len(calls) * 120
     assert schedule_topic_corrections(database) == 0
     assert schedule_verification(database) == 0
     topic_analysis_tasks._analyze(job_id)
@@ -554,7 +558,6 @@ def test_relationship_budget_counts_started_calls_and_prioritizes_topics(
 
 @pytest.mark.integration
 def test_charts_include_source_relevance_and_do_not_double_count_subtokens(database):
-    from devfeed_core.inference_metrics import inference_charts
     from devfeed_core.models import InferenceCall
 
     now = utcnow()
@@ -579,12 +582,12 @@ def test_charts_include_source_relevance_and_do_not_double_count_subtokens(datab
             )
         )
     with database() as session:
-        data = inference_charts(session, now - timedelta(days=1), now)
-    point = data.activity[0]
-    assert point.operation == "source_relevance"
-    assert point.input_tokens + point.output_tokens == 120
-    assert point.cached_input_tokens == 80 and point.reasoning_tokens == 10
-    assert len(data.topic_activity) == 2
+        rows = analytics_reports.inference_rows(session, now - timedelta(days=1), now)
+    assert len(rows) == 1
+    point = rows[0]
+    assert point["operation"] == "source_relevance"
+    assert point["input_tokens"] + point["output_tokens"] == 120
+    assert point["cached_input_tokens"] == 80 and point["reasoning_tokens"] == 10
 
 
 def test_malformed_verification_retries_verifier_without_redrafting():

@@ -1,4 +1,6 @@
-# Topic report history profiling
+# Historical PostgreSQL topic report profiling
+
+**Superseded by the ClickHouse reporting architecture.**
 
 Issue [#299](https://github.com/abhi1693/devfeed.tech/issues/299) concerns repeatedly
 expanding large decision state JSON and sorting repeated stages in administrative
@@ -89,50 +91,9 @@ bloat. Server-wide WAL counters include background work and can contain unequal
 full-page images. Retain those counts rather than interpreting one ratio as stable
 write amplification. No universal acceptable writer-latency budget has been defined.
 
-To run locally, create and migrate a new disposable database and make a clean
-checkout of the pre-change revision. Set `DEVFEED_DATABASE_URL` to that database
-for migrations, and export the same URL as `DEVFEED_TEST_DATABASE_URL` for profiling:
-
-```sh
-uv run --locked --no-sync alembic upgrade head
-uv run --locked --no-sync python -m scripts.profile_topic_reports \
-  --baseline-root /path/to/baseline --seed --articles 100000 \
-  --output reports/topic-reports.json
-```
-
-Output must be a new `.json` artifact under the invocation's `reports/` directory.
-Absolute paths inside that directory also work. Traversal components, symlink files
-or directories, and existing destinations are rejected before database work. Choose
-a new filename for each local run; artifact creation never overwrites an earlier report.
-
-The path-filtered `Topic report history profile` pull-request workflow uses a native
-`ubuntu-24.04-arm` runner and an immutable PostgreSQL 17.11 image, explicitly requiring
-major version 17 with `--require-postgres-major 17`. Profiling has read-only repository
-permissions and no deployment or production credentials. Local AMD64
-smoke measurements validate the harness; they do not establish native ARM64 speed.
-When the pull-request base still uses historical JSON expansion, the workflow
-requires lower concurrent report and topic SQL runtime, zero topic SQL temporary
-writes, and complete overlap between reports and the paced writer phase. Later changes compare
-against their current base and retain exact output parity without requiring every
-change to make the already normalized queries faster again. Full phase
-elapsed time includes identical writer pacing and is not a report latency metric.
-These are read checks, not an overall performance verdict. The summary reports
-committed write costs separately and marks them unverified when absent; a passing
-read check cannot establish acceptable long-term write overhead.
-
-Each run publishes separate 100,000- and 300,000-article before/after tables with
-signed cost deltas and improvement percentages in its job summary and summary artifact.
-Positive improvement means reduced cost; negative improvement means increased cost.
-Same-repository pull requests
-also receive one updated bot comment. The publishing job executes no checkout or
-artifact code, validates the current attempt's JSON as data, and checks the current
-PR head before writing. Forks retain the summary and artifact. Failed jobs and
-missing or incomplete artifacts are reported explicitly instead of reusing a prior
-attempt's passing measurement.
-
-After deployment, compare fresh `pg_stat_statements` deltas under matched report
-windows and concurrency: calls, total execution time, temporary blocks per call and
-buffer reads. Also check report freshness, worker latency and write amplification,
-then verify a retried correction and deletion converge immediately without duplicate
-facts. These deployment checks require a separately authorized release; the
-benchmark workflow only accesses its disposable database.
+The PostgreSQL-only profiler and its workflow were retired when historical reports
+moved to ClickHouse. These notes describe the earlier measurement methodology and
+production reference; they do not describe the current reporting implementation or
+establish ClickHouse performance. Use `scripts/profile_analytics_reports.py` against
+a prepared disposable ClickHouse fixture for current report measurements. See
+[the administration read-model guide](../apps/admin-api/READ_MODELS.md).

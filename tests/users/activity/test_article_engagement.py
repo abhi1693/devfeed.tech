@@ -18,11 +18,42 @@ from devfeed_core.models import (
 )
 from devfeed_user_api import engagement
 from devfeed_user_api.config import Settings
-from sqlalchemy import event, func, insert, select, update
+from sqlalchemy import event, func, insert, select, text, update
 
 from tests.support.user_personalization import user_data as user_data
 
 pytestmark = pytest.mark.integration
+
+
+def test_clickhouse_retention_waits_for_capture_and_exports_expired_facts(database):
+    with database.begin() as session:
+        article = Article(
+            canonical_url="https://example.invalid/retention",
+            url_hash="retention",
+            title="Retained activity",
+        )
+        session.add(article)
+        session.flush()
+        session.add(
+            ArticleOpen(
+                article_id=article.id,
+                viewer_key="reader",
+                opened_hour=utcnow() - timedelta(days=31),
+            )
+        )
+    prune_article_opens(database)
+    with database.begin() as session:
+        assert session.scalar(select(func.count()).select_from(ArticleOpen)) == 1
+        session.execute(text("UPDATE analytics_export_state SET enabled = true"))
+    prune_article_opens(database)
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(ArticleOpen)) == 0
+        operation, record = session.execute(
+            text(
+                "SELECT operation, record FROM analytics_outbox WHERE source_table='article_opens'"
+            )
+        ).one()
+        assert operation == "I" and record["viewer_key"] == "reader"
 
 
 @pytest.fixture
@@ -251,6 +282,7 @@ def test_retention_prunes_in_batches_without_losing_lifetime_totals(interactions
     _, _, _, _, ids = interactions
     article_id = ids["Article 000"]
     with database.begin() as session:
+        session.execute(text("UPDATE analytics_export_state SET enabled = true"))
         session.execute(insert(ArticleEngagement).values(article_id=article_id, opens=3))
         for offset in (0, 31, 32):
             session.execute(

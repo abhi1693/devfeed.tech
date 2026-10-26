@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import re
 import subprocess
 import textwrap
 from urllib.parse import urlsplit
@@ -224,15 +223,16 @@ def test_superseded_pr_head_receives_no_comment(tmp_path, scenario):
     assert run_comment(tmp_path, scenario) == []
 
 
-def test_workflow_keeps_writable_reporting_separate_and_measures_candidate_after_baseline_failure():
+def test_workflow_keeps_writable_reporting_separate_and_measures_required_architecture():
     workflow = WORKFLOW.read_text()
     native, reporter = workflow.split("  report:\n", 1)
     assert "pull-requests: write" not in native and "pull-requests: write" in reporter
     assert "checkout@" not in reporter and "No checkout" in reporter
     assert "github.event.pull_request.head.repo.full_name == github.repository" in reporter
     assert "github.actor != 'dependabot[bot]'" in reporter
-    assert "id: clone-fixture" in native
-    assert "if: always() && !cancelled() && steps.clone-fixture.outcome == 'success'" in native
+    assert "path: baseline" not in native and "cp candidate/" not in native
+    assert "Measure current architecture" in native
+    assert "--candidate-only" in native
     assert 'exit "$report_status"' in native
     assert native.index('cat reports/summary.md >> "$GITHUB_STEP_SUMMARY"') < native.index(
         'exit "$report_status"'
@@ -240,30 +240,24 @@ def test_workflow_keeps_writable_reporting_separate_and_measures_candidate_after
     assert "--job-result" in native and "BASE_SHA:" in native and "HEAD_SHA:" in native
 
 
-def test_database_password_is_supplied_by_libpq_for_both_isolated_databases():
+def test_catalog_benchmark_uses_only_disposable_operational_services():
     job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["native-scale"]
-    assert job["env"]["PGPASSWORD"] == job["services"]["postgres"]["env"]["POSTGRES_PASSWORD"]
-    candidate = next(
-        step for step in job["steps"] if step.get("name") == "Measure candidate on the same runner"
-    )
-    candidate_url = re.search(r"DEVFEED_TEST_DATABASE_URL=(\S+)", candidate["run"])[1]
-    for url, database in (
-        (job["env"]["DEVFEED_TEST_DATABASE_URL"], "devfeed_catalog_base_test"),
-        (candidate_url, "devfeed_catalog_head_test"),
-    ):
-        parsed = urlsplit(url)
-        assert parsed.scheme == "postgresql+psycopg"
-        assert parsed.username == "postgres" and parsed.password is None
-        assert parsed.hostname == "127.0.0.1" and parsed.port == 5432
-        assert parsed.path == f"/{database}"
+    environment, services = job["env"], job["services"]
+    assert environment["PGPASSWORD"] == services["postgres"]["env"]["POSTGRES_PASSWORD"]
+    parsed = urlsplit(environment["DEVFEED_TEST_DATABASE_URL"])
+    assert parsed.scheme == "postgresql+psycopg"
+    assert parsed.username == "postgres" and parsed.password is None
+    assert parsed.hostname == "127.0.0.1" and parsed.port == 5432
+    assert parsed.path == "/devfeed_catalog_test"
+    assert set(services) == {"postgres", "redis"}
+    assert environment["DEVFEED_TEST_REDIS_URL"].endswith("/15")
+    assert not any("CLICKHOUSE" in name for name in environment)
 
 
 def test_renderer_uses_fixed_report_locations():
     job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["native-scale"]
     summary = next(
-        step
-        for step in job["steps"]
-        if step.get("name") == "Summarize before, after, and signed changes"
+        step for step in job["steps"] if step.get("name") == "Summarize current architecture"
     )
     assert "candidate/scripts/ci/catalog_refresh_report.py" in summary["run"]
     assert '--job-result "$MEASUREMENT_RESULT"' in summary["run"]
