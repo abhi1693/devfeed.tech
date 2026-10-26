@@ -153,6 +153,9 @@ TABLES = {name: _table(name, fields.split()) for name, fields in FIELDS.items()}
 
 # Children enrich publication facts through bounded article-ID probes. Existing
 # historical articles already include those associations during initial capture.
+# TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Retire the existing-population source
+# import with AnalyticsExporter._backfill_one after the documented release gates.
+# CARD_BACKFILL_TABLES below remains native policy/reset initialization.
 BACKFILL_TABLES = (
     "articles",
     "sources",

@@ -162,12 +162,13 @@ function SourceArticles({
     refreshSeconds * 1000,
     refreshKey + revision,
   );
-  const column =
-    additional?.snapshot === result.data && additional?.boardSnapshot === snapshot
+  const column = result.error
+    ? undefined
+    : additional?.snapshot === result.data && additional?.boardSnapshot === snapshot
       ? additional.column
       : result.data;
   const items = [...new Map(column?.items.map((article) => [article.id, article])).values()];
-  useLayoutEffect(onArticlesChange, [result.data, additional, onArticlesChange]);
+  useLayoutEffect(onArticlesChange, [result.data, result.error, additional, onArticlesChange]);
   async function more() {
     if (!column?.next_cursor || busy || result.refreshing || result.loading || result.error) return;
     request.current?.abort();

@@ -236,7 +236,7 @@ const fixture = createServer(async (req, res) => {
     }
     if (mode === "preparing" && chart === "publication-rate") {
       res.statusCode = 503;
-      body = { detail: { code: "report_refreshing", message: "Report is being prepared" } };
+      body = { detail: { code: "analytics_preparing", message: "Report is being prepared" } };
     }
   }
 

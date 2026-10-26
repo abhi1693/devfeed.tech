@@ -365,7 +365,7 @@ def _analysis_steps(job):
             status = "pending"
         error = step.get("error")
         # Worker records contain safe reason codes, never a provider response.
-        # Retain that boundary when presenting malformed/legacy step metadata.
+        # Retain that boundary when presenting malformed saved step metadata.
         if error is not None and (
             not isinstance(error, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,99}", error)
         ):

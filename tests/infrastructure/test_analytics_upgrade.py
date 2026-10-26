@@ -520,8 +520,18 @@ def native_facts(events):
 
 def test_native_events_bypass_the_finite_pending_upgrade_entirely():
     connection, client, importer = runtime()
-    events = [dict(format_version=2), {}]
+    events = [dict(format_version=2), dict(format_version=3)]
     assert run(importer.normalize_pending(connection, events, 40)) is events
+    assert not connection.calls and not client.queries and not client.writes
+
+
+@pytest.mark.parametrize("event", [{}, {"format_version": 0}, {"format_version": 4}])
+def test_pending_upgrade_rejects_missing_or_unknown_capture_format_without_a_compatibility_default(
+    event,
+):
+    connection, client, importer = runtime()
+    with pytest.raises(ValueError, match="Unsupported analytical capture format"):
+        run(importer.normalize_pending(connection, [event], 40))
     assert not connection.calls and not client.queries and not client.writes
 
 

@@ -9,7 +9,7 @@ from functools import wraps
 from types import SimpleNamespace
 
 import pytest
-from devfeed_admin_api import article_pipeline, overview, source_pipeline
+from devfeed_admin_api import analytics_runtime, article_pipeline, overview, source_pipeline
 from devfeed_admin_api.analytics_current import CARD_KINDS, CurrentCards
 from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
 from devfeed_admin_api.auth import require_admin
@@ -66,7 +66,7 @@ class Client:
         await asyncio.sleep(0)
         if self.failed:
             raise AnalyticsUnavailable("offline")
-        return {"ready": self.ready, "capture_started_at": NOW, "lag_seconds": 0}
+        return {"version": 1, "ready": self.ready, "capture_started_at": NOW, "lag_seconds": 0}
 
     async def query(self, sql, parameters=None):
         self.queries.append((sql, deepcopy(parameters)))
@@ -243,7 +243,7 @@ async def test_current_views_refuse_incomplete_or_expired_manifest_coverage(reas
     with pytest.raises(HTTPException) as caught:
         await CurrentCards(client, now=NOW).freeze(("source", "candidate"))
     assert caught.value.status_code == 503
-    assert caught.value.detail["code"] == "projection_initializing"
+    assert caught.value.detail["code"] == "analytics_preparing"
     assert not any("analytics_cards c" in sql for sql, _ in client.queries)
 
 
@@ -263,20 +263,18 @@ async def test_reset_withdrawal_between_status_and_manifest_never_serves_an_empt
             limit=20,
         )
     assert caught.value.status_code == 503
-    assert caught.value.detail["code"] == "projection_initializing"
+    assert caught.value.detail["code"] == "analytics_preparing"
     assert client.status_index == 2
     assert not any("analytics_cards c" in sql for sql, _ in client.queries)
 
 
-@pytest.mark.parametrize("transition", ["same-policy-reset", "new-policy", "heartbeat"])
+@pytest.mark.parametrize("transition", ["same-policy-reset", "heartbeat"])
 @run_async
 async def test_manifest_freeze_retries_changed_status_once_and_pins_all_reads_to_the_retry_vector(
     transition,
 ):
     current = Client().card_status
     previous = {**current, "generated_at": NOW - timedelta(seconds=30)}
-    if transition == "new-policy":
-        previous["policy"] = "previous-policy"
     next_status = {**current, "version": 3}
     second_base = 100 if transition == "heartbeat" else 900
     client = InterleavingClient(
@@ -310,6 +308,24 @@ async def test_manifest_freeze_retries_changed_status_once_and_pins_all_reads_to
         parameters["manifest_generations"] == list(range(second_base, second_base + 256))
         for parameters in bound
     )
+
+
+@pytest.mark.parametrize("policy", ["previous-serving", "unknown-derivation", "different-config"])
+@run_async
+async def test_current_cards_refuse_previous_or_unknown_policy_without_reading_payloads(policy):
+    client = Client()
+    if policy == "previous-serving":
+        client.card_status["policy"] = "previous-policy"
+    elif policy == "unknown-derivation":
+        client.card_status.update(policy="previous-policy", target_policy="previous-policy")
+    else:
+        client.settings = get_settings().model_copy(update={"full_automation": True})
+    with pytest.raises(HTTPException) as caught:
+        await CurrentCards(client, now=NOW).freeze(("article",))
+    assert caught.value.status_code == 503
+    assert caught.value.detail["code"] == "analytics_preparing"
+    assert len(client.queries) == 1
+    assert "admin:card-status" in client.queries[0][0]
 
 
 @run_async
@@ -452,56 +468,130 @@ async def test_queue_polling_coalesces_and_refreshes_without_recalculating_histo
     assert sum("overview:throughput" in sql for sql, _ in client.queries) == 1
     time[0] += timedelta(seconds=31)
     client.failed = True
-    stale = await reads.section(queue_group, window)
-    assert stale.snapshot.status == "stale" and stale.data.queues[0].queued == 4
+    with pytest.raises(HTTPException) as caught:
+        await reads.section(queue_group, window)
+    assert caught.value.status_code == 503
+    assert caught.value.detail["code"] == "analytics_preparing"
     assert len(client.queries) == 4
 
 
 @run_async
-async def test_last_good_cache_marks_outage_stale_and_expiry_returns_retryable_preparing():
+@pytest.mark.parametrize("failure", ["offline", "not-ready", "deadline"])
+async def test_expired_cache_never_serves_old_data_when_clickhouse_cannot_refresh(failure):
     time = [NOW]
     client = Client()
     reads = runtime(client, clock=lambda: time[0])
     window = recent_window(30, NOW)
     first = await reads.section("publishing", window)
     time[0] += timedelta(seconds=31)
-    client.failed = True
-    stale = await reads.section("publishing", window)
-    assert first.snapshot.status == "fresh"
-    assert stale.snapshot.status == "stale" and stale.snapshot.lag_seconds == 31
-    time[0] += timedelta(days=1)
+    if failure == "offline":
+        client.failed = True
+    elif failure == "not-ready":
+        client.ready = False
+    else:
+
+        async def timeout():
+            raise TimeoutError("query deadline reached")
+
+        client.status = timeout
+    assert first.snapshot.status == "fresh" and first.snapshot.generation == "1"
     with pytest.raises(HTTPException) as caught:
         await reads.section("publishing", window)
     assert caught.value.status_code == 503
-    assert caught.value.detail["code"] == "report_refreshing"
+    assert caught.value.detail["code"] == "analytics_preparing"
     assert caught.value.headers["Retry-After"] == "5"
 
 
 @run_async
-async def test_redis_last_good_survives_process_restart_and_redis_outage_is_optional():
+async def test_restart_reuses_only_unexpired_redis_results_and_never_extends_cache_lifetime():
     class Redis:
         def __init__(self):
             self.values = {}
+            self.expirations = []
 
         def get(self, key):
             return self.values.get(key)
 
         def set(self, key, value, **kwargs):
             self.values[key] = value
+            self.expirations.append(kwargs["ex"])
 
     redis = Redis()
     first = runtime(redis=lambda: redis, cache_enabled=True)
     window = recent_window(30, NOW)
     await first.section("publishing", window)
+    assert redis.expirations == [30]
+    envelope = json.loads(next(iter(redis.values.values())))
+    assert set(envelope) == {"expires_at", "report"}
+    assert datetime.fromisoformat(envelope["expires_at"]) == NOW + timedelta(seconds=30)
+    assert ":v2:" in next(iter(redis.values))
     offline = Client()
     offline.failed = True
     second = runtime(
+        offline, clock=lambda: NOW + timedelta(seconds=10), redis=lambda: redis, cache_enabled=True
+    )
+    assert (await second.section("publishing", window)).snapshot.status == "fresh"
+    assert offline.status_reads == 0
+    assert len(second.cache) == 1
+    assert redis.expirations == [30]
+    expired = runtime(
+        offline, clock=lambda: NOW + timedelta(seconds=30), redis=lambda: redis, cache_enabled=True
+    )
+    with pytest.raises(HTTPException) as caught:
+        await expired.section("publishing", window)
+    assert caught.value.status_code == 503 and offline.status_reads == 1
+    # A previous deployment's long-lived document must not become readable
+    # through the current fresh-only cache namespace after a process restart.
+    previous_key, previous_value = next(iter(redis.values.items()))
+    previous = json.loads(previous_value)
+    previous["fresh_until"] = previous["expires_at"]
+    previous["expires_at"] = (NOW + timedelta(days=1)).isoformat()
+    redis.values = {previous_key.replace(":v2:", ":v1:"): json.dumps(previous).encode()}
+    upgraded = runtime(
         offline, clock=lambda: NOW + timedelta(seconds=31), redis=lambda: redis, cache_enabled=True
     )
-    assert (await second.section("publishing", window)).snapshot.status == "stale"
-    assert len(second.cache) == 1
-    third = runtime(redis=lambda: (_ for _ in ()).throw(ConnectionError()), cache_enabled=True)
-    assert (await third.section("publishing", window)).snapshot.status == "fresh"
+    with pytest.raises(HTTPException) as caught:
+        await upgraded.section("publishing", window)
+    assert caught.value.status_code == 503
+
+
+@run_async
+async def test_optional_redis_failure_queries_clickhouse_without_using_cached_old_data():
+    reads = runtime(redis=lambda: (_ for _ in ()).throw(ConnectionError()), cache_enabled=True)
+    report = await reads.section("publishing", recent_window(30, NOW))
+    assert report.snapshot.status == "fresh"
+    assert reads.client.status_reads == 1
+
+
+@run_async
+async def test_admission_rejects_expired_cache_instead_of_serving_a_fallback(monkeypatch):
+    monkeypatch.setattr(analytics_runtime, "MAX_INFLIGHT", 1)
+    time = [NOW]
+    client = Client()
+    reads = runtime(client, clock=lambda: time[0])
+    window = recent_window(30, NOW)
+    await reads.section("publishing", window)
+    time[0] += timedelta(seconds=31)
+    started, release = asyncio.Event(), asyncio.Event()
+    original = client.status
+
+    async def blocked():
+        started.set()
+        await release.wait()
+        return await original()
+
+    client.status = blocked
+    pending = asyncio.create_task(reads.section("audience", window))
+    await started.wait()
+    try:
+        with pytest.raises(HTTPException) as caught:
+            await reads.section("publishing", window)
+        assert caught.value.status_code == 503
+        assert caught.value.detail["code"] == "analytics_preparing"
+        assert caught.value.headers["Retry-After"] == "5"
+    finally:
+        release.set()
+        await pending
 
 
 @run_async
@@ -532,6 +622,33 @@ def test_overview_http_never_opens_postgres_and_keeps_all_twelve_chart_contracts
             assert response.status_code == 200, response.text
             assert response.json()["chart"] == chart
         assert http.get("/v1/admin/overview/charts/publication-rate?days=30").status_code == 422
+
+
+def test_overview_http_expired_chart_returns_preparing_until_clickhouse_recovers(monkeypatch):
+    app = FastAPI()
+    app.include_router(overview.router)
+    time = [NOW]
+    monkeypatch.setattr(overview, "utcnow", lambda: time[0])
+    client = Client()
+    reads = runtime(client, clock=lambda: time[0])
+    app.dependency_overrides[require_admin] = lambda: SimpleNamespace()
+    app.dependency_overrides[get_analytics] = lambda: reads
+    app.dependency_overrides[get_session] = lambda: pytest.fail("Overview opened PostgreSQL")
+    path = "/v1/admin/overview/charts/publication-rate"
+    with TestClient(app) as http:
+        first = http.get(path)
+        assert first.status_code == 200 and first.json()["snapshot"]["status"] == "fresh"
+        client.failed = True
+        time[0] += timedelta(seconds=30)
+        failed = http.get(path)
+        assert failed.status_code == 503
+        assert failed.json()["detail"]["code"] == "analytics_preparing"
+        assert failed.headers["retry-after"] == "5"
+        assert "data" not in failed.json()
+        client.failed = False
+        recovered = http.get(path)
+        assert recovered.status_code == 200
+        assert recovered.json()["snapshot"]["status"] == "fresh"
 
 
 def test_board_http_reads_only_bounded_current_metadata_after_clickhouse_page_selection():
@@ -657,7 +774,7 @@ async def test_one_failed_section_does_not_poison_independent_successful_section
 
 
 @run_async
-async def test_local_last_good_cache_evicts_lru_entries_and_refuses_oversized_documents():
+async def test_fresh_local_cache_evicts_lru_entries_and_refuses_oversized_documents():
     reads = runtime(cache_max_bytes=1024)
     for index in range(65):
         reads._remember(str(index), b"small")

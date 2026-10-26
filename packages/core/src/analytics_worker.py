@@ -53,6 +53,8 @@ class AnalyticsExporter:
         self._last_ready = None
         self.gauges = Gauges(self.settings, self.client)
         self.rollups = RollupPublisher(self.client)
+        # TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Retire the cutover importer with
+        # its callers after ANALYTICS_BACKFILL_RETIREMENT.md's release gates pass.
         self.upgrade = NativeUpgrade(self.settings, self.client)
         self.cards = CardPublisher(self.client, self.settings)
         self.capture_started_at = None
@@ -138,6 +140,9 @@ class AnalyticsExporter:
             raise RuntimeError("Analytics publisher lease was superseded")
 
     async def _backfill_one(self, connection, generation):
+        # TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Retire existing-population PG
+        # import after cutover and safe fresh-install capture ordering are proven.
+        # Native card policy rebuilds and ongoing captured-event delivery remain.
         async with connection.transaction():
             row = await (
                 await connection.execute(
@@ -241,6 +246,8 @@ class AnalyticsExporter:
         # Fail closed before any acknowledgement, including old-format
         # reconciliation. A future producer cannot silently lose its changes.
         for event in captured:
+            # TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Accept only V3 after V1/V2
+            # queues have drained and the supported upgrade floor advances.
             if event["format_version"] not in {1, 2, 3}:
                 raise ValueError("Unsupported analytical capture format")
             sources = set(TABLES) | set(V1_KEYS) if event["format_version"] == 1 else TABLES
@@ -383,6 +390,8 @@ class AnalyticsExporter:
                 lease["native_capture_started_at"] or lease["capture_started_at"]
             )
             observed_at = datetime.now(UTC)
+            # TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Delete finite cutover work
+            # and its readiness fields together; preserve ongoing native work.
             upgrading = await self.upgrade.once(
                 connection, lease["lease_generation"], fence=self._check_lease
             )

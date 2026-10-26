@@ -63,10 +63,7 @@ export function OverviewChart({ chart, range }: { chart: ChartName; range: DateR
         }
       } catch (failure) {
         if (controller.signal.aborted) return;
-        if (
-          failure instanceof ApiError &&
-          ["report_refreshing", "report_rebuilding"].includes(failure.code ?? "")
-        ) {
+        if (failure instanceof ApiError && failure.code === "analytics_preparing") {
           setPreparation((previous) => {
             const next =
               previous?.key === key

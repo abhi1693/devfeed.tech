@@ -8,12 +8,12 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it("exposes stale and rebuilding saved data without hiding it", () => {
+it("exposes current observation lag and catalogue progress", () => {
   const snapshot = { status: "stale" as const, generated_at: new Date().toISOString() };
   const view = render(<SnapshotStatus snapshot={snapshot} />);
   expect(screen.getByRole("status").textContent).toContain("Stale data");
-  view.rerender(<SnapshotStatus snapshot={{ ...snapshot, status: "rebuilding" }} />);
-  expect(screen.getByRole("status").textContent).toContain("Rebuilding saved data");
+  view.rerender(<SnapshotStatus snapshot={{ ...snapshot, status: "catching_up" }} />);
+  expect(screen.getByRole("status").textContent).toContain("Catalog catching up");
   expect(screen.getByRole("time").getAttribute("datetime")).toBe(snapshot.generated_at);
 });
 
@@ -67,8 +67,6 @@ it.each([undefined, "invalid timestamp"])(
 
 it.each([
   ["stale", "Stale data"],
-  ["rebuilding", "Rebuilding saved data"],
-  ["refreshing", "Updating saved data"],
   ["catching_up", "Catalog catching up"],
 ] as const)("preserves the server's %s status after a recent response", (status, label) => {
   render(

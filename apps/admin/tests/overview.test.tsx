@@ -227,7 +227,7 @@ it("replaces the old range's plot and metrics with an in-card loader", async () 
 it("keeps preparation inside the chart and checks completion after five seconds", async () => {
   vi.useFakeTimers();
   vi.mocked(adminOverviewChart)
-    .mockRejectedValueOnce(new ApiError(503, undefined, {}, "report_refreshing"))
+    .mockRejectedValueOnce(new ApiError(503, undefined, {}, "analytics_preparing"))
     .mockResolvedValue(populatedCharts["publication-rate"]);
   render(publication());
   await act(async () => {});
@@ -247,7 +247,7 @@ it("keeps preparation inside the chart and checks completion after five seconds"
 it("keeps checking delayed preparation automatically even when refresh is paused", async () => {
   vi.useFakeTimers();
   vi.mocked(adminOverviewChart).mockRejectedValue(
-    new ApiError(503, undefined, {}, "report_rebuilding"),
+    new ApiError(503, undefined, {}, "analytics_preparing"),
   );
   render(publication());
   await act(async () => {});
@@ -272,7 +272,7 @@ it("pauses preparing checks while hidden and checks immediately when the page re
   const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
   try {
     vi.mocked(adminOverviewChart).mockRejectedValue(
-      new ApiError(503, undefined, {}, "report_refreshing"),
+      new ApiError(503, undefined, {}, "analytics_preparing"),
     );
     render(publication());
     await act(async () => {});
@@ -294,7 +294,7 @@ it("pauses preparing checks while hidden and checks immediately when the page re
 it("stops preparation polling after an error when refresh is paused and keeps its manual retry", async () => {
   vi.useFakeTimers();
   vi.mocked(adminOverviewChart)
-    .mockRejectedValueOnce(new ApiError(503, undefined, {}, "report_refreshing"))
+    .mockRejectedValueOnce(new ApiError(503, undefined, {}, "analytics_preparing"))
     .mockRejectedValueOnce(new ApiError(500))
     .mockResolvedValue(populatedCharts["publication-rate"]);
   render(publication());
@@ -313,7 +313,7 @@ it("stops preparation polling after an error when refresh is paused and keeps it
 it("cancels an in-flight completion check and stops polling when unmounted", async () => {
   vi.useFakeTimers();
   vi.mocked(adminOverviewChart)
-    .mockRejectedValueOnce(new ApiError(503, undefined, {}, "report_refreshing"))
+    .mockRejectedValueOnce(new ApiError(503, undefined, {}, "analytics_preparing"))
     .mockImplementation(() => new Promise(() => {}));
   const view = render(publication());
   await act(async () => {});
@@ -329,7 +329,7 @@ it("cancels an in-flight completion check and stops polling when unmounted", asy
 it("cancels delayed preparation checks when the date range changes", async () => {
   vi.useFakeTimers();
   vi.mocked(adminOverviewChart).mockImplementation(async (_chart, params) => {
-    if (params?.from === "now-29d/d") throw new ApiError(503, undefined, {}, "report_refreshing");
+    if (params?.from === "now-29d/d") throw new ApiError(503, undefined, {}, "analytics_preparing");
     return reportForRange(populatedCharts["publication-rate"], params);
   });
   const view = render(publication());

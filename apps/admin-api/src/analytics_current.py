@@ -18,7 +18,7 @@ SHARDS = 256
 def preparing():
     return HTTPException(
         503,
-        {"code": "projection_initializing", "message": "Pipeline views are being prepared."},
+        {"code": "analytics_preparing", "message": "Analytics are being prepared."},
         headers={"Retry-After": "2"},
     )
 
@@ -69,6 +69,7 @@ class CurrentCards:
     def __init__(self, client, *, now=None):
         self.client = client
         self.now = now or datetime.now(UTC)
+        self.policy = pipeline_policy_version(getattr(client, "settings", None))
 
     async def freeze(self, kinds):
         kinds = tuple(sorted(set(kinds)))
@@ -101,11 +102,8 @@ class CurrentCards:
                 0, (self.now - timestamp(status["catalog_progress_at"])).total_seconds()
             )
             lag = max(lag, catalog_lag)
-        rebuilding = policy != status.get("target_policy") or policy != pipeline_policy_version()
         snapshot = AnalyticsSnapshot(
-            status="rebuilding"
-            if rebuilding
-            else "stale"
+            status="stale"
             if lag > FRESH_SECONDS
             else "catching_up"
             if catalog_pending
@@ -127,7 +125,12 @@ class CurrentCards:
         )
         for _ in range(2):
             rows = await self.client.query(status_sql)
-            if not rows or not rows[0]["ready"] or not rows[0]["policy"]:
+            if (
+                not rows
+                or not rows[0]["ready"]
+                or rows[0]["policy"] != self.policy
+                or rows[0]["target_policy"] != self.policy
+            ):
                 raise preparing()
             status = rows[0]
             policy = status["policy"]

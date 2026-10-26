@@ -184,15 +184,17 @@ def automation_blockers(
         false(),
     )
     relevant = flags.c.relevance == "relevant"
-    legacy_topic_gap = and_(
+    # An applied analysis can outlive its active topic links. Classify the
+    # current missing topic/primary directly from authoritative facts.
+    applied_without_topics = and_(
         ~primary, flags.c.analysis_outcome == "applied", ~flags.c.has_analysis_topics
     )
-    legacy_primary_gap = and_(
+    applied_without_primary = and_(
         ~primary, flags.c.analysis_outcome == "applied", flags.c.has_analysis_topics
     )
-    topic_not_matched = or_(flags.c.topic_match_status == "no_topic_match", legacy_topic_gap)
+    topic_not_matched = or_(flags.c.topic_match_status == "no_topic_match", applied_without_topics)
     topic_without_primary = or_(
-        flags.c.topic_match_status == "no_primary_topic", legacy_primary_gap
+        flags.c.topic_match_status == "no_primary_topic", applied_without_primary
     )
     no_failed_enrichment = or_(
         flags.c.enrichment_status.is_(None), flags.c.enrichment_status != "failed"

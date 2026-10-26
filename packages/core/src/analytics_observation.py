@@ -13,12 +13,11 @@ PIPELINE_POLICY_VERSION = "pipeline-v2"
 
 
 class AnalyticsSnapshot(BaseModel):
-    status: Literal["fresh", "stale", "refreshing", "catching_up", "rebuilding"]
+    status: Literal["fresh", "stale", "catching_up"]
     generated_at: datetime | None = None
     generation: str | None = None
     policy_version: str | None = None
     article_generation: int | None = Field(default=None, ge=0)
-    catalog_generation: int | None = Field(default=None, ge=0)
     catalog_revision: list[list[str]] | None = None
     catalog_target_revision: list[list[str]] | None = None
     catalog_lag_seconds: float | None = Field(default=None, ge=0)

@@ -20,7 +20,6 @@ from devfeed_admin_api.analytics_reports import Reports
 from devfeed_admin_api.overview_sections import OverviewSectionReport
 
 FRESH_SECONDS = 30
-LAST_GOOD_SECONDS = 86400
 MAX_ENTRIES = 64
 MAX_CACHE_BYTES = 16_000_000
 MAX_INFLIGHT = 32
@@ -29,7 +28,7 @@ MAX_INFLIGHT = 32
 def preparing():
     return HTTPException(
         503,
-        {"code": "report_refreshing", "message": "This chart is being prepared."},
+        {"code": "analytics_preparing", "message": "This chart is being prepared."},
         headers={"Retry-After": "5"},
     )
 
@@ -63,7 +62,7 @@ class AnalyticsRuntime:
         self.clock = clock or (lambda: datetime.now(UTC))
         self.policy = pipeline_policy_version(settings)
         namespace = settings.database_url + ":" + settings.clickhouse_database
-        self.prefix = "admin:analytics:v1:" + hashlib.sha256(namespace.encode()).hexdigest()[:20]
+        self.prefix = "admin:analytics:v2:" + hashlib.sha256(namespace.encode()).hexdigest()[:20]
         self.max_entry_bytes = settings.cache_max_bytes
         self.cache = OrderedDict()
         self.cache_bytes = 0
@@ -116,8 +115,8 @@ class AnalyticsRuntime:
         try:
             return await run_in_threadpool(lambda: getattr(redis(), method)(*args, **kwargs))
         except Exception:
-            # Redis only improves cache survival; analytical reads remain available
-            # when the optional cache has a connection or decoding failure.
+            # An unavailable cache is a miss; every result still comes from the
+            # current ClickHouse calculation and its normal freshness window.
             return None
 
     def _decode(self, value):
@@ -125,19 +124,20 @@ class AnalyticsRuntime:
             return None
         try:
             envelope = json.loads(value)
-            if self.clock() >= timestamp(envelope["expires_at"]):
+            expires_at = timestamp(envelope["expires_at"])
+            if self.clock() >= expires_at:
                 return None
             report = OverviewSectionReport.model_validate(envelope["report"])
-            return report, timestamp(envelope["fresh_until"])
+            return report, expires_at
         except (ValueError, TypeError, KeyError):
             return None
 
-    def _observed(self, report, *, stale=False):
+    def _observed(self, report):
         report = report.model_copy(deep=True)
         if report.snapshot is not None:
             age = max(0, (self.clock() - report.generated_at).total_seconds())
             report.snapshot.lag_seconds = (report.snapshot.lag_seconds or 0) + age
-            if stale or report.snapshot.lag_seconds > 60:
+            if report.snapshot.lag_seconds > 60:
                 report.snapshot.status = "stale"
         return report
 
@@ -145,29 +145,27 @@ class AnalyticsRuntime:
         key = f"{self.prefix}:{self.policy}:{group}:{window.key}"
         value = self.cache.get(key)
         cached = self._decode(value)
-        if cached is not None and self.clock() < cached[1]:
+        if cached is not None:
             self.cache.move_to_end(key)
             return self._observed(cached[0])
+        if value is not None:
+            self.cache_bytes -= len(self.cache.pop(key))
         task = self.inflight.get(key)
         if task is None:
             if len(self.inflight) >= MAX_INFLIGHT:
-                if cached is not None:
-                    return self._observed(cached[0], stale=True)
                 raise preparing()
-            task = asyncio.create_task(self._section(key, group, window, cached))
+            task = asyncio.create_task(self._section(key, group, window))
             self.inflight[key] = task
             task.add_done_callback(lambda completed: self.inflight.pop(key, None))
         # Client disconnects must not cancel a calculation shared by other cards.
         return self._observed(await asyncio.shield(task))
 
-    async def _section(self, key, group, window, cached):
-        if cached is None:
-            value = await self._redis("get", key)
-            cached = self._decode(value)
-            if cached is not None:
-                self._remember(key, value)
-                if self.clock() < cached[1]:
-                    return cached[0]
+    async def _section(self, key, group, window):
+        value = await self._redis("get", key)
+        cached = self._decode(value)
+        if cached is not None:
+            self._remember(key, value)
+            return cached[0]
         try:
             async with asyncio.timeout(12):
                 now = self.clock()
@@ -187,30 +185,24 @@ class AnalyticsRuntime:
                     report.snapshot = AnalyticsSnapshot(
                         status="stale" if lag > 60 else "fresh",
                         generated_at=now,
-                        generation=str(status.get("generation", status.get("version", ""))),
+                        generation=str(status["version"]),
                         policy_version=self.policy,
                         lag_seconds=lag,
                     )
         except (AnalyticsUnavailable, TimeoutError, HTTPException) as error:
             if isinstance(error, HTTPException) and error.status_code != 503:
                 raise
-            if cached is not None:
-                report = cached[0].model_copy(deep=True)
-                if report.snapshot is not None:
-                    report.snapshot.status = "stale"
-                return report
             raise preparing() from error
         envelope = json.dumps(
             {
-                "fresh_until": (now + timedelta(seconds=FRESH_SECONDS)).isoformat(),
-                "expires_at": (now + timedelta(seconds=LAST_GOOD_SECONDS)).isoformat(),
+                "expires_at": (now + timedelta(seconds=FRESH_SECONDS)).isoformat(),
                 "report": report.model_dump(mode="json"),
             },
             separators=(",", ":"),
         ).encode()
         self._remember(key, envelope)
         if len(envelope) <= self.max_entry_bytes:
-            await self._redis("set", key, envelope, ex=LAST_GOOD_SECONDS)
+            await self._redis("set", key, envelope, ex=FRESH_SECONDS)
         return report
 
 

@@ -5,6 +5,11 @@ renames retain their UUID and every physical row without copying or re-encoding
 historical data. Serving queries never use these cold archives.
 """
 
+# TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Remove this finite cutover importer and
+# its checkpoint/call sites in the release after every supported deployment has
+# completed native import and drained pre-V3 events. Retain imported history and
+# archive data; see apps/admin-api/ANALYTICS_BACKFILL_RETIREMENT.md.
+
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -239,7 +244,9 @@ class NativeUpgrade:
         from devfeed_core.analytics_schema import JOB_KINDS, TABLES
         from devfeed_core.analytics_transform import FACT_SOURCES, _fact
 
-        legacy = [event for event in events if event.get("format_version", 2) == 1]
+        if any(event.get("format_version") not in {1, 2, 3} for event in events):
+            raise ValueError("Unsupported analytical capture format")
+        legacy = [event for event in events if event["format_version"] == 1]
         if not legacy:
             return events
         if not self._pending_initialized:
@@ -395,9 +402,7 @@ class NativeUpgrade:
             normalized
             for event in events
             for normalized in (
-                replacements.get(event["id"], [])
-                if event.get("format_version", 2) == 1
-                else [event]
+                replacements.get(event["id"], []) if event["format_version"] == 1 else [event]
             )
         ]
 

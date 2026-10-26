@@ -63,7 +63,7 @@ state. Private source/candidate URI matching uses narrow PostgreSQL identity
 queries, and returned page URIs are hydrated separately; credentials never enter
 ClickHouse search/payload fields.
 
-A changed derivation policy builds beside the previous complete policy. Initial
+A changed derivation policy must finish before current cards are served. Initial
 coverage waits for all five backfills, initial fanout, and a fixed initial-dirty
 barrier. Later writes add lag without starving first readiness. Only complete
 coverage switches the serving policy. Truncation resets current card coverage
@@ -74,10 +74,10 @@ without resetting historical export or deleting archived facts.
 Twelve chart response contracts remain independent. Related cards share
 singleflight calculations by section, resolved UTC window, and policy. A process
 owns one asynchronous ClickHouse client with a global two-query admission limit.
-Results remain fresh for 30 seconds; complete local/Redis fallback results may be
-served with explicit stale metadata during failures. Cold ClickHouse failures
-return the retryable preparing response, and the admin automatically retries.
-There is no PostgreSQL historical aggregation fallback or saved-report worker.
+Local and Redis caches expire after 30 seconds. Expired results are discarded;
+ClickHouse failures and query-admission limits return the retryable preparing
+response. The admin automatically retries while data is being prepared. There is
+one ClickHouse serving path and no saved-report worker or stale-result fallback.
 
 Queue pressure uses a separate gauge-only calculation and cache key; polling it
 does not refresh historical processing charts. Historical throughput and outcomes
@@ -95,6 +95,12 @@ from `analytics_pipeline_status`. Bootstrap readiness and ongoing freshness are
 independent. A stale/catching-up observation never authorizes an operator action:
 advance, retry, approval, and publication still lock and validate current
 PostgreSQL facts and reject changed action tokens.
+
+Preparation failures use the single `analytics_preparing` error code. Cards
+require the serving policy, exporter target, and current application policy to
+match; a previous policy is never served during a rebuild. Snapshot metadata
+describes `fresh`, `stale`, or `catching_up` current ClickHouse data. `stale` means
+the exporter is behind, not that an expired cached response was returned.
 
 ## Resource isolation and Compose
 
@@ -114,7 +120,14 @@ state. Management UI availability does not gate applications or migrations.
 
 ## Migration and rollout
 
-Build compatible backend/exporter and admin images before migration. Stop the
+Temporary import and historical backfill paths are marked
+`REMOVE_AFTER_CLICKHOUSE_BACKFILL`. Remove them in a later release only after the
+[backfill retirement gates](ANALYTICS_BACKFILL_RETIREMENT.md) are met. Native
+current-card initialization and policy/reset recovery remain required.
+
+Build compatible backend/exporter and admin images before migration. Deploy the
+admin UI and API together: only the current `analytics_preparing` contract is
+supported. Stop the
 old exporter and both obsolete projectors. Before applying `0042`, back up the
 five disposable derived tables and native PostgreSQL control state, and record
 business identity/count checks. Preserve the persistent PostgreSQL and ClickHouse

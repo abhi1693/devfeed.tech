@@ -42,9 +42,7 @@ export function SnapshotStatus({
   const label = {
     fresh: "Updated",
     stale: "Stale data · Last updated",
-    refreshing: "Updating saved data · Last updated",
     catching_up: "Catalog catching up · Last updated",
-    rebuilding: "Rebuilding saved data · Last updated",
   }[status];
   return (
     <p

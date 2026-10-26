@@ -725,18 +725,11 @@ class CardPublisher:
         return True
 
     async def _renew_one(self, connection, generation, state, *, fence):
-        policies = list(
-            dict.fromkeys(
-                value
-                for value in (state["card_target_policy"], state["card_serving_policy"])
-                if value
-            )
-        )
         rows = await self.client.query(
             "SELECT policy,kind,shard FROM analytics_card_manifest FINAL "
-            "WHERE policy IN {policies:Array(String)} AND updated_at<now()-INTERVAL 1 DAY "
+            "WHERE policy={policy:String} AND updated_at<now()-INTERVAL 1 DAY "
             "ORDER BY updated_at,policy,kind,shard LIMIT 1",
-            dict(policies=policies),
+            dict(policy=state["card_target_policy"]),
         )
         if not rows:
             return False
@@ -780,7 +773,7 @@ class CardPublisher:
         state = await self._state(connection)
         policy = state["card_serving_policy"] or ""
         target = state["card_target_policy"] or ""
-        ready = bool(state["card_bootstrap_complete"] or (policy and policy != target))
+        ready = bool(state["card_bootstrap_complete"] and policy and policy == target)
         self.bootstrapping = not state["card_bootstrap_complete"]
         key = (
             policy,

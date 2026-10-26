@@ -9,7 +9,6 @@ import type { AnalyticsSnapshotStatus } from './analyticsSnapshotStatus';
 
 export interface AnalyticsSnapshot {
   article_generation?: number | null;
-  catalog_generation?: number | null;
   catalog_lag_seconds?: number | null;
   catalog_revision?: string[][] | null;
   catalog_target_revision?: string[][] | null;

@@ -488,9 +488,11 @@ def test_quiet_shard_renewal_rebuilds_only_one_immutable_generation():
         subject._publish_shard = AsyncMock()
         connection, fence = Connection(), AsyncMock()
 
-        assert await subject._renew_one(connection, 9, STATE, fence=fence)
+        state = dict(STATE, card_serving_policy="previous")
+        assert await subject._renew_one(connection, 9, state, fence=fence)
 
         assert "INTERVAL 1 DAY" in client.query.call_args.args[0]
+        assert client.query.call_args.args[1] == {"policy": "policy"}
         subject._publish_shard.assert_awaited_once_with(
             connection, "policy", "article", 18, 9, fence=fence
         )
@@ -576,6 +578,38 @@ def test_scan_backpressure_checks_only_a_fixed_number_of_narrow_pending_ids():
         assert all("OFFSET %s LIMIT 1" in query for query, _ in connection.calls)
         fence.assert_not_called()
         client.query.assert_not_called()
+
+    asyncio.run(verify())
+
+
+@pytest.mark.parametrize(
+    "serving,target,complete,ready",
+    [
+        ("policy", "policy", True, 1),
+        ("policy", "policy", False, 0),
+        ("previous", "policy", False, 0),
+        ("previous", "policy", True, 0),
+        (None, "policy", True, 0),
+    ],
+)
+def test_status_never_exposes_previous_policy_as_ready(serving, target, complete, ready):
+    async def verify():
+        subject, client = publisher()
+        state = dict(
+            STATE,
+            card_serving_policy=serving,
+            card_target_policy=target,
+            card_bootstrap_complete=complete,
+        )
+        connection = Connection(
+            lambda statement, parameters: (
+                state if "FROM analytics_pipeline_state" in statement else {"lag": 0}
+            )
+        )
+        await subject._status(connection, 3, fence=AsyncMock())
+        published = client.insert.call_args.args[1][0]
+        assert published["ready"] == ready
+        assert published["target_policy"] == target
 
     asyncio.run(verify())
 
