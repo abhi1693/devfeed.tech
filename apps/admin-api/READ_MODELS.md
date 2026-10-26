@@ -66,7 +66,7 @@ Serialized monthly summary compaction removes obsolete serving generations while
 retaining raw history; it does not run `OPTIMIZE FINAL` over raw tables.
 
 Canonical reads merge sorted aggregate states with `FINAL` and finalize each
-merged state. Read blocks are capped at 4,096 rows to bound wide state buffers
+merged state. Read blocks are capped at 1,024 rows to bound wide state buffers
 within the query memory budget. Only immutable domain and hour keys are filtered
 before merging; tombstones are filtered afterward so older revisions cannot
 reappear.

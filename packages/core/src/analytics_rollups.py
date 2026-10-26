@@ -13,7 +13,7 @@ GENERATION = "{generation:UInt64}"
 BUCKETS = "{buckets:Array(DateTime('UTC'))}"
 REFRESH_BATCH_SIZE = 32
 DAILY_REFRESH_BATCH_SIZE = 1
-CANONICAL_READ_BLOCK_SIZE = 4096
+CANONICAL_READ_BLOCK_SIZE = 1024
 COMPACTION_DOMAINS = {
     "publishing_hourly": "publishing",
     "audience_hourly": "audience",
