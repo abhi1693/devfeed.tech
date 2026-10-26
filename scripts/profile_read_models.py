@@ -245,7 +245,11 @@ def seed_rows(connection, model, count, overrides=None, *, namespace=None, where
         values.append(value)
     started = time.perf_counter()
     inserted = 0
-    maximum = math.ceil(count * 1.05) if where else count
+    # Historical job populations can outnumber articles, and their fixture
+    # predicate excludes one in five older jobs. Five percent headroom then
+    # cannot supply the requested population. Keep generation bounded while
+    # allowing enough candidates for those filtered histories.
+    maximum = count * 2 if where else count
     # Keep each generated statement bounded while leaving ordinary capture and
     # business triggers enabled. The outer fixture transaction stays atomic.
     for lower in range(1, maximum + 1, 5000):

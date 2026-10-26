@@ -256,7 +256,10 @@ def test_saved_blockers_are_available_during_churn_and_become_fresh_after_catchu
     assert response.json()["snapshot"]["status"] == "refreshing"
     drain_pipeline(database, batch=2)
     publish_operations(database)
-    assert admin_client.get("/v1/admin/overview/charts/attention").json()["snapshot"]["status"] == "fresh"
+    assert (
+        admin_client.get("/v1/admin/overview/charts/attention").json()["snapshot"]["status"]
+        == "fresh"
+    )
 
 
 def test_blocker_calculation_keeps_one_snapshot_across_policy_cutover_and_pruning(

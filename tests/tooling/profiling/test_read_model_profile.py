@@ -14,6 +14,7 @@ from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
     ArticleContent,
+    ArticleEnrichmentJob,
     PipelineProjection,
     ReadModelEvent,
     ReadModelState,
@@ -511,11 +512,17 @@ def test_profile_gates_reject_slow_unbounded_or_failed_reads():
 
 
 @pytest.mark.integration
-def test_seed_rows_crosses_chunk_boundary_without_duplicate_or_skipped_ids(database):
+@pytest.mark.parametrize("excluded_every", [40, 5])
+def test_seed_rows_crosses_chunk_boundary_without_duplicate_or_skipped_ids(
+    database, excluded_every
+):
     count = 5001
     engine = database.kw["bind"]
     with engine.begin() as connection:
-        for namespace, where in (("plain-chunk", None), ("filtered-chunk", "n % 40 <> 0")):
+        for namespace, where in (
+            ("plain-chunk", None),
+            ("filtered-chunk", f"n % {excluded_every} <> 0"),
+        ):
             profile.seed_rows(
                 connection,
                 Tag,
@@ -527,7 +534,9 @@ def test_seed_rows_crosses_chunk_boundary_without_duplicate_or_skipped_ids(datab
     with database() as session:
         actual = set(session.scalars(select(Tag.id)))
     plain = {profile.fixture_id("plain-chunk", number) for number in range(1, count + 1)}
-    filtered_numbers = [number for number in range(1, 5300) if number % 40][:count]
+    filtered_numbers = [number for number in range(1, count * 2 + 1) if number % excluded_every][
+        :count
+    ]
     filtered = {profile.fixture_id("filtered-chunk", number) for number in filtered_numbers}
     assert len(plain) == len(filtered) == count
     assert actual == plain | filtered
@@ -539,6 +548,7 @@ def test_fixture_builds_real_jobs_history_and_projection_backfill(database):
     from devfeed_admin_api.pipeline_projection import drain_pipeline
 
     counts = profile.fixture_counts(0.001)
+    counts["article_enrichment_jobs"] = counts["articles"] * 2
     engine = database.kw["bind"]
     profile.seed_fixture(engine, counts, history_bytes=256)
     with database() as session:
@@ -546,6 +556,10 @@ def test_fixture_builds_real_jobs_history_and_projection_backfill(database):
         assert (
             session.scalar(select(func.count()).select_from(ArticleAnalysisJob))
             == counts["article_analysis_jobs"]
+        )
+        assert (
+            session.scalar(select(func.count()).select_from(ArticleEnrichmentJob))
+            == counts["article_enrichment_jobs"]
         )
         assert session.scalar(select(func.min(func.length(ArticleContent.text)))) > 100
         assert [
