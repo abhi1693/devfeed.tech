@@ -98,12 +98,11 @@ from devfeed_core.text_search import normalized_text
 from devfeed_http.pagination import record
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import literal, select
-from starlette.concurrency import run_in_threadpool
 
 from devfeed_admin_api.analytics_current import preparing
 from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
 from devfeed_admin_api.auth import Admin, actor, require_admin
-from devfeed_admin_api.dependencies import DB
+from devfeed_admin_api.dependencies import DB, DBFactory, read_metadata
 
 router = APIRouter(tags=["admin-articles"], dependencies=[Depends(require_admin)])
 Analytics = Annotated[AnalyticsRuntime, Depends(get_analytics)]
@@ -113,31 +112,25 @@ def _normalized_search(session, query):
     """Retain PostgreSQL Unicode/locale semantics using one literal, table-free SELECT."""
     if not query:
         return None
-    try:
-        return session.scalar(select(normalized_text(literal(query))))
-    finally:
-        session.close()
+    return session.scalar(select(normalized_text(literal(query))))
 
 
 def _hydrate_clocks(session, result):
     items = [item for column in result.columns for item in column.items]
-    try:
-        clocks = (
-            dict(
-                session.execute(
-                    select(Article.id, Article.automation_next_check_at).where(
-                        Article.id.in_([item.id for item in items])
-                    )
-                ).all()
-            )
-            if items
-            else {}
+    clocks = (
+        dict(
+            session.execute(
+                select(Article.id, Article.automation_next_check_at).where(
+                    Article.id.in_([item.id for item in items])
+                )
+            ).all()
         )
-        for item in items:
-            if item.state != "complete" and item.id in clocks:
-                item.next_check_at = clocks[item.id]
-    finally:
-        session.close()
+        if items
+        else {}
+    )
+    for item in items:
+        if item.state != "complete" and item.id in clocks:
+            item.next_check_at = clocks[item.id]
     return result
 
 
@@ -147,7 +140,7 @@ def _hydrate_clocks(session, result):
     operation_id="admin_article_pipeline",
 )
 async def board(
-    session: DB,
+    factory: DBFactory,
     analytics: Analytics,
     q: Annotated[DatabaseText | None, Query(max_length=200)] = None,
     source_id: uuid.UUID | None = None,
@@ -155,7 +148,7 @@ async def board(
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
     group_by: Literal["source"] | None = None,
 ):
-    needle = await run_in_threadpool(_normalized_search, session, q)
+    needle = await read_metadata(factory, _normalized_search, q)
     try:
         result = await analytics.article_board(
             q=q,
@@ -167,7 +160,7 @@ async def board(
         )
     except AnalyticsUnavailable as error:
         raise preparing() from error
-    return await run_in_threadpool(_hydrate_clocks, session, result)
+    return await read_metadata(factory, _hydrate_clocks, result)
 
 
 @router.get(
@@ -177,7 +170,7 @@ async def board(
 )
 async def column(
     stage: Stage,
-    session: DB,
+    factory: DBFactory,
     analytics: Analytics,
     q: Annotated[DatabaseText | None, Query(max_length=200)] = None,
     source_id: uuid.UUID | None = None,
@@ -187,7 +180,7 @@ async def column(
     group_by: Literal["source"] | None = None,
     source_group: uuid.UUID | Literal["unknown"] | None = None,
 ):
-    needle = await run_in_threadpool(_normalized_search, session, q)
+    needle = await read_metadata(factory, _normalized_search, q)
     try:
         result = await analytics.article_board(
             q=q,
@@ -202,7 +195,7 @@ async def column(
         )
     except AnalyticsUnavailable as error:
         raise preparing() from error
-    return (await run_in_threadpool(_hydrate_clocks, session, result)).columns[0]
+    return (await read_metadata(factory, _hydrate_clocks, result)).columns[0]
 
 
 def _detail(session, article):

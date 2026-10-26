@@ -22,14 +22,12 @@ BACKEND_INTEGRATION_JOBS = {
     "migration-upgrade",
     "api-compat",
     "api-fuzz",
-    "performance",
     "recovery",
 }
 FRONTEND_INTEGRATION_JOBS = {
     "reader-browser",
     "admin-browser",
     "partner-browser",
-    "browser-budgets",
     "property",
     "mutation",
 }
@@ -215,12 +213,11 @@ def test_image_stages_run_after_successful_validation_despite_expected_ancestor_
     optional = {
         "api-compat": event in {"pull_request", "merge_group"},
         "api-fuzz": event in {"pull_request", "merge_group"},
-        "performance": event == "pull_request",
         "recovery": event in {"pull_request", "merge_group", "push"},
         "dast": event in {"pull_request", "merge_group", "push"},
         "sonarqube": sonar_expected,
         **dict.fromkeys(
-            ("browser-budgets", "property", "mutation"),
+            ("property", "mutation"),
             event in {"pull_request", "merge_group"} or (event == "push" and ref_type == "branch"),
         ),
     }
@@ -278,14 +275,6 @@ def test_scaled_worker_pools_keep_every_partition_and_bound_parallelism(name, wo
     assert strategy["max-parallel"] == parallel
     matrix = strategy["matrix"]
     assert len(matrix.get("include", matrix.get("shard", []))) == workers
-
-
-def test_performance_pool_limits_load_without_dropping_runner_pairs():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/performance.yml").read_text())
-    strategy = workflow["jobs"]["measure"]["strategy"]
-    assert strategy["fail-fast"] is False
-    assert strategy["max-parallel"] == 2
-    assert strategy["matrix"] == {"repeat": [0, 1, 2]}
 
 
 def reader_step(name):
@@ -920,12 +909,11 @@ def test_stage_gates_reject_failed_cancelled_missing_and_unexpectedly_skipped_de
     applicable = {
         "api-compat": event in {"pull_request", "merge_group"},
         "api-fuzz": event in {"pull_request", "merge_group"},
-        "performance": event == "pull_request",
         "recovery": event in {"pull_request", "merge_group", "push"},
         "dast": event in {"pull_request", "merge_group", "push"},
         "sonarqube": sonar_expected,
         **dict.fromkeys(
-            ("browser-budgets", "property", "mutation"),
+            ("property", "mutation"),
             event in {"pull_request", "merge_group"} or (event == "push" and ref_type == "branch"),
         ),
     }
@@ -973,9 +961,8 @@ def test_stage_gates_reject_failed_cancelled_missing_and_unexpectedly_skipped_de
     ],
 )
 @pytest.mark.parametrize("comment_required", [False, True])
-@pytest.mark.parametrize("browser_comment_required", [False, True])
 def test_ci_required_accepts_only_the_expected_successes(
-    event, ref_type, sonar_expected, comment_required, browser_comment_required
+    event, ref_type, sonar_expected, comment_required
 ):
     # Execute the actual master/PR gate without a tag-publishing bypass.
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
@@ -1012,15 +999,8 @@ def test_ci_required_accepts_only_the_expected_successes(
             "result": "success" if event in {"pull_request", "merge_group", "push"} else "skipped"
         },
         "containers": {"result": "success"},
-        "performance": {"result": "success" if event == "pull_request" else "skipped"},
         "recovery": {
             "result": "success" if event in {"pull_request", "merge_group", "push"} else "skipped"
-        },
-        "browser-budgets": {
-            "result": "success"
-            if event in {"pull_request", "merge_group"}
-            or (event == "push" and ref_type == "branch")
-            else "skipped"
         },
         "mutation": {
             "result": "success"
@@ -1035,7 +1015,6 @@ def test_ci_required_accepts_only_the_expected_successes(
             else "skipped"
         },
         "sonarqube": {"result": "success" if sonar_expected else "skipped"},
-        "browser-report": {"result": "success" if browser_comment_required else "skipped"},
     }
     declared_needs = (
         workflow.split("  required:\n", 1)[1]
@@ -1053,7 +1032,6 @@ def test_ci_required_accepts_only_the_expected_successes(
                 "EVENT_NAME": event,
                 "REF_TYPE": ref_type,
                 "COVERAGE_COMMENT_REQUIRED": str(comment_required).lower(),
-                "BROWSER_COMMENT_REQUIRED": str(browser_comment_required).lower(),
                 "SONAR_EXPECTED": str(sonar_expected).lower(),
                 "RESULTS": json.dumps(results),
             },

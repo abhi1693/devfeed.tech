@@ -171,15 +171,33 @@ def test_admin_owned_resources_cannot_prevent_process_cleanup(failure, monkeypat
         ]
 
 
-def test_failed_reporting_cleanup_still_closes_admin_shared_clients(monkeypatch):
+def test_failed_analytics_cleanup_still_closes_admin_shared_clients(monkeypatch):
     module = importlib.import_module("devfeed_admin_api.main")
-    closed = []
+    app = module.create_app()
+    events, shared = [], []
+    monkeypatch.setattr(runtime, "start_runtime", lambda name: None)
+    monkeypatch.setattr(runtime, "stop_runtime", lambda token: events.append("telemetry"))
 
-    def fail():
-        raise RuntimeError("reporting")
+    async def close(name):
+        events.append(name)
+        if name == "analytics":
+            raise RuntimeError(name)
 
-    monkeypatch.setattr(module, "close_reporting", fail)
-    monkeypatch.setattr(module, "close_shared_clients", closed.append)
-    with pytest.raises(RuntimeError, match="reporting"):
-        module.close_clients()
-    assert closed == [module.get_redis]
+    def close_shared(getter):
+        events.append("clients")
+        shared.append(getter)
+
+    monkeypatch.setattr(module, "close_shared_clients", close_shared)
+    app.state.codex = SimpleNamespace(
+        start=lambda: events.append("start"), close=lambda: close("codex")
+    )
+    app.state.analytics = SimpleNamespace(close=lambda: close("analytics"))
+
+    async def scenario():
+        async with module.lifespan(app):
+            events.append("request")
+
+    with pytest.raises(RuntimeError, match="analytics"):
+        asyncio.run(scenario())
+    assert events == ["start", "request", "codex", "analytics", "clients", "telemetry"]
+    assert shared == [module.get_redis]

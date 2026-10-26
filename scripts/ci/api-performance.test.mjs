@@ -134,7 +134,7 @@ test("runtime, dependencies, migrations, harness, workflows and unknown inputs r
     "loadtests/compare.py",
     "scripts/ci/python-bootstrap.sh",
     "scripts/ci/api-performance-changes.mjs",
-    ".github/workflows/performance.yml",
+    ".github/workflows/recovery.yml",
     ".github/workflows/ci.yml",
     "package-lock.json",
     "apps/web/Dockerfile",

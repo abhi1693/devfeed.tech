@@ -65,12 +65,11 @@ from devfeed_core.text_search import text_search
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, select
-from starlette.concurrency import run_in_threadpool
 
 from devfeed_admin_api.analytics_current import preparing
 from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
 from devfeed_admin_api.auth import Admin, require_admin
-from devfeed_admin_api.dependencies import DB
+from devfeed_admin_api.dependencies import DB, DBFactory, read_metadata
 
 router = APIRouter(
     prefix="/v1/admin/source-pipeline",
@@ -162,86 +161,80 @@ def _matching_sources(session, query):
     """
     if not query.q:
         return None
-    try:
-        session.execute(select(func.set_config("statement_timeout", "2000", True)))
-        return {
-            "source": list(
-                session.scalars(
-                    select(Source.id).where(
-                        text_search(
-                            query.q,
-                            Source.name,
-                            Source.website_url,
-                            Source.feed_url,
-                        )
+    session.execute(select(func.set_config("statement_timeout", "2000", True)))
+    return {
+        "source": list(
+            session.scalars(
+                select(Source.id).where(
+                    text_search(
+                        query.q,
+                        Source.name,
+                        Source.website_url,
+                        Source.feed_url,
                     )
                 )
-            ),
-            "candidate": list(
-                session.scalars(
-                    select(SourceCandidate.id).where(
-                        SourceCandidate.source_id.is_(None),
-                        text_search(query.q, SourceCandidate.name, SourceCandidate.identity_url),
-                    )
+            )
+        ),
+        "candidate": list(
+            session.scalars(
+                select(SourceCandidate.id).where(
+                    SourceCandidate.source_id.is_(None),
+                    text_search(query.q, SourceCandidate.name, SourceCandidate.identity_url),
                 )
-            ),
-        }
-    finally:
-        session.close()
+            )
+        ),
+    }
 
 
 def _hydrate_uris(session, result):
     items = [item for column in result.columns for item in column.items]
-    try:
-        source_ids = [item.id for item in items if item.kind == "source"]
-        candidate_ids = [item.id for item in items if item.kind == "candidate"]
-        sources = (
-            {
-                row.id: row
-                for row in session.execute(
-                    select(
-                        Source.id,
-                        Source.website_url,
-                        Source.feed_url,
-                    ).where(Source.id.in_(source_ids))
-                )
-            }
-            if source_ids
-            else {}
-        )
-        candidates = (
-            dict(
-                session.execute(
-                    select(SourceCandidate.id, SourceCandidate.identity_url).where(
-                        SourceCandidate.id.in_(candidate_ids)
-                    )
-                ).all()
+    source_ids = [item.id for item in items if item.kind == "source"]
+    candidate_ids = [item.id for item in items if item.kind == "candidate"]
+    sources = (
+        {
+            row.id: row
+            for row in session.execute(
+                select(
+                    Source.id,
+                    Source.website_url,
+                    Source.feed_url,
+                ).where(Source.id.in_(source_ids))
             )
-            if candidate_ids
-            else {}
+        }
+        if source_ids
+        else {}
+    )
+    candidates = (
+        dict(
+            session.execute(
+                select(SourceCandidate.id, SourceCandidate.identity_url).where(
+                    SourceCandidate.id.in_(candidate_ids)
+                )
+            ).all()
         )
-        for item in items:
-            if item.kind == "source" and (row := sources.get(item.id)) is not None:
-                item.website_url, item.feed_url = row.website_url, row.feed_url
-            elif item.kind == "candidate" and item.id in candidates:
-                item.website_url = candidates[item.id]
-    finally:
-        session.close()
+        if candidate_ids
+        else {}
+    )
+    for item in items:
+        if item.kind == "source" and (row := sources.get(item.id)) is not None:
+            item.website_url, item.feed_url = row.website_url, row.feed_url
+        elif item.kind == "candidate" and item.id in candidates:
+            item.website_url = candidates[item.id]
     return result
 
 
-async def _read_board(session, analytics, query, **parameters):
-    identifiers = await run_in_threadpool(_matching_sources, session, query)
+async def _read_board(factory, analytics, query, **parameters):
+    identifiers = await read_metadata(factory, _matching_sources, query)
     try:
         result = await analytics.source_board(query, matching_ids=identifiers, **parameters)
     except AnalyticsUnavailable as error:
         raise preparing() from error
-    return await run_in_threadpool(_hydrate_uris, session, result)
+    return await read_metadata(factory, _hydrate_uris, result)
 
 
 @router.get("", response_model=SourcePipelineBoard, operation_id="admin_source_pipeline")
-async def board(session: DB, query: PipelineQuery, analytics: Analytics):
-    return await _read_board(session, analytics, query)
+async def board(factory: DBFactory, query: PipelineQuery, analytics: Analytics):
+    return await _read_board(factory, analytics, query)
 
 
 @router.get(
@@ -251,12 +244,12 @@ async def board(session: DB, query: PipelineQuery, analytics: Analytics):
 )
 async def column(
     stage: SourcePipelineStage,
-    session: DB,
+    factory: DBFactory,
     query: PipelineQuery,
     analytics: Analytics,
     cursor: int = Query(0, ge=0, le=MAX_CURSOR),
 ):
-    return (await _read_board(session, analytics, query, stage=stage, cursor=cursor)).columns[0]
+    return (await _read_board(factory, analytics, query, stage=stage, cursor=cursor)).columns[0]
 
 
 @router.get(

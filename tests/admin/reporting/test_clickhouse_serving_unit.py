@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import threading
 import uuid
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
@@ -13,7 +14,7 @@ from devfeed_admin_api import analytics_runtime, article_pipeline, overview, sou
 from devfeed_admin_api.analytics_current import CARD_KINDS, CurrentCards
 from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
 from devfeed_admin_api.auth import require_admin
-from devfeed_admin_api.dependencies import get_session
+from devfeed_admin_api.dependencies import get_session, get_session_factory
 from devfeed_admin_api.overview_charts import CHART_SECTIONS
 from devfeed_admin_api.overview_windows import current_window, recent_window
 from devfeed_core.analytics import AnalyticsUnavailable
@@ -659,13 +660,19 @@ def test_board_http_reads_only_bounded_current_metadata_after_clickhouse_page_se
     app.dependency_overrides[get_analytics] = lambda: runtime()
 
     class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            self.close()
+
         def execute(self, statement):
             pytest.fail(f"Empty analytical pages opened PostgreSQL: {statement}")
 
         def close(self):
             pass
 
-    app.dependency_overrides[get_session] = Session
+    app.dependency_overrides[get_session_factory] = lambda: Session
     with TestClient(app) as http:
         assert http.get("/v1/admin/article-pipeline").status_code == 200
         assert http.get("/v1/admin/source-pipeline").status_code == 200
@@ -807,3 +814,225 @@ def test_runtime_caps_configured_parallelism_at_two_and_reuses_the_same_client()
     assert reads.client.settings.clickhouse_max_concurrent_queries == 2
     assert reads.cards().client is reads.client
     assert reads.cards().client is reads.cards().client
+
+
+@pytest.mark.parametrize("kinds", [(), ("unknown",), ("article", "unknown")])
+@run_async
+async def test_unknown_card_populations_fail_before_any_clickhouse_read(kinds):
+    client = Client()
+    with pytest.raises(ValueError, match="Unknown current analytical kind"):
+        await CurrentCards(client, now=NOW).freeze(kinds)
+    assert client.queries == []
+
+
+@pytest.mark.parametrize("elapsed,expected_status", [(90, "stale"), (-30, "catching_up")])
+@run_async
+async def test_catalog_progress_age_is_bounded_and_reported_without_changing_policy(
+    elapsed, expected_status
+):
+    client = Client()
+    client.card_status.update(
+        catalog_revision='[["topics","before"]]',
+        catalog_target_revision='[["topics","after"]]',
+        catalog_progress_at=NOW - timedelta(seconds=elapsed),
+    )
+    frozen = await CurrentCards(client, now=NOW).freeze(("article",))
+    assert frozen.policy == client.policy
+    assert frozen.snapshot.status == expected_status
+    assert frozen.snapshot.catalog_lag_seconds == max(0, elapsed)
+    assert frozen.snapshot.lag_seconds == max(0, elapsed)
+
+
+@pytest.mark.parametrize("group", ["unknown", ID])
+@run_async
+async def test_article_origin_and_expanded_group_filters_stay_parameterized(group):
+    client = Client()
+    await CurrentCards(client, now=NOW).article_board(
+        q=None,
+        source_id=uuid.UUID(ID),
+        source_group=group,
+        needs_attention=False,
+        limit=20,
+        stage="analysis",
+        cursor=40,
+    )
+    for sql, parameters in client.queries[3:]:
+        assert "has(c.source_ids,{source_id:UUID})" in sql
+        assert parameters["source_id"] == ID and parameters["offset"] == 40
+        assert ID not in sql
+        if group == "unknown":
+            assert "c.source_id IS NULL" in sql and "source_group" not in parameters
+        else:
+            assert "c.source_id={source_group:UUID}" in sql
+            assert parameters["source_group"] == ID
+
+
+@run_async
+async def test_search_cannot_bypass_database_normalization_or_private_identity_lookup():
+    client = Client()
+    cards = CurrentCards(client, now=NOW)
+    with pytest.raises(ValueError, match="database-normalized scalar needle"):
+        await cards.article_board(q="İstanbul", source_id=None, needs_attention=False, limit=20)
+    query = SimpleNamespace(q="private-feed-token", terminal_since=NOW, limit=20)
+    with pytest.raises(ValueError, match="bounded source lookup"):
+        await cards.source_board(query)
+    assert len(client.queries) == 6
+    assert all(
+        "page-keys" not in sql and "private-feed-token" not in sql for sql, _ in client.queries
+    )
+
+
+@run_async
+async def test_unknown_blocker_codes_cannot_be_silently_excluded_from_current_attention():
+    client = Client(
+        {"admin:operations-blocker-keys": [{"code": "future-policy", "total": 1, "targets": []}]}
+    )
+    with pytest.raises(AnalyticsUnavailable, match="Current blocker policy"):
+        await CurrentCards(client, now=NOW).operations()
+    assert not any("operations-targets" in sql for sql, _ in client.queries)
+
+
+@run_async
+async def test_runtime_shutdown_cancels_shared_work_and_closes_cache_even_if_driver_close_fails(
+    monkeypatch,
+):
+    events, close_threads = [], []
+    loop_thread = threading.get_ident()
+    cache = SimpleNamespace(
+        get=lambda _key: None,
+        close=lambda: (events.append("cache"), close_threads.append(threading.get_ident())),
+    )
+    monkeypatch.setattr(analytics_runtime, "create_redis", lambda *_args, **_kwargs: cache)
+    client = Client()
+
+    async def close_client():
+        events.append("client")
+        raise RuntimeError("client close failed")
+
+    client.close = close_client
+    reads = runtime(client, cache_enabled=True)
+    started = asyncio.Event()
+
+    async def blocked():
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            events.append("cancelled")
+
+    client.status = blocked
+    pending = asyncio.create_task(reads.section("publishing", recent_window(30, NOW)))
+    await started.wait()
+    with pytest.raises(RuntimeError, match="client close failed"):
+        await reads.close()
+    with pytest.raises(asyncio.CancelledError):
+        await pending
+    assert pending.cancelled() and not reads.inflight
+    assert events == ["cancelled", "client", "cache"]
+    assert close_threads and close_threads[0] != loop_thread
+
+
+@pytest.mark.parametrize("method", ["article_board", "source_board"])
+@run_async
+async def test_board_deadlines_fail_closed_for_both_current_views(monkeypatch, method):
+    reads = runtime()
+    timeout = asyncio.timeout
+    monkeypatch.setattr(analytics_runtime.asyncio, "timeout", lambda _seconds: timeout(0.01))
+
+    async def blocked(*_args, **_kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        reads, "cards", lambda: SimpleNamespace(article_board=blocked, source_board=blocked)
+    )
+    with pytest.raises(AnalyticsUnavailable, match="Pipeline request deadline reached"):
+        if method == "article_board":
+            await reads.article_board(limit=20)
+        else:
+            await reads.source_board(SimpleNamespace(q="private token"), cursor=40)
+
+
+@pytest.mark.parametrize("cached", [b"not-json", b"{}", b'{"expires_at":"invalid"}'])
+@run_async
+async def test_malformed_fresh_cache_entries_are_replaced_by_current_clickhouse_results(cached):
+    writes = []
+    cache = SimpleNamespace(
+        get=lambda _key: cached,
+        set=lambda key, value, **kwargs: writes.append((key, value, kwargs)),
+    )
+    reads = runtime(redis=lambda: cache, cache_enabled=True)
+    result = await reads.section("publishing", recent_window(30, NOW))
+    assert result.data.section == "publishing" and result.snapshot.status == "fresh"
+    assert reads.client.status_reads == 1 and len(writes) == 1
+    envelope = json.loads(writes[0][1])
+    assert envelope["report"]["snapshot"]["status"] == "fresh"
+    assert writes[0][2] == {"ex": 30}
+
+
+@run_async
+async def test_cache_observation_ages_lag_without_mutating_shared_or_optional_metadata():
+    time = [NOW]
+    client = Client()
+    status = client.status
+
+    async def lagging():
+        return (await status()) | {"lag_seconds": 55}
+
+    client.status = lagging
+    reads = runtime(client, clock=lambda: time[0])
+    window = recent_window(30, NOW)
+    first = await reads.section("publishing", window)
+    time[0] += timedelta(seconds=10)
+    aged = await reads.section("publishing", window)
+    assert first.snapshot.status == "fresh" and first.snapshot.lag_seconds == 55
+    assert aged.snapshot.status == "stale" and aged.snapshot.lag_seconds == 65
+    assert client.status_reads == 1
+    without_metadata = first.model_copy(update={"snapshot": None})
+    observed = reads._observed(without_metadata)
+    assert observed is not without_metadata and observed.snapshot is None
+    assert observed.data == without_metadata.data
+
+
+@run_async
+async def test_analytical_validation_errors_are_not_disguised_as_preparing(monkeypatch):
+    reads = runtime()
+    failure = HTTPException(422, "Unsupported analytical input")
+
+    async def invalid(*_args):
+        raise failure
+
+    monkeypatch.setattr(reads, "_calculate", invalid)
+    with pytest.raises(HTTPException) as caught:
+        await reads.section("operations", current_window())
+    assert caught.value is failure
+    assert not reads.cache
+
+
+@run_async
+async def test_large_report_is_returned_without_retaining_or_publishing_an_oversized_cache_entry():
+    writes = []
+    cache = SimpleNamespace(
+        get=lambda _key: None,
+        set=lambda *args, **kwargs: writes.append((args, kwargs)),
+    )
+    reads = runtime(redis=lambda: cache, cache_enabled=True, cache_max_bytes=1)
+    window = recent_window(30, NOW)
+    first = await reads.section("publishing", window)
+    second = await reads.section("publishing", window)
+    assert first.data == second.data
+    assert reads.client.status_reads == 2 and not reads.cache and not writes
+
+
+def test_http_analytics_dependency_reuses_the_application_runtime_and_fresh_calculation():
+    app = FastAPI()
+    app.include_router(overview.router)
+    reads = runtime()
+    app.state.analytics = reads
+    app.dependency_overrides[require_admin] = lambda: SimpleNamespace()
+    with TestClient(app) as http:
+        for _ in range(2):
+            response = http.get("/v1/admin/overview/charts/queue-pressure")
+            assert response.status_code == 200
+            assert response.json()["chart"] == "queue-pressure"
+    assert reads.client.status_reads == 1
+    assert len(reads.client.queries) == 1 and "overview:queues" in reads.client.queries[0][0]

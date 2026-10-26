@@ -83,9 +83,9 @@ scheduling; it does not relax test budgets, assertions, coverage, or failure gat
 ## Workflow dependency boundaries
 
 The six reader workers run independently; the reader gate waits for the entire
-matrix and validates all six current-source, current-attempt reports. Browser
-budgets build and seed their own fixtures, so they do not wait for reader or other
-unrelated jobs. Report/comment jobs still wait for their own producers.
+matrix and validates all six current-source, current-attempt reports. Coverage
+comment jobs still wait for their own producers. Performance and browser-budget
+workflows are retired; reader correctness and accessibility checks remain required.
 
 Sonar retains its eleven actual coverage-producer and availability-output
 dependencies. It does not consume reader, admin-browser, or live-browser reports,

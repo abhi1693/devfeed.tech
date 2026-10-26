@@ -4,6 +4,8 @@ import asyncio
 import importlib
 import inspect
 import threading
+import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import anyio
@@ -33,6 +35,147 @@ def test_async_endpoints_do_not_receive_synchronous_database_sessions(package):
             assert all(
                 dep.call is not dependencies.get_session for dep in route.dependant.dependencies
             ), route.path
+
+
+def test_analytical_metadata_session_lifetime_stays_in_one_worker():
+    from devfeed_admin_api.dependencies import read_metadata
+
+    async def scenario():
+        loop_thread = threading.get_ident()
+        events = []
+
+        class Session:
+            def __init__(self):
+                self.owner = threading.get_ident()
+                assert self.owner != loop_thread
+
+            def __enter__(self):
+                assert threading.get_ident() == self.owner
+                events.append("open")
+                return self
+
+            def __exit__(self, *_args):
+                assert threading.get_ident() == self.owner
+                events.append("close")
+
+        def operation(session, fail):
+            assert threading.get_ident() == session.owner
+            events.append("query")
+            if fail:
+                raise RuntimeError("metadata unavailable")
+            return "page metadata"
+
+        assert await read_metadata(Session, operation, False) == "page metadata"
+        with pytest.raises(RuntimeError, match="metadata unavailable"):
+            await read_metadata(Session, operation, True)
+        assert events == ["open", "query", "close"] * 2
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("kind", ["article", "source"])
+@pytest.mark.parametrize("column", [False, True])
+def test_pipeline_metadata_reads_release_sessions_around_clickhouse(kind, column):
+    from devfeed_admin_api import article_pipeline, source_pipeline
+
+    async def scenario():
+        loop_thread = threading.get_ident()
+        identifier, candidate_id = uuid.uuid4(), uuid.uuid4()
+        next_check = datetime(2026, 10, 27, tzinfo=UTC)
+        items = [SimpleNamespace(id=identifier, kind="source", state="running", next_check_at=None)]
+        if kind == "source":
+            items.append(SimpleNamespace(id=candidate_id, kind="candidate"))
+        result = SimpleNamespace(columns=[SimpleNamespace(items=items)])
+        active, statements, sessions = [], [], []
+
+        class Session:
+            def __init__(self):
+                self.thread = threading.get_ident()
+                assert self.thread != loop_thread
+                sessions.append(self)
+
+            def __enter__(self):
+                active.append(self)
+                return self
+
+            def __exit__(self, *_args):
+                assert threading.get_ident() == self.thread
+                assert active.pop() is self
+
+            def record(self, statement):
+                assert threading.get_ident() == self.thread
+                statements.append(statement)
+
+            def scalar(self, statement):
+                self.record(statement)
+                return "istanbul"
+
+            def scalars(self, statement):
+                self.record(statement)
+                return [identifier] if len(statements) == 2 else [candidate_id]
+
+            def execute(self, statement):
+                self.record(statement)
+                names = [field.name for field in statement.selected_columns]
+                if names == ["id", "automation_next_check_at"]:
+                    return SimpleNamespace(all=lambda: [(identifier, next_check)])
+                if names == ["id", "website_url", "feed_url"]:
+                    return [
+                        SimpleNamespace(id=identifier, website_url="private/site", feed_url=None)
+                    ]
+                return SimpleNamespace(all=lambda: [(candidate_id, "private/candidate")])
+
+        class Analytics:
+            async def article_board(self, **parameters):
+                assert not active, "PostgreSQL session survived into the ClickHouse await"
+                assert parameters["q"] == "İstanbul"
+                assert parameters["normalized_q"] == "istanbul"
+                assert parameters.get("stage") == ("analysis" if column else None)
+                await asyncio.sleep(0)
+                return result
+
+            async def source_board(self, query, **parameters):
+                assert not active, "PostgreSQL session survived into the ClickHouse await"
+                assert query.q == "private/path"
+                assert parameters["matching_ids"] == {
+                    "source": [identifier],
+                    "candidate": [candidate_id],
+                }
+                assert parameters.get("stage") == ("review" if column else None)
+                await asyncio.sleep(0)
+                return result
+
+        if kind == "article":
+            arguments = {"factory": Session, "analytics": Analytics(), "q": "İstanbul"}
+            response = (
+                await article_pipeline.column(stage="analysis", **arguments)
+                if column
+                else await article_pipeline.board(**arguments)
+            )
+            assert items[0].next_check_at == next_check
+            assert len(statements) == 2
+            assert statements[0].get_final_froms() == []
+        else:
+            query = SimpleNamespace(q="private/path")
+            arguments = {"factory": Session, "analytics": Analytics(), "query": query}
+            response = (
+                await source_pipeline.column(stage="review", cursor=0, **arguments)
+                if column
+                else await source_pipeline.board(**arguments)
+            )
+            assert items[0].website_url == "private/site"
+            assert items[1].website_url == "private/candidate"
+            assert len(statements) == 5
+            assert "2000" in statements[0].compile().params.values()
+            assert all(
+                [field.name for field in statement.selected_columns] == ["id"]
+                for statement in statements[1:3]
+            )
+        assert response is (result.columns[0] if column else result)
+        assert len(sessions) == 2
+        assert not active
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("package", SERVICES)

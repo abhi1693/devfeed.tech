@@ -89,8 +89,15 @@ def test_native_insert_caches_types_and_keeps_concurrent_batches_independent():
         schema = "\n".join(
             json.dumps({"name": name, "type": kind}) for name, kind in columns.items()
         )
+        describing, release_schema = asyncio.Event(), asyncio.Event()
+
+        async def describe(*_args, **_kwargs):
+            describing.set()
+            await release_schema.wait()
+            return schema.encode()
+
         driver = SimpleNamespace(
-            raw_query=AsyncMock(return_value=schema.encode()),
+            raw_query=AsyncMock(side_effect=describe),
             insert=AsyncMock(),
             close=AsyncMock(),
         )
@@ -106,16 +113,21 @@ def test_native_insert_caches_types_and_keeps_concurrent_batches_independent():
         )
         second = dict(first, id=identifier, at=instant.astimezone(timezone(timedelta(hours=5))))
         async with AnalyticsClient(settings, driver=driver) as client:
-            await asyncio.gather(
-                client.insert("analytics_type_probe", [first, second]),
-                client.insert("analytics_type_probe", [second]),
+            first_insert = asyncio.create_task(
+                client.insert("analytics_type_probe", [first, second])
             )
+            await describing.wait()
+            second_insert = asyncio.create_task(client.insert("analytics_type_probe", [second]))
+            await asyncio.sleep(0)
+            release_schema.set()
+            await asyncio.gather(first_insert, second_insert)
+            await client.insert("analytics_type_probe", [first])
         driver.raw_query.assert_awaited_once()
         calls = [call.kwargs for call in driver.insert.call_args_list]
-        assert len(calls) == 2
-        assert calls[0]["data"] is not calls[1]["data"]
+        assert len(calls) == 3
+        assert len({id(call["data"]) for call in calls}) == 3
         assert all("context" not in call for call in calls)
-        for call, originals in zip(calls, ([first, second], [second]), strict=True):
+        for call, originals in zip(calls, ([first, second], [second], [first]), strict=True):
             assert call["column_type_names"] == tuple(columns[name] for name in sorted(columns))
             assert call["column_oriented"] is True
             decoded = [
@@ -132,6 +144,104 @@ def test_native_insert_caches_types_and_keeps_concurrent_batches_independent():
                 )
                 for original in originals
             ]
+
+    asyncio.run(verify())
+
+
+def test_query_bindings_preserve_nested_uuid_arrays_dates_and_scalar_types():
+    async def verify():
+        settings = Settings(
+            _env_file=None, database_url="postgresql://unused", redis_url="redis://unused"
+        )
+        driver = SimpleNamespace(raw_query=AsyncMock(return_value=b'{"ok":1}'), close=AsyncMock())
+        identifier = uuid.uuid4()
+        at = datetime(2026, 10, 27, 1, 2, 3, 456789, tzinfo=timezone(timedelta(hours=5)))
+        sql = (
+            "SELECT {ids:Map(String, Array(UUID))}, {day:Date}, "
+            "{at:DateTime64(6, 'UTC')}, {enabled:Bool}, {cursor:UInt64}, "
+            "{optional:Nullable(String)}"
+        )
+        async with AnalyticsClient(settings, driver=driver) as client:
+            result = await client.query(
+                sql,
+                dict(
+                    ids={"selected": (identifier,), "empty": []},
+                    day=date(2026, 10, 27),
+                    at=at,
+                    enabled=True,
+                    cursor=17,
+                    optional=None,
+                ),
+            )
+        assert result == [{"ok": 1}]
+        call = driver.raw_query.call_args
+        assert call.args == (sql,)
+        assert call.kwargs["parameters"] == {
+            "ids": {"selected": [str(identifier)], "empty": []},
+            "day": "2026-10-27",
+            "at": "2026-10-26 20:02:03.456789",
+            "enabled": True,
+            "cursor": 17,
+            "optional": None,
+        }
+
+    asyncio.run(verify())
+
+
+def test_native_batches_normalize_nullable_and_calendar_values_without_rewriting_epoch_values():
+    async def verify():
+        settings = Settings(
+            _env_file=None, database_url="postgresql://unused", redis_url="redis://unused"
+        )
+        kinds = {
+            "at": "Nullable(DateTime64(6, 'UTC'))",
+            "epoch": "DateTime",
+            "day": "Date",
+            "nullable_day": "Nullable(Date32)",
+            "labels": "Array(String)",
+            "name": "LowCardinality(Nullable(String))",
+        }
+        schema = "\n".join(json.dumps({"name": name, "type": kind}) for name, kind in kinds.items())
+        driver = SimpleNamespace(
+            raw_query=AsyncMock(return_value=schema.encode()),
+            insert=AsyncMock(),
+            close=AsyncMock(),
+        )
+        aware = datetime(2026, 10, 27, 1, tzinfo=timezone(timedelta(hours=5)))
+        naive = datetime(2026, 10, 27, 2, 3, 4, 567890)
+        rows = [
+            dict(at=None, epoch=0, day=aware, nullable_day=None, labels=["first"], name=None),
+            dict(
+                at=aware,
+                epoch=1,
+                day=naive,
+                nullable_day=date(2026, 10, 27),
+                labels=[],
+                name="€",
+            ),
+            dict(
+                at=naive,
+                epoch=2,
+                day=date(2026, 10, 28),
+                nullable_day=date(2026, 10, 28),
+                labels=["last"],
+                name="plain",
+            ),
+        ]
+        async with AnalyticsClient(settings, driver=driver) as client:
+            await client.insert("analytics_calendar_probe", rows)
+        call = driver.insert.call_args.kwargs
+        decoded = [
+            dict(zip(call["column_names"], row, strict=True))
+            for row in zip(*call["data"], strict=True)
+        ]
+        assert decoded == [
+            dict(rows[0], day=date(2026, 10, 26)),
+            dict(rows[1], at=aware.astimezone(UTC), day=date(2026, 10, 27)),
+            dict(rows[2], at=naive.replace(tzinfo=UTC)),
+        ]
+        assert call["column_oriented"] is True
+        assert call["settings"]["wait_for_async_insert"] == 1
 
     asyncio.run(verify())
 

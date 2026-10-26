@@ -16,8 +16,10 @@ response enum keeps its upstream informational classification.
 `python scripts/ci/api_contracts.py verify` exercises the pinned classifier with
 compatible and breaking examples, including response enum additions in nested
 objects, arrays, maps, and scalar responses. The probes use the same policy as
-the public, user, admin, and two MCP contract comparisons. The only finding
-allowances are the nine exact tag PATCH documentation corrections described below.
+the public, user, admin, and two MCP contract comparisons. Finding allowances cover
+the nine exact tag PATCH documentation corrections, two explicitly retired
+Overview operations and two snapshot metadata replacements described below.
+Each allowance requires its reviewed baseline.
 
 The severity configuration follows the upstream
 [oasdiff 1.33.0 severity documentation](https://github.com/oasdiff/oasdiff/blob/v1.33.0/docs/BREAKING-CHANGES.md#customizing-severity-levels).
@@ -65,6 +67,37 @@ receive no allowance. A compatible corrected schema at an unknown revision still
 passes with the empty allowance file. Runtime tests
 verify rejection rules as well as omission, empty aliases, false matching and
 explicit topic unlinking. Do not broaden these allowances for later API changes.
+
+## Retiring the replaced Overview operations
+
+The ClickHouse chart API replaces `GET /v1/admin/overview` and
+`GET /v1/admin/overview/panels/{panel}`. These operations were explicitly removed
+as part of the reporting replacement in PR #311. They remain absent from the API.
+
+[The retirement baseline](admin-overview-retirement.json) identifies only those
+two operations at `a3c1bec17a52af04dcfb092bf513665183fa2fb4`. Policy preparation
+requires that exact checked-out base revision and SHA-256 fingerprints of both
+exported operations, their shared path parameters, security declarations and all
+transitively referenced components. Both operations must be absent from the head
+contract, and `GET /v1/admin/overview/charts/{chart}` must be present. A different
+base, changed contract, unresolved reference or incomplete replacement receives
+no retirement allowance. Future base revisions receive no allowance automatically.
+
+The board responses also replace `ReadModelSnapshot` with `AnalyticsSnapshot`,
+removing `catalog_generation` and the obsolete `refreshing` and `rebuilding`
+statuses. These intentional admin contract changes require deploying the matching
+admin interface and API together. The baseline records the exact old and new
+operation graphs for `GET /v1/admin/article-pipeline` and
+`GET /v1/admin/source-pipeline`. Only matching graphs at the reviewed base receive
+the two exact findings for adding `AnalyticsSnapshot` to the `snapshot` response
+union. Future operation, type, enum, required-field or union edits disable those
+allowances; they do not inherit permission for another metadata change.
+
+Only those four exact findings are approved. All other operations, response
+changes and request changes still pass through the existing shared `WARN` policy.
+Public, user and MCP contract comparisons are unchanged. Regression tests verify
+unrelated removals remain unapproved and missing or invalid inputs clear stale
+allowances before failing preparation.
 
 `python scripts/ci/api_contracts.py report` preserves each contract's unfiltered
 findings under `reports/api-compatibility/raw/`. It overrides ignore files only

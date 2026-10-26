@@ -715,38 +715,59 @@ def test_pipeline_views_release_connection_before_response_validation(database, 
     with database.begin() as session:
         identifier = make_article(session).id
     card_publication(database)
-    with database() as session:
-        from functools import partial
+    checked_out = set()
+    checkouts = []
 
-        card_publication.http.portal.call(
-            partial(
-                article_pipeline.board,
-                session,
-                card_publication.runtime,
-                q=None,
-                source_id=None,
-                needs_attention=False,
-                limit=20,
+    def checkout(_connection, record, _proxy):
+        checked_out.add(record)
+        checkouts.append(record)
+
+    def checkin(_connection, record):
+        checked_out.remove(record)
+
+    engine = database.kw["bind"]
+    event.listen(engine, "checkout", checkout)
+    event.listen(engine, "checkin", checkin)
+    try:
+        with database() as session:
+            from functools import partial
+
+            card_publication.http.portal.call(
+                partial(
+                    article_pipeline.board,
+                    database,
+                    card_publication.runtime,
+                    q=None,
+                    source_id=None,
+                    needs_attention=False,
+                    limit=20,
+                )
             )
-        )
-        assert not session.in_transaction()
-        card_publication.http.portal.call(
-            partial(
-                article_pipeline.column,
-                "ready",
-                session,
-                card_publication.runtime,
-                q=None,
-                source_id=None,
-                needs_attention=False,
-                limit=20,
-                cursor=0,
+            assert not session.in_transaction()
+            assert checkouts and not checked_out
+            checkouts.clear()
+            card_publication.http.portal.call(
+                partial(
+                    article_pipeline.column,
+                    "ready",
+                    database,
+                    card_publication.runtime,
+                    q=None,
+                    source_id=None,
+                    needs_attention=False,
+                    limit=20,
+                    cursor=0,
+                )
             )
-        )
-        assert not session.in_transaction()
-        result = article_pipeline.detail(identifier, session)
-        assert not session.in_transaction()
-        assert result.can_publish is True
+            assert not session.in_transaction()
+            assert checkouts and not checked_out
+            result = article_pipeline.detail(identifier, session)
+            assert not session.in_transaction()
+            assert not checked_out
+            assert result.can_publish is True
+    finally:
+        event.remove(engine, "checkout", checkout)
+        event.remove(engine, "checkin", checkin)
 
 
 @pytest.mark.integration

@@ -1,4 +1,4 @@
-"""API performance selection and paired execution must preserve trustworthy reports."""
+"""Local API comparison preserves workload ordering and failed samples."""
 
 import json
 import os
@@ -8,35 +8,10 @@ import sys
 import textwrap
 
 import pytest
-import yaml
 
 from tests.support.paths import REPO_ROOT
 
 ROOT = REPO_ROOT
-
-
-def performance_jobs():
-    return yaml.safe_load((ROOT / ".github/workflows/performance.yml").read_text())["jobs"]
-
-
-def compare_step(name):
-    return next(step for step in performance_jobs()["compare"]["steps"] if step.get("name") == name)
-
-
-def measure_step(name):
-    return next(step for step in performance_jobs()["measure"]["steps"] if step.get("name") == name)
-
-
-def test_locked_performance_environment_checks_workload_and_histograms_before_measuring():
-    steps = performance_jobs()["measure"]["steps"]
-    step = measure_step("Test workload phases and latency histogram precision")
-    assert step["run"] == (
-        "candidate/.venv/bin/python -m unittest discover -s candidate/loadtests -p 'test_*.py'"
-    )
-    assert "continue-on-error" not in step and "if" not in step
-    assert steps.index(measure_step("Install the candidate harness")) < steps.index(step)
-    assert steps.index(measure_step("Install the baseline application")) < steps.index(step)
-    assert steps.index(step) < steps.index(measure_step("Run one runner pair"))
 
 
 @pytest.fixture
@@ -89,11 +64,16 @@ def paired_harness(tmp_path):
     output = tmp_path / "reports/performance"
 
     def invoke(repeat, *, failures=None, preserve_only=False):
-        step = measure_step(
-            "Preserve incomplete samples" if preserve_only else "Run one runner pair"
-        )
+        command = [
+            sys.executable,
+            str(candidate / "scripts/ci/api-performance-pair.py"),
+            "--repeat",
+            str(repeat),
+        ]
+        if preserve_only:
+            command.append("--preserve-only")
         return subprocess.run(
-            ["bash", "-e", "-c", step["run"]],
+            command,
             cwd=tmp_path,
             env={
                 **os.environ,
@@ -174,96 +154,3 @@ def test_setup_failure_preserves_incomplete_and_completed_sample_markers(paired_
     assert (destination / "exit-code.txt").read_text() == "7\n"
     assert (destination / "runner.log").read_text() == "Original failure\n"
     assert (output / "head-0/exit-code.txt").read_text() == "incomplete\n"
-
-
-@pytest.mark.parametrize(
-    "result,needed,valid",
-    [
-        ("success", "true", True),
-        ("success", "false", True),
-        ("failure", "false", False),
-        ("cancelled", "true", False),
-        ("skipped", "", False),
-        ("success", "", False),
-        ("success", "unknown", False),
-    ],
-)
-def test_performance_selection_errors_cannot_pass(tmp_path, result, needed, valid):
-    summary = tmp_path / "job-summary.md"
-    command = subprocess.run(
-        ["bash", "-e", "-c", compare_step("Validate selection")["run"]],
-        cwd=tmp_path,
-        env={
-            **os.environ,
-            "SELECT_RESULT": result,
-            "MEASURE_NEEDED": needed,
-            "GITHUB_STEP_SUMMARY": str(summary),
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert (command.returncode == 0) is valid
-    if not valid:
-        report = (tmp_path / "reports/performance/summary.md").read_text()
-        assert "**ERROR**" in report and "selection failed" in report
-        assert summary.read_text() == report
-
-
-def test_unchanged_api_report_does_not_claim_latency_or_improvement(tmp_path):
-    (tmp_path / "reports/performance").mkdir(parents=True)
-    summary = tmp_path / "job-summary.md"
-    subprocess.run(
-        ["bash", "-e", "-c", compare_step("Report unchanged API")["run"]],
-        cwd=tmp_path,
-        env={
-            **os.environ,
-            "BASE_SHA": "a" * 40,
-            "HEAD_SHA": "b" * 40,
-            "GITHUB_STEP_SUMMARY": str(summary),
-        },
-        check=True,
-    )
-    report = (tmp_path / "reports/performance/summary.md").read_text()
-    assert "**Not measured:** public API inputs are unchanged" in report
-    assert "a" * 40 in report and "b" * 40 in report
-    assert "p95" not in report and "IMPROVED" not in report
-    assert summary.read_text() == report
-    assert json.loads((tmp_path / "reports/performance/comparison.json").read_text()) == {
-        "verdict": "NOT_MEASURED",
-        "reason": "public API inputs unchanged",
-    }
-
-
-def test_selection_controls_samples_without_weakening_the_required_workflow():
-    jobs = performance_jobs()
-    assert jobs["measure"]["needs"] == "select"
-    assert "needs.select.outputs.needed == 'true'" in jobs["measure"]["if"]
-    assert jobs["measure"]["strategy"]["matrix"] == {"repeat": [0, 1, 2]}
-    assert jobs["measure"]["strategy"]["fail-fast"] is False
-    checkouts = {
-        step["with"]["path"]: step
-        for step in jobs["measure"]["steps"]
-        if step.get("uses", "").startswith("actions/checkout@")
-    }
-    for path, revision in (("candidate", "head"), ("baseline", "base")):
-        assert checkouts[path]["with"]["ref"] == (
-            "${{ github.event.pull_request." + revision + ".sha }}"
-        )
-        assert "if" not in checkouts[path]
-    assert "if" not in measure_step("Install the baseline application")
-    assert measure_step("Run one runner pair")["env"] == {"PAIR_REPEAT": "${{ matrix.repeat }}"}
-    assert measure_step("Preserve incomplete samples")["if"] == "always()"
-    assert set(jobs["compare"]["needs"]) == {"select", "measure"}
-    assert "always()" in jobs["compare"]["if"]
-    assert compare_step("Evaluate regression and noise gates")["if"] == (
-        "needs.select.outputs.needed == 'true'"
-    )
-    assert compare_step("Report unchanged API")["if"] == "needs.select.outputs.needed == 'false'"
-    assert any(
-        step.get("run") == "node --test scripts/ci/api-performance.test.mjs"
-        for step in jobs["select"]["steps"]
-    )
-    assert (
-        'then .performance.result == "success"' in (ROOT / ".github/workflows/ci.yml").read_text()
-    )

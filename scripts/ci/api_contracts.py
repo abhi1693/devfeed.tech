@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import copy
+import hashlib
 import importlib
 import json
 import subprocess
@@ -58,6 +59,92 @@ def write_approved_errors(path: Path, base_revision: str, document: dict) -> boo
     return approved
 
 
+def operation_fingerprint(document: dict, path: str, method: str) -> str | None:
+    """Bind retirement approval to the operation and every referenced component."""
+
+    def references(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key == "$ref":
+                    yield item
+                else:
+                    yield from references(item)
+        elif isinstance(value, list):
+            for item in value:
+                yield from references(item)
+
+    try:
+        item = document["paths"][path]
+        contract = {
+            "operation": item[method.lower()],
+            "path_parameters": item.get("parameters", []),
+            "security": document.get("security", []),
+            "security_schemes": document.get("components", {}).get("securitySchemes", {}),
+        }
+        definitions = {}
+        pending = set(references(contract))
+        while pending:
+            reference = pending.pop()
+            if reference in definitions:
+                continue
+            if not isinstance(reference, str) or not reference.startswith("#/"):
+                return None
+            target = document
+            for part in reference[2:].split("/"):
+                target = target[part.replace("~1", "/").replace("~0", "~")]
+            definitions[reference] = target
+            pending.update(references(target))
+        encoded = json.dumps([contract, definitions], sort_keys=True, separators=(",", ":"))
+    except (KeyError, TypeError):
+        return None
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def approved_admin_retirements(base_revision: str, document: dict) -> list[str]:
+    """Allow only reviewed removals from a frozen base, never other API changes."""
+    policy = json.loads(
+        (ROOT / ".github/api-compatibility/admin-overview-retirement.json").read_text()
+    )
+    if base_revision not in policy["base_revisions"]:
+        return []
+    candidate = json.loads((report_directory("head") / "admin.json").read_text())
+    replacement = policy["replacement"]
+    if replacement["method"].lower() not in candidate.get("paths", {}).get(replacement["path"], {}):
+        return []
+    for operation in policy["operations"]:
+        path, method = operation["path"], operation["method"]
+        fingerprint = operation_fingerprint(document, path, method)
+        if (
+            fingerprint is None
+            or fingerprint != operation["fingerprint"]
+            or method.lower() in candidate.get("paths", {}).get(path, {})
+        ):
+            return []
+    return [
+        f"- {operation['method']} {operation['path']} api path removed without deprecation"
+        for operation in policy["operations"]
+    ]
+
+
+def approved_admin_snapshot_replacements(base_revision: str, document: dict) -> list[str]:
+    """Approve the reviewed metadata replacement only for exact old/new contracts."""
+    policy = json.loads(
+        (ROOT / ".github/api-compatibility/admin-overview-retirement.json").read_text()
+    )
+    if base_revision not in policy["base_revisions"]:
+        return []
+    candidate = json.loads((report_directory("head") / "admin.json").read_text())
+    for operation in policy["snapshot_replacements"]:
+        for contract, key in ((document, "base_fingerprint"), (candidate, "head_fingerprint")):
+            fingerprint = operation_fingerprint(contract, operation["path"], operation["method"])
+            if fingerprint is None or fingerprint != operation[key]:
+                return []
+    return [
+        f"- {operation['method']} {operation['path']} {operation['finding']}"
+        for operation in policy["snapshot_replacements"]
+    ]
+
+
 def prepare_policy(output: Path) -> None:
     """Bind the action's allowance file to the actual checked-out and exported base."""
     output.mkdir(parents=True, exist_ok=True)
@@ -74,11 +161,28 @@ def prepare_policy(output: Path) -> None:
     )
     revision = result.stdout.strip()
     document = json.loads((report_directory("base") / "admin.json").read_text())
-    granted = write_approved_errors(approved, revision, document)
+    try:
+        granted = write_approved_errors(approved, revision, document)
+        retirements = approved_admin_retirements(revision, document)
+        replacements = approved_admin_snapshot_replacements(revision, document)
+        if retirements or replacements:
+            with approved.open("a") as allowance:
+                allowance.write("\n".join(retirements + replacements) + "\n")
+    except (OSError, ValueError, KeyError, TypeError):
+        clear_approved_errors(approved)
+        raise
     write_json(
-        output / "decision.json", {"base_revision": revision, "corrections_approved": granted}
+        output / "decision.json",
+        {
+            "base_revision": revision,
+            "corrections_approved": granted,
+            "retired_operations": retirements,
+            "snapshot_replacements": replacements,
+        },
     )
     print(f"Legacy tag PATCH corrections: {'approved' if granted else 'disabled'} for {revision}")
+    print(f"Reviewed admin operation retirements: {len(retirements)} for {revision}")
+    print(f"Reviewed admin metadata replacements: {len(replacements)} for {revision}")
 
 
 def schema_components(schema: dict, prefix: str, components: dict) -> dict:

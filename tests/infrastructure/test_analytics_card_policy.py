@@ -1,4 +1,4 @@
-"""Read-model identities, metadata, range bounds, and retry clocks require no database."""
+"""Analytics identities, metadata, range bounds, and retry clocks require no database."""
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -68,7 +68,7 @@ def test_policy_identity_ignores_mapping_order_release_identity_and_worker_crede
     assert pipeline_policy_version(changed) == previous
 
 
-@pytest.mark.parametrize("status", ["fresh", "stale", "refreshing", "rebuilding"])
+@pytest.mark.parametrize("status", ["fresh", "stale", "catching_up"])
 def test_snapshot_metadata_round_trips_timestamps_and_nonnegative_lag(status):
     generated = datetime(2026, 10, 21, tzinfo=UTC)
     value = AnalyticsSnapshot(
@@ -81,7 +81,14 @@ def test_snapshot_metadata_round_trips_timestamps_and_nonnegative_lag(status):
 
 
 @pytest.mark.parametrize(
-    "values", [{"status": "ready"}, {"status": None}, {"status": "fresh", "lag_seconds": -0.1}]
+    "values",
+    [
+        {"status": "ready"},
+        {"status": "refreshing"},
+        {"status": "rebuilding"},
+        {"status": None},
+        {"status": "fresh", "lag_seconds": -0.1},
+    ],
 )
 def test_snapshot_metadata_rejects_unknown_status_and_negative_lag(values):
     with pytest.raises(ValidationError):

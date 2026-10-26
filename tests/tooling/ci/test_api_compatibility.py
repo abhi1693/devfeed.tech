@@ -293,6 +293,8 @@ def test_policy_requires_the_actual_known_checkout_and_exported_request_schema(
     assert json.loads((output / "decision.json").read_text()) == {
         "base_revision": revision,
         "corrections_approved": True,
+        "retired_operations": [],
+        "snapshot_replacements": [],
     }
 
 
@@ -323,6 +325,8 @@ def test_policy_clears_stale_allowances_for_unproven_bases(mismatch, policy_chec
     assert json.loads((output / "decision.json").read_text()) == {
         "base_revision": revision,
         "corrections_approved": False,
+        "retired_operations": [],
+        "snapshot_replacements": [],
     }
 
 
@@ -364,6 +368,191 @@ def test_policy_does_not_follow_a_stale_allowance_symlink(policy_checkout, monke
     assert approved.read_text() == ""
     assert not approved.is_symlink()
     assert outside.read_text() == "outside data"
+
+
+@pytest.fixture
+def retirement_checkout(policy_checkout):
+    root, output, _ = policy_checkout
+    policy_path = root / ".github/api-compatibility/admin-overview-retirement.json"
+    policy = json.loads(policy_path.read_text())
+    operation = {
+        "responses": {
+            "200": {
+                "description": "Overview",
+                "content": {
+                    "application/json": {"schema": {"$ref": "#/components/schemas/Report"}}
+                },
+            }
+        }
+    }
+    document = {
+        "openapi": "3.1.0",
+        "info": {"title": "Retirement fixture", "version": "1"},
+        "paths": {row["path"]: {"get": copy.deepcopy(operation)} for row in policy["operations"]},
+        "components": {
+            "schemas": {
+                "Report": {
+                    "type": "object",
+                    "properties": {"count": {"type": "integer"}},
+                    "required": ["count"],
+                }
+            }
+        },
+    }
+    for row in policy["operations"]:
+        row["fingerprint"] = contracts.operation_fingerprint(document, row["path"], row["method"])
+    contracts.write_json(policy_path, policy)
+    contracts.write_json(contracts.report_directory("base") / "admin.json", document)
+    candidate = copy.deepcopy(document)
+    candidate["paths"] = {policy["replacement"]["path"]: {"get": copy.deepcopy(operation)}}
+    contracts.report_directory("head").mkdir()
+    contracts.write_json(contracts.report_directory("head") / "admin.json", candidate)
+    return root, output, document, candidate, policy
+
+
+def test_policy_allows_only_reviewed_overview_removals(retirement_checkout, monkeypatch):
+    root, output, _, _, policy = retirement_checkout
+    revision = policy["base_revisions"][0]
+    checked_out_revision(monkeypatch, root, revision)
+    contracts.prepare_policy(output)
+    expected = [
+        f"- {row['method']} {row['path']} api path removed without deprecation"
+        for row in policy["operations"]
+    ]
+    assert (output / "approved-errors.md").read_text().splitlines() == expected
+    decision = json.loads((output / "decision.json").read_text())
+    assert decision["retired_operations"] == expected
+    assert decision["corrections_approved"] is False
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    [
+        "revision",
+        "operation",
+        "response",
+        "missing-base",
+        "missing-ref",
+        "external-ref",
+        "still-present",
+        "replacement",
+    ],
+)
+def test_retirement_requires_frozen_base_and_completed_replacement(
+    mismatch, retirement_checkout, monkeypatch
+):
+    root, output, document, candidate, policy = retirement_checkout
+    revision = "f" * 40 if mismatch == "revision" else policy["base_revisions"][0]
+    checked_out_revision(monkeypatch, root, revision)
+    old_path = policy["operations"][0]["path"]
+    if mismatch == "operation":
+        document["paths"][old_path]["get"]["summary"] = "Changed operation"
+    elif mismatch == "response":
+        document["components"]["schemas"]["Report"]["properties"]["count"]["type"] = "string"
+    elif mismatch == "missing-base":
+        del document["paths"][old_path]
+    elif mismatch == "missing-ref":
+        document["components"]["schemas"] = {}
+    elif mismatch == "external-ref":
+        document["components"]["schemas"]["Report"] = {"$ref": "https://untrusted.test/schema"}
+    elif mismatch == "still-present":
+        candidate["paths"][old_path] = document["paths"][old_path]
+    elif mismatch == "replacement":
+        candidate["paths"] = {}
+    contracts.write_json(contracts.report_directory("base") / "admin.json", document)
+    contracts.write_json(contracts.report_directory("head") / "admin.json", candidate)
+    contracts.prepare_policy(output)
+    assert (output / "approved-errors.md").read_text() == ""
+    assert json.loads((output / "decision.json").read_text())["retired_operations"] == []
+
+
+def test_retirement_does_not_allow_an_unrelated_removal(retirement_checkout, monkeypatch):
+    root, output, document, candidate, policy = retirement_checkout
+    document["paths"]["/v1/admin/other"] = copy.deepcopy(next(iter(document["paths"].values())))
+    contracts.write_json(contracts.report_directory("base") / "admin.json", document)
+    checked_out_revision(monkeypatch, root, policy["base_revisions"][0])
+    contracts.prepare_policy(output)
+    allowed = (output / "approved-errors.md").read_text()
+    assert "/v1/admin/other" not in allowed
+    assert len(allowed.splitlines()) == len(policy["operations"])
+
+
+def test_missing_candidate_contract_clears_retirement_allowances(retirement_checkout, monkeypatch):
+    root, output, _, _, policy = retirement_checkout
+    checked_out_revision(monkeypatch, root, policy["base_revisions"][0])
+    (contracts.report_directory("head") / "admin.json").unlink()
+    with pytest.raises(FileNotFoundError):
+        contracts.prepare_policy(output)
+    assert (output / "approved-errors.md").read_text() == ""
+    assert not (output / "decision.json").exists()
+
+
+@pytest.fixture
+def snapshot_replacement_checkout(retirement_checkout):
+    root, output, document, candidate, policy = retirement_checkout
+    operation = copy.deepcopy(next(iter(document["paths"].values())))
+    candidate["components"]["schemas"]["Report"]["properties"]["count"]["type"] = "string"
+    for row in policy["snapshot_replacements"]:
+        document["paths"][row["path"]] = copy.deepcopy(operation)
+        candidate["paths"][row["path"]] = copy.deepcopy(operation)
+        row["base_fingerprint"] = contracts.operation_fingerprint(
+            document, row["path"], row["method"]
+        )
+        row["head_fingerprint"] = contracts.operation_fingerprint(
+            candidate, row["path"], row["method"]
+        )
+    contracts.write_json(root / ".github/api-compatibility/admin-overview-retirement.json", policy)
+    contracts.write_json(contracts.report_directory("base") / "admin.json", document)
+    contracts.write_json(contracts.report_directory("head") / "admin.json", candidate)
+    return root, output, document, candidate, policy
+
+
+def test_snapshot_replacement_requires_both_exact_operation_graphs(
+    snapshot_replacement_checkout, monkeypatch
+):
+    root, output, _, _, policy = snapshot_replacement_checkout
+    checked_out_revision(monkeypatch, root, policy["base_revisions"][0])
+    contracts.prepare_policy(output)
+    expected = [
+        f"- {row['method']} {row['path']} {row['finding']}"
+        for row in policy["snapshot_replacements"]
+    ]
+    decision = json.loads((output / "decision.json").read_text())
+    assert decision["snapshot_replacements"] == expected
+    assert (output / "approved-errors.md").read_text().splitlines() == (
+        decision["retired_operations"] + expected
+    )
+
+
+@pytest.mark.parametrize("side", ["base", "head"])
+@pytest.mark.parametrize("change", ["operation", "type", "enum", "union", "required", "missing"])
+def test_future_snapshot_contract_edits_cannot_reuse_the_replacement_allowance(
+    side, change, snapshot_replacement_checkout, monkeypatch
+):
+    root, output, document, candidate, policy = snapshot_replacement_checkout
+    checked_out_revision(monkeypatch, root, policy["base_revisions"][0])
+    edited = document if side == "base" else candidate
+    operation = policy["snapshot_replacements"][0]
+    schema = edited["components"]["schemas"]["Report"]
+    if change == "operation":
+        edited["paths"][operation["path"]]["get"]["summary"] = "Future edit"
+    elif change == "type":
+        schema["properties"]["count"]["type"] = "boolean"
+    elif change == "enum":
+        schema["properties"]["count"]["enum"] = ["new"]
+    elif change == "union":
+        schema["properties"]["count"] = {"anyOf": [{"type": "string"}, {"type": "object"}]}
+    elif change == "required":
+        schema["required"] = []
+    else:
+        del edited["paths"][operation["path"]]
+    contracts.write_json(contracts.report_directory(side) / "admin.json", edited)
+    contracts.prepare_policy(output)
+    assert json.loads((output / "decision.json").read_text())["snapshot_replacements"] == []
+    assert (
+        "added `#/components/schemas/AnalyticsSnapshot`"
+        not in (output / "approved-errors.md").read_text()
+    )
 
 
 @pytest.mark.parametrize("findings", [[], [{"id": "request-property-pattern-added"}]])

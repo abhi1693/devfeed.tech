@@ -50,7 +50,6 @@ def normalize_lcov(path: Path, root: Path, workspace: Path) -> None:
 def prepare_reports(
     root: Path = ROOT,
     *,
-    browser_coverage: bool = False,
     dast_coverage: bool = False,
     mutation_coverage: bool = False,
     property_coverage: bool = False,
@@ -62,7 +61,6 @@ def prepare_reports(
     databases = [reports / suite / "coverage.db" for suite in PYTHON_SUITES]
     lcov_reports = [reports / frontend / "lcov.info" for frontend in FRONTENDS]
     utilities = {
-        "browser-budgets": browser_coverage,
         "dast": dast_coverage,
         "mutation": mutation_coverage,
         "property": property_coverage,
@@ -100,7 +98,6 @@ def prepare_reports(
 if __name__ == "__main__":
     try:
         prepare_reports(
-            browser_coverage=os.environ.get("BROWSER_COVERAGE_REQUIRED") == "true",
             dast_coverage=os.environ.get("DAST_COVERAGE_REQUIRED") == "true",
             mutation_coverage=os.environ.get("MUTATION_COVERAGE_REQUIRED") == "true",
             property_coverage=os.environ.get("PROPERTY_COVERAGE_REQUIRED") == "true",

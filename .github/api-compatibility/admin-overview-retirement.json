@@ -1,0 +1,35 @@
+{
+  "base_revisions": ["a3c1bec17a52af04dcfb092bf513665183fa2fb4"],
+  "operations": [
+    {
+      "fingerprint": "b75905f650b4e78209ef919f9e3950582c0028cc31b667e797300607836d918a",
+      "method": "GET",
+      "path": "/v1/admin/overview"
+    },
+    {
+      "fingerprint": "1a90127617b9b6dac3bffd600b99379fbad9bee2c94e3faeb2ed7824a50abbf1",
+      "method": "GET",
+      "path": "/v1/admin/overview/panels/{panel}"
+    }
+  ],
+  "replacement": {
+    "method": "GET",
+    "path": "/v1/admin/overview/charts/{chart}"
+  },
+  "snapshot_replacements": [
+    {
+      "base_fingerprint": "a2a9a52cca5ce54425fad9bf04a44be50ce65db6dbec5755fa0cf8dc32c8ddab",
+      "finding": "added `#/components/schemas/AnalyticsSnapshot` to the `snapshot` response property `anyOf` list for the response status `200`",
+      "head_fingerprint": "b9d46de3ef2f4cd170c106229bf5295ee41bb83d98efde002398c8b461b55002",
+      "method": "GET",
+      "path": "/v1/admin/article-pipeline"
+    },
+    {
+      "base_fingerprint": "df333557b8c982eeb5946697629c07f5de1e75567aea82f8b26c17e268fb11f5",
+      "finding": "added `#/components/schemas/AnalyticsSnapshot` to the `snapshot` response property `anyOf` list for the response status `200`",
+      "head_fingerprint": "74715f1e75e6d82995f0742babfda21628fa20b307d91720f2313807ed623d8f",
+      "method": "GET",
+      "path": "/v1/admin/source-pipeline"
+    }
+  ]
+}

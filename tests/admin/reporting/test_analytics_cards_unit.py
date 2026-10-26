@@ -706,3 +706,334 @@ def test_retained_ranking_is_bounded_and_replaced_when_catalog_snapshot_changes(
             analysis.analysis_candidates(changed, {"title": f"Article {index}"})
     assert len(retained) == 1 and retained[0] is not first
     assert retained[0].taxonomy is changed and len(retained[0].results) == 8
+
+
+@pytest.mark.parametrize(
+    "kind,builder,groups",
+    [
+        ("article", "article_rows", ([ENTITY],)),
+        ("source", "source_rows", ([ENTITY], [])),
+        ("candidate", "source_rows", ([], [ENTITY])),
+        ("topic-proposal", "proposal_rows", ([ENTITY], [])),
+        ("relationship-proposal", "proposal_rows", ([], [ENTITY])),
+    ],
+)
+def test_builder_reads_only_requested_kind_and_reuses_then_releases_source_resources(
+    monkeypatch, kind, builder, groups
+):
+    subject, _ = publisher()
+    engine, factory = Mock(), Mock()
+    create = Mock(return_value=engine)
+    sessions = Mock(return_value=factory)
+    monkeypatch.setattr(cards, "create_engine", create)
+    monkeypatch.setattr(cards, "sessionmaker", sessions)
+    builders = {
+        name: Mock(return_value=[observation()])
+        for name in ("article_rows", "source_rows", "proposal_rows")
+    }
+    for name, observe in builders.items():
+        monkeypatch.setattr(cards, name, observe)
+
+    for _ in range(2):
+        result = subject._build(kind, [ENTITY], "policy", NOW)
+        assert result[0]["entity_id"] == ENTITY
+    create.assert_called_once_with(subject.settings.database_url, poolclass=cards.NullPool)
+    sessions.assert_called_once_with(engine, expire_on_commit=False)
+    assert builders[builder].call_args.args == (factory, *groups, "policy", NOW)
+    assert all(not observe.called for name, observe in builders.items() if name != builder)
+
+    subject._catalog_snapshots["retained catalogue"] = object()
+    subject._candidate_rankings.append(object())
+    subject.close()
+    subject.close()
+    assert not subject._catalog_snapshots and not subject._candidate_rankings
+    assert subject._factory is None and subject._engine is None
+    engine.dispose.assert_called_once()
+
+
+def test_ingestion_keeps_research_and_promoted_candidate_owners_in_the_initial_barrier(monkeypatch):
+    async def verify():
+        subject, client = publisher()
+        monkeypatch.setattr(cards, "pipeline_policy_version", lambda _settings: "policy")
+        candidate, source, research, topic, relationship, revision = [
+            uuid.uuid4() for _ in range(6)
+        ]
+        state = dict(STATE, card_bootstrap_barrier=False)
+
+        def selected(statement, parameters):
+            if "FROM analytics_pipeline_state" in statement:
+                return state
+            if statement.startswith("SELECT proposal_id FROM topic_analysis_jobs"):
+                return [{"proposal_id": topic}]
+            if statement.startswith("SELECT id FROM topic_relation_proposals"):
+                return [{"id": relationship}]
+            if statement.startswith("SELECT source_id FROM source_candidates"):
+                return [{"source_id": source}]
+            if "FROM catalog_revisions" in statement:
+                return [{"name": "topics", "revision": revision}]
+            return None
+
+        connection = Connection(selected)
+        events = [
+            dict(source_table="topic_analysis_jobs", operation="I", record={"id": str(research)}),
+            dict(source_table="source_candidates", operation="I", record={"id": str(candidate)}),
+            dict(source_table="catalog_revisions", operation="I", record={"name": "topics"}),
+        ]
+        fence = AsyncMock()
+        await subject.ingest(connection, events, 42, fence=fence)
+
+        refresh = next(
+            call
+            for call in connection.calls
+            if call[0].startswith("INSERT INTO analytics_card_refresh")
+        )
+        assert refresh[1][:2] == (42, True)
+        assert set(zip(refresh[1][2], refresh[1][3], strict=True)) == {
+            ("candidate", candidate),
+            ("source", source),
+            ("topic-proposal", topic),
+            ("relationship-proposal", relationship),
+        }
+        fanout = next(
+            call
+            for call in connection.calls
+            if call[0].startswith("INSERT INTO analytics_card_fanout")
+        )
+        assert fanout[1] == (42, True, ["catalog"], [cards.ZERO_UUID])
+        assert "requested_at=excluded.requested_at" in fanout[0]
+        assert "requested_at=excluded.requested_at" not in refresh[0]
+        target = next(
+            parameters
+            for statement, parameters in connection.calls
+            if statement.startswith("UPDATE analytics_pipeline_state")
+        )
+        assert target[0].obj == [["topics", str(revision)]]
+        assert subject._factory is None  # Ingestion queues identities without hydrating cards.
+        fence.assert_awaited_once_with(connection)
+
+        schema_calls = client.execute.await_count
+        before = len(connection.calls)
+        await subject.ingest(connection, [], 43, fence=fence)
+        assert client.execute.await_count == schema_calls
+        assert not any(
+            statement.startswith(("INSERT", "UPDATE", "DELETE"))
+            for statement, _ in connection.calls[before:]
+        )
+
+    asyncio.run(verify())
+
+
+@pytest.mark.parametrize("reset", [False, True])
+def test_ingestion_restarts_coverage_before_queueing_changed_policy_or_truncated_sources(
+    monkeypatch, reset
+):
+    async def verify():
+        subject, _ = publisher()
+        monkeypatch.setattr(cards, "pipeline_policy_version", lambda _settings: "policy")
+        previous = dict(STATE, card_target_policy="policy" if reset else "previous")
+        current = dict(STATE, card_bootstrap_barrier=False)
+        subject._state = AsyncMock(side_effect=[previous, current])
+        subject._reset = AsyncMock()
+        subject._mark = AsyncMock()
+        event = dict(
+            source_table="articles", operation="T" if reset else "I", record={"id": str(ENTITY)}
+        )
+        connection, fence = Connection(), AsyncMock()
+
+        await subject.ingest(connection, [event], 8, fence=fence)
+
+        subject._reset.assert_awaited_once_with(connection, "policy", 8, fence=fence)
+        assert subject._state.await_count == 2
+        assert all(call.args[3] is True for call in subject._mark.await_args_list)
+        if not reset:
+            assert subject._mark.await_args_list[0].args[1] == {("article", ENTITY)}
+
+    asyncio.run(verify())
+
+
+def test_idle_cycle_does_not_hydrate_sources_or_republish_but_still_observes_coverage(monkeypatch):
+    async def verify():
+        subject, client = publisher()
+        monkeypatch.setattr(cards, "pipeline_policy_version", lambda _settings: "policy")
+        subject._state = AsyncMock(return_value=STATE)
+        subject._coverage, subject._status = AsyncMock(), AsyncMock()
+        client.query.return_value = []
+        connection = Connection(
+            lambda statement, parameters: (
+                {"saturated": False} if " AS saturated" in statement else None
+            )
+        )
+        fence = AsyncMock()
+
+        assert not await subject.once(connection, 5, fence=fence)
+        assert subject._factory is None
+        assert [call.args[1]["kind"] for call in client.query.await_args_list[:-1]] == [
+            "article",
+            "source",
+            "candidate",
+        ]
+        client.insert.assert_not_called()
+        assert not any(
+            statement.startswith(("UPDATE", "DELETE", "INSERT"))
+            for statement, _ in connection.calls
+        )
+        subject._coverage.assert_awaited_once_with(connection, fence=fence)
+        subject._status.assert_awaited_once_with(connection, 5, fence=fence)
+        initialized = client.execute.await_count
+        assert initialized > 0
+        assert not await subject.once(connection, 6, fence=fence)
+        assert client.execute.await_count == initialized
+
+    asyncio.run(verify())
+
+
+def test_work_classes_rotate_so_continuous_dirty_cards_cannot_starve_coverage(monkeypatch):
+    async def verify():
+        subject, _ = publisher()
+        monkeypatch.setattr(cards, "pipeline_policy_version", lambda _settings: "policy")
+        subject._initialized = True
+        subject._state = AsyncMock(return_value=STATE)
+        subject._coverage, subject._status = AsyncMock(), AsyncMock()
+        names = ("_refresh_one", "_backfill_one", "_fanout_one", "_timers_one", "_renew_one")
+        workers = {name: AsyncMock(return_value=True) for name in names}
+        for name, worker in workers.items():
+            setattr(subject, name, worker)
+        connection, fence = Connection(), AsyncMock()
+        renew = AsyncMock(return_value={"lease_generation": 20})
+
+        for generation in range(5):
+            assert await subject.once(connection, generation, fence=fence, renew=renew)
+            assert sum(worker.await_count for worker in workers.values()) == generation + 1
+        assert all(worker.await_count == 1 for worker in workers.values())
+        assert subject._coverage.await_count == subject._status.await_count == 5
+        assert subject._turn == 0
+
+    asyncio.run(verify())
+
+
+def test_lease_loss_and_new_policy_block_every_incremental_worker(monkeypatch):
+    async def verify():
+        subject, client = publisher()
+        subject._initialized = True
+        subject._state = AsyncMock(return_value=dict(STATE, card_target_policy="previous"))
+        subject._reset, subject._status = AsyncMock(), AsyncMock()
+        subject._refresh_one = AsyncMock()
+        connection, fence = Connection(), AsyncMock()
+        with pytest.raises(RuntimeError, match="superseded"):
+            await subject.once(connection, 3, fence=fence, renew=AsyncMock(return_value=None))
+        subject._state.assert_not_called()
+        subject._refresh_one.assert_not_called()
+        client.insert.assert_not_called()
+
+        monkeypatch.setattr(cards, "pipeline_policy_version", lambda _settings: "policy")
+        assert await subject.once(connection, 4, fence=fence)
+        subject._reset.assert_awaited_once_with(connection, "policy", 4, fence=fence)
+        subject._status.assert_awaited_once_with(connection, 4, fence=fence, force=True)
+        subject._refresh_one.assert_not_called()
+
+    asyncio.run(verify())
+
+
+def test_completed_catalog_and_population_barriers_advance_together_only_when_drained():
+    async def verify():
+        subject, _ = publisher()
+        pending = dict(covered=False, fanout=False, dirty=False, catalog=True, any_dirty=True)
+        connection = Connection(lambda statement, parameters: pending)
+        fence = AsyncMock()
+        await subject._coverage(connection, fence=fence)
+        assert not any(statement.startswith("UPDATE") for statement, _ in connection.calls)
+
+        pending.update(covered=True, catalog=False, any_dirty=False)
+        await subject._coverage(connection, fence=fence)
+        updates = [statement for statement, _ in connection.calls if statement.startswith("UPDATE")]
+        assert any("card_serving_policy=card_target_policy" in statement for statement in updates)
+        assert any(
+            "card_catalog_revision=card_catalog_target_revision" in statement
+            and "card_catalog_progress_at=NULL" in statement
+            for statement in updates
+        )
+
+    asyncio.run(verify())
+
+
+def test_status_heartbeat_coalesces_only_successfully_published_observations(monkeypatch):
+    async def verify():
+        subject, client = publisher()
+        clock = [100.0]
+        monkeypatch.setattr(cards.time, "monotonic", lambda: clock[0])
+        subject._state = AsyncMock(return_value=STATE)
+        connection, fence = Connection(lambda statement, parameters: {"lag": 0}), AsyncMock()
+        client.insert.side_effect = RuntimeError("status flush failed")
+        with pytest.raises(RuntimeError, match="status flush failed"):
+            await subject._status(connection, 1, fence=fence)
+        assert subject._last_status_key is None
+
+        client.insert.side_effect = None
+        await subject._status(connection, 2, fence=fence)
+        clock[0] += 29
+        await subject._status(connection, 3, fence=fence)
+        assert client.insert.await_count == 2
+        clock[0] += 1
+        await subject._status(connection, 4, fence=fence)
+        assert client.insert.await_count == 3
+        assert client.insert.await_args.args[1][0]["version"] == 4
+
+    asyncio.run(verify())
+
+
+@pytest.mark.parametrize("lease_lost_after_scan", [False, True])
+def test_finished_fanout_retires_only_its_captured_generation_under_a_live_lease(
+    lease_lost_after_scan,
+):
+    async def verify():
+        subject, client = publisher()
+        subject._saturated = AsyncMock(return_value=False)
+        selected = dict(
+            kind="source",
+            entity_id=ENTITY,
+            cursor=uuid.uuid4(),
+            generation=2,
+            initial_pending=False,
+            requested_at=NOW,
+            available_at=NOW,
+        )
+        connection = Connection(
+            lambda statement, parameters: (
+                selected
+                if statement.startswith("SELECT ") and "FROM analytics_card_fanout" in statement
+                else None
+            )
+        )
+        fence = AsyncMock(
+            side_effect=[None, RuntimeError("superseded")] if lease_lost_after_scan else None
+        )
+        if lease_lost_after_scan:
+            with pytest.raises(RuntimeError, match="superseded"):
+                await subject._fanout_one(connection, 3, STATE, fence=fence)
+        else:
+            assert await subject._fanout_one(connection, 3, STATE, fence=fence)
+        retired = [call for call in connection.calls if call[0].startswith("DELETE")]
+        if lease_lost_after_scan:
+            assert not retired
+        else:
+            assert len(retired) == 1
+            assert retired[0][1] == ("source", ENTITY, 2)
+            assert "AND generation=%s" in retired[0][0]
+        assert subject._factory is None
+        client.insert.assert_not_called()
+
+    asyncio.run(verify())
+
+
+def test_empty_publication_batch_performs_no_storage_or_lease_work():
+    async def verify():
+        subject, client = publisher()
+        connection, fence = Connection(), AsyncMock()
+        await subject._publish_shards(connection, "policy", "article", [], 3, fence=fence)
+        client.execute.assert_not_called()
+        client.query.assert_not_called()
+        client.insert.assert_not_called()
+        fence.assert_not_called()
+        assert not connection.calls
+
+    asyncio.run(verify())
