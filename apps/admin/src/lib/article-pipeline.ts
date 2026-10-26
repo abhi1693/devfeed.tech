@@ -59,16 +59,8 @@ export function analysisStepLabel(name: string) {
   return analysisStepLabels[name] ?? name.replaceAll("_", " ");
 }
 
-export function pipelineQuery(query: string): URLSearchParams {
-  const original = new URLSearchParams(query);
-  const params = new URLSearchParams({ limit: "20" });
-  for (const key of ["q", "source_id", "needs_attention"])
-    if (original.get(key)) params.set(key, original.get(key)!);
-  if (original.get("group_by") === "source") params.set("group_by", "source");
-  return params;
-}
-function pipelineParams(query: string): AdminArticlePipelineParams {
-  const params = pipelineQuery(query);
+export function articlePipelineParams(query: string): AdminArticlePipelineParams {
+  const params = new URLSearchParams(query);
   return {
     limit: 20,
     ...(params.get("q") ? { q: params.get("q")! } : {}),
@@ -78,7 +70,7 @@ function pipelineParams(query: string): AdminArticlePipelineParams {
   };
 }
 export function getArticlePipeline(query: string, signal: AbortSignal) {
-  return adminArticlePipeline(pipelineParams(query), { signal });
+  return adminArticlePipeline(articlePipelineParams(query), { signal });
 }
 export function getArticlePipelineColumn(
   stage: PipelineStage,
@@ -86,7 +78,7 @@ export function getArticlePipelineColumn(
   cursor: number,
   signal: AbortSignal,
 ) {
-  return adminArticlePipelineColumn(stage, { ...pipelineParams(query), cursor }, { signal });
+  return adminArticlePipelineColumn(stage, { ...articlePipelineParams(query), cursor }, { signal });
 }
 export function getArticlePipelineDetail(id: string, signal: AbortSignal) {
   return adminArticlePipelineDetail(id, { signal });
@@ -98,7 +90,7 @@ export function getArticlePipelineSourceArticles(
   cursor: number,
   signal: AbortSignal,
 ) {
-  const params = pipelineParams(query);
+  const params = articlePipelineParams(query);
   delete params.group_by;
   return adminArticlePipelineColumn(
     stage,

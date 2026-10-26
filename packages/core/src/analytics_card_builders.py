@@ -6,6 +6,7 @@ bodies, prompts, credentials and full private source URLs stay transactional.
 """
 
 import json
+from contextlib import contextmanager
 from datetime import timedelta
 from urllib.parse import unquote_plus, urlsplit, urlunsplit
 from uuid import UUID
@@ -60,6 +61,15 @@ def bounded_ids(identifiers):
     if len(identifiers) > BATCH_SIZE:
         raise ValueError("Card observation batches must contain at most 200 identities")
     return identifiers
+
+
+@contextmanager
+def _observation_session(factory):
+    """Every card batch observes one bounded, read-only source snapshot."""
+    with factory() as session:
+        session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+        session.execute(select(func.set_config("statement_timeout", "10000", True)))
+        yield session
 
 
 def _netloc(parts):
@@ -145,39 +155,7 @@ def minimal_terminal_article(article, policy, now, terminal_at):
         editorial_revision=article.editorial_revision,
         jobs=PipelineJobs(),
     )
-    return dict(
-        policy_version=policy,
-        kind="article",
-        entity_id=article.id,
-        payload=card.model_dump(mode="json"),
-        stage=card.stage,
-        state=card.state,
-        source_id=card.source_id,
-        source_name=card.source_name,
-        source_sort=(card.source_name or "").casefold(),
-        source_ids=[str(origin.source_id) for origin in article.origins],
-        search_text=normalized_search(
-            article.title, article.ai_title, public_article_uri(article.canonical_url)
-        ),
-        literal_search_text=literal_search(
-            article.title, article.ai_title, public_article_uri(article.canonical_url)
-        ),
-        source_type="",
-        created_at=article.discovered_at,
-        activity_at=article.discovered_at,
-        terminal_at=terminal_at,
-        has_active_work=False,
-        next_transition_at=None,
-        evaluated_at=now,
-        review_pending=int(article.review_status == "pending"),
-        enabled=0,
-        approval_status="",
-        consecutive_failures=0,
-        blocker_codes=[],
-        title=article.title,
-        editorial_revision=article.editorial_revision,
-        catalog_sensitive=0,
-    )
+    return _article_row(article, card, policy, now, terminal_at)
 
 
 def _next_transition(jobs, now):
@@ -193,17 +171,63 @@ def _next_transition(jobs, now):
     )
 
 
+def _article_row(
+    article,
+    card,
+    policy,
+    now,
+    terminal_at,
+    *,
+    search_text=None,
+    jobs=(),
+    blocker_codes=(),
+    catalog_sensitive=False,
+):
+    """Active and terminal observations share one safe, typed article shape."""
+    safe_uri = public_article_uri(article.canonical_url)
+    jobs = tuple(jobs)
+    return dict(
+        policy_version=policy,
+        kind="article",
+        entity_id=article.id,
+        payload=card.model_dump(mode="json"),
+        stage=card.stage,
+        state=card.state,
+        source_id=card.source_id,
+        source_name=card.source_name,
+        source_sort=(card.source_name or "").casefold(),
+        source_ids=[str(origin.source_id) for origin in article.origins],
+        search_text=search_text
+        if search_text is not None
+        else normalized_search(article.title, article.ai_title, safe_uri),
+        literal_search_text=literal_search(article.title, article.ai_title, safe_uri),
+        source_type="",
+        created_at=article.discovered_at,
+        activity_at=article.discovered_at,
+        terminal_at=terminal_at,
+        has_active_work=any(getattr(job, "status", None) in {"queued", "running"} for job in jobs),
+        next_transition_at=_next_transition(jobs, now),
+        evaluated_at=now,
+        review_pending=int(article.review_status == "pending"),
+        enabled=0,
+        approval_status="",
+        consecutive_failures=0,
+        blocker_codes=list(blocker_codes),
+        title=article.title,
+        editorial_revision=article.editorial_revision,
+        catalog_sensitive=int(catalog_sensitive),
+    )
+
+
 def article_rows(factory, identifiers, policy, now):
     from devfeed_core.analytics_article_cards import _batch_facts, _card, _statement
 
     identifiers = bounded_ids(identifiers)
     if not identifiers:
         return []
-    with factory() as session:
+    with _observation_session(factory) as session:
         # Card revisions, catalog, job evidence and compact blockers must describe
         # the same observation even when ingestion commits between these reads.
-        session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
-        session.execute(select(func.set_config("statement_timeout", "10000", True)))
         loaded = session.execute(
             _statement(None, None)
             .where(Article.id.in_(identifiers))
@@ -285,47 +309,21 @@ def article_rows(factory, identifiers, policy, now):
                 now=now,
             )
             card = _card(article, readiness, current, taxonomy=taxonomy)
-            payload = card.model_dump(mode="json")
             rows.append(
-                dict(
-                    policy_version=policy,
-                    kind="article",
-                    entity_id=article.id,
-                    payload=payload,
-                    stage=card.stage,
-                    state=card.state,
-                    source_id=card.source_id,
-                    source_name=card.source_name,
-                    source_sort=(card.source_name or "").casefold(),
-                    source_ids=[str(origin.source_id) for origin in article.origins],
+                _article_row(
+                    article,
+                    card,
+                    policy,
+                    now,
+                    terminal_times[article.id],
                     search_text=article_search(article, searches[article.id]),
-                    literal_search_text=literal_search(
-                        article.title, article.ai_title, public_article_uri(article.canonical_url)
-                    ),
-                    source_type="",
-                    review_pending=int(article.review_status == "pending"),
-                    enabled=0,
-                    approval_status="",
-                    consecutive_failures=0,
                     blocker_codes=[row["code"] for row in blockers.get(article.id, [])],
-                    title=article.title,
-                    editorial_revision=article.editorial_revision,
-                    catalog_sensitive=int(
-                        article.review_status != "rejected"
-                        and (
-                            bool(article.topic_links)
-                            or getattr(current.get("analysis"), "status", None) == "succeeded"
-                        )
+                    catalog_sensitive=article.review_status != "rejected"
+                    and (
+                        bool(article.topic_links)
+                        or getattr(current.get("analysis"), "status", None) == "succeeded"
                     ),
-                    created_at=article.discovered_at,
-                    activity_at=article.discovered_at,
-                    terminal_at=terminal_times[article.id],
-                    has_active_work=any(
-                        getattr(job, "status", None) in {"queued", "running"}
-                        for job in current.values()
-                    ),
-                    next_transition_at=_next_transition(current.values(), now),
-                    evaluated_at=now,
+                    jobs=current.values(),
                 )
             )
     return rows + archived
@@ -339,9 +337,7 @@ def source_rows(factory, sources, candidates, policy, now):
         raise ValueError("Source card batches must contain at most 200 total identities")
     if not sources and not candidates:
         return []
-    with factory() as session:
-        session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
-        session.execute(select(func.set_config("statement_timeout", "10000", True)))
+    with _observation_session(factory) as session:
         source_objects = list(session.scalars(select(Source).where(Source.id.in_(sources))))
         candidate_objects = list(
             session.scalars(
@@ -405,9 +401,7 @@ def proposal_rows(factory, topic_ids, relationship_ids, policy, now):
         raise ValueError("Proposal card batches must contain at most 200 total identities")
     if not topic_ids and not relationship_ids:
         return []
-    with factory() as session:
-        session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
-        session.execute(select(func.set_config("statement_timeout", "10000", True)))
+    with _observation_session(factory) as session:
         topics = (
             list(
                 session.execute(

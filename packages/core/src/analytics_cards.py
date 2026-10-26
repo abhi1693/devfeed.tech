@@ -74,6 +74,31 @@ RESET = (
     "(SELECT coalesce(max(version),toUInt128(0)) FROM analytics_card_resets "
     "WHERE policy={policy:String} AND kind={kind:String})"
 )
+CARD_EVENT_ROUTES = {
+    **{table: (("id", kind),) for kind, table in CARD_BACKFILL_TABLES.items()},
+    **dict.fromkeys(
+        (
+            "article_contents",
+            "article_origins",
+            "article_topics",
+            "article_reviews",
+            "article_enrichment_jobs",
+            "article_analysis_jobs",
+        ),
+        (("article_id", "article"),),
+    ),
+    **dict.fromkeys(
+        ("source_reviews", "source_enrichment_jobs", "ingestion_jobs"),
+        (("source_id", "source"),),
+    ),
+    "source_candidates": (("id", "candidate"), ("source_id", "source")),
+    "article_image_jobs": (("article_id", "article"), ("source_id", "source")),
+    "source_discovery_jobs": (("candidate_id", "candidate"),),
+    **dict.fromkeys(
+        ("topic_analysis_jobs", "topic_decision_runs", "topic_decision_calls"),
+        (("proposal_id", "topic-proposal"),),
+    ),
+}
 
 
 def card_initialization_sql():
@@ -160,6 +185,24 @@ def normalize_card(row, policy, kind, entity_id, generation, now):
     return result
 
 
+def _source_fanout(event):
+    table = event["source_table"]
+    if table == "source_candidates":
+        return "source_id"
+    if table != "sources":
+        return None
+    before, after = event.get("before_record"), event.get("record") or {}
+    changed = (
+        before is None
+        or event["operation"] == "D"
+        or any(
+            before.get(field) != after.get(field)
+            for field in ("name", "approval_status", "enabled")
+        )
+    )
+    return "id" if changed else None
+
+
 def event_invalidations(events):
     """Only identities leave captured metadata; include before and after owners."""
     dirty = set()
@@ -171,65 +214,17 @@ def event_invalidations(events):
         if event["operation"] == "T":
             reset |= table in CARD_SOURCES
             continue
-        before, after = event.get("before_record"), event.get("record")
-        source_fanout = (
-            before is None
-            or event["operation"] == "D"
-            or any(
-                before.get(field) != (after or {}).get(field)
-                for field in ("name", "approval_status", "enabled")
-            )
-        )
+        fanout_field = _source_fanout(event)
         for record in (event.get("before_record"), event.get("record")):
             if not record:
                 continue
             if table in {"topics", "catalog_revisions"}:
                 fanout.add(("catalog", ZERO_UUID))
-            if table == "articles" and record.get("id"):
-                dirty.add(("article", identity(record["id"])))
-            elif table in {
-                "sources",
-                "source_candidates",
-                "topic_proposals",
-                "topic_relation_proposals",
-            } and record.get("id"):
-                kind = {
-                    "sources": "source",
-                    "source_candidates": "candidate",
-                    "topic_proposals": "topic-proposal",
-                    "topic_relation_proposals": "relationship-proposal",
-                }[table]
-                dirty.add((kind, identity(record["id"])))
-            if record.get("article_id") and table in {
-                "article_contents",
-                "article_origins",
-                "article_topics",
-                "article_reviews",
-                "article_enrichment_jobs",
-                "article_analysis_jobs",
-                "article_image_jobs",
-            }:
-                dirty.add(("article", identity(record["article_id"])))
-            if record.get("source_id") and table in {
-                "source_candidates",
-                "source_reviews",
-                "source_enrichment_jobs",
-                "ingestion_jobs",
-                "article_image_jobs",
-            }:
-                dirty.add(("source", identity(record["source_id"])))
-            if table == "sources" and record.get("id") and source_fanout:
-                fanout.add(("source", identity(record["id"])))
-            if table == "source_candidates" and record.get("source_id"):
-                fanout.add(("source", identity(record["source_id"])))
-            if table == "source_discovery_jobs" and record.get("candidate_id"):
-                dirty.add(("candidate", identity(record["candidate_id"])))
-            if table in {
-                "topic_analysis_jobs",
-                "topic_decision_runs",
-                "topic_decision_calls",
-            } and record.get("proposal_id"):
-                dirty.add(("topic-proposal", identity(record["proposal_id"])))
+            for field, kind in CARD_EVENT_ROUTES.get(table, ()):
+                if record.get(field):
+                    dirty.add((kind, identity(record[field])))
+            if fanout_field and record.get(fanout_field):
+                fanout.add(("source", identity(record[fanout_field])))
             if table in {"topic_analysis_jobs", "research_verification_jobs"} and record.get("id"):
                 research.add(identity(record["id"]))
     return dirty, fanout, research, reset
@@ -311,32 +306,21 @@ class CardPublisher:
         ).fetchall()
         return [[row["name"], str(row["revision"])] for row in rows]
 
-    async def _mark(self, connection, dirty, generation, initial):
+    async def _mark(self, connection, dirty, generation, initial, *, fanout=False):
         if not dirty:
             return
         ordered = sorted(dirty)
+        table = "analytics_card_fanout" if fanout else "analytics_card_refresh"
+        # A fanout finishes its active cohort before restarting for the newest
+        # invalidation. Exact-card refreshes keep their original deadline.
+        requested = "requested_at=excluded.requested_at," if fanout else ""
         await connection.execute(
-            "INSERT INTO analytics_card_refresh(kind,entity_id,generation,initial_pending) "
+            f"INSERT INTO {table}(kind,entity_id,generation,initial_pending) "
             "SELECT kind,entity_id,%s,%s FROM unnest(%s::text[],%s::uuid[]) AS d(kind,entity_id) "
             "ON CONFLICT(kind,entity_id) DO UPDATE SET "
-            "generation=greatest(analytics_card_refresh.generation,excluded.generation),"
-            "initial_pending=analytics_card_refresh.initial_pending OR excluded.initial_pending",
-            (generation, initial, [kind for kind, _ in ordered], [value for _, value in ordered]),
-        )
-
-    async def _fanout_mark(self, connection, fanout, generation, initial):
-        if not fanout:
-            return
-        ordered = sorted(fanout)
-        # requested_at is the newest invalidation, available_at the active
-        # cohort. Finish that pass before restarting for later changes.
-        await connection.execute(
-            "INSERT INTO analytics_card_fanout(kind,entity_id,generation,initial_pending) "
-            "SELECT kind,entity_id,%s,%s FROM unnest(%s::text[],%s::uuid[]) AS d(kind,entity_id) "
-            "ON CONFLICT(kind,entity_id) DO UPDATE SET "
-            "generation=greatest(analytics_card_fanout.generation,excluded.generation),"
-            "requested_at=excluded.requested_at,"
-            "initial_pending=analytics_card_fanout.initial_pending OR excluded.initial_pending",
+            f"generation=greatest({table}.generation,excluded.generation),"
+            + requested
+            + f"initial_pending={table}.initial_pending OR excluded.initial_pending",
             (generation, initial, [kind for kind, _ in ordered], [value for _, value in ordered]),
         )
 
@@ -446,7 +430,7 @@ class CardPublisher:
                 dirty.update(("source", row["source_id"]) for row in rows)
             initial = not state["card_bootstrap_barrier"]
             await self._mark(connection, dirty, generation, initial)
-            await self._fanout_mark(connection, fanout, generation, initial)
+            await self._mark(connection, fanout, generation, initial, fanout=True)
             if ("catalog", ZERO_UUID) in fanout:
                 revision = await self._catalog_revision(connection)
                 await connection.execute(

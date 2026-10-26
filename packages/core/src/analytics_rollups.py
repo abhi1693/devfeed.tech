@@ -3,6 +3,7 @@
 import re
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from devfeed_core.analytics_facts import PAYLOAD_NAMES, dirty_buckets
@@ -14,14 +15,47 @@ BUCKETS = "{buckets:Array(DateTime('UTC'))}"
 REFRESH_BATCH_SIZE = 32
 DAILY_REFRESH_BATCH_SIZE = 1
 CANONICAL_READ_BLOCK_SIZE = 1024
-COMPACTION_DOMAINS = {
-    "publishing_hourly": "publishing",
-    "audience_hourly": "audience",
-    "processing_hourly": "processing",
-    "inference_hourly": "inference",
-    "source_daily": "sources",
-    "topic_daily": "topics",
+
+
+@dataclass(frozen=True)
+class Rollup:
+    table: str
+    dimensions: tuple[str, ...]
+    measures: str
+    array_join: str = ""
+
+
+ROLLUPS = {
+    "publishing": Rollup(
+        "publishing_hourly",
+        (),
+        "sum(published), sum(automated), "
+        "quantilesTDigestStateIf(0.5, 0.95)(delay_seconds, has_delay = 1)",
+    ),
+    "audience": Rollup(
+        "audience_hourly",
+        (),
+        "sum(opens), sum(accounts_created), uniqCombined64StateIf(viewer_key, opens > 0)",
+    ),
+    "processing": Rollup(
+        "processing_hourly",
+        ("task", "status", "outcome"),
+        "sum(completed), sum(failed), sum(useful), "
+        "quantilesTDigestStateIf(0.5, 0.95)(toFloat64(duration_ms) / 1000, has_duration = 1)",
+    ),
+    "inference": Rollup(
+        "inference_hourly",
+        ("task", "model", "effort", "status"),
+        "sum(calls), sum(failed), sum(unreported), sum(web_searches), "
+        "sum(input_tokens), sum(cached_input_tokens), sum(output_tokens), "
+        "sum(reasoning_tokens), "
+        "quantilesTDigestStateIf(0.5, 0.95)(toFloat64(duration_ms), has_duration = 1)",
+    ),
+    "sources": Rollup("source_daily", ("source_id",), "sum(published)", "source_ids AS source_id"),
+    "topics": Rollup("topic_daily", ("topic_id",), "sum(published)", "topic_ids AS topic_id"),
 }
+COMPACTION_DOMAINS = {rollup.table: domain for domain, rollup in ROLLUPS.items()}
+
 STAGING_PATTERN = "^analytics_compact_(" + "|".join(COMPACTION_DOMAINS) + ")_[0-9a-f]{32}$"
 ORPHAN_CHECK_SECONDS = 300
 ORPHAN_MIN_AGE_SECONDS = 600
@@ -51,71 +85,22 @@ def canonical_sql(domain, *, daily=False, batch=False):
 
 
 def rebuild_sql(domain, *, batch=False):
-    daily = domain in {"sources", "topics"}
+    if domain not in ROLLUPS:
+        raise ValueError("Unknown analytical rollup domain")
+    rollup = ROLLUPS[domain]
+    daily = bool(rollup.array_join)
     source = canonical_sql("publishing" if daily else domain, daily=daily, batch=batch)
-    prefix = f"WITH facts AS ({source}) "
     bucket = "bucket_hour" if batch else BUCKET
-    grouped = f" GROUP BY {bucket}" if batch else ""
-    if domain == "publishing":
-        return (
-            "INSERT INTO analytics_publishing_hourly "
-            + prefix
-            + (
-                "SELECT "
-                f"{bucket}, {GENERATION}, sum(published), sum(automated), "
-                "quantilesTDigestStateIf(0.5, 0.95)(delay_seconds, has_delay = 1) FROM facts"
-                + grouped
-            )
-        )
-    if domain == "audience":
-        return (
-            "INSERT INTO analytics_audience_hourly "
-            + prefix
-            + (
-                "SELECT "
-                f"{bucket}, {GENERATION}, sum(opens), sum(accounts_created), "
-                "uniqCombined64StateIf(viewer_key, opens > 0) FROM facts" + grouped
-            )
-        )
-    if domain == "processing":
-        return (
-            "INSERT INTO analytics_processing_hourly "
-            + prefix
-            + (
-                "SELECT "
-                f"{bucket}, {GENERATION}, task, status, outcome, sum(completed), sum(failed), "
-                "sum(useful), quantilesTDigestStateIf(0.5, 0.95)"
-                "(toFloat64(duration_ms) / 1000, has_duration = 1) "
-                f"FROM facts GROUP BY {'bucket_hour, ' if batch else ''}task, status, outcome"
-            )
-        )
-    if domain == "inference":
-        return (
-            "INSERT INTO analytics_inference_hourly "
-            + prefix
-            + (
-                "SELECT "
-                f"{bucket}, {GENERATION}, task, model, effort, status, "
-                "sum(calls), sum(failed), sum(unreported), sum(web_searches), "
-                "sum(input_tokens), sum(cached_input_tokens), sum(output_tokens), "
-                "sum(reasoning_tokens), quantilesTDigestStateIf(0.5, 0.95)"
-                "(toFloat64(duration_ms), has_duration = 1) "
-                f"FROM facts GROUP BY {'bucket_hour, ' if batch else ''}task, model, effort, status"
-            )
-        )
-    if domain in {"sources", "topics"}:
-        singular = "source" if domain == "sources" else "topic"
-        return (
-            f"INSERT INTO analytics_{singular}_daily "
-            + prefix
-            + (
-                f"SELECT toDate({bucket}), {GENERATION}, "
-                f"{singular}_id, sum(published) FROM facts "
-                f"ARRAY JOIN {singular}_ids AS {singular}_id GROUP BY "
-                f"{'toDate(bucket_hour), ' if batch else ''}{singular}_id"
-            )
-        )
-    raise ValueError("Unknown analytical rollup domain")
+    if daily:
+        bucket = f"toDate({bucket})"
+    selected = ", ".join((bucket, GENERATION, *rollup.dimensions, rollup.measures))
+    grouped = ", ".join((bucket, *rollup.dimensions) if batch else rollup.dimensions)
+    return (
+        f"INSERT INTO analytics_{rollup.table} WITH facts AS ({source}) "
+        f"SELECT {selected} FROM facts"
+        + (f" ARRAY JOIN {rollup.array_join}" if daily else "")
+        + (f" GROUP BY {grouped}" if grouped else "")
+    )
 
 
 class RollupPublisher:
@@ -235,14 +220,7 @@ class RollupPublisher:
                     "AND generation<=%s",
                     (domain, row["bucket"], row["generation"]),
                 )
-        table = {
-            "publishing": "publishing_hourly",
-            "audience": "audience_hourly",
-            "processing": "processing_hourly",
-            "inference": "inference_hourly",
-            "sources": "source_daily",
-            "topics": "topic_daily",
-        }[domain]
+        table = ROLLUPS[domain].table
         async with connection.transaction():
             await fence(connection)
             for month in sorted({row["bucket"].year * 100 + row["bucket"].month for row in rows}):

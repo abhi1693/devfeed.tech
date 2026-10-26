@@ -3,6 +3,7 @@
 import hashlib
 import json
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -15,11 +16,11 @@ FRESH_SECONDS = 60
 SHARDS = 256
 
 
-def preparing():
+def preparing(message="Analytics are being prepared.", *, retry_after=2):
     return HTTPException(
         503,
-        {"code": "analytics_preparing", "message": "Analytics are being prepared."},
-        headers={"Retry-After": "2"},
+        {"code": "analytics_preparing", "message": message},
+        headers={"Retry-After": str(retry_after)},
     )
 
 
@@ -27,6 +28,11 @@ def timestamp(value):
     if isinstance(value, datetime):
         return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+
+
+def _next_cursor(offset, count, total):
+    end = offset + count
+    return end if end < total else None
 
 
 @dataclass(frozen=True)
@@ -168,6 +174,37 @@ class CurrentCards:
             raise AnalyticsUnavailable("Current card snapshot is being renewed")
         return payloads
 
+    async def _stage_counts(self, frozen, base, board, params):
+        rows = await self._query(
+            frozen,
+            f"/* admin:{board}-counts */ SELECT c.stage,count() AS total FROM "
+            + base
+            + " GROUP BY c.stage",
+            **params,
+        )
+        return {row["stage"]: int(row["total"]) for row in rows}
+
+    async def _page_keys(self, frozen, base, board, order, params):
+        return await self._query(
+            frozen,
+            f"""/* admin:{board}-page-keys */ SELECT kind,id,stage FROM (
+                SELECT c.kind,toString(c.entity_id) AS id,c.stage,
+                  row_number() OVER(PARTITION BY c.stage ORDER BY {order}) AS position
+                FROM {base} AND c.stage IN {{stages:Array(String)}}
+              ) WHERE position>{{offset:UInt64}} AND position<={{offset:UInt64}}+{{limit:UInt64}}
+              ORDER BY stage,position""",
+            **params,
+        )
+
+    async def _cards_by_stage(self, frozen, keys, card_type):
+        payloads = await self._payloads(frozen, keys)
+        by_stage = defaultdict(list)
+        for row in keys:
+            by_stage[row["stage"]].append(
+                card_type.model_validate(payloads[(row["kind"], row["id"])])
+            )
+        return by_stage
+
     async def article_board(
         self,
         *,
@@ -223,14 +260,7 @@ class CurrentCards:
         if needs_attention:
             condition += " AND c.state IN ('blocked','retry_wait')"
         base = frozen.source() + condition
-        counts = await self._query(
-            frozen,
-            "/* admin:article-counts */ SELECT c.stage,count() AS total FROM "
-            + base
-            + " GROUP BY c.stage",
-            **params,
-        )
-        totals = {row["stage"]: int(row["total"]) for row in counts}
+        totals = await self._stage_counts(frozen, base, "article", params)
         stages = (stage,) if stage else STAGES
         if group_by == "source":
             rows = await self._query(
@@ -268,60 +298,32 @@ class CurrentCards:
                         stage=key,
                         total=totals.get(key, 0),
                         items=[],
-                        source_groups=[
-                            PipelineSourceGroup(
-                                **{
-                                    field: row[field]
-                                    for field in (
-                                        "source_id",
-                                        "source_name",
-                                        "total",
-                                        "state_counts",
-                                    )
-                                }
-                            )
-                            for row in groups
-                        ],
-                        next_cursor=offset + limit if offset + limit < group_count else None,
+                        source_groups=[PipelineSourceGroup.model_validate(row) for row in groups],
+                        next_cursor=_next_cursor(offset, limit, group_count),
                     )
                 )
         else:
-            keys = await self._query(
+            keys = await self._page_keys(
                 frozen,
-                """/* admin:article-page-keys */ SELECT kind,id,stage FROM (
-                    SELECT c.kind,toString(c.entity_id) AS id,c.stage,
-                      row_number() OVER(PARTITION BY c.stage ORDER BY
-                        if(c.stage IN ('published','rejected'),0,if(c.state='running',0,1)),
-                        if(c.stage IN ('published','rejected'),c.terminal_at,NULL) DESC,
-                        if(c.stage IN ('published','rejected'),NULL,c.created_at) ASC,
-                        if(c.stage IN ('published','rejected'),toString(c.entity_id),'') DESC,
-                        if(c.stage IN ('published','rejected'),'',toString(c.entity_id)) ASC)
-                          AS position FROM """
-                + base
-                + """
-                      AND c.stage IN {stages:Array(String)}
-                  ) WHERE position>{offset:UInt64} AND position<={offset:UInt64}+{limit:UInt64}
-                  ORDER BY stage,position""",
-                **params,
+                base,
+                "article",
+                """if(c.stage IN ('published','rejected'),0,if(c.state='running',0,1)),
+                    if(c.stage IN ('published','rejected'),c.terminal_at,NULL) DESC,
+                    if(c.stage IN ('published','rejected'),NULL,c.created_at) ASC,
+                    if(c.stage IN ('published','rejected'),toString(c.entity_id),'') DESC,
+                    if(c.stage IN ('published','rejected'),'',toString(c.entity_id)) ASC""",
+                params,
             )
-            payloads = await self._payloads(frozen, keys)
-            columns = []
-            for key in stages:
-                total = totals.get(key, 0)
-                items = [
-                    PipelineCard.model_validate(payloads[(row["kind"], row["id"])])
-                    for row in keys
-                    if row["stage"] == key
-                ]
-                offset = params["offset"]
-                columns.append(
-                    PipelineColumn(
-                        stage=key,
-                        total=total,
-                        items=items,
-                        next_cursor=offset + limit if offset + limit < total else None,
-                    )
+            items = await self._cards_by_stage(frozen, keys, PipelineCard)
+            columns = [
+                PipelineColumn(
+                    stage=key,
+                    total=totals.get(key, 0),
+                    items=items[key],
+                    next_cursor=_next_cursor(params["offset"], limit, totals.get(key, 0)),
                 )
+                for key in stages
+            ]
         return PipelineBoard(
             as_of=self.now,
             terminal_since=since,
@@ -368,46 +370,27 @@ class CurrentCards:
         if query.needs_attention:
             condition += " AND (c.state IN ('blocked','retry_wait') OR c.stage='review')"
         base = frozen.source() + condition
-        counts = await self._query(
+        totals = await self._stage_counts(frozen, base, "source", params)
+        keys = await self._page_keys(
             frozen,
-            "/* admin:source-counts */ SELECT c.stage,count() AS total FROM "
-            + base
-            + " GROUP BY c.stage",
-            **params,
+            base,
+            "source",
+            """if(c.state='running',0,1),
+                if(c.stage IN {terminal_stages:Array(String)},
+                  -toUnixTimestamp64Micro(c.activity_at),toUnixTimestamp64Micro(c.created_at)),
+                c.kind,toString(c.entity_id)""",
+            params,
         )
-        totals = {row["stage"]: int(row["total"]) for row in counts}
-        keys = await self._query(
-            frozen,
-            """/* admin:source-page-keys */ SELECT kind,id,stage FROM (
-                SELECT c.kind,toString(c.entity_id) AS id,c.stage,
-                  row_number() OVER(PARTITION BY c.stage ORDER BY if(c.state='running',0,1),
-                    if(c.stage IN {terminal_stages:Array(String)},
-                      -toUnixTimestamp64Micro(c.activity_at),toUnixTimestamp64Micro(c.created_at)),
-                    c.kind,toString(c.entity_id)) AS position FROM """
-            + base
-            + """
-                  AND c.stage IN {stages:Array(String)}
-              ) WHERE position>{offset:UInt64} AND position<={offset:UInt64}+{limit:UInt64}
-              ORDER BY stage,position""",
-            **params,
-        )
-        payloads = await self._payloads(frozen, keys)
-        columns = []
-        for key in params["stages"]:
-            items = [
-                SourcePipelineCard.model_validate(payloads[(row["kind"], row["id"])])
-                for row in keys
-                if row["stage"] == key
-            ]
-            total = totals.get(key, 0)
-            columns.append(
-                SourcePipelineColumn(
-                    stage=key,
-                    total=total,
-                    items=items,
-                    next_cursor=cursor + len(items) if cursor + len(items) < total else None,
-                )
+        items = await self._cards_by_stage(frozen, keys, SourcePipelineCard)
+        columns = [
+            SourcePipelineColumn(
+                stage=key,
+                total=totals.get(key, 0),
+                items=items[key],
+                next_cursor=_next_cursor(cursor, len(items[key]), totals.get(key, 0)),
             )
+            for key in params["stages"]
+        ]
         return SourcePipelineBoard(
             as_of=self.now,
             terminal_since=query.terminal_since,
@@ -427,8 +410,6 @@ class CurrentCards:
         )
 
         frozen = await self.freeze(CARD_KINDS)
-        if frozen.snapshot.status == "rebuilding":
-            raise preparing()
         review_rows = await self._query(
             frozen,
             """/* admin:operations-reviews */ SELECT c.kind,countIf(c.review_pending=1) AS pending,

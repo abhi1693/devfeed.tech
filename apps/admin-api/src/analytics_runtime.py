@@ -15,7 +15,7 @@ from redis.backoff import NoBackoff
 from redis.retry import Retry
 from starlette.concurrency import run_in_threadpool
 
-from devfeed_admin_api.analytics_current import CurrentCards, timestamp
+from devfeed_admin_api.analytics_current import CurrentCards, preparing, timestamp
 from devfeed_admin_api.analytics_reports import Reports
 from devfeed_admin_api.overview_sections import OverviewSectionReport
 
@@ -23,14 +23,6 @@ FRESH_SECONDS = 30
 MAX_ENTRIES = 64
 MAX_CACHE_BYTES = 16_000_000
 MAX_INFLIGHT = 32
-
-
-def preparing():
-    return HTTPException(
-        503,
-        {"code": "analytics_preparing", "message": "This chart is being prepared."},
-        headers={"Retry-After": "5"},
-    )
 
 
 class AnalyticsRuntime:
@@ -82,19 +74,18 @@ class AnalyticsRuntime:
     def cards(self):
         return CurrentCards(self.client, now=self.clock())
 
-    async def article_board(self, **parameters):
+    async def _board(self, method, *args, **parameters):
         try:
             async with asyncio.timeout(12):
-                return await self.cards().article_board(**parameters)
+                return await getattr(self.cards(), method)(*args, **parameters)
         except TimeoutError as error:
             raise AnalyticsUnavailable("Pipeline request deadline reached") from error
 
+    async def article_board(self, **parameters):
+        return await self._board("article_board", **parameters)
+
     async def source_board(self, query, **parameters):
-        try:
-            async with asyncio.timeout(12):
-                return await self.cards().source_board(query, **parameters)
-        except TimeoutError as error:
-            raise AnalyticsUnavailable("Pipeline request deadline reached") from error
+        return await self._board("source_board", query, **parameters)
 
     def _remember(self, key, value):
         size = len(value)
@@ -127,8 +118,7 @@ class AnalyticsRuntime:
             expires_at = timestamp(envelope["expires_at"])
             if self.clock() >= expires_at:
                 return None
-            report = OverviewSectionReport.model_validate(envelope["report"])
-            return report, expires_at
+            return OverviewSectionReport.model_validate(envelope["report"])
         except (ValueError, TypeError, KeyError):
             return None
 
@@ -147,52 +137,55 @@ class AnalyticsRuntime:
         cached = self._decode(value)
         if cached is not None:
             self.cache.move_to_end(key)
-            return self._observed(cached[0])
+            return self._observed(cached)
         if value is not None:
             self.cache_bytes -= len(self.cache.pop(key))
         task = self.inflight.get(key)
         if task is None:
             if len(self.inflight) >= MAX_INFLIGHT:
-                raise preparing()
+                raise preparing("This chart is being prepared.", retry_after=5)
             task = asyncio.create_task(self._section(key, group, window))
             self.inflight[key] = task
             task.add_done_callback(lambda completed: self.inflight.pop(key, None))
         # Client disconnects must not cancel a calculation shared by other cards.
         return self._observed(await asyncio.shield(task))
 
+    async def _calculate(self, group, window, now):
+        if group == "operations":
+            return await CurrentCards(self.client, now=now).operations()
+        status = await self.client.status()
+        if not status.get("ready"):
+            raise AnalyticsUnavailable("Analytics is being prepared")
+        report = await Reports(
+            self.client,
+            window,
+            now,
+            capture_started_at=timestamp(status["capture_started_at"]),
+        ).section(group)
+        lag = max(0, float(status.get("lag_seconds") or 0))
+        report.snapshot = AnalyticsSnapshot(
+            status="stale" if lag > 60 else "fresh",
+            generated_at=now,
+            generation=str(status["version"]),
+            policy_version=self.policy,
+            lag_seconds=lag,
+        )
+        return report
+
     async def _section(self, key, group, window):
         value = await self._redis("get", key)
         cached = self._decode(value)
         if cached is not None:
             self._remember(key, value)
-            return cached[0]
+            return cached
+        now = self.clock()
         try:
             async with asyncio.timeout(12):
-                now = self.clock()
-                if group == "operations":
-                    report = await CurrentCards(self.client, now=now).operations()
-                else:
-                    status = await self.client.status()
-                    if not status.get("ready"):
-                        raise AnalyticsUnavailable("Analytics is being prepared")
-                    report = await Reports(
-                        self.client,
-                        window,
-                        now,
-                        capture_started_at=timestamp(status["capture_started_at"]),
-                    ).section(group)
-                    lag = max(0, float(status.get("lag_seconds") or 0))
-                    report.snapshot = AnalyticsSnapshot(
-                        status="stale" if lag > 60 else "fresh",
-                        generated_at=now,
-                        generation=str(status["version"]),
-                        policy_version=self.policy,
-                        lag_seconds=lag,
-                    )
+                report = await self._calculate(group, window, now)
         except (AnalyticsUnavailable, TimeoutError, HTTPException) as error:
             if isinstance(error, HTTPException) and error.status_code != 503:
                 raise
-            raise preparing() from error
+            raise preparing("This chart is being prepared.", retry_after=5) from error
         envelope = json.dumps(
             {
                 "expires_at": (now + timedelta(seconds=FRESH_SECONDS)).isoformat(),

@@ -341,15 +341,17 @@ def test_current_population_rebuilds_read_only_one_clickhouse_shard(domain):
 
 
 def test_queue_counts_read_only_indexed_active_work_and_preserve_empty_lanes():
-    from devfeed_core.analytics_gauges import JOBS
+    from devfeed_core.analytics_schema import JOB_KINDS
 
-    rows = [dict(kind=kind, queued=0, running=0, oldest_queued_at=None) for kind in JOBS.values()]
+    rows = [
+        dict(kind=kind, queued=0, running=0, oldest_queued_at=None) for kind in JOB_KINDS.values()
+    ]
     connection = Connection(rows=rows)
     actual, transition = asyncio.run(Gauges(None, client())._queues(connection))
     assert actual == rows and transition > datetime.now(UTC)
     statement, params = connection.calls[0]
-    assert statement.count("WHERE status IN ('queued','running')") == len(JOBS)
-    assert params == tuple(JOBS.values())
+    assert statement.count("WHERE status IN ('queued','running')") == len(JOB_KINDS)
+    assert params == tuple(JOB_KINDS.values())
     assert "article_contents" not in statement and "analytics_fact" not in statement
 
 

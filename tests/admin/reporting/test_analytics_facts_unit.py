@@ -265,6 +265,15 @@ def test_schema_keeps_rich_typed_facts_and_only_idempotent_state_materialization
     assert row["charged_tokens"] is None and row["source_ids"] == []
 
 
+def test_fact_collection_defaults_are_independent_across_rows():
+    first = empty_fact("publishing", IDENTITY, NOW, event_id=1, captured_at=NOW, generation=1)
+    first["source_ids"].append(PARENT)
+    first["topic_ids"].append(PARENT)
+    second = empty_fact("publishing", IDENTITY, NOW, event_id=2, captured_at=NOW, generation=1)
+    assert second["source_ids"] == second["topic_ids"] == []
+    assert second["source_ids"] is not second["topic_ids"]
+
+
 def test_reserialized_fact_timestamps_keep_utc_cohorts_and_deduplicate_dirty_work():
     row = empty_fact(
         "audience",

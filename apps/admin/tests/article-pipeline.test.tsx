@@ -17,7 +17,7 @@ import {
   getArticlePipelineDetail,
   getArticlePipelineSourceArticles,
   retryArticlePipeline,
-  pipelineQuery,
+  articlePipelineParams,
   pipelineLabels,
   pipelineStages,
   type PipelineArticle,
@@ -201,10 +201,10 @@ function dragTransfer() {
 
 it("forwards only bounded pipeline filters to the API", () => {
   expect(
-    pipelineQuery(
+    articlePipelineParams(
       "q=Python&source_id=source-one&needs_attention=true&offset=500&limit=100&sort=title&view=pipeline",
-    ).toString(),
-  ).toBe("limit=20&q=Python&source_id=source-one&needs_attention=true");
+    ),
+  ).toEqual({ limit: 20, q: "Python", source_id: "source-one", needs_attention: true });
 });
 
 it("keeps Articles as the default and selects source grouping through the URL", async () => {

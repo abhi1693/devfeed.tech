@@ -184,6 +184,38 @@ therefore unchanged; adopting finer granules requires an explicit physical rebui
 and a workload-specific read/write tradeoff. No production rebuild or tuning was
 performed. All benchmark scratch databases and encoding helpers were removed.
 
+## Refactor parity and complexity — 2026-10-27
+
+The refactor shares board page/count/hydration code, source-group pagination,
+card metadata, event routing, exporter lease checkpoints, and rollup SQL assembly.
+Each domain retains its explicit filtering and lifecycle rules. Public API and
+ClickHouse table contracts are unchanged.
+
+Ruff's McCabe measurements fell from 20 to 7 for fact normalization, 18 to 6 for
+gauge ingestion, 15 to 10 for card invalidation, and 13 to 8 for event transformation.
+CI now caps permanent analytics functions at 10. The temporary cutover importer
+remains marked for retirement and is the sole exception.
+
+Behavior checks compared 10,000 seeded captured events, all 12 single/batch rollup
+SQL variants, and five real current-board/attention methods over 379,720 cards.
+Event results and business payloads matched; SQL matched outside whitespace and
+serving issued exactly 29 queries in both versions.
+
+Repeated 1,000-event batches ran in an owned 0.5-CPU/512-MiB helper. Precomputed
+immutable defaults eliminate schema-type classification for every fact; array
+defaults remain independent per row and fact field order is preserved.
+
+| Normalization workload | Median CPU before | Median CPU after |
+| ---------------------- | ----------------: | ---------------: |
+| Real inference facts   |          34.04 ms |         22.45 ms |
+| Mixed-domain facts     |          54.62 ms |         35.42 ms |
+| Mixed gauge capture    |           5.95 ms |          6.23 ms |
+
+Fact allocation peaks remained approximately 1.9 MB; the helper peaked at
+71.8 MiB charged cgroup memory. This measures pure normalization, excluding
+PostgreSQL reads and ClickHouse insertion. Gauge capture increased by 0.27 ms per
+1,000 events; the fact CPU reduction is 34–35%.
+
 ## Discovered memory and CPU bottlenecks
 
 The first 200-article active-work profile exceeded the original 512-MiB exporter

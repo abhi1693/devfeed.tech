@@ -79,6 +79,16 @@ ClickHouse failures and query-admission limits return the retryable preparing
 response. The admin automatically retries while data is being prepared. There is
 one ClickHouse serving path and no saved-report worker or stale-result fallback.
 
+Stage counts, windowed page keys, and typed payload hydration share one read
+implementation; each board keeps its filters, ordering, and cursor rules explicit.
+Fact normalization uses one source-to-domain registry, and rollup projections and
+compaction share their table definitions. Card observations share a bounded,
+read-only source transaction and article metadata construction. Exporter lease
+renewal and publication order remain explicit checkpoints.
+
+Python CI limits permanent analytics functions to McCabe complexity 10. The marked
+one-time cutover importer is excluded until its planned retirement.
+
 Queue pressure uses a separate gauge-only calculation and cache key; polling it
 does not refresh historical processing charts. Historical throughput and outcomes
 share their two summary queries. Only Queue pressure polls after success; other

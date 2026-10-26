@@ -11,6 +11,8 @@ from typing import Any
 
 from psycopg import sql
 
+from devfeed_core.analytics_schema import JOB_KINDS
+
 SHARDS = 256
 REFRESH_BATCH_SIZE = 16
 FEED_METRICS = (
@@ -24,18 +26,22 @@ FEED_METRICS = (
 )
 ZERO = str(uuid.UUID(int=0))
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-JOBS = {
-    "ingestion_jobs": "ingestion",
-    "article_enrichment_jobs": "article_enrichment",
-    "article_image_jobs": "article_image",
-    "source_enrichment_jobs": "source_enrichment",
-    "article_analysis_jobs": "analysis",
-    "topic_analysis_jobs": "topic_analysis",
-    "research_verification_jobs": "research_verification",
-    "notification_deliveries": "notification",
-}
 USER_SOURCES = {"user_accounts", "user_recommendation_states"}
 MEMBERSHIP_SOURCES = {"user_topics": "follow", "user_interests": "inferred"}
+DIMENSION_KINDS = {"sources": "source", "topics": "topic"}
+RESET_KINDS = {
+    "user_accounts": "account",
+    "user_recommendation_states": "feed",
+    **DIMENSION_KINDS,
+    **MEMBERSHIP_SOURCES,
+}
+GAUGE_DOMAINS = {
+    **dict.fromkeys(JOB_KINDS, "queues"),
+    **dict.fromkeys(USER_SOURCES, "feed"),
+    "sources": "sources",
+    "topics": "topics",
+    **dict.fromkeys(MEMBERSHIP_SOURCES, "topics"),
+}
 IDENTITY_FIELDS = {
     "sources": ("id",),
     "topics": ("id",),
@@ -75,6 +81,56 @@ def _feed_users(event):
 
 def shard(identifier):
     return uuid.UUID(str(identifier)).bytes[0]
+
+
+def _observe_users(event, users, accounts):
+    for value in _feed_users(event):
+        identifier = str(value)
+        if event["source_table"] == "user_accounts":
+            accounts.add(identifier)
+        previous = users.get(identifier)
+        version = int(event["id"])
+        if previous is None or version >= previous[0]:
+            users[identifier] = (
+                version,
+                event.get("created_at") or event["record"].get("created_at") or EPOCH,
+            )
+
+
+def _projection_change(event, generation):
+    source, record = event["source_table"], event["record"]
+    if source not in DIMENSION_KINDS and source not in MEMBERSHIP_SOURCES:
+        return None
+    base = {
+        "event_id": int(event["id"]),
+        "delivery_generation": generation,
+        "captured_at": event.get("created_at") or record.get("created_at") or EPOCH,
+        "target_id": ZERO,
+        "deleted": int(event.get("operation") == "D"),
+    }
+    if source in DIMENSION_KINDS:
+        identifier = str(record["id"])
+        return "dimension", {
+            **base,
+            "kind": DIMENSION_KINDS[source],
+            "shard": shard(identifier),
+            "entity_id": identifier,
+            "name": record.get("name") or "Unnamed",
+            "consecutive_failures": max(0, record.get("consecutive_failures") or 0),
+            "status": record.get("status") or record.get("approval_status") or "",
+        }
+    target = str(record["topic_id"])
+    return "membership", {
+        **base,
+        "kind": MEMBERSHIP_SOURCES[source],
+        "shard": shard(target),
+        "entity_id": str(record["user_id"]),
+        "target_id": target,
+        "deleted": int(
+            bool(base["deleted"])
+            or (source == "user_interests" and record.get("reason") != "related_topic")
+        ),
+    }
 
 
 def _projection_ddl(name, fields):
@@ -160,79 +216,7 @@ class Gauges:
         for statement in statements:
             await self.client.execute(statement)
 
-    async def ingest(self, connection, events, *, generation=0):
-        """Durably normalize changes before their source transaction is acknowledged."""
-        users: dict[str, tuple[int, datetime | str]] = {}
-        accounts = set()
-        groups: dict[str, list[dict[str, Any]]] = {"dimension": [], "membership": []}
-        resets = []
-        for event in _identity_changes(events):
-            source = event["source_table"]
-            record = event["record"]
-            version = int(event["id"])
-            if event.get("operation") == "T":
-                kinds = {
-                    "user_accounts": "account",
-                    "user_recommendation_states": "feed",
-                    "sources": "source",
-                    "topics": "topic",
-                    **MEMBERSHIP_SOURCES,
-                }
-                if source in kinds:
-                    resets.append(
-                        dict(kind=kinds[source], delivery_generation=generation, event_id=version)
-                    )
-                continue
-            for identifier in _feed_users(event):
-                if source == "user_accounts":
-                    accounts.add(str(identifier))
-                previous = users.get(str(identifier))
-                if previous is None or version >= previous[0]:
-                    users[str(identifier)] = (
-                        version,
-                        event.get("created_at") or record.get("created_at") or EPOCH,
-                    )
-            if source in USER_SOURCES:
-                continue
-            base = {
-                "event_id": version,
-                "delivery_generation": generation,
-                "captured_at": event.get("created_at") or record.get("created_at") or EPOCH,
-                "target_id": ZERO,
-            }
-            deleted = int(event.get("operation") == "D")
-            if source in {"sources", "topics"}:
-                identifier = str(record["id"])
-                groups["dimension"].append(
-                    {
-                        **base,
-                        "kind": "source" if source == "sources" else "topic",
-                        "shard": shard(identifier),
-                        "entity_id": identifier,
-                        "deleted": deleted,
-                        "name": record.get("name") or "Unnamed",
-                        "consecutive_failures": max(0, record.get("consecutive_failures") or 0),
-                        "status": record.get("status") or record.get("approval_status") or "",
-                    }
-                )
-            elif source in MEMBERSHIP_SOURCES:
-                target = str(record["topic_id"])
-                groups["membership"].append(
-                    {
-                        **base,
-                        "kind": MEMBERSHIP_SOURCES[source],
-                        "shard": shard(target),
-                        "entity_id": str(record["user_id"]),
-                        "target_id": target,
-                        "deleted": int(
-                            bool(deleted)
-                            or (
-                                source == "user_interests"
-                                and record.get("reason") != "related_topic"
-                            )
-                        ),
-                    }
-                )
+    async def _audience_rows(self, connection, users, accounts, generation):
         audience = []
         if users:
             identifiers = [uuid.UUID(identifier) for identifier in users]
@@ -283,8 +267,33 @@ class Gauges:
                     }
                     audience.append({**account, "kind": "account"})
                 audience.append({**base, "kind": "feed"})
+        return audience
+
+    async def ingest(self, connection, events, *, generation=0):
+        """Durably normalize changes before their source transaction is acknowledged."""
+        users: dict[str, tuple[int, datetime | str]] = {}
+        accounts: set[str] = set()
+        groups: dict[str, list[dict[str, Any]]] = {"dimension": [], "membership": []}
+        resets = []
+        for event in _identity_changes(events):
+            if event.get("operation") == "T":
+                kind = RESET_KINDS.get(event["source_table"])
+                if kind:
+                    resets.append(
+                        dict(kind=kind, delivery_generation=generation, event_id=int(event["id"]))
+                    )
+                continue
+            _observe_users(event, users, accounts)
+            change = _projection_change(event, generation)
+            if change:
+                name, record = change
+                groups[name].append(record)
+        audience = await self._audience_rows(connection, users, accounts, generation)
         if audience:
             groups["audience"] = audience
+        await self._insert_changes(groups, resets)
+
+    async def _insert_changes(self, groups, resets):
         inserts = [
             self.client.insert(f"analytics_{name}_changes", records)
             for name, records in groups.items()
@@ -304,17 +313,7 @@ class Gauges:
             source, record = event["source_table"], event["record"]
             for identifier in _feed_users(event):
                 dirty.add(("feed", shard(identifier)))
-            domain = (
-                "queues"
-                if source in JOBS
-                else "feed"
-                if source in USER_SOURCES
-                else "sources"
-                if source == "sources"
-                else "topics"
-                if source == "topics" or source in MEMBERSHIP_SOURCES
-                else None
-            )
+            domain = GAUGE_DOMAINS.get(source)
             if domain is None:
                 continue
             if domain == "queues":
@@ -442,10 +441,12 @@ class Gauges:
                 "min(created_at) FILTER(WHERE status='queued') AS oldest_queued_at FROM {} "
                 "WHERE status IN ('queued','running')"
             ).format(sql.Identifier(table))
-            for table in JOBS
+            for table in JOB_KINDS
         ]
         rows = await (
-            await connection.execute(sql.SQL(" UNION ALL ").join(queries), tuple(JOBS.values()))
+            await connection.execute(
+                sql.SQL(" UNION ALL ").join(queries), tuple(JOB_KINDS.values())
+            )
         ).fetchall()
         return rows, datetime.now(UTC) + timedelta(seconds=15)
 

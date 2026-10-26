@@ -19,6 +19,10 @@ release so an upgrade cannot silently discard historical facts or queued changes
 Missing or unknown format versions fail before writes or acknowledgement; they
 do not default to an older capture format.
 
+Remove the importer's complexity-check exclusion from
+`.github/scripts/python-checks.sh` when deleting `analytics_upgrade.py`. Permanent
+analytics code remains subject to the normal complexity limit.
+
 ## Release gates
 
 Remove these paths in the first later release that satisfies all of the following:

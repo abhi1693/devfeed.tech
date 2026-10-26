@@ -1,24 +1,15 @@
 """Normalize captured changes into typed domain facts and an exact decision ledger."""
 
+import json
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from devfeed_core.analytics_facts import ZERO_UUID, empty_fact
 from devfeed_core.analytics_schema import JOB_KINDS, JOB_TABLES, TABLES
 
-FACT_SOURCES = (
-    "inference_calls",
-    "topic_decision_calls",
-    "topic_decision_runs",
-    "topic_relation_proposals",
-    "articles",
-    "article_opens",
-    "user_accounts",
-    "topic_proposals",
-    *JOB_TABLES,
-)
 NAMESPACE = uuid.UUID("f578f44d-3ce0-4b5e-a903-879be66906ad")
 
 
@@ -44,23 +35,28 @@ def _identity(*parts):
     return uuid.uuid5(NAMESPACE, ":".join(str(part) for part in parts))
 
 
-def _fact(source, record, event, generation, *, deleted=False, side=1, context=None):
-    if not record:
-        return None
-    identifier = record.get("id")
-    at = None
-    domain = ""
-    values: dict[str, Any] = {"entity_id": str(identifier or record.get("article_id") or ZERO_UUID)}
-    if source == "inference_calls":
-        domain, at = "inference", moment(record.get("started_at"))
-        tokens = record.get("tokens") or {}
-        if isinstance(tokens, str):
-            import json
+@dataclass(slots=True)
+class _Observation:
+    domain: str
+    identifier: Any
+    at: datetime | None
+    values: dict[str, Any]
 
-            tokens = json.loads(tokens)
-        input_tokens = number(tokens.get("inputTokens"))
-        output_tokens = number(tokens.get("outputTokens"))
-        values = dict(
+
+def _usage(value):
+    value = value or {}
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def _inference(source, record, context):
+    tokens = _usage(record.get("tokens"))
+    input_tokens = number(tokens.get("inputTokens"))
+    output_tokens = number(tokens.get("outputTokens"))
+    return _Observation(
+        "inference",
+        record.get("id"),
+        moment(record.get("started_at")),
+        dict(
             task=record.get("operation") or "unknown",
             model=record.get("model") or "Unknown model",
             effort=record.get("reasoning_effort") or "Inherited / unknown",
@@ -73,21 +69,29 @@ def _fact(source, record, event, generation, *, deleted=False, side=1, context=N
             cached_input_tokens=min(input_tokens, number(tokens.get("cachedInputTokens"))),
             reasoning_tokens=min(output_tokens, number(tokens.get("reasoningOutputTokens"))),
             web_searches=max(int(record.get("web_searches") or 0), 0),
-        )
-    elif source in {"topic_decision_runs", "topic_relation_proposals"}:
-        domain = "decisions"
-        at = moment(record.get("updated_at") or record.get("created_at"))
-        identifier = _identity(source, record.get("proposal_id") or identifier)
-        values = dict(
+        ),
+    )
+
+
+def _decision(source, record, context):
+    return _Observation(
+        "decisions",
+        _identity(source, record.get("proposal_id") or record.get("id")),
+        moment(record.get("updated_at") or record.get("created_at")),
+        dict(
             task="decision-run" if source == "topic_decision_runs" else "relationship-proposal",
             status=record.get("status") or "unknown",
             outcome=record.get("reason") or "unknown",
-        )
-    elif source == "topic_decision_calls":
-        domain = "decisions"
-        at = moment(record.get("started_at")) or datetime(1970, 1, 1, tzinfo=UTC)
-        identifier = _identity("decision-call", record["proposal_id"], record["ordinal"])
-        values = dict(
+        ),
+    )
+
+
+def _decision_call(source, record, context):
+    return _Observation(
+        "decisions",
+        _identity("decision-call", record["proposal_id"], record["ordinal"]),
+        moment(record.get("started_at")) or datetime(1970, 1, 1, tzinfo=UTC),
+        dict(
             ordinal=int(record["ordinal"]),
             stage=record.get("stage") or "unknown",
             stage_call=int(record.get("stage_call") or 0),
@@ -96,69 +100,112 @@ def _fact(source, record, event, generation, *, deleted=False, side=1, context=N
             charged_tokens=(
                 None if record.get("charged_tokens") is None else int(record["charged_tokens"])
             ),
-        )
-    elif source in JOB_KINDS:
-        if record.get("status") not in {"succeeded", "failed"}:
-            return None
-        domain, at = "processing", moment(record.get("finished_at"))
-        attempt = record.get("attempts") or 0
-        identifier = (
-            _identity("attempt", source, identifier, attempt)
-            if attempt
-            else _identity("attempt", source, identifier, 0, at.isoformat() if at else None)
-        )
-        values = dict(
+        ),
+    )
+
+
+def _completion(source, record, context):
+    if record.get("status") not in {"succeeded", "failed"}:
+        return None
+    at = moment(record.get("finished_at"))
+    attempt = record.get("attempts") or 0
+    identifier = (
+        _identity("attempt", source, record.get("id"), attempt)
+        if attempt
+        else _identity("attempt", source, record.get("id"), 0, at.isoformat() if at else None)
+    )
+    usage = _usage(record.get("usage"))
+    return _Observation(
+        "processing",
+        identifier,
+        at,
+        dict(
             task=JOB_KINDS[source],
             status=record["status"],
             outcome=record.get("outcome") or "unknown",
             completed=int(record["status"] == "succeeded"),
             failed=int(record["status"] == "failed"),
             useful=int(source == "article_analysis_jobs" and record.get("outcome") == "applied"),
-        )
-        usage = record.get("usage") or {}
-        if isinstance(usage, str):
-            import json
+            job_tokens=number(usage.get("totalTokens"), digits=18),
+            has_job_tokens=int(
+                re.fullmatch(r"[0-9]{1,18}", str(usage.get("totalTokens"))) is not None
+            ),
+        ),
+    )
 
-            usage = json.loads(usage)
-        values["job_tokens"] = number(usage.get("totalTokens"), digits=18)
-        values["has_job_tokens"] = int(
-            re.fullmatch(r"[0-9]{1,18}", str(usage.get("totalTokens"))) is not None
+
+def _publication(source, record, context):
+    at = moment(record.get("published_to_feed_at"))
+    discovered = moment(record.get("discovered_at"))
+    context = context or {}
+    values = dict(
+        published=1,
+        status=record.get("publication_status") or "published",
+        automated=int(context.get("automated", False)),
+        content_type=record.get("content_type") or "article",
+        source_ids=sorted({str(value) for value in context.get("source_ids", [])}),
+        topic_ids=sorted({str(value) for value in context.get("topic_ids", [])}),
+    )
+    if at is not None and discovered is not None and at >= discovered:
+        values.update(delay_seconds=(at - discovered).total_seconds(), has_delay=1)
+    return _Observation("publishing", record.get("id"), at, values)
+
+
+def _audience(source, record, context):
+    if source == "article_opens":
+        at = moment(record.get("opened_hour"))
+        return _Observation(
+            "audience",
+            _identity("open", record["article_id"], record["viewer_key"], at),
+            at,
+            dict(task="open", opens=1, viewer_key=record["viewer_key"]),
         )
-    elif source == "articles":
-        domain, at = "publishing", moment(record.get("published_to_feed_at"))
-        context = context or {}
-        discovered = moment(record.get("discovered_at"))
-        values = dict(
-            published=1,
-            status=record.get("publication_status") or "published",
-            automated=int(context.get("automated", False)),
-            content_type=record.get("content_type") or "article",
-            source_ids=sorted({str(value) for value in context.get("source_ids", [])}),
-            topic_ids=sorted({str(value) for value in context.get("topic_ids", [])}),
-        )
-        if at is not None and discovered is not None and at >= discovered:
-            values.update(delay_seconds=(at - discovered).total_seconds(), has_delay=1)
-    elif source == "article_opens":
-        domain, at = "audience", moment(record.get("opened_hour"))
-        identifier = _identity("open", record["article_id"], record["viewer_key"], at)
-        values = dict(task="open", opens=1, viewer_key=record["viewer_key"])
-    elif source == "user_accounts":
-        domain, at = "audience", moment(record.get("created_at"))
-        values = dict(task="signup", accounts_created=1)
-    elif source == "topic_proposals":
-        if record.get("status") not in {"approved", "rejected"}:
-            return None
-        domain, at = "processing", moment(record.get("reviewed_at"))
-        identifier = _identity("topic-decision", identifier)
-        values = dict(
+    return _Observation(
+        "audience",
+        record.get("id"),
+        moment(record.get("created_at")),
+        dict(task="signup", accounts_created=1),
+    )
+
+
+def _topic_decision(source, record, context):
+    if record.get("status") not in {"approved", "rejected"}:
+        return None
+    return _Observation(
+        "processing",
+        _identity("topic-decision", record.get("id")),
+        moment(record.get("reviewed_at")),
+        dict(
             task="topic-decision", status=record["status"], completed=1, useful=1, topic_decisions=1
-        )
-    if not domain or at is None or identifier is None:
+        ),
+    )
+
+
+_FACT_BUILDERS = {
+    "inference_calls": _inference,
+    "topic_decision_calls": _decision_call,
+    "topic_decision_runs": _decision,
+    "topic_relation_proposals": _decision,
+    "articles": _publication,
+    "article_opens": _audience,
+    "user_accounts": _audience,
+    "topic_proposals": _topic_decision,
+    **dict.fromkeys(JOB_TABLES, _completion),
+}
+FACT_SOURCES = tuple(_FACT_BUILDERS)
+
+
+def _fact(source, record, event, generation, *, deleted=False, side=1, context=None):
+    builder = _FACT_BUILDERS.get(source)
+    if not record or builder is None:
+        return None
+    observed = builder(source, record, context)
+    if observed is None or observed.at is None or observed.identifier is None:
         return None
     row = empty_fact(
-        domain,
-        identifier,
-        at,
+        observed.domain,
+        observed.identifier,
+        observed.at,
         event_id=event["id"],
         captured_at=event["created_at"],
         generation=generation,
@@ -168,10 +215,13 @@ def _fact(source, record, event, generation, *, deleted=False, side=1, context=N
     if source in JOB_KINDS or source == "inference_calls":
         duration = record.get("duration_ms")
         if duration is not None and int(duration) >= 0:
-            values.update(duration_ms=int(duration), has_duration=1)
-    row.update(values)
+            observed.values.update(duration_ms=int(duration), has_duration=1)
+    row.update(observed.values)
     row["entity_id"] = str(
-        record.get("id") or record.get("article_id") or record.get("proposal_id") or identifier
+        record.get("id")
+        or record.get("article_id")
+        or record.get("proposal_id")
+        or observed.identifier
     )
     row["parent_id"] = str(
         record.get("job_id")
@@ -259,6 +309,26 @@ async def _publication_records(connection, identifiers):
     return records, contexts
 
 
+def _publication_facts(changes, record, context, generation):
+    latest = max(changes, key=lambda event: event["id"])
+    template = dict(latest, source_table="articles", record=record, operation="I")
+    new = _fact("articles", record, template, generation, context=context)
+    old_keys = {}
+    for event in changes:
+        if event["source_table"] != "articles":
+            continue
+        for previous in (event.get("before_record"), event.get("record")):
+            old = _fact(
+                "articles", previous, template, generation, deleted=True, side=0, context=context
+            )
+            if old is not None:
+                old_keys[(old["bucket_hour"], old["fact_id"])] = old
+    if new is not None:
+        old_keys.pop((new["bucket_hour"], new["fact_id"]), None)
+        yield new
+    yield from old_keys.values()
+
+
 async def transform_events(connection, events, generation, publication_context=None):
     result = []
     publications: dict[str, list[dict[str, Any]]] = {}
@@ -291,29 +361,9 @@ async def transform_events(connection, events, generation, publication_context=N
         }
         contexts = publication_context
     for identity, changes in publications.items():
-        latest = max(changes, key=lambda event: event["id"])
-        context = contexts.get(identity, {})
-        template = dict(
-            latest, source_table="articles", record=records.get(identity), operation="I"
+        result.extend(
+            _publication_facts(
+                changes, records.get(identity), contexts.get(identity, {}), generation
+            )
         )
-        new = _fact("articles", records.get(identity), template, generation, context=context)
-        old_keys = {}
-        for event in changes:
-            if event["source_table"] == "articles":
-                for previous in (event.get("before_record"), event.get("record")):
-                    old = _fact(
-                        "articles",
-                        previous,
-                        template,
-                        generation,
-                        deleted=True,
-                        side=0,
-                        context=context,
-                    )
-                    if old is not None:
-                        old_keys[(old["bucket_hour"], old["fact_id"])] = old
-        if new is not None:
-            old_keys.pop((new["bucket_hour"], new["fact_id"]), None)
-            result.append(new)
-        result.extend(old_keys.values())
     return result

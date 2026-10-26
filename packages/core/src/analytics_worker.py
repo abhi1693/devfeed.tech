@@ -38,6 +38,12 @@ logger = logging.getLogger(__name__)
 LEASE_SECONDS = 120
 GAUGE_BATCH_SIZE = 16
 GAUGE_CYCLE_SECONDS = 0.25
+RAW_COVERAGE = (
+    "NOT EXISTS(SELECT 1 FROM analytics_bootstrap_cursors WHERE NOT complete) AS sources_complete,"
+    "CASE WHEN native_bootstrap_complete THEN true ELSE "
+    "NOT EXISTS(SELECT 1 FROM analytics_ingest_events "
+    "WHERE format_version=1) END AS legacy_complete"
+)
 
 
 def postgres_dsn(settings):
@@ -138,6 +144,12 @@ class AnalyticsExporter:
         ).fetchone()
         if row is None:
             raise RuntimeError("Analytics publisher lease was superseded")
+
+    async def _renew_lease(self, connection):
+        lease = await self._lease(connection)
+        if lease is None:
+            raise RuntimeError("Analytics publisher lease was superseded")
+        return lease
 
     async def _backfill_one(self, connection, generation):
         # TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Retire existing-population PG
@@ -279,11 +291,7 @@ class AnalyticsExporter:
     async def _raw_backfill_complete(self, connection):
         state = await (
             await connection.execute(
-                "SELECT native_import_complete,NOT EXISTS(SELECT 1 FROM "
-                "analytics_bootstrap_cursors WHERE NOT complete) AS sources_complete,"
-                "CASE WHEN native_bootstrap_complete THEN true ELSE "
-                "NOT EXISTS(SELECT 1 FROM analytics_ingest_events "
-                "WHERE format_version=1) END AS legacy_complete "
+                "SELECT native_import_complete," + RAW_COVERAGE + " "
                 "FROM analytics_pipeline_state WHERE singleton"
             )
         ).fetchone()
@@ -294,11 +302,7 @@ class AnalyticsExporter:
             await self._check_lease(connection)
             state = await (
                 await connection.execute(
-                    "SELECT *,NOT EXISTS(SELECT 1 FROM "
-                    "analytics_bootstrap_cursors WHERE NOT complete) "
-                    "AS sources_complete,CASE WHEN native_bootstrap_complete THEN true ELSE "
-                    "NOT EXISTS(SELECT 1 FROM analytics_ingest_events "
-                    "WHERE format_version=1) END AS legacy_complete "
+                    "SELECT *," + RAW_COVERAGE + " "
                     "FROM analytics_pipeline_state WHERE singleton FOR UPDATE"
                 )
             ).fetchone()
@@ -364,15 +368,29 @@ class AnalyticsExporter:
         deadline = time.monotonic() + GAUGE_CYCLE_SECONDS
         refreshed = False
         for _ in range(GAUGE_BATCH_SIZE):
-            lease = await self._lease(connection)
-            if lease is None:
-                raise RuntimeError("Analytics publisher lease was superseded")
+            lease = await self._renew_lease(connection)
             if not await self.gauges.refresh_one(connection, lease["lease_generation"]):
                 break
             refreshed = True
             if time.monotonic() >= deadline:
                 break
         return refreshed
+
+    async def _publish_views(self, connection, generation):
+        published = await self.rollups.refresh_one(connection, generation, fence=self._check_lease)
+        gauges = await self._refresh_gauges(connection)
+        lease = await self._renew_lease(connection)
+        cards = await self.cards.once(
+            connection,
+            lease["lease_generation"],
+            fence=self._check_lease,
+            renew=self._lease,
+        )
+        lease = await self._renew_lease(connection)
+        compacted = await self.rollups.compact_one(
+            connection, fence=self._check_lease, renew=self._lease
+        )
+        return lease, published or gauges or cards or compacted
 
     async def once(self):
         async with await psycopg.AsyncConnection.connect(
@@ -395,48 +413,23 @@ class AnalyticsExporter:
             upgrading = await self.upgrade.once(
                 connection, lease["lease_generation"], fence=self._check_lease
             )
-            lease = await self._lease(connection)
-            if lease is None:
-                raise RuntimeError("Analytics publisher lease was superseded")
+            lease = await self._renew_lease(connection)
             self.capture_started_at = (
                 lease["native_capture_started_at"] or lease["capture_started_at"]
             )
             backfilling = await self._backfill_one(connection, lease["lease_generation"])
-            lease = await self._lease(connection)
-            if lease is None:
-                raise RuntimeError("Analytics publisher lease was superseded")
+            lease = await self._renew_lease(connection)
             generation = lease["lease_generation"]
             count = await self._export_events(connection, generation)
             # Initial reports cannot be ready before every raw source and legacy
             # import is durable. Retain dirty cohorts while importing, rather
             # than rebuilding partial history after each bounded source page.
             raw_complete = await self._raw_backfill_complete(connection)
-            published = gauges = cards = False
+            refreshed = False
             if raw_complete:
-                published = await self.rollups.refresh_one(
-                    connection, generation, fence=self._check_lease
-                )
-                gauges = await self._refresh_gauges(connection)
-            lease = await self._lease(connection)
-            if lease is None:
-                raise RuntimeError("Analytics publisher lease was superseded")
-            if raw_complete:
-                cards = await self.cards.once(
-                    connection,
-                    lease["lease_generation"],
-                    fence=self._check_lease,
-                    renew=self._lease,
-                )
-                lease = await self._lease(connection)
-                if lease is None:
-                    raise RuntimeError("Analytics publisher lease was superseded")
-            compacted = (
-                await self.rollups.compact_one(
-                    connection, fence=self._check_lease, renew=self._lease
-                )
-                if raw_complete
-                else False
-            )
+                lease, refreshed = await self._publish_views(connection, generation)
+            else:
+                lease = await self._renew_lease(connection)
             await self._publish_status(connection, lease, observed_at)
             async with connection.transaction():
                 await self._check_lease(connection)
@@ -445,7 +438,7 @@ class AnalyticsExporter:
                     "lease_token=NULL,lease_until=NULL WHERE singleton"
                 )
         write_runtime_marker(runtime_marker("analytics-worker"), str(time.time()))
-        return upgrading or backfilling or count > 0 or published or gauges or cards or compacted
+        return upgrading or backfilling or count > 0 or refreshed
 
 
 def connection_dialect():
@@ -481,6 +474,23 @@ async def pause(stopping, delay):
         await asyncio.wait_for(stopping.wait(), timeout=delay)
 
 
+def _poll_delay(settings, *, busy, bootstrapping, failures):
+    delay = (
+        settings.analytics_backfill_poll_seconds
+        if busy and bootstrapping
+        else settings.analytics_poll_seconds
+    )
+    return max(delay, min(60, 2 ** min(failures, 6))) if failures else delay
+
+
+async def _sample_backlog(settings):
+    try:
+        await record_backlog(settings)
+    except Exception:
+        # Metrics failures cannot prevent durable fact delivery.
+        logger.warning("analytics_backlog_sample_failed")
+
+
 async def run(once=False, initialize=False):
     settings = get_settings()
     async with AnalyticsClient(settings) as client:
@@ -501,11 +511,7 @@ async def run(once=False, initialize=False):
                 sampled_at = time.monotonic()
                 if last_sample is None or sampled_at - last_sample >= 30:
                     last_sample = sampled_at
-                    try:
-                        await record_backlog(settings)
-                    except Exception:
-                        # Metrics failures cannot prevent durable fact delivery.
-                        logger.warning("analytics_backlog_sample_failed")
+                    await _sample_backlog(settings)
                 try:
                     with background_cycle("analytics.export"):
                         if not initialized:
@@ -521,13 +527,14 @@ async def run(once=False, initialize=False):
                     busy = False
                 if once:
                     return
-                delay = (
-                    settings.analytics_backfill_poll_seconds
-                    if busy and exporter.bootstrapping
-                    else settings.analytics_poll_seconds
-                )
                 await pause(
-                    stopping, max(delay, min(60, 2 ** min(failures, 6))) if failures else delay
+                    stopping,
+                    _poll_delay(
+                        settings,
+                        busy=busy,
+                        bootstrapping=exporter.bootstrapping,
+                        failures=failures,
+                    ),
                 )
         finally:
             for item in signals:

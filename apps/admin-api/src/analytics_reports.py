@@ -136,6 +136,9 @@ class Reports:
             return points
         return [first + index * step for index in range(int((last - first) / step) + 1)]
 
+    def empty_series(self, point_type):
+        return {point.isoformat(): point_type(bucket=point.isoformat()) for point in self.buckets()}
+
     @staticmethod
     def key(value):
         parsed = (
@@ -180,10 +183,7 @@ class Reports:
                 GROUP BY chart_bucket WITH ROLLUP"""),
             self.archive(),
         )
-        activity = {
-            bucket.isoformat(): PublicationBucket(bucket=bucket.isoformat())
-            for bucket in self.buckets()
-        }
+        activity = self.empty_series(PublicationBucket)
         summary = PublicationSummary()
         for row in rows:
             p50, p95 = _percentiles(row)
@@ -322,10 +322,7 @@ class Reports:
                   FROM {self.rollup("publishing_hourly", "publishing")} GROUP BY {self.bucket}
                 ) GROUP BY chart_bucket ORDER BY chart_bucket"""),
         )
-        activity = {
-            bucket.isoformat(): ThroughputBucket(bucket=bucket.isoformat())
-            for bucket in self.buckets()
-        }
+        activity = self.empty_series(ThroughputBucket)
         for row in throughput:
             key = self.key(row.pop("chart_bucket"))
             activity[key] = ThroughputBucket(bucket=key, **row)
@@ -389,10 +386,7 @@ class Reports:
                 FROM ranked GROUP BY dimension,name
                 ORDER BY dimension,name='Other',sum(input_tokens)+sum(output_tokens) DESC,name"""),
         )
-        activity = {
-            bucket.isoformat(): InferenceBucket(bucket=bucket.isoformat())
-            for bucket in self.buckets()
-        }
+        activity = self.empty_series(InferenceBucket)
         summary = InferenceSummary()
         for row in rows:
             counters = {field: row[field] for field in COUNTERS}

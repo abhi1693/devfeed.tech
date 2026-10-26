@@ -6,6 +6,7 @@ summaries, never a relational mirror or an all-history FINAL calculation.
 """
 
 from datetime import UTC, datetime
+from typing import Any
 
 ZERO_UUID = "00000000-0000-0000-0000-000000000000"
 QUANTILES = "AggregateFunction(quantilesTDigest(0.5, 0.95), Float64)"
@@ -59,6 +60,31 @@ PAYLOAD = (
     ("has_delay", "UInt8"),
 )
 PAYLOAD_NAMES = tuple(name for name, _ in PAYLOAD)
+_PAYLOAD_DEFAULTS: dict[str, Any] = {
+    name: (None if kind.startswith(("Nullable", "Array")) else "" if "String" in kind else 0)
+    for name, kind in PAYLOAD
+}
+_ARRAY_FIELDS = tuple(name for name, kind in PAYLOAD if kind.startswith("Array"))
+_FACT_DEFAULTS = (
+    dict.fromkeys(
+        (
+            "domain",
+            "event_id",
+            "side",
+            "captured_at",
+            "bucket_hour",
+            "fact_id",
+            "generation",
+            "deleted",
+            "entity_id",
+            "parent_id",
+            "event_time",
+            "origin_created_at",
+            "ended_at",
+        )
+    )
+    | _PAYLOAD_DEFAULTS
+)
 STATE_TYPE = (
     "AggregateFunction(argMax, Tuple("
     + ", ".join(kind for _, kind in PAYLOAD)
@@ -189,32 +215,27 @@ def empty_fact(domain, identity, at, *, event_id, captured_at, generation, side=
     if isinstance(at, str):
         at = datetime.fromisoformat(at.replace("Z", "+00:00"))
     at = at.replace(tzinfo=UTC) if at.tzinfo is None else at.astimezone(UTC)
-    row = {
-        "domain": domain,
-        "event_id": event_id,
-        "side": side,
-        "captured_at": captured_at,
-        "bucket_hour": at.replace(minute=0, second=0, microsecond=0),
-        "fact_id": str(identity),
-        "generation": generation,
-        "deleted": int(deleted),
-        "entity_id": str(identity),
-        "parent_id": ZERO_UUID,
-        "event_time": at,
-        "origin_created_at": None,
-        "ended_at": None,
-    }
-    for name, kind in PAYLOAD:
-        if name not in row:
-            row[name] = (
-                None
-                if kind.startswith("Nullable")
-                else []
-                if kind.startswith("Array")
-                else ""
-                if "String" in kind
-                else 0
-            )
+    row = _FACT_DEFAULTS.copy()
+    row.update(
+        {
+            "domain": domain,
+            "event_id": event_id,
+            "side": side,
+            "captured_at": captured_at,
+            "bucket_hour": at.replace(minute=0, second=0, microsecond=0),
+            "fact_id": str(identity),
+            "generation": generation,
+            "deleted": int(deleted),
+            "entity_id": str(identity),
+            "parent_id": ZERO_UUID,
+            "event_time": at,
+            "origin_created_at": None,
+            "ended_at": None,
+        }
+    )
+    # Scalar defaults are immutable; collection defaults belong to each fact.
+    for name in _ARRAY_FIELDS:
+        row[name] = []
     return row
 
 
