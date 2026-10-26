@@ -736,7 +736,18 @@ try {
     "Date changes keep the current Operations document",
   );
   const beforeDateReload = requests.length;
+  const restoredChart = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname === "/api/v1/admin/overview/charts/publication-rate" &&
+      url.searchParams.get("from") === customFrom &&
+      url.searchParams.get("to") === customTo &&
+      response.status() === 200
+    );
+  });
   await page.reload();
+  await page.locator("#publishing").scrollIntoViewIfNeeded();
+  await restoredChart;
   await page.locator("#publishing [data-overview-card]").first().waitFor();
   await settled();
   const savedDateLabel = await page
@@ -814,15 +825,35 @@ try {
   );
   await publicationSection.screenshot({ path: `${output}/preparing.png` });
   await publicationSection
-    .getByRole("button", { name: "Try again", exact: true })
+    .getByText("Still preparing this chart", { exact: true })
     .waitFor({ timeout: 20000 });
-  const boundedReads = requests.filter(({ chart }) => chart === "publication-rate").length;
-  assert.equal(boundedReads, preparingReads + 2, "Only two automatic completion retries run");
+  const delayedReads = requests.filter(({ chart }) => chart === "publication-rate").length;
+  assert.equal(
+    delayedReads,
+    preparingReads + 2,
+    "Initial completion checks run five seconds apart",
+  );
+  assert.equal(
+    await publicationSection.getByRole("button", { name: "Try again", exact: true }).count(),
+    0,
+    "Preparing charts recover without a manual retry",
+  );
+  await publicationSection.screenshot({ path: `${output}/delayed-preparing.png` });
   await page.waitForTimeout(5500);
-  assert.equal(requests.filter(({ chart }) => chart === "publication-rate").length, boundedReads);
+  assert.equal(
+    requests.filter(({ chart }) => chart === "publication-rate").length,
+    delayedReads,
+    "Delayed preparation checks back off to fifteen seconds",
+  );
   mode = "populated";
-  await publicationSection.getByRole("button", { name: "Try again", exact: true }).click();
-  await publicationSection.getByRole("figure", { name: "Publication output chart" }).waitFor();
+  await publicationSection
+    .getByRole("figure", { name: "Publication output chart" })
+    .waitFor({ timeout: 20000 });
+  assert.equal(
+    requests.filter(({ chart }) => chart === "publication-rate").length,
+    delayedReads + 1,
+    "The chart appears automatically after its delayed completion check",
+  );
   mode = "preparing";
   await page.reload();
   await publicationSection
@@ -994,6 +1025,7 @@ try {
           "stale snapshots without per-panel timestamps",
           "range change",
           "independent chart failure and targeted retry",
+          "delayed preparing charts recover automatically with bounded completion checks",
           "sticky sidebar at 1080px and 600px heights",
           "shared collapsed rail, persisted expansion, active routes and keyboard toggle",
           "pinned toggle after scrolling long navigation, mobile link/Escape dismissal",

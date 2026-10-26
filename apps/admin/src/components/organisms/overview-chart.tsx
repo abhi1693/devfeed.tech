@@ -126,7 +126,7 @@ export function OverviewChart({ chart, range }: { chart: ChartName; range: DateR
       cancelled = true;
     };
   }, [near, load, key]);
-  const pollInterval = preparing ? (preparing.delayed ? 0 : 5000) : interval * 1000;
+  const pollInterval = preparing ? (preparing.delayed ? 15_000 : 5000) : interval * 1000;
   usePolling((signal) => load(signal), visible ? pollInterval : 0, key);
   const ready = stored?.key === key && !loading && !preparing && !error;
   const placeholder = ready ? null : (
@@ -160,8 +160,7 @@ export function OverviewChart({ chart, range }: { chart: ChartName; range: DateR
             <LoaderCircle aria-hidden className="size-5 animate-spin motion-reduce:animate-none" />
             {preparing?.delayed ? (
               <>
-                <p>Still preparing this chart.</p>
-                <RetryButton size="sm" onRetry={() => void load()} pending={loading} />
+                <p>Still preparing this chart</p>
               </>
             ) : (
               <span className="sr-only">Loading {title}</span>
