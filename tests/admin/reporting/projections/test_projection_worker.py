@@ -93,7 +93,6 @@ def runtime(monkeypatch, heartbeat_directory):
     settings = get_settings().model_copy(
         update={
             "database_url": "postgresql+psycopg://interactive@database.invalid/app",
-            "read_model_database_url": "postgresql+psycopg://publisher@database.invalid/app",
             "database_pool_enabled": True,
             "read_model_batch_size": 37,
             "read_model_poll_seconds": 0.25,
@@ -165,18 +164,13 @@ def runtime(monkeypatch, heartbeat_directory):
     )
 
 
-@pytest.mark.parametrize("dedicated", [False, True])
-def test_pipeline_once_uses_its_own_unpooled_connection_settings_and_cleans_up(runtime, dedicated):
-    if not dedicated:
-        runtime.settings.read_model_database_url = None
+def test_pipeline_once_uses_unpooled_application_database_and_cleans_up(runtime):
     interactive_url = runtime.settings.database_url
 
     worker.run(once=True)
 
     config = runtime.create_engine.call_args.args[0]
-    assert config.database_url == (
-        runtime.settings.read_model_database_url if dedicated else interactive_url
-    )
+    assert config.database_url == interactive_url
     assert config.database_pool_enabled is False
     assert runtime.settings.database_pool_enabled is True
     assert runtime.settings.database_url == interactive_url
@@ -464,6 +458,10 @@ def async_runtime(monkeypatch, runtime):
 def test_async_report_operator_run_reuses_one_client_and_closes_all_resources(async_runtime, mode):
     runtime = async_runtime
     asyncio.run(worker.run_reports(**{mode: True}))
+    config = runtime.base.create_engine.call_args.args[0]
+    assert config.database_url == runtime.base.settings.database_url
+    assert config.database_pool_enabled is False
+    assert runtime.base.settings.database_pool_enabled is True
     runtime.publish.assert_awaited_once_with(runtime.base.factory, limit=1, client=runtime.client)
     runtime.create_client.assert_called_once_with()
     assert runtime.client.entered == runtime.client.closed == 1

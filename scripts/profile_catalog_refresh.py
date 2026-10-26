@@ -324,7 +324,6 @@ def main():
         parser.error(str(error))
     os.environ.update(
         DEVFEED_DATABASE_URL=url.render_as_string(hide_password=False),
-        DEVFEED_READ_MODEL_DATABASE_URL=url.render_as_string(hide_password=False),
         DEVFEED_REDIS_URL=os.environ["DEVFEED_TEST_REDIS_URL"],
         DEVFEED_AI_CONTENT_NOT_BEFORE="",
         DEVFEED_IMAGE_STORAGE_ENABLED="false",

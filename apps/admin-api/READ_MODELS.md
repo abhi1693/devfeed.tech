@@ -342,16 +342,18 @@ uv run python -m devfeed_admin_api.projection_worker --kind reports
 
 Compose includes both workers using the admin API image, without public ports or
 identity-provider credentials. Match their AI/image/publication settings to the API.
-`DEVFEED_READ_MODEL_DATABASE_URL` can select a separately budgeted database login
-and PgBouncer pool. Production must reserve interactive capacity, accounting for
-replicas, rollout surge, and failover. A second URL into the same saturated pool
-does not reserve capacity. Each worker performs one calculation at a time using
-short-lived connections.
+All three workers use `DEVFEED_DATABASE_URL` for PostgreSQL application state.
+ClickHouse stores historical facts and summaries; PostgreSQL retains the durable
+capture queue, exporter checkpoints, operational pipeline projections, publisher
+leases, and saved report documents. Each publisher performs one calculation at a
+time and disables connection pooling, releasing each PostgreSQL connection after
+its short transaction. The exporter opens one connection per bounded cycle;
+historical report calculations query ClickHouse outside PostgreSQL transactions.
 
-If the exporter uses a separate PostgreSQL login, grant source-table reads for
-backfill and the source-table `SHARE` locks used during capture activation. It
-also needs exporter-state/cursor updates, outbox reads and exact-ID deletes, and
-usage of `analytics_export_generation`. Source writers need outbox inserts,
+The application PostgreSQL login needs source-table reads for backfill and the
+source-table `SHARE` locks used during capture activation. It also needs
+exporter-state/cursor updates, outbox reads and exact-ID deletes, and usage of
+`analytics_export_generation`. Source writers need outbox inserts,
 usage of the outbox identity sequence, and reads of the capture-state row because
 capture executes inside their transaction. The Compose migration owner already
 has these privileges. ClickHouse schema changes must accompany explicit analytical

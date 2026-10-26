@@ -38,9 +38,7 @@ GAUGE_CYCLE_SECONDS = 0.25
 
 
 def postgres_dsn(settings):
-    return (settings.read_model_database_url or settings.database_url).replace(
-        "postgresql+psycopg://", "postgresql://", 1
-    )
+    return settings.database_url.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 class AnalyticsExporter:

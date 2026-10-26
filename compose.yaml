@@ -430,7 +430,6 @@ services:
     networks: [default, data]
     environment:
       <<: *core-environment
-      DEVFEED_READ_MODEL_DATABASE_URL:
       DEVFEED_READ_MODEL_BATCH_SIZE: ${DEVFEED_READ_MODEL_BATCH_SIZE:-200}
       DEVFEED_READ_MODEL_POLL_SECONDS: ${DEVFEED_READ_MODEL_POLL_SECONDS:-1}
     healthcheck:
@@ -446,7 +445,6 @@ services:
     networks: [default, data]
     environment:
       <<: [*core-environment, *clickhouse-environment]
-      DEVFEED_READ_MODEL_DATABASE_URL:
       DEVFEED_READ_MODEL_POLL_SECONDS: ${DEVFEED_READ_MODEL_POLL_SECONDS:-1}
     healthcheck:
       <<: *healthcheck

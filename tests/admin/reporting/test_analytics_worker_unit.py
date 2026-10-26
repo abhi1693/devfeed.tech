@@ -23,7 +23,6 @@ def settings(**changes):
         **(
             dict(
                 database_url="postgresql+psycopg://unused/devfeed_test",
-                read_model_database_url=None,
                 database_connect_timeout_seconds=3,
                 analytics_batch_size=2,
                 analytics_backfill_batch_size=1,
@@ -122,12 +121,12 @@ def run(coroutine):
     return asyncio.run(coroutine)
 
 
-def test_native_parameter_bindings_and_explicit_read_database():
-    assert (
-        worker.postgres_dsn(settings(read_model_database_url="postgresql+psycopg://reader"))
-        == "postgresql://reader"
-    )
+def test_native_parameter_bindings_and_transactional_postgres_dsn():
     assert worker.postgres_dsn(settings()) == "postgresql://unused/devfeed_test"
+    assert (
+        worker.postgres_dsn(settings(database_url="postgresql://unused/devfeed_test"))
+        == "postgresql://unused/devfeed_test"
+    )
     assert analytics._parameter(date(2026, 1, 1)) == "2026-01-01"
     assert analytics._parameter(NOW).endswith("00:00:00.000000")
     assert analytics._parameter({"ids": [1, True, None]}) == {"ids": [1, True, None]}

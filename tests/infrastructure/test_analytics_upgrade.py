@@ -841,7 +841,6 @@ def test_real_cutover_preserves_expired_receipts_and_cold_versions(database):
     settings = Settings(
         _env_file=None,
         database_url=os.environ["DEVFEED_TEST_DATABASE_URL"],
-        read_model_database_url=None,
         redis_url=os.environ["DEVFEED_TEST_REDIS_URL"],
         clickhouse_url=origin,
         clickhouse_database=name,

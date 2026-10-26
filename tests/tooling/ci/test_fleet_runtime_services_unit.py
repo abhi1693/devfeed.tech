@@ -71,10 +71,18 @@ def test_preparation_refreshes_operational_coverage_after_slow_analytics_backfil
 
     state = SimpleNamespace(clock=0.0, fresh=False, requested=set())
     settings = SimpleNamespace(
-        read_model_database_url="reserved", analytics_backfill_poll_seconds=1
+        database_url="postgresql+psycopg://worker:fixture@database.invalid/app_test",
+        database_pool_enabled=True,
+        analytics_backfill_poll_seconds=1,
     )
-    settings.model_copy = lambda **_kwargs: settings
+    settings.model_copy = Mock(
+        side_effect=lambda *, update: SimpleNamespace(
+            database_url=settings.database_url,
+            database_pool_enabled=update["database_pool_enabled"],
+        )
+    )
     engine = SimpleNamespace(dispose=Mock())
+    create_engine = Mock(return_value=engine)
 
     class Session:
         def get(self, _model, key):
@@ -121,7 +129,7 @@ def test_preparation_refreshes_operational_coverage_after_slow_analytics_backfil
         return len(state.requested)
 
     monkeypatch.setattr(config, "get_settings", lambda: settings)
-    monkeypatch.setattr(database, "create_database_engine", lambda _settings: engine)
+    monkeypatch.setattr(database, "create_database_engine", create_engine)
     monkeypatch.setattr(orm, "sessionmaker", lambda *_args, **_kwargs: Factory())
     monkeypatch.setattr(analytics, "AnalyticsClient", Client)
     monkeypatch.setattr(exporter_module, "AnalyticsExporter", Exporter)
@@ -154,4 +162,8 @@ def test_preparation_refreshes_operational_coverage_after_slow_analytics_backfil
         "coverage",
     }
     assert ("operations", "current") in state.requested
+    settings.model_copy.assert_called_once_with(update={"database_pool_enabled": False})
+    worker_settings = create_engine.call_args.args[0]
+    assert worker_settings.database_url == settings.database_url
+    assert worker_settings.database_pool_enabled is False
     engine.dispose.assert_called_once_with()

@@ -208,7 +208,6 @@ class Smoke:
         self.env.update(
             DEVFEED_DATABASE_URL=f"postgresql+psycopg://ci:ci@{pg}/fleet_native_test",
             DEVFEED_REDIS_URL=f"redis://{redis}/15",
-            DEVFEED_READ_MODEL_DATABASE_URL=f"postgresql+psycopg://ci:ci@{pg}/fleet_native_test",
             DEVFEED_CLICKHOUSE_URL=f"http://{clickhouse}:8123",
             DEVFEED_CLICKHOUSE_DATABASE="fleet_native_test",
             DEVFEED_CLICKHOUSE_USERNAME="ci",

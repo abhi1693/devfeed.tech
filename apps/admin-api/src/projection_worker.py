@@ -66,16 +66,9 @@ def run(*, once=False, drain=False, kind="pipeline"):
         return asyncio.run(run_reports(once=once, drain=drain))
     configure_logging("read-model-worker", settings.log_level, settings.log_format)
     telemetry = start_runtime("read-model-worker")
-    # NullPool releases each physical session after its short transaction. Use a
-    # dedicated PgBouncer login/pool in production to reserve interactive slots.
-    engine = create_database_engine(
-        settings.model_copy(
-            update={
-                "database_url": settings.read_model_database_url or settings.database_url,
-                "database_pool_enabled": False,
-            }
-        )
-    )
+    # NullPool releases each physical session after its short transaction instead
+    # of keeping application connections idle between publication cycles.
+    engine = create_database_engine(settings.model_copy(update={"database_pool_enabled": False}))
     factory = sessionmaker(engine, expire_on_commit=False)
     stopping = threading.Event()
     for name in (signal.SIGTERM, signal.SIGINT):
@@ -134,14 +127,7 @@ async def run_reports(*, once=False, drain=False):
     settings = get_settings()
     configure_logging("read-model-worker", settings.log_level, settings.log_format)
     telemetry = start_runtime("read-model-worker")
-    engine = create_database_engine(
-        settings.model_copy(
-            update={
-                "database_url": settings.read_model_database_url or settings.database_url,
-                "database_pool_enabled": False,
-            }
-        )
-    )
+    engine = create_database_engine(settings.model_copy(update={"database_pool_enabled": False}))
     factory = sessionmaker(engine, expire_on_commit=False)
     retention = ReportRetention(factory)
     stopping = asyncio.Event()

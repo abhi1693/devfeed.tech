@@ -6,10 +6,14 @@ It is called by the existing image smoke gate after its native-library checks.
 The image job supplies the native architecture; running locally on AMD64 does not
 establish ARM64 release-image readiness.
 
-`commands.json` captures the prepared DevFeed Fleet commands and probes from the
+`commands.json` records the supported DevFeed Fleet commands and probes, based on the
 home-lab checkout at revision `76bd4d280e00031e31b05f7c2b3e7fa15b1135c2`.
 The prepared migration/backfill/publisher files can include uncommitted release
-preparation; the recorded per-file SHA-256 values identify that exact input.
+preparation; the recorded per-file SHA-256 values identify those baseline inputs.
+The backfill preparation contract tracks the application's current configuration:
+it uses `DEVFEED_DATABASE_URL` with short-lived connections for native capture,
+pipeline projections, and saved-report metadata. Historical calculations use
+ClickHouse. Coordinate the final Fleet preparation command with these image requirements.
 The consumer wrapper is the byte-identical `infra/chimely/consumer.py` from this
 repository. CI never fetches the private infrastructure repository. Before final
 deployment, compare each invoked command/probe and consumer payload with the
@@ -28,8 +32,8 @@ user, partner and dedicated worker images deliberately use packaged
 `Base.metadata.create_all()` for their separate runtime fixtures. Their output
 labels that setup as metadata-only: it is not evidence that Alembic ran there.
 
-The admin image executes the actual backfill hook, validates current pipeline
-content and all 27 default report snapshots, and starts both publishers. Their
+The admin image executes the backfill preparation contract, validates current pipeline
+content and all 11 default report snapshots, and starts both publishers. Their
 real probes must accept a fresh heartbeat and reject a stale one. The backend
 starts every configured worker queue/group, verifies actual RQ registration and
 heartbeats, runs the scheduler and its successful-cycle probe, and runs search

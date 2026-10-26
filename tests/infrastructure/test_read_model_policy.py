@@ -62,7 +62,7 @@ def test_policy_identity_ignores_mapping_order_release_identity_and_worker_crede
     changed = settings.model_copy(
         update={
             "codex_auth_token": SecretStr("unit-test-only-token"),
-            "read_model_database_url": "postgresql+psycopg://worker:fixture@database.invalid/unit_test",
+            "database_url": "postgresql+psycopg://worker:fixture@database.invalid/unit_test",
             "read_model_batch_size": 500,
             "read_model_poll_seconds": 20,
         }

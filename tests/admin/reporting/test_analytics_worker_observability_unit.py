@@ -18,7 +18,6 @@ class StopService(BaseException):
 def service(monkeypatch):
     settings = NS(
         database_url="postgresql+psycopg://unused/devfeed_test",
-        read_model_database_url=None,
         database_connect_timeout_seconds=3,
         analytics_poll_seconds=0.25,
         analytics_backfill_poll_seconds=0.5,
@@ -163,7 +162,6 @@ def test_backlog_metric_uses_indexed_age_without_counting_pending_history(monkey
     monkeypatch.setattr(worker.psycopg, "AsyncConnection", NS(connect=connect))
     settings = NS(
         database_url="postgresql+psycopg://unused/devfeed_test",
-        read_model_database_url=None,
         database_connect_timeout_seconds=3,
     )
     asyncio.run(worker.record_backlog(settings))
