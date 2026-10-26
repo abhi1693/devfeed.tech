@@ -408,6 +408,172 @@ def test_status_heartbeat_is_throttled_but_ready_transition_publishes_immediatel
 
 
 @pytest.mark.parametrize(
+    "sources,imported,legacy,complete",
+    [
+        (False, True, True, False),
+        (True, False, True, False),
+        (True, True, False, False),
+        (False, False, False, False),
+        (True, True, True, True),
+    ],
+)
+def test_publication_waits_for_all_durable_raw_bootstrap_inputs(
+    sources, imported, legacy, complete
+):
+    state = dict(sources_complete=sources, native_import_complete=imported, legacy_complete=legacy)
+    connection = Connection(lambda *_: state)
+    assert run(exporter()._raw_backfill_complete(connection)) is complete
+    query = connection.calls[0][0]
+    assert "analytics_bootstrap_cursors WHERE NOT complete" in query
+    assert "CASE WHEN native_bootstrap_complete THEN true" in query
+    assert "analytics_capture_events WHERE format_version=1" in query
+
+
+@pytest.mark.parametrize(
+    "pending", ["sources_complete", "native_import_complete", "legacy_complete"]
+)
+def test_initial_import_delivers_live_facts_and_heartbeats_without_publishing_partial_history(
+    monkeypatch, pending
+):
+    state = dict(
+        sources_complete=True,
+        native_import_complete=True,
+        legacy_complete=True,
+        native_bootstrap_barrier=False,
+        native_bootstrap_complete=False,
+        facts_complete=False,
+        oldest=NOW - timedelta(seconds=10),
+        capture_started_at=NOW,
+        native_capture_started_at=None,
+        reader_coverage_start=NOW.date(),
+    )
+    state[pending] = False
+    events = [dict(id=31, source_table="inference_calls", format_version=2)]
+
+    def handle(query, _):
+        if query.startswith(("SELECT native_import_complete,", "SELECT *,NOT EXISTS")):
+            return state
+        if query.startswith("SELECT id,source"):
+            return events
+        return {"ok": 1}
+
+    connection = Connection(handle)
+    service = exporter(connection)
+    lease = dict(capture_started_at=NOW, native_capture_started_at=None, lease_generation=42)
+    service._enable_capture = AsyncMock()
+    service._lease = AsyncMock(return_value=lease)
+    service.upgrade.once.return_value = True
+    service._backfill_one = AsyncMock(return_value=True)
+    facts = [dict(domain="inference")]
+    monkeypatch.setattr(worker, "transform_events", AsyncMock(return_value=facts))
+    service.rollups.refresh_one.side_effect = AssertionError("Partial history was rebuilt")
+    service.rollups.compact_one.side_effect = AssertionError("Partial history was compacted")
+    service._refresh_gauges = AsyncMock(side_effect=AssertionError("Initial gauges published"))
+    monkeypatch.setattr(
+        worker.psycopg, "AsyncConnection", NS(connect=AsyncMock(return_value=connection))
+    )
+    marker = Mock()
+    monkeypatch.setattr(worker, "write_runtime_marker", marker)
+
+    assert run(service.once())
+    service.upgrade.once.assert_awaited_once()
+    service._backfill_one.assert_awaited_once_with(connection, 42)
+    service.upgrade.normalize_pending.assert_awaited_once_with(connection, events, 42)
+    service.gauges.ingest.assert_awaited_once_with(connection, events, generation=42)
+    service.gauges.mark_dirty.assert_awaited_once_with(connection, events)
+    service.rollups.mark_dirty.assert_awaited_once_with(connection, facts, 42)
+    service.rollups.refresh_one.assert_not_awaited()
+    service.rollups.compact_one.assert_not_awaited()
+    service._refresh_gauges.assert_not_awaited()
+    service.gauges.bootstrap_complete.assert_not_awaited()
+    assert [p for q, p in connection.calls if q.startswith("DELETE")] == [([31],)]
+    assert service.client.inserts[0] == ("analytics_fact_events", facts)
+    assert service.client.inserts[-1][0] == "analytics_pipeline_status"
+    assert service.client.inserts[-1][1][0]["ready"] == 0
+    assert service._lease.await_count == 4 and service.bootstrapping
+    assert any(
+        q.startswith("UPDATE analytics_pipeline_state SET last_success")
+        and "lease_token=NULL,lease_until=NULL" in q
+        for q, _ in connection.calls
+    )
+    marker.assert_called_once()
+
+
+def test_completed_raw_import_requires_rollup_and_gauge_barriers_across_failure_and_restart(
+    monkeypatch,
+):
+    state = dict(
+        sources_complete=True,
+        native_import_complete=True,
+        legacy_complete=True,
+        native_bootstrap_barrier=False,
+        native_bootstrap_complete=False,
+        facts_complete=False,
+        oldest=None,
+        capture_started_at=NOW,
+        native_capture_started_at=None,
+        reader_coverage_start=NOW.date(),
+    )
+
+    def handle(query, _):
+        if query.startswith(("SELECT native_import_complete,", "SELECT *,NOT EXISTS")):
+            return state
+        if query.startswith("UPDATE analytics_fact_refresh SET initial_pending=true"):
+            state["facts_complete"] = False
+        if "native_bootstrap_barrier=true" in query:
+            state["native_bootstrap_barrier"] = True
+        if "native_bootstrap_complete=true" in query:
+            state["native_bootstrap_complete"] = True
+        return {"ok": 1}
+
+    connection = Connection(handle)
+    monkeypatch.setattr(
+        worker.psycopg, "AsyncConnection", NS(connect=AsyncMock(return_value=connection))
+    )
+    marker = Mock()
+    monkeypatch.setattr(worker, "write_runtime_marker", marker)
+
+    def restarted():
+        service = exporter(connection)
+        lease = dict(capture_started_at=NOW, native_capture_started_at=None, lease_generation=42)
+        service._enable_capture = AsyncMock()
+        service._lease = AsyncMock(return_value=lease)
+        service._backfill_one = AsyncMock(return_value=False)
+        service._export_events = AsyncMock(return_value=0)
+        service._refresh_gauges = AsyncMock(return_value=False)
+        service.gauges.bootstrap_complete.return_value = False
+        return service
+
+    service = restarted()
+    run(service.once())
+    assert state["native_bootstrap_barrier"] and not state["native_bootstrap_complete"]
+    assert service.client.inserts[-1][1][0]["ready"] == 0
+    service.rollups.refresh_one.assert_awaited_once()
+    service.rollups.compact_one.assert_awaited_once()
+
+    service = restarted()
+    offset = len(connection.calls)
+    service.rollups.refresh_one.side_effect = RuntimeError("Rollup sink unavailable")
+    with pytest.raises(RuntimeError, match="sink unavailable"):
+        run(service.once())
+    assert not service.client.inserts and not state["native_bootstrap_complete"]
+    assert not any("SET last_success" in q for q, _ in connection.calls[offset:])
+
+    state["facts_complete"] = True
+    service.rollups.refresh_one.side_effect = None
+    run(service.once())
+    assert not state["native_bootstrap_complete"]
+    assert service.client.inserts[-1][1][0]["ready"] == 0
+
+    service = restarted()
+    service.gauges.bootstrap_complete.return_value = True
+    run(service.once())
+    assert state["native_bootstrap_complete"] and not service.bootstrapping
+    assert service.client.inserts[-1][1][0]["ready"] == 1
+    assert marker.call_count == 3
+
+
+@pytest.mark.parametrize(
     "busy", [None, "upgrade", "backfill", "events", "rollup", "gauges", "compact"]
 )
 def test_export_cycle_orders_handoffs_reuses_original_capture_and_releases_lease(monkeypatch, busy):
@@ -423,6 +589,7 @@ def test_export_cycle_orders_handoffs_reuses_original_capture_and_releases_lease
         return perform
 
     service._enable_capture = AsyncMock()
+    service._raw_backfill_complete = AsyncMock(return_value=True)
     leases = [
         dict(
             capture_started_at=NOW,
@@ -463,6 +630,7 @@ def test_export_cycle_stops_after_missing_or_expired_renewal(monkeypatch, lost):
     connection = Connection()
     service = exporter(connection)
     service._enable_capture = AsyncMock()
+    service._raw_backfill_complete = AsyncMock(return_value=True)
     lease = dict(capture_started_at=NOW, native_capture_started_at=None, lease_generation=2)
     service._lease = AsyncMock(side_effect=[lease] * lost + [None])
     service._backfill_one = AsyncMock(return_value=False)
@@ -642,7 +810,8 @@ def test_rollup_rebuild_reads_only_the_requested_cohort_and_publishes_empty_gene
 
     assert run(publisher.refresh_one(connection, 20, fence=fenced))
     query, params = client.commands[0]
-    assert "analytics_fact_state" in query and "argMaxMerge" in query
+    assert "analytics_fact_state FINAL PREWHERE" in query
+    assert "finalizeAggregation(state)" in query
     assert "IN {buckets:Array" in query
     assert (
         params["buckets"] == [bucket.strftime("%Y-%m-%d %H:%M:%S")] and params["generation"] == 20

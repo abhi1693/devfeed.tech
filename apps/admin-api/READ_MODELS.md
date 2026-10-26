@@ -65,6 +65,12 @@ its generation manifest. Readers ignore unpublished and obsolete generations.
 Serialized monthly summary compaction removes obsolete serving generations while
 retaining raw history; it does not run `OPTIMIZE FINAL` over raw tables.
 
+Canonical reads merge sorted aggregate states with `FINAL` and finalize each
+merged state. Read blocks are capped at 4,096 rows to bound wide state buffers
+within the query memory budget. Only immutable domain and hour keys are filtered
+before merging; tombstones are filtered afterward so older revisions cannot
+reappear.
+
 Summary states use bounded t-digest percentiles and estimated distinct readers.
 The UI labels these estimates; exact financial and usage counters remain exact.
 Charts return at most 168 hourly, 90 daily, 54 weekly, or 122 monthly points;
@@ -80,6 +86,9 @@ TTL. This cache cleanup does not delete retained analytical detail.
 
 Bootstrap coverage and ongoing freshness are separate. Initial publication waits
 for source backfill, cold-history import, and initial summary/gauge coverage.
+Raw backfill continues capturing live changes and marking dirty cohorts, while
+summary rebuilding, gauge publication, and compaction wait for durable raw
+coverage. This avoids recalculating incomplete history after each source page.
 Later changes increase lag without forcing an endless bootstrap under continuous
 traffic. Saved reports remain available during exporter or ClickHouse outages;
 report workers never fall back to PostgreSQL historical aggregation.

@@ -13,6 +13,7 @@ GENERATION = "{generation:UInt64}"
 BUCKETS = "{buckets:Array(DateTime('UTC'))}"
 REFRESH_BATCH_SIZE = 32
 DAILY_REFRESH_BATCH_SIZE = 1
+CANONICAL_READ_BLOCK_SIZE = 4096
 COMPACTION_DOMAINS = {
     "publishing_hourly": "publishing",
     "audience_hourly": "audience",
@@ -35,11 +36,17 @@ def canonical_sql(domain, *, daily=False, batch=False):
     if batch:
         bucket = "toStartOfDay(bucket_hour)" if daily else "bucket_hour"
         window = f"{bucket} IN {BUCKETS}"
+    # The storage sorting key is exactly (domain, bucket_hour, fact_id), so FINAL
+    # can merge argMax states in order instead of retaining a second aggregate
+    # state for every fact. Bound wide state deserialization independently of the
+    # number of dirty buckets. Only sorting-key columns belong in PREWHERE:
+    # filtering deleted payloads before the merge would resurrect old versions.
     return (
         f"SELECT bucket_hour, fact_id, {selected} FROM ("
-        "SELECT bucket_hour, fact_id, argMaxMerge(state) AS fact "
-        f"FROM analytics_fact_state WHERE domain = '{domain}' AND {window} "
-        "GROUP BY domain, bucket_hour, fact_id) WHERE tupleElement(fact, 1) = 0"
+        "SELECT bucket_hour, fact_id, finalizeAggregation(state) AS fact "
+        f"FROM analytics_fact_state FINAL PREWHERE domain = '{domain}' AND {window} "
+        f"SETTINGS max_block_size={CANONICAL_READ_BLOCK_SIZE}) "
+        "WHERE tupleElement(fact, 1) = 0"
     )
 
 

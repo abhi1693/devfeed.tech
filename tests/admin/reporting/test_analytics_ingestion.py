@@ -15,8 +15,13 @@ from alembic import command
 from alembic.config import Config
 from clickhouse_connect.driver.exceptions import Error as ClickHouseError
 from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
-from devfeed_core.analytics_facts import empty_fact
-from devfeed_core.analytics_rollups import REFRESH_BATCH_SIZE, RollupPublisher, canonical_sql
+from devfeed_core.analytics_facts import PAYLOAD_NAMES, empty_fact
+from devfeed_core.analytics_rollups import (
+    REFRESH_BATCH_SIZE,
+    RollupPublisher,
+    canonical_sql,
+    rebuild_sql,
+)
 from devfeed_core.analytics_schema import BACKFILL_TABLES
 from devfeed_core.analytics_worker import AnalyticsExporter, postgres_dsn
 from devfeed_core.config import Settings
@@ -743,5 +748,158 @@ def test_sparse_bucket_batches_publish_complete_generations_and_bound_bootstrap_
                         "SELECT count() AS count FROM analytics_bucket_manifest FINAL"
                     )
                 )[0]["count"] == len(buckets)
+
+    asyncio.run(verify())
+
+
+@pytest.mark.integration
+def test_sorted_fact_merges_preserve_late_retractions_and_all_rollups_across_95_days():
+    """Engine merging must match argMaxMerge before any mutable payload is filtered."""
+    settings = _settings()
+    now = utcnow().replace(minute=0, second=0, microsecond=0)
+    old = now - timedelta(days=94)
+    start = now - timedelta(days=95)
+    end = now.replace(hour=0) + timedelta(days=1)
+    source_id, topic_id = str(uuid.uuid4()), str(uuid.uuid4())
+    domains = ("publishing", "audience", "processing", "inference", "decisions")
+    arguments = {
+        "bucket": start,
+        "end": end,
+    }
+
+    def fact(domain, identity, at, event_id):
+        row = empty_fact(domain, identity, at, event_id=event_id, captured_at=now, generation=1)
+        row.update(
+            task=domain,
+            model="original",
+            effort="medium",
+            status="returned",
+            outcome="useful",
+            source_ids=[source_id],
+            topic_ids=[topic_id],
+            viewer_key=str(identity),
+            published=1,
+            automated=1,
+            opens=1,
+            accounts_created=1,
+            calls=1,
+            completed=1,
+            useful=1,
+            input_tokens=17,
+            duration_ms=1000,
+            has_duration=1,
+            delay_seconds=1.0,
+            has_delay=1,
+        )
+        return row
+
+    async def verify():
+        database = f"devfeed_sorted_rollups_{uuid.uuid4().hex}_test"
+        async with AnalyticsClient(
+            settings.model_copy(update={"clickhouse_database": "default"})
+        ) as admin:
+            await admin.execute(f"CREATE DATABASE `{database}`")
+            try:
+                async with AnalyticsClient(
+                    settings.model_copy(update={"clickhouse_database": database})
+                ) as client:
+                    await client.initialize()
+                    client.insert_settings = {"async_insert_busy_timeout_ms": 1}
+                    # Keep duplicate/out-of-order states in separate physical parts.
+                    # Only this test's private state table is affected.
+                    await client.execute("SYSTEM STOP MERGES analytics_fact_state")
+                    initial, corrected, late = [], [], []
+                    for index, domain in enumerate(domains):
+                        moved = fact(domain, uuid.uuid4(), old, index * 10 + 1)
+                        retained = fact(domain, uuid.uuid4(), old, index * 10 + 2)
+                        deleted = fact(domain, uuid.uuid4(), now, index * 10 + 3)
+                        initial.extend(
+                            [
+                                moved,
+                                retained,
+                                deleted,
+                                fact(domain, uuid.uuid4(), start - timedelta(hours=1), 100 + index),
+                                fact(domain, uuid.uuid4(), end, 200 + index),
+                            ]
+                        )
+                        corrected.extend(
+                            [
+                                dict(moved, deleted=1, generation=3, event_id=300 + index),
+                                dict(
+                                    moved,
+                                    bucket_hour=now,
+                                    event_time=now,
+                                    model="corrected",
+                                    published=2,
+                                    automated=2,
+                                    opens=2,
+                                    accounts_created=2,
+                                    calls=2,
+                                    completed=2,
+                                    useful=2,
+                                    input_tokens=2**64 + 9,
+                                    generation=3,
+                                    event_id=400 + index,
+                                ),
+                                dict(deleted, deleted=1, generation=4, event_id=500 + index),
+                            ]
+                        )
+                        late.extend([moved, dict(deleted, generation=2)])
+                    await client.insert("analytics_fact_events", initial)
+                    await client.insert("analytics_fact_events", initial)
+                    await client.insert("analytics_fact_events", corrected)
+                    await client.insert("analytics_fact_events", late)
+                    columns = ",".join(
+                        f"tupleElement(fact,{position}) AS `{name}`"
+                        for position, name in enumerate(PAYLOAD_NAMES, 1)
+                    )
+                    for domain in domains:
+                        oracle = (
+                            f"SELECT bucket_hour,fact_id,{columns} FROM ("
+                            "SELECT bucket_hour,fact_id,argMaxMerge(state) AS fact "
+                            f"FROM analytics_fact_state WHERE domain='{domain}' "
+                            "AND bucket_hour>={bucket:DateTime64(6,'UTC')} "
+                            "AND bucket_hour<{end:DateTime64(6,'UTC')} "
+                            "GROUP BY domain,bucket_hour,fact_id) WHERE tupleElement(fact,1)=0 "
+                            "ORDER BY bucket_hour,fact_id"
+                        )
+                        expected = await client.query(oracle, arguments)
+                        actual = await client.query(
+                            canonical_sql(domain) + " ORDER BY bucket_hour,fact_id", arguments
+                        )
+                        assert actual == expected and len(actual) == 2
+                        assert sum(row["calls"] for row in actual) == 3
+                        assert sum(row["input_tokens"] for row in actual) == 2**64 + 26
+                    for domain in (*domains[:4], "sources", "topics"):
+                        buckets = [old, now]
+                        if domain in {"sources", "topics"}:
+                            buckets = [bucket.replace(hour=0) for bucket in buckets]
+                        await client.execute(
+                            rebuild_sql(domain, batch=True)
+                            + " SETTINGS optimize_aggregation_in_order=1",
+                            {
+                                "buckets": [
+                                    bucket.strftime("%Y-%m-%d %H:%M:%S") for bucket in buckets
+                                ],
+                                "generation": 7,
+                            },
+                        )
+                        table, counter = {
+                            "publishing": ("publishing_hourly", "published"),
+                            "audience": ("audience_hourly", "opens"),
+                            "processing": ("processing_hourly", "completed"),
+                            "inference": ("inference_hourly", "calls"),
+                            "sources": ("source_daily", "published"),
+                            "topics": ("topic_daily", "published"),
+                        }[domain]
+                        totals = await client.query(
+                            f"SELECT sum({counter}) AS total FROM analytics_{table}"
+                        )
+                        assert totals == [{"total": 3}]
+                    assert await client.query(
+                        "SELECT sum(input_tokens) AS tokens FROM analytics_inference_hourly"
+                    ) == [{"tokens": 2**64 + 26}]
+            finally:
+                await admin.execute(f"DROP DATABASE `{database}` SYNC")
 
     asyncio.run(verify())

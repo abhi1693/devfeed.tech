@@ -247,6 +247,27 @@ class AnalyticsExporter:
             )
         return len(captured)
 
+    @staticmethod
+    def _raw_complete(state):
+        return (
+            state["sources_complete"]
+            and state["native_import_complete"]
+            and state["legacy_complete"]
+        )
+
+    async def _raw_backfill_complete(self, connection):
+        state = await (
+            await connection.execute(
+                "SELECT native_import_complete,NOT EXISTS(SELECT 1 FROM "
+                "analytics_bootstrap_cursors WHERE NOT complete) AS sources_complete,"
+                "CASE WHEN native_bootstrap_complete THEN true ELSE "
+                "NOT EXISTS(SELECT 1 FROM analytics_capture_events "
+                "WHERE format_version=1) END AS legacy_complete "
+                "FROM analytics_pipeline_state WHERE singleton"
+            )
+        ).fetchone()
+        return self._raw_complete(state)
+
     async def _publish_status(self, connection, lease, observed_at):
         async with connection.transaction():
             await self._check_lease(connection)
@@ -260,11 +281,7 @@ class AnalyticsExporter:
                     "FROM analytics_pipeline_state WHERE singleton FOR UPDATE"
                 )
             ).fetchone()
-            raw_complete = (
-                state["sources_complete"]
-                and state["native_import_complete"]
-                and state["legacy_complete"]
-            )
+            raw_complete = self._raw_complete(state)
             if raw_complete and not state["native_bootstrap_barrier"]:
                 await connection.execute(
                     "UPDATE analytics_fact_refresh SET initial_pending=true,"
@@ -367,15 +384,25 @@ class AnalyticsExporter:
                 raise RuntimeError("Analytics publisher lease was superseded")
             generation = lease["lease_generation"]
             count = await self._export_events(connection, generation)
-            published = await self.rollups.refresh_one(
-                connection, generation, fence=self._check_lease
-            )
-            gauges = await self._refresh_gauges(connection)
+            # Initial reports cannot be ready before every raw source and legacy
+            # import is durable. Retain dirty cohorts while importing, rather
+            # than rebuilding partial history after each bounded source page.
+            raw_complete = await self._raw_backfill_complete(connection)
+            published = gauges = False
+            if raw_complete:
+                published = await self.rollups.refresh_one(
+                    connection, generation, fence=self._check_lease
+                )
+                gauges = await self._refresh_gauges(connection)
             lease = await self._lease(connection)
             if lease is None:
                 raise RuntimeError("Analytics publisher lease was superseded")
-            compacted = await self.rollups.compact_one(
-                connection, fence=self._check_lease, renew=self._lease
+            compacted = (
+                await self.rollups.compact_one(
+                    connection, fence=self._check_lease, renew=self._lease
+                )
+                if raw_complete
+                else False
             )
             await self._publish_status(connection, lease, observed_at)
             async with connection.transaction():
