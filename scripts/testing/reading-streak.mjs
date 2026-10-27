@@ -6,8 +6,7 @@ import { assertAccessible } from "../../apps/web/tests/browser/accessibility.mjs
 import { checkAvatarStreak } from "./reader-navigation.mjs";
 
 export function readingStreakFixture() {
-  const today = new Date().toISOString().slice(0, 10);
-  const date = (offset) =>
+  const date = (today, offset) =>
     new Date(Date.parse(`${today}T12:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10);
   const states = {
     active: { current: 2, best: 11, total: 24, last: 0, counts: [0, 3, 1, 0, 0, 1, 2] },
@@ -18,6 +17,7 @@ export function readingStreakFixture() {
     new: { current: 0, best: 0, total: 0, last: null, counts: [0, 0, 0, 0, 0, 0, 0] },
   };
   return {
+    today: new Date().toISOString().slice(0, 10),
     state: "active",
     requests: 0,
     profile() {
@@ -27,17 +27,17 @@ export function readingStreakFixture() {
         current_days: state.current,
         longest_days: state.best,
         total_days: state.total,
-        last_read_date: state.last === null ? null : date(state.last),
+        last_read_date: state.last === null ? null : date(this.today, state.last),
       };
     },
     week() {
       const state = states[this.state];
       assert.ok(state, `Unknown reading fixture state: ${this.state}`);
       return {
-        today,
+        today: this.today,
         timezone: "UTC",
         days: state.counts.map((article_count, index) => ({
-          date: date(index - 6),
+          date: date(this.today, index - 6),
           article_count,
         })),
       };
@@ -51,8 +51,8 @@ export function readingStreakFixture() {
 
 async function checkWeek(panel, fixture) {
   const week = panel.getByRole("region", { name: "Your week", exact: true });
-  await week.getByRole("listitem").first().waitFor();
   const expected = fixture.week();
+  await week.locator(`time[datetime="${expected.today}"]`).waitFor();
   const days = week.getByRole("listitem");
   assert.equal(await days.count(), 7, "The week includes exactly seven real calendar days");
   assert.deepEqual(
@@ -103,6 +103,8 @@ async function closeWithEscape(page, panel, trigger) {
 export async function checkReadingStreak(page, screenshot, { fixture, mustReads } = {}) {
   await page.bringToFront();
   assert.ok(fixture, "Reading streak checks require recorded weekly fixture data");
+  // Long journeys and the resume check can cross UTC midnight in the browser.
+  fixture.today = await page.evaluate(() => new Date().toISOString().slice(0, 10));
   await mkdir(path.dirname(screenshot), { recursive: true });
   const original = page.viewportSize();
   const originalTheme = await page.locator("html").getAttribute("class");
@@ -131,6 +133,7 @@ export async function checkReadingStreak(page, screenshot, { fixture, mustReads 
     const retainedPanel = await panel.elementHandle();
     const resumeTime = await page.evaluate(() => Date.now() + 120_000);
     await page.clock.setFixedTime(resumeTime);
+    fixture.today = new Date(resumeTime).toISOString().slice(0, 10);
     const resumeAuth = page.waitForResponse((value) =>
       new URL(value.url()).pathname.endsWith("/user/auth/me"),
     );

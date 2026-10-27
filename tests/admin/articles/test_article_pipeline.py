@@ -639,7 +639,7 @@ def test_active_old_run_wins_over_newer_terminal_history(admin_client, database,
 
 @pytest.mark.integration
 def test_cutoff_changes_invalidate_warm_counts_and_prevent_noop_resume(
-    admin_client, database, monkeypatch, card_publication
+    admin_client, database, monkeypatch, request
 ):
     from datetime import UTC, datetime
 
@@ -648,12 +648,16 @@ def test_cutoff_changes_invalidate_warm_counts_and_prevent_noop_resume(
     monkeypatch.setenv("DEVFEED_AI_ENABLED", "true")
     monkeypatch.setenv("DEVFEED_AI_CONTENT_NOT_BEFORE", "2026-10-01")
     get_settings.cache_clear()
+    # Capture the runtime's immutable settings after selecting this test's policy.
+    card_publication = request.getfixturevalue("card_publication")
     with database.begin() as session:
         article = make_article(session)
         article.published_at = datetime(2026, 10, 18, tzinfo=UTC)
         identifier = str(article.id)
     card_publication(database)
-    assert admin_client.get("/v1/admin/article-pipeline").json()["counts"]["ready"] == 1
+    response = admin_client.get("/v1/admin/article-pipeline")
+    assert response.status_code == 200, response.text
+    assert response.json()["counts"]["ready"] == 1
     with database.begin() as session:
         session.get(Article, uuid.UUID(identifier)).published_at = datetime(2026, 9, 30, tzinfo=UTC)
         no_analysis = make_article(session, state="enrichment")
@@ -664,7 +668,9 @@ def test_cutoff_changes_invalidate_warm_counts_and_prevent_noop_resume(
         job.status = "succeeded"
         no_analysis_id = str(no_analysis.id)
     card_publication(database)
-    board = admin_client.get("/v1/admin/article-pipeline").json()
+    response = admin_client.get("/v1/admin/article-pipeline")
+    assert response.status_code == 200, response.text
+    board = response.json()
     assert board["counts"]["ready"] == 0 and board["counts"]["analysis"] == 2
     detail = admin_client.get(f"/v1/admin/articles/{no_analysis_id}/pipeline").json()
     assert "content_date_deferred" in detail["blockers"]

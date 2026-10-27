@@ -1773,6 +1773,7 @@ test("reading streak panel survives ordinary account resume", { timeout: 90000 }
   const { browser, origin, readingFixture, mustReadsFixture } = await createReaderFixture(t);
   await withReaderPage(browser, async (page, context) => {
     await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+    await page.clock.setFixedTime(new Date(`${readingFixture.week().today}T23:59:30Z`));
     await page.goto(`${origin}/latest`);
     await checkReadingStreak(page, artifactPath("reading-streak-resume/web"), {
       fixture: readingFixture,

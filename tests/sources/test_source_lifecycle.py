@@ -41,6 +41,7 @@ from sqlalchemy import func, select, text
 
 from tests.images.test_logo_integration import enabled as enabled
 from tests.images.test_logo_integration import process_logo
+from tests.support import legacy_migrations
 
 pytestmark = pytest.mark.integration
 SAMPLE = [
@@ -568,18 +569,23 @@ def test_logo_worker_reconciles_admission_and_keeps_retry_intent_through_checkpo
         assert "source_pipeline_request" not in source.managed_logo
 
 
-def test_split_processing_migration_preserves_legacy_defaults_and_guards_rollback(database):
+@pytest.mark.usefixtures("integration_environment")
+def test_split_processing_migration_preserves_legacy_defaults_and_guards_rollback(monkeypatch):
     migration = importlib.import_module("migrations.versions.0032_source_processing")
-    with database.begin() as session:
+    # Later capture triggers depend on the processing columns. Exercise the
+    # historical boundary in its own schema rather than downgrading today's DB.
+    with (
+        legacy_migrations.database_at_revision(monkeypatch, "0032") as database,
+        database.begin() as session,
+    ):
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0032"
         source = seed_source(session, approved=True, profile=False)
         # Omit only the new fields so PostgreSQL, rather than ORM defaults,
         # supplies the legacy compatibility values.
         session.execute(
             SourceEnrichmentJob.__table__.insert().values(source_id=source.id, status="succeeded")
         )
-        # Round-trip populated pre-lifecycle tables through the new 0032 boundary.
-        # This exercises the upgrade from current master's 0031 schema, not just
-        # the ORM defaults on a database that already has the processing columns.
+        # Round-trip populated tables across the 0031 -> 0032 boundary.
         with Operations.context(MigrationContext.configure(session.connection())):
             migration.downgrade()
             migration.upgrade()
