@@ -33,6 +33,9 @@ storage = ["boto3>=1.43.118,<2"]
 requires = ["setuptools>=84.2.1,<85"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+script-files = ["src/devfeed-worker-health"]
+
 [tool.setuptools.package-dir]
 devfeed_core = "src"
 
@@ -42,6 +45,7 @@ devfeed_core = ["py.typed", "clickhouse_migrations/*.sql"]
 [tool.uv]
 cache-keys = [
   { file = "pyproject.toml" }, { file = "src/**/*.py" }, { file = "src/**/*.sql" },
+  { file = "src/devfeed-worker-health" },
   { file = "src/py.typed" }, { dir = "build" },
 ]
 

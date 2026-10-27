@@ -52,7 +52,7 @@ class Smoke:
             "DEVFEED_CACHE_ENABLED": "false",
             "DEVFEED_IMAGE_STORAGE_ENABLED": "false",
             "DEVFEED_LOG_FORMAT": "json",
-            "DEVFEED_WORKER_HEALTH_PATH": "/tmp/devfeed-worker-health.json",
+            "DEVFEED_WORKER_HEALTH_PATH": "/tmp/devfeed-worker-health",
         }
 
     def __enter__(self):
@@ -385,7 +385,7 @@ class Smoke:
                 mounts += inbox_mounts
                 env.update(inbox_env)
             name = self.start(CONTRACTS[key]["command"], env=env, mounts=mounts)
-            probe = ["python", "-m", "devfeed_core.worker_health"]
+            probe = ["devfeed-worker-health"]
             self.wait_probe(name, probe)
             self.execute(name, "python", "/fleet/runtime.py", "worker")
             self.execute(name, "python", "/fleet/runtime.py", "permissions")

@@ -103,13 +103,13 @@ def test_dispatch_sql_only_selects_target_job_and_preserves_scheduler_lock_behav
     job = queued_job(available_at=NOW, dispatched_at=None)
     statements, calls, events = [], [], []
 
-    def scalar(statement):
+    def scalars(statement):
         statements.append(statement)
-        return job
+        return SimpleNamespace(all=lambda: [job])
 
     @contextmanager
     def begin():
-        yield SimpleNamespace(scalar=scalar)
+        yield SimpleNamespace(scalars=scalars)
         events.append("commit")
 
     def enqueue(*args, **kwargs):
@@ -139,7 +139,7 @@ def test_dispatch_sql_only_selects_target_job_and_preserves_scheduler_lock_behav
 def test_no_eligible_target_does_not_publish_another_job():
     @contextmanager
     def begin():
-        yield SimpleNamespace(scalar=lambda _: None)
+        yield SimpleNamespace(scalars=lambda _: SimpleNamespace(all=lambda: []))
 
     queue = SimpleNamespace(enqueue=lambda *_: pytest.fail("Published unrelated job"))
     assert (
@@ -327,3 +327,92 @@ def test_fresh_adaptive_job_can_still_be_dispatched_immediately(monkeypatch):
     session = SimpleNamespace(scalar=lambda _: job, get=lambda *_: source, flush=lambda: None)
     assert services.prepare_immediate_dispatch(session, job.id) is job
     assert job.available_at == NOW
+
+
+@pytest.mark.parametrize(
+    "kind,options",
+    [
+        ("analysis", {"fresh": True}),
+        ("analysis", {"fresh": False}),
+        ("article-enrichment", {"fresh": True}),
+        ("article-enrichment", {"solver": True}),
+        ("source-enrichment", {"source_analysis": True}),
+        ("source-enrichment", {"solver": True}),
+        ("images", {"solver": True}),
+        ("topic-analysis", {"relationships": True}),
+        ("notifications", {}),
+    ],
+)
+def test_batch_dispatch_retains_routing_and_unique_delivery_metadata(kind, options):
+    from devfeed_core.job_definitions import JOB_DEFINITIONS
+
+    definition = JOB_DEFINITIONS[kind]
+    job = definition.model(id=uuid.uuid4(), available_at=NOW, attempts=2)
+    query, deliveries = [], []
+
+    def selected(statement):
+        query.append(statement)
+        return SimpleNamespace(all=lambda: [job])
+
+    @contextmanager
+    def transaction():
+        yield SimpleNamespace(scalars=selected)
+
+    def enqueue(*args, **kwargs):
+        deliveries.append((args, kwargs))
+        assert job.dispatched_at is None
+        return SimpleNamespace(id="unique-delivery")
+
+    assert (
+        scheduler.dispatch_jobs(
+            SimpleNamespace(begin=transaction),
+            SimpleNamespace(enqueue=enqueue),
+            25,
+            NOW,
+            kind=kind,
+            **options,
+        )
+        == 1
+    )
+    args, metadata = deliveries[0]
+    assert args == (definition.handler, str(job.id))
+    assert metadata["unique"] and metadata["ttl"] is None
+    assert metadata["result_ttl"] == 0
+    assert metadata["job_timeout"] == (
+        max(240, definition.timeout) if options.get("solver") else definition.timeout
+    )
+    assert job.dispatched_at == NOW
+    assert len(query) == 1
+    compiled = query[0].compile(dialect=postgresql.dialect())
+    assert "SKIP LOCKED" in str(compiled)
+    if "fresh" in options:
+        assert "published_at" in str(compiled)
+    if options.get("solver"):
+        assert "requires_solver IS true" in str(compiled)
+
+
+@pytest.mark.parametrize(
+    "kind,options",
+    [
+        ("unknown", {}),
+        ("ingestion", {"solver": True}),
+        ("images", {"fresh": True}),
+        ("analysis", {"fresh": True, "solver": True}),
+        ("ingestion", {"relationships": True}),
+    ],
+)
+def test_invalid_dispatch_lane_is_rejected_before_opening_a_transaction(kind, options):
+    factory = SimpleNamespace(begin=lambda: pytest.fail("Opened a transaction"))
+    with pytest.raises(ValueError):
+        scheduler.dispatch_jobs(factory, object(), 1, NOW, kind=kind, **options)
+
+
+@pytest.mark.parametrize("batch", [0, -1])
+def test_empty_dispatch_budget_does_not_query_or_publish(batch):
+    from devfeed_core.job_dispatch import DispatchLane, dispatch_lanes
+
+    factory = SimpleNamespace(begin=lambda: pytest.fail("Opened a transaction"))
+    assert scheduler.dispatch_jobs(factory, object(), batch, NOW) == 0
+    assert dispatch_lanes(factory, object(), batch, NOW, [DispatchLane("ingestion")]) == {
+        "ingestion": 0,
+    }

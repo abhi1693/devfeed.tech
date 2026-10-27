@@ -17,7 +17,7 @@ from devfeed_core import analysis, cache, catalog_cache, job_dispatch, job_reten
 from devfeed_core.article_analysis_steps import RelevanceResult, prepare_article_step
 from devfeed_core.cache import CacheUnavailable
 from devfeed_core.job_dispatch import DispatchLane
-from devfeed_core.models import Article, ArticleAnalysisJob, TopicAnalysisJob
+from devfeed_core.models import Article, ArticleAnalysisJob, ArticleEnrichmentJob, TopicAnalysisJob
 from devfeed_core.topic_analysis import TopicResearchResult
 
 from tests.support.source_readiness import configuration
@@ -360,7 +360,7 @@ def test_retention_removes_selected_payloads_and_step_outputs_but_preserves_audi
     assert article.usage["attempts"] == {"1": {"tokens": {"inputTokens": 100}}}
 
 
-def test_shared_queue_merges_preselected_lanes_by_due_created_and_stable_id(monkeypatch):
+def test_shared_queue_merges_preselected_lanes_by_due_created_and_stable_id():
     from datetime import timedelta
 
     now = NOW
@@ -368,19 +368,21 @@ def test_shared_queue_merges_preselected_lanes_by_due_created_and_stable_id(monk
     due = now - timedelta(minutes=2)
     created = now - timedelta(hours=1)
     session, factory = MagicMock(), MagicMock()
-    factory.return_value.__enter__.return_value = session
+    factory.begin.return_value.__enter__.return_value = session
     session.execute.side_effect = [
         [(late, due, created), (lost, due, created)],
         [(early, due, created)],
     ]
-    dispatch = Mock(side_effect=[1, 0])
-    monkeypatch.setattr(job_dispatch, "dispatch_jobs", dispatch)
+    # The second selected identity became unavailable before its row lock.
+    job = ArticleEnrichmentJob(id=early, article_id=uuid.uuid4(), available_at=due, attempts=0)
+    session.scalars.return_value.all.side_effect = [[job], []]
     lanes = [DispatchLane("analysis"), DispatchLane("article-enrichment")]
-    queue = object()
+    queue = Mock()
     counts = job_dispatch.dispatch_lanes(factory, queue, 2, now, lanes)
     assert counts == {"analysis": 0, "article-enrichment": 1}
-    assert [call.kwargs["job_id"] for call in dispatch.call_args_list] == [early, late]
-    assert all(call.args == (factory, queue, 1, now) for call in dispatch.call_args_list)
-    # A selected candidate can become ineligible before its authoritative claim;
-    # this boundary reports zero and does not cause a third over-budget attempt.
-    assert dispatch.call_count == 2
+    assert [call.args[1] for call in queue.enqueue.call_args_list] == [str(early)]
+    assert factory.begin.call_count == 1
+    assert session.scalars.call_count == 2
+    queries = [str(call.args[0]) for call in session.scalars.call_args_list]
+    assert all("FOR UPDATE" in query for query in queries)
+    assert job.dispatched_at == now

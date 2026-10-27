@@ -199,7 +199,7 @@ business outcomes and retries.
 RQ parents expose Prometheus observations without starting native profiling,
 trace-export threads, or periodic OTLP metric threads before fork. Children create
 providers after the final fork and bound their shutdown. Worker health still uses
-the confirmed parent heartbeat and `devfeed_core.worker_health` probe. Long-lived
+the confirmed parent heartbeat and native `devfeed-worker-health` shell probe. Long-lived
 process freshness and queue backlog should be considered together; no traffic
 alone is not a failure.
 

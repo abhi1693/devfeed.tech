@@ -59,6 +59,10 @@ class PartnerOutbox:
         dispatch_logs = []
         try:
             with self.factory.begin() as session:
+                # Empty partner lanes need no Redis connection, queue lock or
+                # two claim queries. Claims are still rechecked under the lock.
+                if not session.scalar(select(statement.order_by(None).exists())):
+                    return 0
                 if not session.scalar(
                     select(func.pg_try_advisory_xact_lock(_QUEUE_LOCKS[queue_name]))
                 ):

@@ -22,6 +22,19 @@ repository. CI never fetches the private infrastructure repository. Before final
 deployment, compare each invoked command/probe and consumer payload with the
 final Fleet files. Image-pin-only edits need not change command fixtures.
 
+Generic worker commands use the lean `devfeed-worker` entrypoint with the existing
+queue and unique-name arguments. It avoids importing the administration CLI into
+each worker parent. Dedicated extraction, images and discovery commands retain
+their existing entrypoints and role credentials. Before deploying this change,
+update the owning Fleet manifests to the recorded commands, provide
+`DEVFEED_WORKER_HEALTH_PATH`, retain their parent-marker probes, and allow at least
+26 minutes for worker termination. This covers the 1,500-second maximum job plus
+bounded shutdown drains. Keep existing production resource requests and limits
+until complete-job measurements justify changing them. The deployed Fleet probes
+previously checked the parent marker by starting Python.
+The native executable removes that interpreter startup while preserving marker
+validation. Local probe timings do not establish a production CPU reduction.
+
 The driver owns an internal Docker network and uniquely named containers; it
 removes them in `finally`. PostgreSQL uses `fleet_native_test`; Redis uses database 15. Only generated test certificates and obviously synthetic inbox/search
 credentials are supplied. No host `DEVFEED_*` environment, authentication files or

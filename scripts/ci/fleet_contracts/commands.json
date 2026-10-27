@@ -156,11 +156,11 @@
       "command": [
         "sh",
         "-ec",
-        "worker_name=\"$HOSTNAME-$(python -c 'import uuid; print(uuid.uuid4().hex)')\"\nprintf %s \"$worker_name\" > /tmp/devfeed-worker-name\nexec devfeed worker --queue \"$DEVFEED_WORKER_QUEUE\" --name \"$worker_name\""
+        "worker_name=\"$HOSTNAME-$(python -c 'import uuid; print(uuid.uuid4().hex)')\"\nprintf %s \"$worker_name\" > /tmp/devfeed-worker-name\nexec devfeed-worker --queue \"$DEVFEED_WORKER_QUEUE\" --name \"$worker_name\""
       ],
       "probes": {
-        "readinessProbe": ["python", "-m", "devfeed_core.worker_health"],
-        "livenessProbe": ["python", "-m", "devfeed_core.worker_health"]
+        "readinessProbe": ["devfeed-worker-health"],
+        "livenessProbe": ["devfeed-worker-health"]
       }
     },
     "notification-worker": {
@@ -170,32 +170,32 @@
         "worker",
         "sh",
         "-ec",
-        "worker_name=\"$HOSTNAME-$(python -c 'import uuid; print(uuid.uuid4().hex)')\"\nprintf %s \"$worker_name\" > /tmp/devfeed-worker-notification-name\nexec devfeed worker --queue \"$DEVFEED_WORKER_QUEUE\" --name \"$worker_name\""
+        "worker_name=\"$HOSTNAME-$(python -c 'import uuid; print(uuid.uuid4().hex)')\"\nprintf %s \"$worker_name\" > /tmp/devfeed-worker-notification-name\nexec devfeed-worker --queue \"$DEVFEED_WORKER_QUEUE\" --name \"$worker_name\""
       ],
       "probes": {
-        "readinessProbe": ["python", "-m", "devfeed_core.worker_health"],
-        "livenessProbe": ["python", "-m", "devfeed_core.worker_health"]
+        "readinessProbe": ["devfeed-worker-health"],
+        "livenessProbe": ["devfeed-worker-health"]
       }
     },
     "article-enrichment-worker": {
       "command": ["devfeed-article-enrichment-worker"],
       "probes": {
-        "readinessProbe": ["python", "-m", "devfeed_core.worker_health"],
-        "livenessProbe": ["python", "-m", "devfeed_core.worker_health"]
+        "readinessProbe": ["devfeed-worker-health"],
+        "livenessProbe": ["devfeed-worker-health"]
       }
     },
     "images-worker": {
       "command": ["devfeed-images-worker"],
       "probes": {
-        "readinessProbe": ["python", "-m", "devfeed_core.worker_health"],
-        "livenessProbe": ["python", "-m", "devfeed_core.worker_health"]
+        "readinessProbe": ["devfeed-worker-health"],
+        "livenessProbe": ["devfeed-worker-health"]
       }
     },
     "source-discovery-worker": {
       "command": ["devfeed-source-discovery-worker"],
       "probes": {
-        "readinessProbe": ["python", "-m", "devfeed_core.worker_health"],
-        "livenessProbe": ["python", "-m", "devfeed_core.worker_health"]
+        "readinessProbe": ["devfeed-worker-health"],
+        "livenessProbe": ["devfeed-worker-health"]
       }
     },
     "migrate": {

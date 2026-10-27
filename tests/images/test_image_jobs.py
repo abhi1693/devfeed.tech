@@ -283,7 +283,7 @@ def test_scheduler_dispatches_image_function_with_json_compatible_id():
 
     @contextmanager
     def begin():
-        yield session_with(current)
+        yield SimpleNamespace(scalars=lambda _: SimpleNamespace(all=lambda: [current]))
         events.append("commit")
 
     def enqueue(*args, **kw):

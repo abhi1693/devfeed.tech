@@ -16,8 +16,7 @@ x-runtime: &runtime
       max-size: 10m
       max-file: "3"
 
-x-core-environment: &core-environment
-  # Use a hex password so it is safe inside this connection URL.
+x-core-environment: &core-environment # Use a hex password so it is safe inside this connection URL.
   DEVFEED_DATABASE_URL: ${DEVFEED_DATABASE_URL:-postgresql+psycopg://devfeed:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/devfeed}
   DEVFEED_REDIS_URL: ${DEVFEED_REDIS_URL:-redis://redis:6379/0}
   DEVFEED_SITEMAP_REFRESH_SECONDS: ${DEVFEED_SITEMAP_REFRESH_SECONDS:-900}
@@ -134,8 +133,7 @@ x-clickhouse-worker: &clickhouse-worker
   DEVFEED_CLICKHOUSE_USERNAME: devfeed_worker
   DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_WORKER_PASSWORD:?Set DEVFEED_CLICKHOUSE_WORKER_PASSWORD in .env}
 
-x-host-access: &host-access
-  # Also support host services on Docker Engine for Linux.
+x-host-access: &host-access # Also support host services on Docker Engine for Linux.
   extra_hosts:
     - "host.docker.internal:host-gateway"
 
@@ -159,7 +157,12 @@ x-healthcheck: &healthcheck
   retries: 3
   start_period: 30s
 
+# Zero retains the current uncapped local defaults; size each pool from observed peaks.
 x-worker-runtime: &worker-runtime
+  cpus: ${DEVFEED_WORKER_CPUS:-0}
+  mem_limit: ${DEVFEED_WORKER_MEMORY_LIMIT:-0}
+  # Article analysis can run for 1,500 seconds, then drain bounded telemetry/delivery.
+  stop_grace_period: 26m
   # A container keeps its hostname across restarts. RQ registrations can outlive
   # an interrupted process, so give every startup its own identity.
   command:
@@ -168,16 +171,18 @@ x-worker-runtime: &worker-runtime
     - |
       worker_name="$$HOSTNAME-$$(python -c 'import uuid; print(uuid.uuid4().hex)')"
       python -c 'import sys; from devfeed_core.runtime_files import runtime_marker, write_runtime_marker; write_runtime_marker(runtime_marker("worker-name"), sys.argv[1])' "$$worker_name"
-      exec devfeed worker --queue "$${DEVFEED_WORKER_QUEUE:-all}" --name "$$worker_name"
+      exec devfeed-worker --queue "$${DEVFEED_WORKER_QUEUE:-all}" --name "$$worker_name"
   healthcheck:
     <<: *healthcheck
-    test: [CMD, python, -c, "import os; from devfeed_core.runtime_files import runtime_marker; from redis import Redis; name = runtime_marker('worker-name').read_text().strip(); r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert name and r.exists('rq:worker:' + name) and not r.hexists('rq:worker:' + name, 'death')"]
+    test: [CMD, devfeed-worker-health]
+
+x-worker-environment: &worker-environment
+  DEVFEED_WORKER_HEALTH_PATH: /tmp/devfeed-worker-health
 
 x-dedicated-worker: &dedicated-worker
   <<: [*backend, *worker-runtime]
   profiles: [workers]
   depends_on: *ready
-  stop_grace_period: 10m
 
 services:
   postgres:
@@ -256,10 +261,14 @@ services:
     cpus: ${DEVFEED_CLICKHOUSE_CPUS:-2}
     mem_limit: ${DEVFEED_CLICKHOUSE_MEMORY_LIMIT:-2g}
     ulimits:
-      nofile: {soft: 262144, hard: 262144}
+      nofile: { soft: 262144, hard: 262144 }
     healthcheck:
       <<: *healthcheck
-      test: [CMD-SHELL, 'clickhouse-client --host 127.0.0.1 --user devfeed_ingest --password "$$DEVFEED_CLICKHOUSE_INGEST_PASSWORD" --database "$$CLICKHOUSE_DB" --query "SELECT 1" >/dev/null']
+      test:
+        [
+          CMD-SHELL,
+          'clickhouse-client --host 127.0.0.1 --user devfeed_ingest --password "$$DEVFEED_CLICKHOUSE_INGEST_PASSWORD" --database "$$CLICKHOUSE_DB" --query "SELECT 1" >/dev/null',
+        ]
       interval: 5s
       start_period: 60s
 
@@ -302,7 +311,8 @@ services:
   redis:
     image: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}redis:8-alpine@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
     restart: unless-stopped
-    command: [redis-server, --appendonly, "yes", --appendfsync, everysec, --maxmemory-policy, noeviction]
+    command:
+      [redis-server, --appendonly, "yes", --appendfsync, everysec, --maxmemory-policy, noeviction]
     volumes:
       - redis-data:/data
     networks: [data]
@@ -347,7 +357,13 @@ services:
         host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).close()"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).close()",
+        ]
 
   mcp:
     <<: *runtime
@@ -373,7 +389,13 @@ services:
         host_ip: "${DEVFEED_MCP_BIND_IP:-127.0.0.1}"
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health/ready', timeout=12).close()"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health/ready', timeout=12).close()",
+        ]
       timeout: 15s
 
   typesense:
@@ -388,7 +410,13 @@ services:
     networks: [data]
     healthcheck:
       <<: *healthcheck
-      test: [CMD, bash, -ec, "exec 3<>/dev/tcp/127.0.0.1/8108; printf 'GET /health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+      test:
+        [
+          CMD,
+          bash,
+          -ec,
+          "exec 3<>/dev/tcp/127.0.0.1/8108; printf 'GET /health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]",
+        ]
 
   search-setup:
     <<: *backend
@@ -431,7 +459,13 @@ services:
         condition: service_healthy
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -c, "import time; from devfeed_core.runtime_files import runtime_marker; assert time.time() - float(runtime_marker('search-heartbeat').read_text()) < 120"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import time; from devfeed_core.runtime_files import runtime_marker; assert time.time() - float(runtime_marker('search-heartbeat').read_text()) < 120",
+        ]
 
   worker:
     <<: [*backend, *worker-runtime]
@@ -443,7 +477,7 @@ services:
     scale: ${DEVFEED_WORKER_REPLICAS:-2}
     # Keep AI enabled so ingestion queues analysis, even with a dedicated consumer.
     environment:
-      <<: [*core-environment, *chimely-environment, *clickhouse-worker]
+      <<: [*core-environment, *chimely-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: ${DEVFEED_WORKER_QUEUE:-all}
       DEVFEED_PARTNER_CREDENTIAL_KEY:
       # Only delivery workers need Chimely management API keys.
@@ -453,8 +487,6 @@ services:
       <<: *ready
       chimely-provision:
         condition: service_completed_successfully
-    # Give an in-flight RQ job time to finish before Docker sends SIGKILL.
-    stop_grace_period: 10m
 
   scheduler:
     <<: *backend
@@ -462,7 +494,13 @@ services:
     command: [devfeed, scheduler]
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -c, "import os; from redis import Redis; r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert r.exists('devfeed:scheduler:heartbeat')"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import os; from redis import Redis; r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert r.exists('devfeed:scheduler:heartbeat')",
+        ]
 
   analytics-importer:
     <<: *backend
@@ -493,7 +531,17 @@ services:
     image: ${DEVFEED_ADMIN_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/admin-api:master}
     entrypoint: [python, /opt/devfeed/chimely-consumer.py, admin]
     # An explicit command retains the image startup when Compose replaces ENTRYPOINT.
-    command: [uvicorn, devfeed_admin_api.main:app, --host, 0.0.0.0, --port, "8001", --no-proxy-headers, --no-access-log]
+    command:
+      [
+        uvicorn,
+        devfeed_admin_api.main:app,
+        --host,
+        0.0.0.0,
+        --port,
+        "8001",
+        --no-proxy-headers,
+        --no-access-log,
+      ]
     depends_on:
       <<: *ready
       chimely-provision:
@@ -537,7 +585,13 @@ services:
       DEVFEED_ADMIN_SESSION_TTL_SECONDS:
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=3).close()"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=3).close()",
+        ]
 
   partner-api:
     <<: [*runtime, *host-access]
@@ -573,13 +627,29 @@ services:
       DEVFEED_PARTNER_SESSION_TTL_SECONDS:
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/health/ready', timeout=3).close()"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/health/ready', timeout=3).close()",
+        ]
 
   user-api:
     <<: [*runtime, *host-access]
     image: ${DEVFEED_USER_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/user-api:master}
     entrypoint: [python, /opt/devfeed/chimely-consumer.py, user]
-    command: [uvicorn, devfeed_user_api.main:app, --host, 0.0.0.0, --port, "8002", --no-proxy-headers, --no-access-log]
+    command:
+      [
+        uvicorn,
+        devfeed_user_api.main:app,
+        --host,
+        0.0.0.0,
+        --port,
+        "8002",
+        --no-proxy-headers,
+        --no-access-log,
+      ]
     depends_on:
       <<: *ready
       chimely-provision:
@@ -631,7 +701,13 @@ services:
       DEVFEED_USER_OIDC_ORGANIZATION_CLAIM:
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health/ready', timeout=3).close()"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health/ready', timeout=3).close()",
+        ]
 
   web:
     <<: *runtime
@@ -661,7 +737,13 @@ services:
         host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
     healthcheck:
       <<: *healthcheck
-      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000', {signal: AbortSignal.timeout(10000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000', {signal: AbortSignal.timeout(10000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
       timeout: 12s
 
   admin:
@@ -681,7 +763,13 @@ services:
         host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
     healthcheck:
       <<: *healthcheck
-      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/login', {signal: AbortSignal.timeout(3000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000/login', {signal: AbortSignal.timeout(3000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
 
   partner:
     <<: *runtime
@@ -700,7 +788,13 @@ services:
         host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
     healthcheck:
       <<: *healthcheck
-      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/login', {signal: AbortSignal.timeout(3000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000/login', {signal: AbortSignal.timeout(3000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
 
   chimely-db-init:
     <<: *runtime
@@ -747,7 +841,13 @@ services:
         host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
     healthcheck:
       <<: *healthcheck
-      test: [CMD, bash, -ec, "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /readyz HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3; read -r status <&3; [[ \"$$status\" == *' 200 '* ]]"]
+      test:
+        [
+          CMD,
+          bash,
+          -ec,
+          "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /readyz HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3; read -r status <&3; [[ \"$$status\" == *' 200 '* ]]",
+        ]
       interval: 5s
 
   chimely-provision:
@@ -802,7 +902,7 @@ services:
     profiles: [ai]
     scale: ${DEVFEED_CODEX_CLIENT_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *clickhouse-worker]
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: analysis
     depends_on:
       <<: *ready
@@ -811,13 +911,12 @@ services:
     # Only the socket is shared; sign-in credentials remain in the server volume.
     volumes:
       - codex-socket:/run/codex:ro
-    stop_grace_period: 3m
 
   article-analysis-worker:
     <<: *dedicated-worker
     scale: ${DEVFEED_ARTICLE_ANALYSIS_WORKER_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *clickhouse-worker]
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: article-analysis
     volumes:
       - codex-socket:/run/codex:ro
@@ -826,7 +925,7 @@ services:
     <<: *dedicated-worker
     scale: ${DEVFEED_TOPIC_ANALYSIS_WORKER_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *clickhouse-worker]
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: topic-analysis
     volumes:
       - codex-socket:/run/codex:ro
@@ -835,7 +934,7 @@ services:
     <<: *dedicated-worker
     scale: ${DEVFEED_RESEARCH_VERIFICATION_WORKER_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *clickhouse-worker]
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: research-verification
     volumes:
       - codex-socket:/run/codex:ro
@@ -844,7 +943,7 @@ services:
     <<: *dedicated-worker
     scale: ${DEVFEED_SOURCE_ANALYSIS_WORKER_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *clickhouse-worker]
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: source-analysis
     volumes:
       - codex-socket:/run/codex:ro
@@ -855,13 +954,13 @@ services:
     command: [devfeed-source-discovery-worker]
     scale: ${DEVFEED_SOURCE_DISCOVERY_WORKER_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *clickhouse-worker]
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
 
   relationships-worker:
     <<: *dedicated-worker
     scale: ${DEVFEED_RELATIONSHIPS_WORKER_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *clickhouse-worker]
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: relationships
     volumes:
       - codex-socket:/run/codex:ro
@@ -870,7 +969,7 @@ services:
     <<: *dedicated-worker
     scale: ${DEVFEED_INGESTION_WORKER_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *clickhouse-worker]
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: ingestion
       DEVFEED_PARTNER_CREDENTIAL_KEY:
 
@@ -880,13 +979,13 @@ services:
     command: [devfeed-article-enrichment-worker]
     scale: ${DEVFEED_ARTICLE_ENRICHMENT_WORKER_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *clickhouse-worker]
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
 
   source-enrichment-worker:
     <<: *dedicated-worker
     scale: ${DEVFEED_SOURCE_ENRICHMENT_WORKER_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *clickhouse-worker]
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: source-enrichment
 
   images-worker:
@@ -896,7 +995,7 @@ services:
     profiles: [workers, images]
     scale: ${DEVFEED_IMAGES_WORKER_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *clickhouse-worker]
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_IMAGE_STORAGE_ENDPOINT:
       DEVFEED_IMAGE_STORAGE_BUCKET:
       DEVFEED_IMAGE_STORAGE_ACCESS_KEY:
@@ -946,7 +1045,7 @@ services:
     # Service-level scale survives Compose 2.38 watch rebuilds; deploy.replicas does not.
     scale: ${DEVFEED_NOTIFICATIONS_WORKER_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *chimely-environment, *clickhouse-worker]
+      <<: [*core-environment, *chimely-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: notifications
       # Only delivery workers need Chimely management API keys.
       DEVFEED_CHIMELY_ADMIN_API_KEY:
@@ -955,8 +1054,6 @@ services:
       <<: *ready
       chimely-provision:
         condition: service_completed_successfully
-    # Give an in-flight RQ job time to finish before Docker sends SIGKILL.
-    stop_grace_period: 10m
 
 networks:
   default:

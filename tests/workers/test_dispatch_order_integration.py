@@ -171,3 +171,91 @@ def test_dedicated_ai_queues_dispatch_their_eligible_job_types(database):
     assert topic_counts == {"topic-analysis": 1}
     assert [job.args[0] for job in article_queue.jobs] == expected[1:]
     assert [job.args[0] for job in topic_queue.jobs] == expected[:1]
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_batch_dispatch_locks_once_and_commits_once(database, shared):
+    from sqlalchemy import event
+
+    ids = ingestion_jobs(database, 25)
+    engine = database.kw["bind"]
+    queries, reads, updates, commits = [], [], [], []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.startswith("SELECT") and "FOR UPDATE" in statement:
+            queries.append(statement)
+        if statement.startswith("SELECT") and "ingestion_jobs" in statement:
+            reads.append(statement)
+        if statement.startswith("UPDATE ingestion_jobs"):
+            updates.append(statement)
+
+    def committed(_connection):
+        commits.append(True)
+
+    queue = get_queue()
+    event.listen(engine, "before_cursor_execute", capture)
+    event.listen(engine, "commit", committed)
+    try:
+        if shared:
+            counts = dispatch_lanes(database, queue, 25, utcnow(), [DispatchLane("ingestion")])
+            assert counts == {"ingestion": 25}
+        else:
+            assert dispatch_jobs(database, queue, 25, utcnow()) == 25
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+        event.remove(engine, "commit", committed)
+        queue.connection.close()
+    assert len(queries) == 1
+    assert len(reads) <= (4 if shared else 3)
+    assert len(updates) == 1
+    assert len(commits) == 1
+    assert [job.args[0] for job in queue.jobs] == ids
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_partial_batch_publication_rolls_back_markers_and_replays_without_duplicates(
+    database, shared
+):
+    from types import SimpleNamespace
+
+    ids = ingestion_jobs(database, 4)
+    queue = get_queue()
+    calls = []
+
+    def interrupted(*args, **kwargs):
+        calls.append(args)
+        if len(calls) == 3:
+            raise RuntimeError("Redis connection interrupted")
+        return queue.enqueue(*args, **kwargs)
+
+    def publish(target):
+        if shared:
+            return dispatch_lanes(database, target, 4, utcnow(), [DispatchLane("ingestion")])[
+                "ingestion"
+            ]
+        return dispatch_jobs(database, target, 4, utcnow())
+
+    try:
+        with pytest.raises(RuntimeError, match="interrupted"):
+            publish(SimpleNamespace(enqueue=interrupted))
+        original = queue.job_ids
+        assert len(original) == 2
+        with database() as session:
+            assert all(job.dispatched_at is None for job in session.scalars(select(IngestionJob)))
+        assert publish(queue) == 4
+        assert queue.job_ids[:2] == original
+        assert [job.args[0] for job in queue.jobs] == ids
+    finally:
+        queue.connection.close()
+
+
+def test_overlapping_shared_lanes_publish_each_identity_once_with_one_commit(database):
+    ids = ingestion_jobs(database, 4)
+    queue = get_queue()
+    try:
+        assert dispatch_lanes(
+            database, queue, 4, utcnow(), [DispatchLane("ingestion"), DispatchLane("ingestion")]
+        ) == {"ingestion": 4}
+        assert [job.args[0] for job in queue.jobs] == ids
+    finally:
+        queue.connection.close()

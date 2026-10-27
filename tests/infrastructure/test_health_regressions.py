@@ -1,6 +1,5 @@
 """Regressions for pool starvation, recommendation deadlocks and worker health."""
 
-import json
 import os
 import threading
 import time
@@ -11,25 +10,98 @@ import pytest
 from devfeed_core.analysis import Classifications, replace_classifications
 from devfeed_core.models import Article, ArticleTopic, RecommendationTopicEvent, Topic
 from devfeed_core.transaction_retry import run_transaction
-from devfeed_core.worker_health import healthy
 from sqlalchemy import event, select, text
 from sqlalchemy.exc import OperationalError
 
+from tests.support.worker_health import healthy
 from tests.workers.test_automation_integration import seed
 
 
 def test_worker_probe_requires_live_parent_and_recent_heartbeat(tmp_path):
-    path = tmp_path / "health.json"
+    path = tmp_path / "health"
     assert not healthy(str(path))
-    record = {"pid": os.getpid(), "at": time.monotonic(), "ttl": 90}
-    path.write_text(json.dumps(record))
+    pid, now = os.getpid(), int(time.clock_gettime(time.CLOCK_BOOTTIME))
+    path.write_text(f"{pid} {now} 90\n")
     assert healthy(str(path))
-    path.write_text(json.dumps({**record, "at": time.monotonic() - 100}))
+    path.write_text(f"{pid} {now - 100} 90\n")
     assert not healthy(str(path))
-    path.write_text(json.dumps({**record, "pid": 99999999}))
+    path.write_text(f"{pid} {now + 2} 90\n")
+    assert not healthy(str(path))
+    path.write_text(f"99999999 {now} 90\n")
     assert not healthy(str(path))
     path.write_text("partial")
     assert not healthy(str(path))
+
+
+@pytest.mark.parametrize("pid", ["0", "-1", "True", "False", "1.5", "", "01", "9" * 30])
+def test_worker_probe_rejects_nonpositive_and_noninteger_parent_identity(tmp_path, pid):
+    path = tmp_path / "health"
+    path.write_text(f"{pid} {int(time.clock_gettime(time.CLOCK_BOOTTIME))} 90\n")
+    assert not healthy(str(path))
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "{pid} {now}\n",
+        "{pid} {now} 90 extra\n",
+        "{pid} {now} 90\n\n",
+        "{pid} {now} 90\n1",
+        "{pid} {now} 90",
+        "{pid} {now}.5 90\n",
+        "{pid} -1 90\n",
+        "{pid} 9999999999999999999999 90\n",
+        "{pid} {now} 0\n",
+        "{pid} {now} -1\n",
+        "{pid} {now} 1.5\n",
+        "{pid} {now} 090\n",
+        '{{"pid":{pid},"at":{now},"ttl":90}}\n',
+    ],
+)
+def test_worker_shell_probe_rejects_malformed_and_obsolete_marker_records(tmp_path, template):
+    path = tmp_path / "health"
+    stamp = int(time.clock_gettime(time.CLOCK_BOOTTIME))
+    path.write_text(template.format(pid=os.getpid(), now=stamp))
+    assert not healthy(str(path))
+
+
+def test_native_worker_probe_needs_no_redis_and_rejects_dead_or_stale_parent(tmp_path):
+    import subprocess
+    import sys
+
+    from tests.support.paths import REPO_ROOT
+
+    path = tmp_path / "health"
+    environment = {
+        **os.environ,
+        "DEVFEED_WORKER_HEALTH_PATH": str(path),
+        "DEVFEED_REDIS_URL": "redis://redis.invalid:1/15",
+    }
+
+    def probe():
+        return subprocess.run(
+            ["/bin/sh", str(REPO_ROOT / "packages/core/src/devfeed-worker-health")],
+            env=environment,
+            capture_output=True,
+            timeout=5,
+        ).returncode
+
+    assert probe() == 1
+    parent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        record = f"{parent.pid} {int(time.clock_gettime(time.CLOCK_BOOTTIME))} 90\n"
+        path.write_text(record)
+        assert probe() == 0
+        path.write_text(f"{parent.pid} {int(time.clock_gettime(time.CLOCK_BOOTTIME)) - 100} 90\n")
+        assert probe() == 1
+        path.write_text(record)
+        parent.terminate()
+        parent.wait(timeout=5)
+        assert probe() == 1
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+            parent.wait(timeout=5)
 
 
 @pytest.mark.integration
@@ -205,7 +277,7 @@ def test_parent_heartbeat_updates_local_probe_and_registration(database, monkeyp
     from rq import Queue
     from rq.worker import WorkerStatus
 
-    path = tmp_path / "worker.json"
+    path = tmp_path / "worker-health"
     monkeypatch.setenv("DEVFEED_WORKER_HEALTH_PATH", str(path))
     with Redis.from_url(get_settings().redis_url) as redis:
         worker = AnalysisAwareWorker(
@@ -220,6 +292,6 @@ def test_parent_heartbeat_updates_local_probe_and_registration(database, monkeyp
             assert redis.hget(worker.key, "worker_ttl") == b"90"
             worker.set_state(WorkerStatus.BUSY)
             worker.heartbeat()
-            assert json.loads(path.read_text())["ttl"] == 90
+            assert path.read_text().split()[-1] == "90"
         finally:
             worker.register_death()

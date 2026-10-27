@@ -1921,3 +1921,332 @@ def test_bulk_job_capture_callback_reads_only_bounded_terminal_snapshots(monkeyp
         bool(change["attempts"]) is (status == "succeeded")
         for change in session.info[producer._PENDING].values()
     )
+
+
+def test_primary_key_batching_requires_the_exact_target_key_predicate():
+    from sqlalchemy import and_, bindparam, or_
+    from sqlalchemy.dialects import postgresql
+
+    table = Table(
+        "article_topics",
+        MetaData(),
+        Column("article_id", Uuid, primary_key=True),
+        Column("topic_id", Uuid, primary_key=True),
+        Column("role", String),
+    )
+    article = table.c.article_id == bindparam("selected_article")
+    topic = bindparam("selected_topic") == table.c.topic_id
+    safe = update(table).where(and_(article, topic)).values(role="primary")
+    bindings = producer._primary_key_bindings(safe, safe.compile(dialect=postgresql.dialect()))
+    assert bindings == {"article_id": "selected_article", "topic_id": "selected_topic"}
+    alias = table.alias("other_topics")
+    unsafe = (
+        update(table),
+        update(table).where(article),
+        update(table).where(or_(article, topic)),
+        update(table).where(article, topic, table.c.role == bindparam("expected_role")),
+        update(table).where(article, topic, table.c.article_id == bindparam("another_article")),
+        update(table).where(table.c.article_id > bindparam("selected_article"), topic),
+        update(table).where(table.c.article_id == table.c.topic_id, topic),
+        update(table).where(
+            alias.c.article_id == bindparam("selected_article"),
+            alias.c.topic_id == bindparam("selected_topic"),
+        ),
+    )
+    for statement in unsafe:
+        assert (
+            producer._primary_key_bindings(
+                statement, statement.compile(dialect=postgresql.dialect())
+            )
+            is None
+        ), str(statement)
+
+
+def test_batched_preimages_preserve_duplicate_assignments_and_ignore_missing_rows(monkeypatch):
+    from unittest.mock import Mock
+
+    from sqlalchemy import bindparam
+    from sqlalchemy.dialects import postgresql
+
+    table = Table(
+        "article_origins",
+        MetaData(),
+        Column("id", Uuid, primary_key=True),
+        Column("article_id", Uuid),
+    )
+    original, missing = uuid.uuid4(), uuid.uuid4()
+    old_owner, first_owner, final_owner = (uuid.uuid4() for _ in range(3))
+    before = {"id": str(original), "article_id": str(old_owner)}
+    statement = (
+        update(table)
+        .where(table.c.id == bindparam("selected_id"))
+        .values(article_id=bindparam("article_id"))
+    )
+    parameters = [
+        {"selected_id": original, "article_id": first_owner},
+        {"selected_id": missing, "article_id": uuid.uuid4()},
+        {"selected_id": original, "article_id": final_owner},
+    ]
+    reads = Mock(return_value=[before])
+    monkeypatch.setattr(producer, "_records", reads)
+    captured, pairs = producer._update_candidates(
+        object(), statement, statement.compile(dialect=postgresql.dialect()), parameters
+    )
+    assert captured == [before]
+    assert pairs == [(before, parameters[0]), (before, parameters[2])]
+    reads.assert_called_once()
+
+
+@pytest.mark.parametrize("parameters", [[{}], [{"selected_id": None}]])
+def test_missing_primary_key_bind_keeps_the_original_predicate(monkeypatch, parameters):
+    from unittest.mock import Mock
+
+    from sqlalchemy import bindparam
+    from sqlalchemy.dialects import postgresql
+
+    table = Table("articles", MetaData(), Column("id", Uuid, primary_key=True))
+    statement = update(table).where(table.c.id == bindparam("selected_id"))
+    records = Mock(return_value=[])
+    monkeypatch.setattr(producer, "_records", records)
+    assert producer._update_candidates(
+        object(), statement, statement.compile(dialect=postgresql.dialect()), parameters
+    ) == ([], [])
+    predicate = records.call_args.args[2]
+    assert " IN " not in str(predicate)
+    assert "selected_id" in predicate.compile().params
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("move_keys", [False, True])
+def test_orm_bulk_association_updates_capture_each_previous_owner_in_bounded_pages(
+    source_engine, move_keys
+):
+    from sqlalchemy import event
+
+    engine, _, table, emitted = source_engine
+    mapper = registry()
+
+    class Origin:
+        pass
+
+    mapper.map_imperatively(Origin, table)
+    size = 451
+    previous = {
+        uuid.uuid4(): {"article_id": uuid.uuid4(), "source_id": uuid.uuid4()} for _ in range(size)
+    }
+    next_ids = {identifier: uuid.uuid4() if move_keys else identifier for identifier in previous}
+    next_owners = {identifier: uuid.uuid4() for identifier in previous}
+    with engine.begin() as connection:
+        connection.execute(insert(table), [{"id": key, **value} for key, value in previous.items()])
+    reads = []
+
+    def observed(_connection, _cursor, sql, _parameters, context, _executemany):
+        if context.execution_options.get(producer._SKIP) and "jsonb_build_object" in sql:
+            reads.append(sql)
+
+    try:
+        with AppSession(engine) as session:
+            objects = session.scalars(select(Origin)).all()
+            event.listen(engine, "before_cursor_execute", observed)
+            try:
+                for item in objects:
+                    old_id = item.id
+                    item.article_id = next_owners[old_id]
+                    item.id = next_ids[old_id]
+                session.commit()
+            finally:
+                event.remove(engine, "before_cursor_execute", observed)
+        assert len(reads) == (size + producer.MAX_BATCH - 1) // producer.MAX_BATCH
+        changes = {
+            str(change["identity"]["id"]): change
+            for batch in emitted
+            for change in batch
+            if change["source_table"] == "article_origins"
+        }
+        assert set(changes) == set(map(str, previous)) | set(map(str, next_ids.values()))
+        for identity, old in previous.items():
+            assert changes[str(identity)]["before_record"]["article_id"] == str(old["article_id"])
+            assert changes[str(identity)]["before_record"]["source_id"] == str(old["source_id"])
+        with engine.connect() as connection:
+            assert dict(connection.execute(select(table.c.id, table.c.article_id)).all()) == {
+                next_ids[identity]: next_owners[identity] for identity in previous
+            }
+    finally:
+        mapper.dispose()
+
+
+@pytest.mark.integration
+def test_orm_composite_key_moves_keep_old_and_new_owners_in_bounded_pages(source_engine):
+    from sqlalchemy import event
+
+    engine, _, origins, emitted = source_engine
+    table = Table(
+        "article_topics",
+        origins.metadata,
+        Column("article_id", Uuid, primary_key=True),
+        Column("topic_id", Uuid, primary_key=True),
+        Column("role", String),
+    )
+    table.create(engine)
+    mapper = registry()
+
+    class Association:
+        pass
+
+    mapper.map_imperatively(Association, table)
+    previous = {(uuid.uuid4(), uuid.uuid4()): (uuid.uuid4(), uuid.uuid4()) for _ in range(451)}
+    with engine.begin() as connection:
+        connection.execute(
+            insert(table),
+            [{"article_id": a, "topic_id": t, "role": "primary"} for a, t in previous],
+        )
+    reads = []
+
+    def observed(_connection, _cursor, sql, _parameters, context, _executemany):
+        if context.execution_options.get(producer._SKIP) and "jsonb_build_object" in sql:
+            reads.append(sql)
+
+    try:
+        with AppSession(engine) as session:
+            objects = session.scalars(select(Association)).all()
+            event.listen(engine, "before_cursor_execute", observed)
+            try:
+                for item in objects:
+                    item.article_id, item.topic_id = previous[(item.article_id, item.topic_id)]
+                session.commit()
+            finally:
+                event.remove(engine, "before_cursor_execute", observed)
+        assert len(reads) == 3
+        changes = {
+            (str(change["identity"]["article_id"]), str(change["identity"]["topic_id"])): change
+            for batch in emitted
+            for change in batch
+            if change["source_table"] == "article_topics"
+        }
+        assert set(changes) == {tuple(map(str, key)) for key in (*previous, *previous.values())}
+        assert all(
+            changes[tuple(map(str, key))]["before_record"]["role"] == "primary" for key in previous
+        )
+        with engine.connect() as connection:
+            assert set(connection.execute(select(table.c.article_id, table.c.topic_id))) == set(
+                previous.values()
+            )
+    finally:
+        mapper.dispose()
+
+
+@pytest.mark.integration
+def test_extra_update_filters_do_not_capture_ineligible_or_missing_rows(source_engine):
+    from sqlalchemy import bindparam
+
+    engine, table, _, emitted = source_engine
+    eligible, blocked, missing = (uuid.uuid4() for _ in range(3))
+    with engine.begin() as connection:
+        connection.execute(
+            insert(table),
+            [
+                {"id": eligible, "publication_status": "pending"},
+                {"id": blocked, "publication_status": "rejected"},
+            ],
+        )
+    statement = (
+        update(table)
+        .where(
+            table.c.id == bindparam("selected_id"),
+            table.c.publication_status == bindparam("expected_status"),
+        )
+        .values(publication_status="published")
+    )
+    with AppSession(engine) as session:
+        result = session.execute(
+            statement,
+            [
+                {"selected_id": identity, "expected_status": "pending"}
+                for identity in (eligible, blocked, missing)
+            ],
+        )
+        assert result.rowcount == 1
+        session.commit()
+    assert {
+        str(change["identity"]["id"])
+        for batch in emitted
+        for change in batch
+        if change["source_table"] == "articles"
+    } == {str(eligible)}
+    with engine.connect() as connection:
+        assert dict(connection.execute(select(table.c.id, table.c.publication_status)).all()) == {
+            eligible: "published",
+            blocked: "rejected",
+        }
+
+
+@pytest.mark.integration
+def test_aliased_update_from_captures_every_affected_target_owner(source_engine):
+    from sqlalchemy import bindparam
+
+    engine, table, _, emitted = source_engine
+    identities = [uuid.uuid4() for _ in range(3)]
+    with engine.begin() as connection:
+        connection.execute(
+            insert(table),
+            [{"id": identity, "publication_status": "pending"} for identity in identities],
+        )
+    alias = table.alias("selected_article")
+    statement = (
+        update(table)
+        .where(alias.c.id == bindparam("selected_id"))
+        .values(publication_status="published")
+    )
+    from sqlalchemy.exc import SAWarning
+
+    with AppSession(engine) as session, pytest.warns(SAWarning, match="cartesian product"):
+        result = session.execute(statement, {"selected_id": identities[0]})
+        assert result.rowcount == len(identities)
+        session.commit()
+    assert {
+        str(change["identity"]["id"])
+        for batch in emitted
+        for change in batch
+        if change["source_table"] == "articles"
+    } == set(map(str, identities))
+
+
+@pytest.mark.integration
+def test_noncanonical_uuid_key_binds_keep_the_changed_composite_identity(source_engine):
+    from sqlalchemy import bindparam
+
+    engine, _, origins, emitted = source_engine
+    table = Table(
+        "article_topics",
+        origins.metadata,
+        Column("article_id", Uuid, primary_key=True),
+        Column("topic_id", Uuid, primary_key=True),
+        Column("role", String),
+    )
+    table.create(engine)
+    old_article, new_article, topic = (uuid.uuid4() for _ in range(3))
+    with engine.begin() as connection:
+        connection.execute(
+            insert(table), [{"article_id": old_article, "topic_id": topic, "role": "primary"}]
+        )
+    statement = (
+        update(table)
+        .where(
+            table.c.article_id == bindparam("old_article"),
+            table.c.topic_id == bindparam("old_topic"),
+        )
+        .values(article_id=bindparam("article_id"))
+    )
+    with AppSession(engine) as session:
+        result = session.execute(
+            statement,
+            {"old_article": old_article.hex, "old_topic": topic.hex, "article_id": new_article},
+        )
+        assert result.rowcount == 1
+        session.commit()
+    assert {
+        (str(change["identity"]["article_id"]), str(change["identity"]["topic_id"]))
+        for batch in emitted
+        for change in batch
+        if change["source_table"] == "article_topics"
+    } == {(str(old_article), str(topic)), (str(new_article), str(topic))}

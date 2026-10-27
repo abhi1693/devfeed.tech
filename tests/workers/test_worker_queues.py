@@ -23,6 +23,32 @@ def test_dedicated_worker_publishes_its_name_without_following_links(tmp_path, m
     run.assert_called_once_with(burst=True, name="worker-123", max_jobs=3, queue_name="images")
 
 
+def test_standalone_worker_selects_queue_and_records_unique_runtime_identity(tmp_path, monkeypatch):
+    marker = tmp_path / "worker-name"
+    monkeypatch.setattr(worker, "runtime_marker", lambda _: marker)
+    monkeypatch.setattr(
+        "sys.argv", ["devfeed-worker", "--queue", "article-analysis", "--burst", "--max-jobs", "2"]
+    )
+    run = Mock()
+    monkeypatch.setattr(worker, "run", run)
+    assert worker.main() == 0
+    identity = marker.read_text()
+    assert identity.startswith(worker.os.uname().nodename + "-")
+    run.assert_called_once_with(
+        burst=True, name=identity, max_jobs=2, queue_name="article-analysis"
+    )
+
+
+def test_standalone_worker_rejects_unknown_queue_before_runtime_start(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["devfeed-worker", "--queue", "unknown"])
+    run = Mock()
+    monkeypatch.setattr(worker, "run", run)
+    with pytest.raises(SystemExit) as error:
+        worker.main()
+    assert error.value.code == 2
+    run.assert_not_called()
+
+
 @pytest.mark.parametrize("queue_name", ["all", "analysis"])
 def test_workers_keep_ai_queue_alias_and_check_readiness_when_dequeueing(monkeypatch, queue_name):
     settings = get_settings()

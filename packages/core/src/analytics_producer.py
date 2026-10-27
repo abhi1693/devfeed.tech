@@ -13,21 +13,23 @@ import os
 import queue
 import re
 import threading
+import uuid
 import weakref
 from contextlib import suppress
 from typing import Any
 
 from psycopg import sql
 from psycopg.rows import dict_row
-from sqlalchemy import Engine, and_, event, or_, select, tuple_
+from sqlalchemy import Engine, Uuid, and_, event, or_, select, tuple_
 from sqlalchemy.pool import Pool
-from sqlalchemy.sql import Select, visitors
-from sqlalchemy.sql.elements import BindParameter
+from sqlalchemy.sql import Select, operators, visitors
+from sqlalchemy.sql.elements import BinaryExpression, BindParameter, BooleanClauseList
 
 from devfeed_core.analytics import AnalyticsClient
 from devfeed_core.analytics_overview_direct import DirectOverviewAnalytics
 from devfeed_core.analytics_schema import JOB_TABLES, AnalyticsTable
 from devfeed_core.analytics_schema import TABLES as CAPTURE_TABLES
+from devfeed_core.models import Base
 
 TABLES = dict(CAPTURE_TABLES)
 for _source, _keys in {
@@ -62,8 +64,15 @@ FEED_SOURCES = frozenset(
 SOURCES = frozenset(TABLES) - {"article_opens", "inference_calls", "topic_decision_calls"}
 
 
+def _identity_value(column, value):
+    if isinstance(column.type, Uuid):
+        return str(uuid.UUID(str(value)))
+    return str(value)
+
+
 def _key(source, record):
-    return tuple(str(record[name]) for name in TABLES[source].keys)
+    columns = Base.metadata.tables[source].c
+    return tuple(_identity_value(columns[name], record[name]) for name in TABLES[source].keys)
 
 
 def _remember(session, source, record):
@@ -137,6 +146,80 @@ def _insert_candidates(connection, statement, compiled, parameters):
         if keys:
             records.extend(_records(connection, table, tuple_(*columns).in_(keys)))
     return records
+
+
+def _primary_key_bindings(statement, compiled):
+    """Recognize exact primary-key updates without interpreting arbitrary SQL."""
+    criteria = list(getattr(statement, "_where_criteria", ()))
+    bindings = {}
+    while criteria:
+        predicate = criteria.pop()
+        if isinstance(predicate, BooleanClauseList) and predicate.operator is operators.and_:
+            criteria.extend(predicate.clauses)
+            continue
+        if not isinstance(predicate, BinaryExpression) or predicate.operator is not operators.eq:
+            return None
+        binding = None
+        for column, parameter in (
+            (predicate.left, predicate.right),
+            (predicate.right, predicate.left),
+        ):
+            if not isinstance(parameter, BindParameter):
+                continue
+            if (
+                getattr(getattr(column, "table", None), "fullname", None)
+                != statement.table.fullname
+            ):
+                continue
+            key = next(
+                (key for key in statement.table.primary_key if key.shares_lineage(column)), None
+            )
+            if key is not None:
+                binding = key.name, compiled.bind_names.get(parameter, parameter.key)
+                break
+        if binding is None or binding[0] in bindings:
+            return None
+        bindings[binding[0]] = binding[1]
+    return bindings if len(bindings) == len(statement.table.primary_key) else None
+
+
+def _update_candidates(connection, statement, compiled, parameters):
+    """Capture ORM batch preimages in bounded reads, retaining per-row assignments."""
+    table = statement.table
+    bindings = _primary_key_bindings(statement, compiled)
+    captured: list[dict] = []
+    pairs: list[tuple[dict, dict]] = []
+    if bindings and all(
+        all(name in row and row[name] is not None for name in bindings.values())
+        for row in parameters
+    ):
+        columns = tuple(table.c[key] for key in bindings)
+        for start in range(0, len(parameters), MAX_BATCH):
+            batch = parameters[start : start + MAX_BATCH]
+            keys = [tuple(row[name] for name in bindings.values()) for row in batch]
+            rows = list(_records(connection, table, tuple_(*columns).in_(keys)))
+            by_key = {
+                tuple(_identity_value(column, row[column.name]) for column in columns): row
+                for row in rows
+            }
+            captured.extend(rows)
+            pairs.extend(
+                (by_key[identity], values)
+                for key, values in zip(keys, batch, strict=True)
+                if (
+                    identity := tuple(
+                        _identity_value(column, value)
+                        for column, value in zip(columns, key, strict=True)
+                    )
+                )
+                in by_key
+            )
+        return captured, pairs
+    for values in parameters:
+        rows = list(_records(connection, table, _bound_predicate(statement, compiled, values)))
+        captured.extend(rows)
+        pairs.extend((row, values) for row in rows)
+    return captured, pairs
 
 
 def _parameter_rows(context):
@@ -297,12 +380,7 @@ class ApplicationAnalyticsCapture:
         if operation.is_insert:
             captured = _insert_candidates(connection, operation, compiled, values_rows)
         else:
-            for values in values_rows:
-                rows = list(
-                    _records(connection, target, _bound_predicate(operation, compiled, values))
-                )
-                captured.extend(rows)
-                pairs.extend((row, values) for row in rows)
+            captured, pairs = _update_candidates(connection, operation, compiled, values_rows)
         context._devfeed_analytics_before = captured
         context._devfeed_analytics_pairs = pairs
         context._devfeed_analytics_cascades = (

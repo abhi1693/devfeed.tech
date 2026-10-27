@@ -2,6 +2,7 @@
 
 import threading
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 from devfeed_aggregator.recommendation_dispatcher import recommendation_dispatcher
 
@@ -21,8 +22,30 @@ def test_dispatcher_retries_failure_and_stops_with_scheduler(monkeypatch):
         "devfeed_aggregator.recommendation_dispatcher.dispatch_recommendations", dispatch
     )
     queue = SimpleNamespace(connection=SimpleNamespace(close=lambda: closed.append(True)))
-    with recommendation_dispatcher("factory", lambda: queue, interval=0.01):
+    lookup = Mock(return_value=queue)
+    with recommendation_dispatcher("factory", lookup, interval=0.01):
         assert completed.wait(timeout=2)
     assert len(calls) >= 2
-    assert len(closed) == len(calls)
+    assert closed == [True]
+    lookup.assert_called_once_with()
     assert not any(t.name == "recommendation-dispatch" for t in threading.enumerate())
+
+
+def test_dispatcher_retries_client_creation_and_closes_only_its_owned_client(monkeypatch):
+    completed = threading.Event()
+    connection = SimpleNamespace(close=Mock())
+    queue = SimpleNamespace(connection=connection)
+    lookup = Mock(side_effect=[RuntimeError("Sentinel unavailable"), queue])
+
+    def dispatch(factory, actual):
+        assert factory == "factory" and actual is queue
+        completed.set()
+        return 0
+
+    monkeypatch.setattr(
+        "devfeed_aggregator.recommendation_dispatcher.dispatch_recommendations", dispatch
+    )
+    with recommendation_dispatcher("factory", lookup, interval=0.01):
+        assert completed.wait(timeout=2)
+    assert lookup.call_count == 2
+    connection.close.assert_called_once_with()

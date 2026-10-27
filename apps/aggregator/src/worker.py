@@ -3,6 +3,7 @@ import importlib.util
 import logging
 import os
 import uuid
+from typing import get_args
 
 from devfeed_core.analytics_producer import shutdown as drain_analytics
 from devfeed_core.config import get_settings
@@ -13,7 +14,7 @@ from devfeed_core.runtime_files import runtime_marker, write_runtime_marker
 from devfeed_core.services import OperationConflict
 from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import __version__
-from devfeed_core.worker_queues import worker_queues
+from devfeed_core.worker_queues import WorkerQueue, worker_queues
 from rq.serializers import JSONSerializer
 from rq.worker import DequeueStrategy
 
@@ -125,23 +126,34 @@ def run(
         stop_runtime(telemetry)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Run an RQ ingestion worker")
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("--burst", action="store_true", help="Exit when the queue is empty")
+def main() -> int:
+    """Start a worker without importing unrelated interactive CLI commands."""
+    parser = worker_parser("Run an RQ worker")
+    parser.add_argument("--queue", choices=get_args(WorkerQueue), default="all")
     args = parser.parse_args()
-    run(burst=args.burst)
+    return start_queue_worker(args, args.queue)
 
 
 def queue_worker_main(queue_name: str, description: str) -> int:
     """Shared command-line contract for apps pinned to one durable queue."""
+    return start_queue_worker(worker_parser(description).parse_args(), queue_name)
+
+
+def worker_parser(description):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--burst", action="store_true", help="Exit when the queue is empty")
     parser.add_argument("--name", help="Unique RQ worker name")
     parser.add_argument("--max-jobs", type=int, help="Stop after this many jobs")
-    args = parser.parse_args()
+    return parser
+
+
+def start_queue_worker(args, queue_name):
     worker_name = args.name or f"{os.uname().nodename}-{uuid.uuid4().hex}"
     write_runtime_marker(runtime_marker("worker-name"), worker_name)
     run(burst=args.burst, name=worker_name, max_jobs=args.max_jobs, queue_name=queue_name)
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

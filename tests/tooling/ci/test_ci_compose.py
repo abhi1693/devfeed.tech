@@ -1,6 +1,7 @@
 """Compose fixtures must not inherit an operator's private configuration."""
 
 import importlib.util
+import re
 import xml.etree.ElementTree as ET
 from decimal import Decimal
 from types import SimpleNamespace
@@ -70,6 +71,44 @@ def test_compose_render_preserves_exact_fractional_cpu_budget(monkeypatch, limit
     )
     services = check_compose.render({"POSTGRES_PASSWORD": "fixture-only-password"})["services"]
     assert (services["analytics-importer"]["cpus"] == Decimal("0.5")) is compliant
+
+
+@pytest.mark.parametrize("limited", [False, True])
+def test_all_worker_pools_share_lightweight_parent_probe_and_sufficient_shutdown_time(limited):
+    from devfeed_core.job_definitions import JOB_DEFINITIONS
+
+    options = {"POSTGRES_PASSWORD": "fixture-only-password", "COMPOSE_PROFILES": "workers,ai"}
+    if limited:
+        options.update(DEVFEED_WORKER_CPUS="1.5", DEVFEED_WORKER_MEMORY_LIMIT="1g")
+    services = check_compose.render(options)["services"]
+    workers = {
+        name: value
+        for name, value in services.items()
+        if name == "worker" or name == "codex-client" or name.endswith("-worker")
+    }
+    assert len(workers) == 13
+    for name, worker in workers.items():
+        assert worker["healthcheck"]["test"] == [
+            "CMD",
+            "devfeed-worker-health",
+        ], name
+        assert worker["environment"]["DEVFEED_WORKER_HEALTH_PATH"] == (
+            "/tmp/devfeed-worker-health"
+        ), name
+        grace_seconds = sum(
+            int(value) * {"h": 3600, "m": 60, "s": 1}[unit]
+            for value, unit in re.findall(r"(\d+)([hms])", worker["stop_grace_period"])
+        )
+        assert grace_seconds >= max(item.timeout for item in JOB_DEFINITIONS.values()) + 30, name
+        assert worker.get("cpus", 0) == (Decimal("1.5") if limited else 0), name
+        assert int(worker.get("mem_limit", 0)) == (1024**3 if limited else 0), name
+        if worker["command"][0] == "sh":
+            assert "exec devfeed-worker --queue" in worker["command"][-1], name
+    assert all(
+        "DEVFEED_WORKER_HEALTH_PATH" not in value.get("environment", {})
+        for name, value in services.items()
+        if name not in workers
+    )
 
 
 @pytest.mark.parametrize(

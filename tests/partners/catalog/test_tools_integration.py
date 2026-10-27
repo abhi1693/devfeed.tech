@@ -551,3 +551,49 @@ def test_product_status_filter_counts_and_pages_only_approved(admin_client, data
     assert [item["name"] for item in second["items"]] == ["D approved"]
     assert admin_client.get(ROOT).json()["total"] == 4
     assert admin_client.get(ROOT + "?status=invalid").status_code == 422
+
+
+def test_fast_evaluation_delivery_waits_for_its_publisher_to_commit(
+    admin_client, database, product_payload, monkeypatch
+):
+    from concurrent.futures import ThreadPoolExecutor
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from devfeed_aggregator import partner_tasks
+
+    from tests.support.database_waits import RowLockWait
+
+    article(database)
+    qualified(admin_client, database, product_payload, monkeypatch)
+    with database() as session:
+        identifier = session.scalar(select(PartnerEvaluation.id))
+    consumers = []
+    assessor = Mock(side_effect=answer)
+    with (
+        ThreadPoolExecutor(max_workers=1, thread_name_prefix="partner-fast-consumer") as pool,
+        RowLockWait(
+            database, thread_prefix="partner-fast-consumer", table="partner_evaluations"
+        ) as claim,
+    ):
+
+        def enqueue(_handler, evaluation_id, **_kwargs):
+            consumer = pool.submit(
+                process_evaluation, evaluation_id, factory=database, assessor=assessor
+            )
+            consumers.append(consumer)
+            claim.assert_blocked(consumer)
+
+        queue = SimpleNamespace(count=0, connection=SimpleNamespace(close=Mock()), enqueue=enqueue)
+        monkeypatch.setattr(partner_tasks, "get_queue", lambda _name: queue)
+        assert partner_tasks.dispatch_partner_evaluations(database, limit=25) == 1
+        assert consumers[0].result(timeout=5) is None
+    assessor.assert_called_once()
+    queue.connection.close.assert_called_once()
+    with database() as session:
+        evaluation = session.get(PartnerEvaluation, identifier)
+        assert evaluation.status == "succeeded" and evaluation.attempts == 1
+        assert evaluation.lease_token is None and evaluation.finished_at is not None
+    process_evaluation(
+        str(identifier), factory=database, assessor=lambda _: pytest.fail("Duplicate evaluation")
+    )

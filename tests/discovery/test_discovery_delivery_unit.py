@@ -102,8 +102,8 @@ def test_dispatch_rechecks_due_or_expired_work_and_closes_each_queue_connection(
     elif state == "finished":
         job.status, job.finished_at, job.attempts = "succeeded", NOW, 1
     runtime.read.execute.return_value = [(job.id, stage)]
-    runtime.write.scalar.return_value = None if state == "missing" else job
     dispatched = state in {"queued", "expired"}
+    runtime.write.scalars.return_value.all.return_value = [job] if dispatched else []
     assert worker.dispatch_discovery(runtime.factory) == int(dispatched)
     queue_name, queue = runtime.queues[0]
     assert queue_name == ("source-analysis" if stage == "assess" else "source-discovery")
@@ -136,7 +136,7 @@ def test_assessment_disabled_after_candidate_read_does_not_publish_an_ai_deliver
     runtime.read.execute.side_effect = read
     assert worker.dispatch_discovery(runtime.factory) == 0
     assert runtime.queues == []
-    runtime.write.scalar.assert_not_called()
+    runtime.write.scalars.assert_not_called()
 
 
 def test_enqueue_failure_preserves_dispatch_marker_and_closes_the_broker_connection(
@@ -144,7 +144,7 @@ def test_enqueue_failure_preserves_dispatch_marker_and_closes_the_broker_connect
 ):
     job = discovered_job()
     runtime.read.execute.return_value = [(job.id, job.stage)]
-    runtime.write.scalar.return_value = job
+    runtime.write.scalars.return_value.all.return_value = [job]
     queue = Mock()
     queue.enqueue.side_effect = RuntimeError("Redis disconnected")
     monkeypatch.setattr(worker, "get_queue", lambda _: queue)
@@ -191,3 +191,56 @@ def test_assessment_provider_receives_the_real_quality_schema_and_indexed_untrus
         with pytest.raises(ValueError, match="Enable AI"):
             worker.assess_sample(sample)
         constructor.assert_not_called()
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_discovery_rejects_invalid_budget_before_reading_or_opening_redis(runtime, limit):
+    with pytest.raises(ValueError, match="positive"):
+        worker.dispatch_discovery(runtime.factory, limit=limit)
+    runtime.read.execute.assert_not_called()
+    assert runtime.queues == []
+
+
+def test_empty_discovery_cycle_has_no_write_transaction_or_broker_connection(runtime):
+    runtime.read.execute.return_value = []
+    assert worker.dispatch_discovery(runtime.factory) == 0
+    runtime.write.scalars.assert_not_called()
+    assert runtime.queues == []
+
+
+def test_discovery_batch_reuses_each_queue_connection_and_rechecks_authoritative_filters(runtime):
+    from sqlalchemy.dialects import postgresql
+
+    jobs = [discovered_job(), discovered_job(), discovered_job("assess")]
+    runtime.read.execute.return_value = [(job.id, job.stage) for job in jobs]
+    runtime.write.scalars.return_value.all.return_value = jobs
+    assert worker.dispatch_discovery(runtime.factory) == 3
+    assert [name for name, _ in runtime.queues] == ["source-discovery", "source-analysis"]
+    assert [queue.enqueue.call_count for _, queue in runtime.queues] == [2, 1]
+    assert all(job.dispatched_at == NOW for job in jobs)
+    for _, queue in runtime.queues:
+        queue.connection.close.assert_called_once()
+    statement = runtime.write.scalars.call_args.args[0]
+    compiled = statement.compile(dialect=postgresql.dialect())
+    sql = str(compiled)
+    assert "SKIP LOCKED" in sql
+    assert "(source_discovery_jobs.id, source_discovery_jobs.stage) IN" in sql
+    assert "source_discovery_jobs.result" in sql
+    assert "source_discovery_jobs.dispatched_at IS NULL" in sql
+    assert "source_discovery_jobs.lease_until <" in sql
+
+
+def test_discovery_lock_rechecks_the_stages_used_to_prepare_queue_resources(runtime):
+    from sqlalchemy.dialects import postgresql
+
+    job = discovered_job()
+    runtime.read.execute.return_value = [(job.id, "discover")]
+    runtime.write.scalars.return_value.all.return_value = []
+    assert worker.dispatch_discovery(runtime.factory) == 0
+    statement = runtime.write.scalars.call_args.args[0]
+    compiled = statement.compile(dialect=postgresql.dialect())
+    assert "(source_discovery_jobs.id, source_discovery_jobs.stage) IN" in str(compiled)
+    assert [(job.id, "discover")] in compiled.params.values()
+    assert [name for name, _ in runtime.queues] == ["source-discovery"]
+    runtime.queues[0][1].enqueue.assert_not_called()
+    runtime.queues[0][1].connection.close.assert_called_once()
