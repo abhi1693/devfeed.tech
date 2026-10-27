@@ -10,6 +10,7 @@ import { assertPartnerCallerProofs, partnerRuntimePlan } from "./partner-runtime
 import {
   closePlacementFixture,
   runPlacementStage,
+  waitForPlacementServer,
   withPlacementDeliveryHeld,
 } from "./partner-fixture.mjs";
 
@@ -3467,17 +3468,7 @@ app.stderr.on("data", (data) => {
 });
 let runFailed = false;
 try {
-  let ready = false;
-  for (let attempt = 0; attempt < 100; attempt++) {
-    try {
-      await fetch(`${origin}/login`);
-      ready = true;
-      break;
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
-  }
-  assert.ok(ready, logs);
+  assert.ok(await waitForPlacementServer(origin), logs);
   for (const { platform, caller, probe } of runtimePlan) {
     if (selectedRuntimes.length === 1) resetSelectedRuntimeFixture();
     callerFixtureIp = callerFixtureIps[caller];

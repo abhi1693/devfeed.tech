@@ -1,3 +1,19 @@
+export async function waitForPlacementServer(
+  origin,
+  { attempts = 100, delayMs = 200, requestTimeoutMs = 1000 } = {},
+) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      if ((await fetch(`${origin}/login`, { signal: AbortSignal.timeout(requestTimeoutMs) })).ok)
+        return true;
+    } catch {
+      // The edge may accept requests before the application starts listening.
+    }
+    if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return false;
+}
+
 export async function runPlacementStage(name, observe, { timeoutMs = 30_000 } = {}) {
   console.log(`[${new Date().toISOString()}] Placement ${name} BEGIN`);
   let deadline;

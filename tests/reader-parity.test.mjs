@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createServer } from "node:http";
 import { mkdtemp, readFile, rm, writeFile, mkdir, stat, chmod, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -15,6 +16,7 @@ import {
 } from "../apps/web/tests/browser/partner-runtimes.mjs";
 import {
   runPlacementStage,
+  waitForPlacementServer,
   withPlacementDeliveryHeld,
 } from "../apps/web/tests/browser/partner-fixture.mjs";
 
@@ -498,6 +500,52 @@ test("same-gateway caller proof checks reject the cached-first-caller bug on the
     assert.throws(() => assertPartnerCallerProofs(current, ip), /same gateway/);
     current.set(paths[1], new Set([first, ip]));
     if (ip !== first) assert.throws(() => assertPartnerCallerProofs(current, ip), /same gateway/);
+  }
+});
+
+test("placement readiness waits for the application instead of accepting an edge 502", async () => {
+  let requests = 0;
+  const server = createServer((_request, response) => {
+    response.writeHead(++requests === 1 ? 502 : 200);
+    response.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    assert.equal(
+      await waitForPlacementServer(`http://127.0.0.1:${server.address().port}`, {
+        attempts: 3,
+        delayMs: 0,
+      }),
+      true,
+    );
+    assert.equal(requests, 2);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("placement readiness retries a connection that never returns a response", async () => {
+  let requests = 0;
+  const server = createServer((_request, response) => {
+    if (++requests === 1) return;
+    response.writeHead(200);
+    response.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    assert.equal(
+      await waitForPlacementServer(`http://127.0.0.1:${server.address().port}`, {
+        attempts: 3,
+        delayMs: 0,
+        requestTimeoutMs: 250,
+      }),
+      true,
+    );
+    assert.equal(requests, 2);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
   }
 });
 
