@@ -309,6 +309,169 @@ def test_native_states_deduplicate_replay_and_honor_corrections_and_resets():
     asyncio.run(run())
 
 
+@pytest.mark.integration
+def test_native_feed_deadlines_ignore_past_candidates_and_publish_expiration(database):
+    import psycopg
+    from psycopg.rows import dict_row
+
+    settings = _settings()
+    dsn = (
+        database.kw["bind"]
+        .url.render_as_string(hide_password=False)
+        .replace("postgresql+psycopg://", "postgresql://", 1)
+    )
+    # Each populated shard isolates one nullable deadline combination. Shard0
+    # also has a later feed, so the aggregate must preserve its earliest expiry.
+    cases = [
+        (3600, -10, "ready", 3600, 1),
+        (-10, 1800, "expired", 1800, 0),
+        (3600, None, "ready", 3600, 0),
+        (None, 1800, "expired", 1800, 0),
+        (None, None, "expired", None, 0),
+        (-10, -20, "expired", None, 1),
+        (0, 0, "expired", None, 1),
+        (1800, 3600, "ready", 1800, 0),
+        (3600, 1800, "ready", 1800, 0),
+        (-10, None, "expired", None, 0),
+        (None, -10, "expired", None, 1),
+    ]
+
+    async def run():
+        name = f"devfeed_gauge_deadlines_{uuid.uuid4().hex}_test"
+        async with AnalyticsClient(settings) as admin:
+            await admin.execute(f"CREATE DATABASE `{name}`")
+            try:
+                async with AnalyticsClient(
+                    settings.model_copy(update={"clickhouse_database": name})
+                ) as driver:
+                    driver.insert_settings = {"async_insert_busy_timeout_ms": 1}
+                    gauge = Gauges(settings, driver)
+                    await gauge.initialize()
+                    stamp = datetime.now(UTC)
+                    observed = stamp
+                    original_query = driver.query
+
+                    async def query(statement, parameters=None):
+                        # Execute the real serving SQL at exact boundaries,
+                        # independently of server speed and without wall-clock sleeps.
+                        if "now64(6)" in statement:
+                            statement = statement.replace(
+                                "now64(6)", "{observed:DateTime64(6,'UTC')}"
+                            )
+                            parameters = {**(parameters or {}), "observed": observed}
+                        return await original_query(statement, parameters)
+
+                    driver.query = query
+                    users = [uuid.UUID(int=(number << 120) + 1) for number in range(len(cases))]
+                    rows = [
+                        dict(
+                            id=user,
+                            interest_count=1,
+                            generation=uuid.uuid4(),
+                            expires_at=stamp + timedelta(seconds=expires)
+                            if expires is not None
+                            else None,
+                            next_refresh_at=stamp + timedelta(seconds=refresh)
+                            if refresh is not None
+                            else None,
+                            has_recommendations=True,
+                        )
+                        for user, (expires, refresh, *_rest) in zip(users, cases, strict=True)
+                    ]
+                    later = uuid.UUID(int=2)
+                    rows.append(
+                        dict(
+                            id=later,
+                            interest_count=1,
+                            generation=uuid.uuid4(),
+                            expires_at=stamp + timedelta(hours=2),
+                            next_refresh_at=stamp - timedelta(seconds=10),
+                            has_recommendations=True,
+                        )
+                    )
+                    await gauge.ingest(
+                        Connection(rows=rows),
+                        [event("user_accounts", {"id": str(row["id"])}) for row in rows],
+                        generation=1,
+                    )
+                    missing_feed = uuid.UUID(int=(11 << 120) + 1)
+                    account = await gauge._audience_rows(
+                        Connection(rows=[{"id": missing_feed}]),
+                        {str(missing_feed): (1, stamp)},
+                        {str(missing_feed)},
+                        1,
+                    )
+                    await driver.insert(
+                        "analytics_audience_changes",
+                        [row for row in account if row["kind"] == "account"],
+                    )
+                    records, transitions = await gauge._feed_many(range(16))
+                    for number, (_expires, _refresh, status, seconds, overdue) in enumerate(cases):
+                        row = records[number]
+                        assert row[status] == (2 if number == 0 else 1), (number, row)
+                        assert row["overdue"] == (2 if number == 0 else overdue), (number, row)
+                        transition = transitions[number]
+                        assert (datetime.fromisoformat(transition) if transition else None) == (
+                            stamp + timedelta(seconds=seconds) if seconds is not None else None
+                        )
+                    assert records[11]["not_needed"] == 1
+                    assert transitions[11] is None
+                    assert all(
+                        records[15][metric] == 0 for metric in records[15] if metric != "shard"
+                    )
+                    assert transitions[15] is None
+
+                    async with await psycopg.AsyncConnection.connect(
+                        dsn, autocommit=True, row_factory=dict_row
+                    ) as connection:
+                        await connection.execute("TRUNCATE analytics_gauge_refreshes")
+                        await connection.execute(
+                            "INSERT INTO analytics_gauge_refreshes(domain,shard) "
+                            "SELECT 'feed',number FROM generate_series(0,15) number"
+                        )
+                        assert await gauge.refresh_one(connection, 1)
+                        scheduled = await (
+                            await connection.execute(
+                                "SELECT shard,available_at FROM analytics_gauge_refreshes "
+                                "WHERE domain='feed' ORDER BY shard"
+                            )
+                        ).fetchall()
+                        for number, (_expires, _refresh, _status, seconds, _overdue) in enumerate(
+                            cases
+                        ):
+                            available = scheduled[number]["available_at"]
+                            if seconds is not None:
+                                assert available == stamp + timedelta(seconds=seconds)
+                            else:
+                                assert available > stamp + timedelta(hours=23)
+                        assert scheduled[11]["available_at"] > stamp + timedelta(hours=23)
+
+                        # Simulate the scheduled wake-up at the first expiry.
+                        # No source mutation or new capture event is required.
+                        observed = stamp + timedelta(hours=1)
+                        await connection.execute(
+                            "UPDATE analytics_gauge_refreshes SET available_at=clock_timestamp() "
+                            "WHERE domain='feed' AND shard=0"
+                        )
+                        assert await gauge.refresh_one(connection, 2)
+                        snapshot = await driver.query(
+                            "SELECT ready,expired,overdue FROM analytics_feed_gauges "
+                            "WHERE shard=0 AND generation=2"
+                        )
+                        assert snapshot == [{"ready": 1, "expired": 1, "overdue": 2}]
+                        transition = await (
+                            await connection.execute(
+                                "SELECT available_at FROM analytics_gauge_refreshes "
+                                "WHERE domain='feed' AND shard=0"
+                            )
+                        ).fetchone()
+                        assert transition["available_at"] == stamp + timedelta(hours=2)
+            finally:
+                await admin.execute(f"DROP DATABASE `{name}` SYNC")
+
+    asyncio.run(run())
+
+
 def test_gauge_schema_retains_raw_revisions_and_expires_only_disposable_generations():
     driver = client()
     asyncio.run(Gauges(None, driver).initialize())

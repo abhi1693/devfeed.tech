@@ -339,6 +339,84 @@ def test_publication_coalescing_uses_current_associations_and_cancels_every_old_
     asyncio.run(verify())
 
 
+@pytest.mark.parametrize("source", ["article_origins", "article_topics", "article_reviews"])
+@pytest.mark.parametrize("reparented", [False, True])
+def test_publication_association_changes_rebuild_each_current_owner_once(source, reparented):
+    async def verify():
+        previous_owner = IDENTITY
+        current_owner = PARENT if reparented else IDENTITY
+        owners = {previous_owner, current_owner}
+        association = str(uuid.uuid4())
+        records = {
+            owner: dict(
+                id=owner,
+                discovered_at=NOW - timedelta(days=1),
+                published_to_feed_at=NOW - timedelta(hours=offset),
+            )
+            for offset, owner in enumerate(sorted(owners))
+        }
+
+        class Cursor:
+            def __init__(self, rows):
+                self.rows = rows
+
+            async def fetchall(self):
+                return self.rows
+
+        class Connection:
+            def __init__(self):
+                self.calls = []
+
+            async def execute(self, statement, parameters):
+                self.calls.append((statement, parameters))
+                selected = parameters[0]
+                if "AS record FROM articles" in statement:
+                    return Cursor([{"record": records[owner]} for owner in selected])
+                if "SELECT a.id, EXISTS" in statement:
+                    return Cursor(
+                        [
+                            {
+                                "id": owner,
+                                "automated": source == "article_reviews" and owner == current_owner,
+                            }
+                            for owner in selected
+                        ]
+                    )
+                if f"FROM {source} " in statement:
+                    return Cursor([{"article_id": current_owner, "identity": association}])
+                return Cursor([])
+
+        connection = Connection()
+        rows = await transform_events(
+            connection,
+            [
+                event(
+                    source,
+                    {"id": association, "article_id": current_owner},
+                    before={"id": association, "article_id": previous_owner},
+                )
+            ],
+            4,
+        )
+        assert len(connection.calls) == 4
+        assert all(set(parameters[0]) == owners for _, parameters in connection.calls)
+        assert len(rows) == len(owners)
+        by_owner = {row["entity_id"]: row for row in rows}
+        assert set(by_owner) == owners
+        for owner, row in by_owner.items():
+            assert row["source_ids"] == (
+                [association] if source == "article_origins" and owner == current_owner else []
+            )
+            assert row["topic_ids"] == (
+                [association] if source == "article_topics" and owner == current_owner else []
+            )
+            assert row["automated"] == int(source == "article_reviews" and owner == current_owner)
+            assert row["published"] == 1 and not row["deleted"]
+            assert row["event_id"] == 7 and row["generation"] == 4
+
+    asyncio.run(verify())
+
+
 def test_deleted_publications_emit_tombstones_even_when_current_article_is_gone():
     async def verify():
         record = dict(id=IDENTITY, published_to_feed_at=NOW, discovered_at=NOW)

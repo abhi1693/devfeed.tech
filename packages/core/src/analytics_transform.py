@@ -329,6 +329,19 @@ def _publication_facts(changes, record, context, generation):
     yield from old_keys.values()
 
 
+def _publication_owners(event):
+    if event["source_table"] == "articles":
+        record = event.get("record") or event.get("before_record") or {}
+        return {str(record["id"])} if record.get("id") else set()
+    # Reparenting removes attribution from the previous article as well as
+    # adding it to the new article. Hydrate each current owner only once.
+    return {
+        str(record["article_id"])
+        for record in (event.get("record") or {}, event.get("before_record") or {})
+        if record.get("article_id")
+    }
+
+
 async def transform_events(connection, events, generation, publication_context=None):
     result = []
     publications: dict[str, list[dict[str, Any]]] = {}
@@ -339,14 +352,8 @@ async def transform_events(connection, events, generation, publication_context=N
             "article_topics",
             "article_reviews",
         }:
-            record = event.get("record") or event.get("before_record") or {}
-            identity = (
-                record.get("id")
-                if event["source_table"] == "articles"
-                else record.get("article_id")
-            )
-            if identity:
-                publications.setdefault(str(identity), []).append(event)
+            for identity in _publication_owners(event):
+                publications.setdefault(identity, []).append(event)
         elif event["operation"] != "T":
             result.extend(normalize_event(event, generation))
     if not publications:

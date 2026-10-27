@@ -29,8 +29,13 @@ from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
     ArticleOpen,
+    ArticleOrigin,
+    ArticleReview,
+    ArticleTopic,
     InferenceCall,
     OverviewDaily,
+    Source,
+    Topic,
     TopicDecisionRun,
     TopicProposal,
     UserAccount,
@@ -687,6 +692,126 @@ def test_native_replay_late_commits_and_before_images_move_exact_fact_cohorts(da
                 row["name"] for row in await client.query("DESCRIBE TABLE analytics_fact_events")
             }
             assert not names.intersection({"tokens", "payload", "email", "request_hash", "profile"})
+
+    asyncio.run(verify())
+
+
+@pytest.mark.integration
+def test_reparented_publication_associations_replace_both_owners_after_ack(database):
+    settings = _settings()
+    now = utcnow().replace(minute=0, second=0, microsecond=0)
+    previous, current, source_id, topic_id = [uuid.uuid4() for _ in range(4)]
+    with database.begin() as session:
+        session.add(
+            Source(
+                id=source_id,
+                name="Publication owner source",
+                feed_url="https://example.test/publication-owners/feed",
+                source_type="publisher",
+            )
+        )
+        session.add(
+            Topic(
+                id=topic_id,
+                name="Publication owner topic",
+                slug="publication-owners",
+                kind="language",
+            )
+        )
+        for offset, identifier in enumerate((previous, current), start=1):
+            session.add(
+                Article(
+                    id=identifier,
+                    canonical_url=f"https://example.test/publication-owners/{identifier}",
+                    url_hash=uuid.uuid4().hex,
+                    title="Publication owner",
+                    discovered_at=now - timedelta(days=1),
+                    published_to_feed_at=now - timedelta(hours=offset),
+                    publication_status="published",
+                    review_status="approved",
+                )
+            )
+        session.flush()
+        session.add(
+            ArticleOrigin(
+                article_id=previous,
+                source_id=source_id,
+                entry_key="publication-owner",
+                original_url="https://example.test/publication-owners/original",
+            )
+        )
+        session.add(
+            ArticleTopic(
+                article_id=previous,
+                topic_id=topic_id,
+                role="primary",
+                relevance=1,
+                evidence="Publication owner fixture",
+            )
+        )
+        session.add(
+            ArticleReview(
+                article_id=previous,
+                action="publish",
+                revision=1,
+                automation={"kind": "full_automation"},
+                created_at=now - timedelta(hours=3),
+            )
+        )
+
+    async def verify():
+        async with AnalyticsClient(settings) as client:
+            await _reset(client)
+            exporter = AnalyticsExporter(client, settings)
+
+            async def assignments():
+                rows = await _facts(client, "publishing", now)
+                assert len(rows) == 2 and all(row["published"] == 1 for row in rows)
+                return {
+                    row["entity_id"]: (row["source_ids"], row["topic_ids"], row["automated"])
+                    for row in rows
+                }
+
+            try:
+                await _drain_initial(exporter, client)
+                attributed = ([str(source_id)], [str(topic_id)], 1)
+                assert await assignments() == {
+                    str(previous): attributed,
+                    str(current): ([], [], 0),
+                }
+                with database.begin() as session:
+                    for table in ("article_origins", "article_topics", "article_reviews"):
+                        session.execute(
+                            text(
+                                f"UPDATE {table} SET article_id=:current WHERE article_id=:previous"
+                            ),
+                            {"current": current, "previous": previous},
+                        )
+                with database() as session:
+                    moved = session.execute(
+                        text(
+                            "SELECT source_table,before_record->>'article_id',"
+                            "record->>'article_id' "
+                            "FROM analytics_ingest_events WHERE source_table IN "
+                            "('article_origins','article_topics','article_reviews')"
+                        )
+                    ).all()
+                    assert {row[0] for row in moved} == {
+                        "article_origins",
+                        "article_topics",
+                        "article_reviews",
+                    }
+                    assert all(row[1:] == (str(previous), str(current)) for row in moved)
+                await exporter.once()
+                with database() as session:
+                    assert session.scalar(text("SELECT count(*) FROM analytics_ingest_events")) == 0
+                expected = {str(previous): ([], [], 0), str(current): attributed}
+                assert await assignments() == expected
+                for _ in range(3):
+                    await exporter.once()
+                assert await assignments() == expected
+            finally:
+                exporter.cards.close()
 
     asyncio.run(verify())
 
