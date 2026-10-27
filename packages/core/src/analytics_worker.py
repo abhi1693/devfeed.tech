@@ -26,7 +26,7 @@ from devfeed_core.analytics_cards import CardPublisher
 from devfeed_core.analytics_gauges import Gauges
 from devfeed_core.analytics_rollups import RollupPublisher
 from devfeed_core.analytics_schema import BACKFILL_TABLES, TABLES
-from devfeed_core.analytics_transform import transform_events
+from devfeed_core.analytics_transform import FactTransformer
 from devfeed_core.analytics_upgrade import V1_KEYS, NativeUpgrade
 from devfeed_core.config import get_settings
 from devfeed_core.logging import configure_logging
@@ -224,7 +224,7 @@ class AnalyticsExporter:
             )
             for item in records
         ]
-        facts = await transform_events(connection, events, 1)
+        facts = await FactTransformer(connection).transform(events, 1)
         await self.client.insert("analytics_fact_events", facts)
         await self.gauges.ingest(connection, events, generation=0)
         complete = len(records) < self.settings.analytics_backfill_batch_size
@@ -266,7 +266,7 @@ class AnalyticsExporter:
             if event["source_table"] not in sources:
                 raise ValueError("Unsupported analytical capture source")
         events = await self.upgrade.normalize_pending(connection, captured, generation)
-        facts = await transform_events(connection, events, generation)
+        facts = await FactTransformer(connection).transform(events, generation)
         await self.client.insert("analytics_fact_events", facts)
         await self.gauges.ingest(connection, events, generation=generation)
         await self.cards.ingest(connection, captured, generation, fence=self._check_lease)
@@ -397,6 +397,10 @@ class AnalyticsExporter:
             )
         return lease, published or gauges or cards or compacted
 
+    @staticmethod
+    def _write_heartbeat():
+        write_runtime_marker(runtime_marker("analytics-worker"), str(time.time()))
+
     async def once(self):
         async with await psycopg.AsyncConnection.connect(
             postgres_dsn(self.settings),
@@ -440,7 +444,7 @@ class AnalyticsExporter:
                     "UPDATE analytics_pipeline_state SET last_success_at=clock_timestamp(), "
                     "native_lease_token=NULL,lease_until=NULL WHERE singleton"
                 )
-        write_runtime_marker(runtime_marker("analytics-worker"), str(time.time()))
+        await asyncio.to_thread(self._write_heartbeat)
         return upgrading or backfilling or count > 0 or refreshed
 
 

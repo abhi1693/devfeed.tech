@@ -2,6 +2,10 @@
 
 from typing import Any
 
+from redis.asyncio import Redis as AsyncRedis
+from redis.asyncio.retry import Retry as AsyncRetry
+from redis.asyncio.sentinel import Sentinel as AsyncSentinel
+from redis.asyncio.sentinel import SentinelConnectionPool as AsyncSentinelConnectionPool
 from redis.backoff import ExponentialWithJitterBackoff
 from redis.connection import SSLConnection, parse_url
 from redis.retry import Retry
@@ -21,11 +25,22 @@ class _SentinelRedis(Redis):
                 sentinel.close()
 
 
-def create_redis(settings: Settings, **overrides: Any) -> Redis:
+class _AsyncSentinelRedis(AsyncRedis):
+    async def aclose(self, close_connection_pool: bool | None = None) -> None:
+        pool = self.connection_pool
+        try:
+            await super().aclose(close_connection_pool=close_connection_pool)
+        finally:
+            if isinstance(pool, AsyncSentinelConnectionPool):
+                for sentinel in pool.sentinel_manager.sentinels:
+                    await sentinel.aclose()
+
+
+def _options(retry, overrides):
     options: dict[str, Any] = {
         "socket_connect_timeout": 3,
         "socket_timeout": 3,
-        "retry": Retry(ExponentialWithJitterBackoff(base=1, cap=10), retries=3),
+        "retry": retry,
     }
     # Redis 6.4+ clients probe Redis 8.2 maintenance notifications on every new
     # connection. Valkey rejects that optional command, inflating ERR counters.
@@ -38,11 +53,10 @@ def create_redis(settings: Settings, **overrides: Any) -> Redis:
     else:
         options["maint_notifications_config"] = MaintNotificationsConfig(enabled=False)
     options.update(overrides)
-    if not settings.redis_sentinel_nodes:
-        return Redis.from_url(settings.redis_url, **options)
+    return options
 
-    # The URL continues to define the logical DB, data credentials and TLS.
-    # Only Sentinel may supply the writable primary's address.
+
+def _sentinel_options(settings, options):
     options.update(parse_url(settings.redis_url))
     options.pop("host", None)
     options.pop("port", None)
@@ -60,7 +74,34 @@ def create_redis(settings: Settings, **overrides: Any) -> Redis:
         discovery["username"] = settings.redis_sentinel_username
     if settings.redis_sentinel_password:
         discovery["password"] = settings.redis_sentinel_password.get_secret_value()
+    return discovery
+
+
+def create_redis(settings: Settings, **overrides: Any) -> Redis:
+    options = _options(Retry(ExponentialWithJitterBackoff(base=1, cap=10), retries=3), overrides)
+    if not settings.redis_sentinel_nodes:
+        return Redis.from_url(settings.redis_url, **options)
+
+    # The URL continues to define the logical DB, data credentials and TLS.
+    # Only Sentinel may supply the writable primary's address.
+    discovery = _sentinel_options(settings, options)
     sentinel = Sentinel(settings.redis_sentinel_nodes, sentinel_kwargs=discovery)
     return sentinel.master_for(
         settings.redis_sentinel_master, redis_class=_SentinelRedis, **options
+    )
+
+
+def create_async_redis(settings: Settings, **overrides: Any) -> AsyncRedis:
+    """Use the same Redis and Sentinel connection policy without blocking an event loop."""
+    options = _options(
+        AsyncRetry(ExponentialWithJitterBackoff(base=1, cap=10), retries=3), overrides
+    )
+    if not settings.redis_sentinel_nodes:
+        return AsyncRedis.from_url(settings.redis_url, **options)
+    if settings.redis_sentinel_master is None:
+        raise ValueError("Redis Sentinel requires a master name")
+    discovery = _sentinel_options(settings, options)
+    sentinel = AsyncSentinel(settings.redis_sentinel_nodes, sentinel_kwargs=discovery)
+    return sentinel.master_for(
+        settings.redis_sentinel_master, redis_class=_AsyncSentinelRedis, **options
     )

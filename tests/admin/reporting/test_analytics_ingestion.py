@@ -18,6 +18,7 @@ from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
 from devfeed_core.analytics_facts import PAYLOAD_NAMES, empty_fact
 from devfeed_core.analytics_rollups import (
     REFRESH_BATCH_SIZE,
+    RollupCompactor,
     RollupPublisher,
     canonical_sql,
     rebuild_sql,
@@ -1308,7 +1309,7 @@ def test_rollup_pruning_survives_handoff_lost_ack_and_hot_month(
                                 )
                             ).fetchone()
 
-                        old = RollupPublisher(client)
+                        old = RollupCompactor(client)
                         old._next_orphan_check = float("inf")
 
                         async def old_fence(conn):
@@ -1369,7 +1370,7 @@ def test_rollup_pruning_survives_handoff_lost_ack_and_hot_month(
                         await insert(first, 8, 8)  # A late stale write stays invisible.
                         assert await visible() == 42
 
-                        current = RollupPublisher(client)
+                        current = RollupCompactor(client)
                         current._next_orphan_check = float("inf")
 
                         async def new_fence(conn):
@@ -1445,7 +1446,7 @@ def test_rollup_pruning_survives_handoff_lost_ack_and_hot_month(
                             "WHERE singleton",
                             (new_owner,),
                         )
-                        retrying = RollupPublisher(client)
+                        retrying = RollupCompactor(client)
                         retrying._next_orphan_check = float("inf")
                         assert not await retrying.compact_one(
                             connection, fence=new_fence, renew=new_renew
@@ -1465,7 +1466,7 @@ def test_rollup_pruning_survives_handoff_lost_ack_and_hot_month(
                         )
                         client.execute = execute
                         assert await settled(retry.marker) == 1
-                        restarted = RollupPublisher(client)
+                        restarted = RollupCompactor(client)
                         restarted._next_orphan_check = float("inf")
                         assert not await restarted.compact_one(
                             connection, fence=new_fence, renew=new_renew

@@ -517,9 +517,9 @@ def pending(source="inference_calls", *, identity=IDENTITY, at=NOW, operation="I
 
 
 def native_facts(events):
-    from devfeed_core.analytics_transform import normalize_event
+    from devfeed_core.analytics_transform import FactTransformer
 
-    return [fact for event in events for fact in normalize_event(event, 40)]
+    return [fact for event in events for fact in FactTransformer(None).normalize(event, 40)]
 
 
 def test_native_events_bypass_the_finite_pending_upgrade_entirely():

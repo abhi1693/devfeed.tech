@@ -2,12 +2,12 @@
 
 import asyncio
 import json
-import threading
 import uuid
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from functools import wraps
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from devfeed_admin_api import analytics_runtime, article_pipeline, overview, source_pipeline
@@ -510,10 +510,10 @@ async def test_restart_reuses_only_unexpired_redis_results_and_never_extends_cac
             self.values = {}
             self.expirations = []
 
-        def get(self, key):
+        async def get(self, key):
             return self.values.get(key)
 
-        def set(self, key, value, **kwargs):
+        async def set(self, key, value, **kwargs):
             self.values[key] = value
             self.expirations.append(kwargs["ex"])
 
@@ -562,6 +562,35 @@ async def test_optional_redis_failure_queries_clickhouse_without_using_cached_ol
     report = await reads.section("publishing", recent_window(30, NOW))
     assert report.snapshot.status == "fresh"
     assert reads.client.status_reads == 1
+
+
+@run_async
+async def test_waiting_for_redis_does_not_block_other_analytics_requests():
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def waiting_get(_key):
+        started.set()
+        await release.wait()
+        return None
+
+    cache = SimpleNamespace(get=waiting_get, set=AsyncMock())
+    reads = runtime(redis=lambda: cache, cache_enabled=True)
+    pending = asyncio.create_task(reads.section("publishing", recent_window(30, NOW)))
+    await asyncio.wait_for(started.wait(), timeout=1)
+    # The cache operation is still waiting, while unrelated work can run.
+    assert not pending.done()
+    assert await asyncio.wait_for(reads.client.status(), timeout=1)
+    release.set()
+    result = await asyncio.wait_for(pending, timeout=1)
+    assert result.data.section == "publishing"
+
+
+@run_async
+async def test_runtime_does_not_close_an_injected_cache():
+    cache = SimpleNamespace(aclose=AsyncMock())
+    reads = runtime(redis=lambda: cache, cache_enabled=True)
+    await reads.close()
+    cache.aclose.assert_not_awaited()
 
 
 @run_async
@@ -896,13 +925,13 @@ async def test_unknown_blocker_codes_cannot_be_silently_excluded_from_current_at
 async def test_runtime_shutdown_cancels_shared_work_and_closes_cache_even_if_driver_close_fails(
     monkeypatch,
 ):
-    events, close_threads = [], []
-    loop_thread = threading.get_ident()
-    cache = SimpleNamespace(
-        get=lambda _key: None,
-        close=lambda: (events.append("cache"), close_threads.append(threading.get_ident())),
-    )
-    monkeypatch.setattr(analytics_runtime, "create_redis", lambda *_args, **_kwargs: cache)
+    events = []
+
+    async def close_cache():
+        events.append("cache")
+
+    cache = SimpleNamespace(get=AsyncMock(return_value=None), aclose=close_cache)
+    monkeypatch.setattr(analytics_runtime, "create_async_redis", lambda *_args, **_kwargs: cache)
     client = Client()
 
     async def close_client():
@@ -929,7 +958,6 @@ async def test_runtime_shutdown_cancels_shared_work_and_closes_cache_even_if_dri
         await pending
     assert pending.cancelled() and not reads.inflight
     assert events == ["cancelled", "client", "cache"]
-    assert close_threads and close_threads[0] != loop_thread
 
 
 @pytest.mark.parametrize("method", ["article_board", "source_board"])
@@ -956,10 +984,11 @@ async def test_board_deadlines_fail_closed_for_both_current_views(monkeypatch, m
 @run_async
 async def test_malformed_fresh_cache_entries_are_replaced_by_current_clickhouse_results(cached):
     writes = []
-    cache = SimpleNamespace(
-        get=lambda _key: cached,
-        set=lambda key, value, **kwargs: writes.append((key, value, kwargs)),
-    )
+
+    async def write(key, value, **kwargs):
+        writes.append((key, value, kwargs))
+
+    cache = SimpleNamespace(get=AsyncMock(return_value=cached), set=write)
     reads = runtime(redis=lambda: cache, cache_enabled=True)
     result = await reads.section("publishing", recent_window(30, NOW))
     assert result.data.section == "publishing" and result.snapshot.status == "fresh"
@@ -1011,10 +1040,11 @@ async def test_analytical_validation_errors_are_not_disguised_as_preparing(monke
 @run_async
 async def test_large_report_is_returned_without_retaining_or_publishing_an_oversized_cache_entry():
     writes = []
-    cache = SimpleNamespace(
-        get=lambda _key: None,
-        set=lambda *args, **kwargs: writes.append((args, kwargs)),
-    )
+
+    async def write(*args, **kwargs):
+        writes.append((args, kwargs))
+
+    cache = SimpleNamespace(get=AsyncMock(return_value=None), set=write)
     reads = runtime(redis=lambda: cache, cache_enabled=True, cache_max_bytes=1)
     window = recent_window(30, NOW)
     first = await reads.section("publishing", window)

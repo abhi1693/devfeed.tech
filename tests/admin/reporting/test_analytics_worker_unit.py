@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
@@ -204,14 +205,14 @@ def test_bounded_backfill_inserts_generation_one_before_fenced_checkpoint(monkey
     service = exporter(connection)
     facts = [{"domain": "publishing"}]
     transform = AsyncMock(return_value=facts)
-    monkeypatch.setattr(worker, "transform_events", transform)
+    monkeypatch.setattr(worker.FactTransformer, "transform", transform)
     assert run(service._backfill_one(connection, 20))
     assert service.client.inserts == [("analytics_fact_events", facts)]
-    assert transform.call_args.args[2] == 1
+    assert transform.call_args.args[1] == 1
     if full:
-        assert transform.call_args.args[1][0]["created_at"] == NOW
+        assert transform.call_args.args[0][0]["created_at"] == NOW
     service.gauges.ingest.assert_awaited_once_with(
-        connection, transform.call_args.args[1], generation=0
+        connection, transform.call_args.args[0], generation=0
     )
     service.rollups.mark_dirty.assert_awaited_once_with(connection, facts, 20)
     update = next(p for q, p in connection.calls if q.startswith("UPDATE analytics_bootstrap"))
@@ -246,7 +247,7 @@ def test_delivery_failure_retains_all_events_until_every_projection_is_durable(
     connection = Connection(handle)
     service = exporter(connection)
     facts = [dict(domain="inference")]
-    monkeypatch.setattr(worker, "transform_events", AsyncMock(return_value=facts))
+    monkeypatch.setattr(worker.FactTransformer, "transform", AsyncMock(return_value=facts))
     if failure == "normalize":
         service.upgrade.normalize_pending.side_effect = RuntimeError("legacy audit failed")
     elif failure == "facts":
@@ -269,9 +270,9 @@ def test_delivery_acknowledges_exact_ids_only_after_facts_and_gauges(monkeypatch
     connection = Connection(lambda q, _: events if q.startswith("SELECT id,source") else {"ok": 1})
     service = exporter(connection)
     transform = AsyncMock(return_value=[])
-    monkeypatch.setattr(worker, "transform_events", transform)
+    monkeypatch.setattr(worker.FactTransformer, "transform", transform)
     assert run(service._export_events(connection, 42)) == 2
-    transform.assert_awaited_once_with(connection, events, 42)
+    transform.assert_awaited_once_with(events, 42)
     assert [p for q, p in connection.calls if q.startswith("DELETE")] == [([3, 9],)]
     assert not run(service._export_events(Connection(lambda *_: []), 42))
 
@@ -287,9 +288,9 @@ def test_legacy_delivery_acks_original_ids_and_count_after_normalized_projection
     service = exporter(connection)
     service.upgrade.normalize_pending = AsyncMock(return_value=normalized)
     transform = AsyncMock(return_value=[])
-    monkeypatch.setattr(worker, "transform_events", transform)
+    monkeypatch.setattr(worker.FactTransformer, "transform", transform)
     assert run(service._export_events(connection, 42)) == 2
-    transform.assert_awaited_once_with(connection, normalized, 42)
+    transform.assert_awaited_once_with(normalized, 42)
     service.gauges.ingest.assert_awaited_once_with(connection, normalized, generation=42)
     assert [p for q, p in connection.calls if q.startswith("DELETE")] == [([3, 9],)]
 
@@ -470,7 +471,7 @@ def test_initial_import_delivers_live_facts_and_heartbeats_without_publishing_pa
     service.upgrade.once.return_value = True
     service._backfill_one = AsyncMock(return_value=True)
     facts = [dict(domain="inference")]
-    monkeypatch.setattr(worker, "transform_events", AsyncMock(return_value=facts))
+    monkeypatch.setattr(worker.FactTransformer, "transform", AsyncMock(return_value=facts))
     service.rollups.refresh_one.side_effect = AssertionError("Partial history was rebuilt")
     service.rollups.compact_one.side_effect = AssertionError("Partial history was compacted")
     service._refresh_gauges = AsyncMock(side_effect=AssertionError("Initial gauges published"))
@@ -689,6 +690,60 @@ def test_export_cycle_stops_after_missing_or_expired_renewal(monkeypatch, lost, 
         q.startswith("UPDATE analytics_pipeline_state SET last_success")
         for q, _ in connection.calls
     )
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_export_heartbeat_does_not_block_event_loop_and_propagates_failure(monkeypatch, failure):
+    connection = Connection()
+    service = exporter(connection)
+    lease = dict(capture_started_at=NOW, native_capture_started_at=None, lease_generation=2)
+    service._enable_capture = AsyncMock()
+    service._lease = AsyncMock(return_value=lease)
+    service._renew_lease = AsyncMock(return_value=lease)
+    service._check_lease = AsyncMock()
+    service._backfill_one = AsyncMock(return_value=False)
+    service._export_events = AsyncMock(return_value=0)
+    service._raw_backfill_complete = AsyncMock(return_value=True)
+    service._publish_views = AsyncMock(return_value=(lease, False))
+    service._publish_status = AsyncMock()
+    monkeypatch.setattr(
+        worker.psycopg, "AsyncConnection", NS(connect=AsyncMock(return_value=connection))
+    )
+
+    async def verify():
+        entered = asyncio.Event()
+        release = threading.Event()
+        loop = asyncio.get_running_loop()
+        event_loop_thread = threading.get_ident()
+
+        def marker_path(_name):
+            assert threading.get_ident() != event_loop_thread
+            return "heartbeat"
+
+        def write(path, value):
+            assert threading.get_ident() != event_loop_thread
+            assert connection.closed and path == "heartbeat" and float(value) > 0
+            loop.call_soon_threadsafe(entered.set)
+            if not release.wait(timeout=3):
+                raise TimeoutError("Heartbeat was not released")
+            if failure:
+                raise OSError("heartbeat unavailable")
+
+        monkeypatch.setattr(worker, "runtime_marker", marker_path)
+        monkeypatch.setattr(worker, "write_runtime_marker", write)
+        task = asyncio.create_task(service.once())
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=1)
+            assert not task.done()
+        finally:
+            release.set()
+        if failure:
+            with pytest.raises(OSError, match="heartbeat unavailable"):
+                await asyncio.wait_for(task, timeout=1)
+        else:
+            assert not await asyncio.wait_for(task, timeout=1)
+
+    run(verify())
 
 
 def test_native_client_rejects_unsafe_tables_and_missing_malformed_or_old_watermarks():
@@ -912,6 +967,18 @@ def test_dirty_cohorts_coalesce_without_postponing_the_first_deadline():
     assert len(connection.calls) == 1
 
 
+def test_rollup_publisher_delegates_maintenance_to_its_compactor():
+    from devfeed_core.analytics_rollups import RollupPublisher
+
+    connection = Connection()
+    publisher = RollupPublisher(Client(connection))
+    fence, renew = AsyncMock(), AsyncMock()
+    publisher.compactor.compact_one = AsyncMock(return_value=True)
+
+    assert run(publisher.compact_one(connection, fence=fence, renew=renew))
+    publisher.compactor.compact_one.assert_awaited_once_with(connection, fence=fence, renew=renew)
+
+
 def compaction_fixture(monkeypatch, table="publishing_hourly"):
     from devfeed_core import analytics_rollups as rollups
 
@@ -972,7 +1039,7 @@ def compaction_fixture(monkeypatch, table="publishing_hourly"):
 
     client.query = AsyncMock(side_effect=query)
     client.execute = AsyncMock(side_effect=execute)
-    publisher = rollups.RollupPublisher(client)
+    publisher = rollups.RollupCompactor(client)
     publisher._next_orphan_check = float("inf")
     return NS(
         clock=clock,
@@ -1054,7 +1121,7 @@ def test_compaction_preserves_new_publications_and_acknowledges_each_plan_once(m
 
 def test_compaction_lost_insert_ack_polls_existing_mutation_and_recovers_on_restart(monkeypatch):
     from devfeed_core.analytics import AnalyticsUnavailable
-    from devfeed_core.analytics_rollups import RollupPublisher
+    from devfeed_core.analytics_rollups import RollupCompactor
 
     fixture = compaction_fixture(monkeypatch)
     submit = fixture.client.execute.side_effect
@@ -1073,7 +1140,7 @@ def test_compaction_lost_insert_ack_polls_existing_mutation_and_recovers_on_rest
     assert not compact(fixture)  # Pending mutation is polled, not resubmitted.
     assert fixture.client.execute.await_count == 1
     fixture.mutations[0]["is_done"] = 1
-    fixture.publisher = RollupPublisher(fixture.client)
+    fixture.publisher = RollupCompactor(fixture.client)
     fixture.publisher._next_orphan_check = float("inf")
     assert not compact(fixture)
     restored = fixture.publisher._compactions[fixture.row["table_name"]]
@@ -1262,7 +1329,7 @@ def test_orphan_cleanup_runs_on_idle_maintenance_cadence_and_drops_only_one_old_
         return [dict(name=name, engine="MergeTree", age_seconds=600)]
 
     client.query = candidate
-    publisher = rollups.RollupPublisher(client)
+    publisher = rollups.RollupCompactor(client)
     fence, renew = AsyncMock(), AsyncMock(return_value={})
     assert run(publisher.compact_one(connection, fence=fence, renew=renew))
     assert client.commands == [("DROP TABLE IF EXISTS " + name, None)]
@@ -1295,12 +1362,12 @@ def test_orphan_cleanup_runs_on_idle_maintenance_cadence_and_drops_only_one_old_
     ],
 )
 def test_orphan_cleanup_rejects_young_current_malformed_or_nonstaging_tables(name, engine, age):
-    from devfeed_core.analytics_rollups import RollupPublisher
+    from devfeed_core.analytics_rollups import RollupCompactor
 
     connection = Connection(lambda *_: None)
     client = Client(connection)
     client.query = AsyncMock(return_value=[dict(name=name, engine=engine, age_seconds=age)])
-    publisher = RollupPublisher(client)
+    publisher = RollupCompactor(client)
     fence, renew = AsyncMock(), AsyncMock()
     assert not run(publisher.compact_one(connection, fence=fence, renew=renew))
     assert not client.commands and not renew.await_count and not fence.await_count
@@ -1323,7 +1390,7 @@ def test_orphan_cleanup_failure_preserves_serving_tables_and_throttles_catalog_r
         client.execute = AsyncMock(side_effect=RuntimeError("drop failed"))
     fence = AsyncMock(side_effect=RuntimeError("superseded") if failure == "fence" else None)
     renew = AsyncMock(return_value=None if failure == "lease" else {})
-    publisher = rollups.RollupPublisher(client)
+    publisher = rollups.RollupCompactor(client)
     with pytest.raises(RuntimeError):
         run(publisher.compact_one(connection, fence=fence, renew=renew))
     if failure != "drop":
@@ -1339,7 +1406,7 @@ def test_real_orphan_cleanup_preserves_raw_and_serving_facts(monkeypatch):
     import uuid
 
     from devfeed_core import analytics_rollups as rollups
-    from devfeed_core.analytics_transform import normalize_event
+    from devfeed_core.analytics_transform import FactTransformer
 
     from tests.support import analytics as fixtures
 
@@ -1362,7 +1429,9 @@ def test_real_orphan_cleanup_preserves_raw_and_serving_facts(monkeypatch):
                         created_at=NOW,
                         record=dict(id=IDENTITY, started_at=NOW.isoformat(), status="succeeded"),
                     )
-                    await client.insert("analytics_fact_events", normalize_event(event, 1))
+                    await client.insert(
+                        "analytics_fact_events", FactTransformer(None).normalize(event, 1)
+                    )
                     await client.execute(
                         rollups.rebuild_sql("inference"),
                         {"bucket": NOW, "end": NOW + timedelta(hours=1), "generation": 1},
@@ -1376,7 +1445,7 @@ def test_real_orphan_cleanup_preserves_raw_and_serving_facts(monkeypatch):
                             f"INSERT INTO {name} SELECT * FROM analytics_inference_hourly"
                         )
                     connection = Connection(lambda *_: None)
-                    publisher = rollups.RollupPublisher(client)
+                    publisher = rollups.RollupCompactor(client)
                     renew = AsyncMock(return_value={})
 
                     async def fenced(conn):
@@ -1535,7 +1604,7 @@ def test_known_retired_v1_sources_are_archived_and_acknowledged_after_reconcilia
     service.upgrade.normalize_pending.return_value = []
     service.upgrade.normalize_pending.side_effect = None
     transform = AsyncMock(return_value=[])
-    monkeypatch.setattr(worker, "transform_events", transform)
+    monkeypatch.setattr(worker.FactTransformer, "transform", transform)
     assert run(service._export_events(connection, 42)) == 1
     service.upgrade.normalize_pending.assert_awaited_once_with(connection, captured, 42)
     service.cards.ingest.assert_awaited_once_with(

@@ -19,7 +19,7 @@ from devfeed_core.analytics_facts import dirty_buckets
 from devfeed_core.analytics_gauges import Gauges, shard
 from devfeed_core.analytics_rollups import canonical_sql, rebuild_sql
 from devfeed_core.analytics_schema import TABLES
-from devfeed_core.analytics_transform import transform_events
+from devfeed_core.analytics_transform import FactTransformer
 from devfeed_core.config import Settings
 from psycopg.rows import dict_row
 from sqlalchemy import text
@@ -88,7 +88,7 @@ async def _snapshot(client, session, now):
                 )
             )
     connection = SnapshotConnection(session)
-    facts = await transform_events(connection, events, 1)
+    facts = await FactTransformer(connection).transform(events, 1)
     await client.insert("analytics_fact_events", facts)
     for bucket in dirty_buckets(facts, 1):
         end = (

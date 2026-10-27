@@ -9,11 +9,10 @@ from datetime import UTC, datetime, timedelta
 from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
 from devfeed_core.analytics_observation import AnalyticsSnapshot, pipeline_policy_version
 from devfeed_core.config import get_settings
-from devfeed_core.redis import create_redis
+from devfeed_core.redis import create_async_redis
 from fastapi import HTTPException, Request
+from redis.asyncio.retry import Retry
 from redis.backoff import NoBackoff
-from redis.retry import Retry
-from starlette.concurrency import run_in_threadpool
 
 from devfeed_admin_api.analytics_current import CurrentCards, preparing, timestamp
 from devfeed_admin_api.analytics_reports import Reports
@@ -40,7 +39,7 @@ class AnalyticsRuntime:
             )
         )
         self._cache_redis = (
-            create_redis(
+            create_async_redis(
                 settings,
                 socket_connect_timeout=0.2,
                 socket_timeout=0.2,
@@ -69,7 +68,7 @@ class AnalyticsRuntime:
             await self.client.close()
         finally:
             if self._cache_redis is not None:
-                await run_in_threadpool(self._cache_redis.close)
+                await self._cache_redis.aclose()
 
     def cards(self):
         return CurrentCards(self.client, now=self.clock())
@@ -104,7 +103,7 @@ class AnalyticsRuntime:
         if redis is None:
             return None
         try:
-            return await run_in_threadpool(lambda: getattr(redis(), method)(*args, **kwargs))
+            return await getattr(redis(), method)(*args, **kwargs)
         except Exception:
             # An unavailable cache is a miss; every result still comes from the
             # current ClickHouse calculation and its normal freshness window.

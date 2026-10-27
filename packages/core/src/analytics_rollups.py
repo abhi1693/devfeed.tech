@@ -125,10 +125,11 @@ def rebuild_sql(domain, *, batch=False):
     )
 
 
-class RollupPublisher:
+class RollupCompactor:
+    """Manage generation-safe cleanup and its retry state."""
+
     def __init__(self, client):
         self.client = client
-        self.interval = client.settings.analytics_rollup_interval_seconds
         self._next_orphan_check = 0.0
         self._next_compaction_check = 0.0
         self._compactions: dict[str, _Compaction] = {}
@@ -178,99 +179,6 @@ class RollupPublisher:
         async with connection.transaction():
             await fence(connection)
         await self.client.execute("DROP TABLE IF EXISTS " + row["name"])
-        return True
-
-    async def mark_dirty(self, connection, rows, generation):
-        buckets = dirty_buckets(rows, generation)
-        if not buckets:
-            return
-        await connection.execute(
-            "INSERT INTO analytics_fact_refresh"
-            "(domain,bucket,generation,requested_at,available_at) "
-            "SELECT domain,bucket,%s,clock_timestamp(),"
-            "clock_timestamp()+make_interval(secs=>%s) "
-            "FROM unnest(%s::text[],%s::timestamptz[]) AS dirty(domain,bucket) "
-            "ON CONFLICT(domain,bucket) "
-            "DO UPDATE SET generation=greatest(analytics_fact_refresh.generation, "
-            "excluded.generation),requested_at=least(analytics_fact_refresh.requested_at, "
-            "excluded.requested_at)",
-            (
-                generation,
-                self.interval,
-                [bucket["domain"] for bucket in buckets],
-                [bucket["bucket"] for bucket in buckets],
-            ),
-        )
-
-    async def refresh_one(self, connection, generation, *, fence):
-        async with connection.transaction():
-            rows = await (
-                await connection.execute(
-                    "WITH oldest AS (SELECT domain "
-                    "FROM analytics_fact_refresh WHERE available_at<=%s "
-                    "ORDER BY available_at,requested_at,domain,bucket LIMIT 1) "
-                    "SELECT domain,bucket,generation FROM analytics_fact_refresh "
-                    "WHERE available_at<=%s AND domain=(SELECT domain FROM oldest) "
-                    "ORDER BY available_at,requested_at,domain,bucket LIMIT "
-                    "(SELECT CASE WHEN domain IN ('sources','topics') THEN %s ELSE %s END "
-                    "FROM oldest)",
-                    (
-                        datetime.now(UTC),
-                        datetime.now(UTC),
-                        DAILY_REFRESH_BATCH_SIZE,
-                        REFRESH_BATCH_SIZE,
-                    ),
-                )
-            ).fetchall()
-        if not rows:
-            return False
-        domain = rows[0]["domain"]
-        parameters = {
-            "buckets": [
-                row["bucket"].astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S") for row in rows
-            ],
-            "generation": generation,
-        }
-        await self.client.execute(
-            rebuild_sql(domain, batch=True) + " SETTINGS optimize_aggregation_in_order=1",
-            parameters,
-        )
-        # A manifest is the commit record. Empty rebuilt groups still publish a
-        # generation, hiding every obsolete group from a previous generation.
-        async with connection.transaction():
-            await fence(connection)
-        await self.client.insert(
-            "analytics_bucket_manifest",
-            [
-                {
-                    "domain": domain,
-                    "bucket": row["bucket"],
-                    "generation": generation,
-                    "updated_at": datetime.now(UTC),
-                    "lag_seconds": 0,
-                }
-                for row in rows
-            ],
-        )
-        async with connection.transaction():
-            await fence(connection)
-            for row in rows:
-                await connection.execute(
-                    "DELETE FROM analytics_fact_refresh WHERE domain=%s AND bucket=%s "
-                    "AND generation<=%s",
-                    (domain, row["bucket"], row["generation"]),
-                )
-        table = ROLLUPS[domain].table
-        async with connection.transaction():
-            await fence(connection)
-            for month in sorted({row["bucket"].year * 100 + row["bucket"].month for row in rows}):
-                await connection.execute(
-                    "INSERT INTO analytics_rollup_compaction(table_name,month,publishes) "
-                    "VALUES(%s,%s,1) "
-                    "ON CONFLICT(table_name,month) DO UPDATE SET "
-                    "publishes=analytics_rollup_compaction.publishes+1",
-                    (table, month),
-                )
         return True
 
     async def compact_one(self, connection, *, fence, renew):
@@ -479,3 +387,108 @@ class RollupPublisher:
                 "AND last_prune_token IS NOT DISTINCT FROM %s",
                 (plan.publishes, plan.marker, plan.table, plan.month, plan.previous_token),
             )
+
+
+class RollupPublisher:
+    """Publish dirty cohorts and delegate their cleanup to a compactor."""
+
+    def __init__(self, client):
+        self.client = client
+        self.interval = client.settings.analytics_rollup_interval_seconds
+        self.compactor = RollupCompactor(client)
+
+    async def mark_dirty(self, connection, rows, generation):
+        buckets = dirty_buckets(rows, generation)
+        if not buckets:
+            return
+        await connection.execute(
+            "INSERT INTO analytics_fact_refresh"
+            "(domain,bucket,generation,requested_at,available_at) "
+            "SELECT domain,bucket,%s,clock_timestamp(),"
+            "clock_timestamp()+make_interval(secs=>%s) "
+            "FROM unnest(%s::text[],%s::timestamptz[]) AS dirty(domain,bucket) "
+            "ON CONFLICT(domain,bucket) "
+            "DO UPDATE SET generation=greatest(analytics_fact_refresh.generation, "
+            "excluded.generation),requested_at=least(analytics_fact_refresh.requested_at, "
+            "excluded.requested_at)",
+            (
+                generation,
+                self.interval,
+                [bucket["domain"] for bucket in buckets],
+                [bucket["bucket"] for bucket in buckets],
+            ),
+        )
+
+    async def refresh_one(self, connection, generation, *, fence):
+        async with connection.transaction():
+            rows = await (
+                await connection.execute(
+                    "WITH oldest AS (SELECT domain "
+                    "FROM analytics_fact_refresh WHERE available_at<=%s "
+                    "ORDER BY available_at,requested_at,domain,bucket LIMIT 1) "
+                    "SELECT domain,bucket,generation FROM analytics_fact_refresh "
+                    "WHERE available_at<=%s AND domain=(SELECT domain FROM oldest) "
+                    "ORDER BY available_at,requested_at,domain,bucket LIMIT "
+                    "(SELECT CASE WHEN domain IN ('sources','topics') THEN %s ELSE %s END "
+                    "FROM oldest)",
+                    (
+                        datetime.now(UTC),
+                        datetime.now(UTC),
+                        DAILY_REFRESH_BATCH_SIZE,
+                        REFRESH_BATCH_SIZE,
+                    ),
+                )
+            ).fetchall()
+        if not rows:
+            return False
+        domain = rows[0]["domain"]
+        parameters = {
+            "buckets": [
+                row["bucket"].astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S") for row in rows
+            ],
+            "generation": generation,
+        }
+        await self.client.execute(
+            rebuild_sql(domain, batch=True) + " SETTINGS optimize_aggregation_in_order=1",
+            parameters,
+        )
+        # A manifest is the commit record. Empty rebuilt groups still publish a
+        # generation, hiding every obsolete group from a previous generation.
+        async with connection.transaction():
+            await fence(connection)
+        await self.client.insert(
+            "analytics_bucket_manifest",
+            [
+                {
+                    "domain": domain,
+                    "bucket": row["bucket"],
+                    "generation": generation,
+                    "updated_at": datetime.now(UTC),
+                    "lag_seconds": 0,
+                }
+                for row in rows
+            ],
+        )
+        async with connection.transaction():
+            await fence(connection)
+            for row in rows:
+                await connection.execute(
+                    "DELETE FROM analytics_fact_refresh WHERE domain=%s AND bucket=%s "
+                    "AND generation<=%s",
+                    (domain, row["bucket"], row["generation"]),
+                )
+        table = ROLLUPS[domain].table
+        async with connection.transaction():
+            await fence(connection)
+            for month in sorted({row["bucket"].year * 100 + row["bucket"].month for row in rows}):
+                await connection.execute(
+                    "INSERT INTO analytics_rollup_compaction(table_name,month,publishes) "
+                    "VALUES(%s,%s,1) "
+                    "ON CONFLICT(table_name,month) DO UPDATE SET "
+                    "publishes=analytics_rollup_compaction.publishes+1",
+                    (table, month),
+                )
+        return True
+
+    async def compact_one(self, connection, *, fence, renew):
+        return await self.compactor.compact_one(connection, fence=fence, renew=renew)

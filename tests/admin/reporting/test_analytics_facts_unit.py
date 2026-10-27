@@ -10,10 +10,9 @@ from devfeed_core.analytics_facts import dirty_buckets, empty_fact, initializati
 from devfeed_core.analytics_schema import TABLES
 from devfeed_core.analytics_transform import (
     JOB_KINDS,
+    FactTransformer,
     moment,
-    normalize_event,
     number,
-    transform_events,
 )
 
 NOW = datetime(2026, 10, 26, 12, tzinfo=UTC)
@@ -76,14 +75,14 @@ def test_invocation_normalizes_tokens_once_and_keeps_subset_counters_separate():
         web_searches=-1,
         duration_ms=-1,
     )
-    row = normalize_event(event("inference_calls", record), 3)[0]
+    row = FactTransformer(None).normalize(event("inference_calls", record), 3)[0]
     assert row["input_tokens"] + row["output_tokens"] == 120
     assert row["cached_input_tokens"] == 100 and row["reasoning_tokens"] == 20
     assert row["failed"] == row["calls"] == 1
     assert row["has_duration"] == row["web_searches"] == 0
     assert row["entity_id"] == IDENTITY and row["parent_id"] == PARENT
     assert row["event_time"] == row["ended_at"] == NOW
-    unreported = normalize_event(
+    unreported = FactTransformer(None).normalize(
         event("inference_calls", {**record, "tokens": {}, "duration_ms": 0}), 4
     )[0]
     assert unreported["unreported"] == unreported["has_duration"] == 1
@@ -100,22 +99,25 @@ def test_completion_is_per_attempt_and_later_retries_do_not_erase_failures(sourc
         usage=json.dumps({"totalTokens": "000123"}),
         created_at=NOW - timedelta(minutes=2),
     )
-    failed = normalize_event(event(source, before), 3)[0]
+    failed = FactTransformer(None).normalize(event(source, before), 3)[0]
     assert failed["failed"] == 1 and failed["job_tokens"] == 123
     assert failed["has_job_tokens"] == 1 and failed["attempt"] == 1
     queued = dict(before, status="queued", finished_at=None)
-    assert normalize_event(event(source, queued, before=before), 4) == []
+    assert FactTransformer(None).normalize(event(source, queued, before=before), 4) == []
     completed = dict(before, status="succeeded", attempts=2, outcome="applied")
-    rows = normalize_event(event(source, completed, before=before), 5)
+    rows = FactTransformer(None).normalize(event(source, completed, before=before), 5)
     assert len(rows) == 1 and rows[0]["fact_id"] != failed["fact_id"]
     assert rows[0]["completed"] == 1 and rows[0]["task"] == JOB_KINDS[source]
     assert rows[0]["useful"] == int(source == "article_analysis_jobs")
-    assert normalize_event(event(source, completed, operation="D"), 6)[0]["deleted"] == 1
+    assert (
+        FactTransformer(None).normalize(event(source, completed, operation="D"), 6)[0]["deleted"]
+        == 1
+    )
 
 
 def test_source_completion_keeps_its_publisher_and_missing_usage_stays_unknown():
     record = dict(id=IDENTITY, source_id=PARENT, status="succeeded", attempts=1, finished_at=NOW)
-    row = normalize_event(event("ingestion_jobs", record), 3)[0]
+    row = FactTransformer(None).normalize(event("ingestion_jobs", record), 3)[0]
     assert row["source_ids"] == [PARENT]
     assert row["job_tokens"] == row["has_job_tokens"] == 0
 
@@ -123,11 +125,13 @@ def test_source_completion_keeps_its_publisher_and_missing_usage_stays_unknown()
 def test_unknown_attempt_identity_keeps_proven_completions_and_corrects_explicit_timestamps():
     first = dict(id=IDENTITY, status="failed", attempts=0, finished_at=NOW)
     later = dict(first, finished_at=NOW + timedelta(minutes=1))
-    observed = normalize_event(event("article_analysis_jobs", first), 3)[0]
-    repeated = normalize_event(event("article_analysis_jobs", later), 4)[0]
+    observed = FactTransformer(None).normalize(event("article_analysis_jobs", first), 3)[0]
+    repeated = FactTransformer(None).normalize(event("article_analysis_jobs", later), 4)[0]
     assert observed["attempt"] == repeated["attempt"] == 0
     assert observed["fact_id"] != repeated["fact_id"]
-    corrected = normalize_event(event("article_analysis_jobs", later, before=first), 5)
+    corrected = FactTransformer(None).normalize(
+        event("article_analysis_jobs", later, before=first), 5
+    )
     assert [row["deleted"] for row in corrected] == [1, 0]
     assert corrected[0]["fact_id"] == observed["fact_id"]
     assert corrected[1]["fact_id"] == repeated["fact_id"]
@@ -136,14 +140,16 @@ def test_unknown_attempt_identity_keeps_proven_completions_and_corrects_explicit
 def test_correction_moves_old_hour_with_tombstone_but_same_hour_updates_only_once():
     before = dict(id=IDENTITY, started_at=NOW - timedelta(hours=1), status="running", tokens={})
     after = dict(before, started_at=NOW, status="returned", duration_ms=12)
-    rows = normalize_event(event("inference_calls", after, before=before), 3)
+    rows = FactTransformer(None).normalize(event("inference_calls", after, before=before), 3)
     assert len(rows) == 2 and [row["deleted"] for row in rows] == [1, 0]
     assert rows[0]["bucket_hour"] == NOW - timedelta(hours=1)
-    same = normalize_event(
+    same = FactTransformer(None).normalize(
         event("inference_calls", after, before={**after, "status": "running"}), 4
     )
     assert len(same) == 1 and not same[0]["deleted"]
-    removed = normalize_event(event("inference_calls", after, before=after, operation="D"), 5)
+    removed = FactTransformer(None).normalize(
+        event("inference_calls", after, before=after, operation="D"), 5
+    )
     assert len(removed) == 1 and removed[0]["deleted"] == 1
 
 
@@ -159,15 +165,17 @@ def test_sixth_raw_decision_ledger_preserves_undated_calls_exact_charges_and_sta
         charged_tokens=2**63 - 1,
         escalated=True,
     )
-    row = normalize_event(event("topic_decision_calls", call), 3)[0]
+    row = FactTransformer(None).normalize(event("topic_decision_calls", call), 3)[0]
     assert row["domain"] == "decisions" and row["stage"] == "verification"
     assert row["decision_tokens"] == maximum and row["charged_tokens"] == 2**63 - 1
     assert row["event_time"] is None and row["ordinal"] == row["stage_call"] == 2
     assert row["escalated"] == 1 and row["entity_id"] == IDENTITY
     assert dirty_buckets([row], 3) == []  # never double count invocation usage
-    missing = normalize_event(event("topic_decision_calls", {**call, "charged_tokens": None}), 4)[0]
+    missing = FactTransformer(None).normalize(
+        event("topic_decision_calls", {**call, "charged_tokens": None}), 4
+    )[0]
     assert missing["charged_tokens"] is None
-    run = normalize_event(
+    run = FactTransformer(None).normalize(
         event(
             "topic_decision_runs",
             dict(proposal_id=IDENTITY, status="deferred", reason="rate_limit", updated_at=NOW),
@@ -175,7 +183,7 @@ def test_sixth_raw_decision_ledger_preserves_undated_calls_exact_charges_and_sta
         3,
     )[0]
     assert run["task"] == "decision-run" and run["outcome"] == "rate_limit"
-    relation = normalize_event(
+    relation = FactTransformer(None).normalize(
         event("topic_relation_proposals", dict(id=IDENTITY, status="approved", created_at=NOW)), 3
     )[0]
     assert relation["task"] == "relationship-proposal"
@@ -183,26 +191,33 @@ def test_sixth_raw_decision_ledger_preserves_undated_calls_exact_charges_and_sta
 
 def test_reader_signup_and_review_facts_have_distinct_meaning_and_stable_identity():
     opened = dict(article_id=IDENTITY, viewer_key="anonymous", opened_hour=NOW)
-    first = normalize_event(event("article_opens", opened), 3)[0]
-    replay = normalize_event(event("article_opens", opened), 3)[0]
+    first = FactTransformer(None).normalize(event("article_opens", opened), 3)[0]
+    replay = FactTransformer(None).normalize(event("article_opens", opened), 3)[0]
     assert first == replay and first["opens"] == 1 and first["task"] == "open"
-    signup = normalize_event(event("user_accounts", dict(id=IDENTITY, created_at=NOW)), 3)[0]
+    signup = FactTransformer(None).normalize(
+        event("user_accounts", dict(id=IDENTITY, created_at=NOW)), 3
+    )[0]
     assert signup["accounts_created"] == 1 and signup["viewer_key"] == ""
-    decision = normalize_event(
+    decision = FactTransformer(None).normalize(
         event("topic_proposals", dict(id=IDENTITY, status="approved", reviewed_at=NOW)), 3
     )[0]
     assert decision["task"] == "topic-decision" and decision["useful"] == 1
-    assert normalize_event(event("topic_proposals", dict(id=IDENTITY, status="pending")), 3) == []
+    assert (
+        FactTransformer(None).normalize(
+            event("topic_proposals", dict(id=IDENTITY, status="pending")), 3
+        )
+        == []
+    )
 
 
 def test_publication_arrays_deduplicate_and_bad_durations_do_not_enter_quantiles():
     record = dict(id=IDENTITY, published_to_feed_at=NOW, discovered_at=NOW - timedelta(seconds=10))
     context = {"source_ids": [PARENT, PARENT], "topic_ids": [PARENT, PARENT], "automated": True}
-    row = normalize_event(event("articles", record), 3, context=context)[0]
+    row = FactTransformer(None).normalize(event("articles", record), 3, context=context)[0]
     assert row["source_ids"] == row["topic_ids"] == [PARENT]
     assert row["has_delay"] == row["automated"] == row["published"] == 1
     assert row["delay_seconds"] == 10
-    future = normalize_event(
+    future = FactTransformer(None).normalize(
         event("articles", dict(record, discovered_at=NOW + timedelta(seconds=1))), 3
     )[0]
     assert future["has_delay"] == 0
@@ -218,10 +233,13 @@ def test_bad_or_missing_timestamps_never_create_misleading_activity():
     assert moment(NOW.replace(tzinfo=None)) == NOW
     assert moment(NOW.isoformat()) == NOW
     assert (
-        normalize_event(event("inference_calls", dict(id=IDENTITY, started_at="infinity")), 3) == []
+        FactTransformer(None).normalize(
+            event("inference_calls", dict(id=IDENTITY, started_at="infinity")), 3
+        )
+        == []
     )
-    assert normalize_event(event("unknown", dict(id=IDENTITY)), 3) == []
-    assert normalize_event(event("articles", {}), 3) == []
+    assert FactTransformer(None).normalize(event("unknown", dict(id=IDENTITY)), 3) == []
+    assert FactTransformer(None).normalize(event("articles", {}), 3) == []
 
 
 def test_archived_publications_enrich_without_reading_deleted_main_database_rows():
@@ -233,15 +251,17 @@ def test_archived_publications_enrich_without_reading_deleted_main_database_rows
         record = dict(
             id=IDENTITY, published_to_feed_at=NOW, discovered_at=NOW - timedelta(seconds=10)
         )
-        rows = await transform_events(
-            NoDatabase(),
+        rows = await FactTransformer(NoDatabase()).transform(
             [event("articles", record)],
             0,
             publication_context={IDENTITY: {"source_ids": [PARENT], "automated": True}},
         )
         assert len(rows) == 1 and rows[0]["published"] == rows[0]["automated"] == 1
         assert rows[0]["generation"] == 0
-        assert await transform_events(NoDatabase(), [event("sources", dict(id=IDENTITY))], 3) == []
+        assert (
+            await FactTransformer(NoDatabase()).transform([event("sources", dict(id=IDENTITY))], 3)
+            == []
+        )
 
     asyncio.run(verify())
 
@@ -325,7 +345,7 @@ def test_publication_coalescing_uses_current_associations_and_cancels_every_old_
             event("articles", current, before=second, identity=2),
             event("article_reviews", dict(id=PARENT, article_id=IDENTITY), identity=3),
         ]
-        rows = await transform_events(Connection(), changes, 4)
+        rows = await FactTransformer(Connection()).transform(changes, 4)
         assert len(rows) == 3
         live = [row for row in rows if not row["deleted"]]
         assert len(live) == 1 and live[0]["source_ids"] == live[0]["topic_ids"] == [PARENT]
@@ -387,8 +407,7 @@ def test_publication_association_changes_rebuild_each_current_owner_once(source,
                 return Cursor([])
 
         connection = Connection()
-        rows = await transform_events(
-            connection,
+        rows = await FactTransformer(connection).transform(
             [
                 event(
                     source,
@@ -420,11 +439,51 @@ def test_publication_association_changes_rebuild_each_current_owner_once(source,
 def test_deleted_publications_emit_tombstones_even_when_current_article_is_gone():
     async def verify():
         record = dict(id=IDENTITY, published_to_feed_at=NOW, discovered_at=NOW)
-        rows = await transform_events(
-            None, [event("articles", record, operation="D")], 4, publication_context={}
+        rows = await FactTransformer(None).transform(
+            [event("articles", record, operation="D")], 4, publication_context={}
         )
         assert len(rows) == 1 and rows[0]["deleted"] == 1
-        assert await transform_events(None, [event("articles", {}, identity=1)], 4) == []
-        assert await transform_events(None, [event("article_opens", {}, operation="T")], 4) == []
+        assert await FactTransformer(None).transform([event("articles", {}, identity=1)], 4) == []
+        assert (
+            await FactTransformer(None).transform([event("article_opens", {}, operation="T")], 4)
+            == []
+        )
+
+    asyncio.run(verify())
+
+
+def test_transformer_awaits_publication_hydration_and_keeps_delivery_generations_separate():
+    async def verify():
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        record = dict(id=IDENTITY, published_to_feed_at=NOW, discovered_at=NOW)
+
+        class Cursor:
+            def __init__(self, rows):
+                self.rows = rows
+
+            async def fetchall(self):
+                return self.rows
+
+        class Connection:
+            async def execute(self, query, _parameters):
+                if "AS record FROM articles" in query:
+                    entered.set()
+                    await release.wait()
+                    return Cursor([{"record": record}])
+                return Cursor([])
+
+        transformer = FactTransformer(Connection())
+        first = asyncio.create_task(transformer.transform([event("articles", record)], 41))
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        # A second coroutine can run while PostgreSQL is waiting for I/O.
+        second = await asyncio.wait_for(
+            transformer.transform([event("user_accounts", dict(id=PARENT, created_at=NOW))], 42),
+            timeout=1,
+        )
+        assert second[0]["generation"] == 42
+        assert not first.done()
+        release.set()
+        assert (await asyncio.wait_for(first, timeout=1))[0]["generation"] == 41
 
     asyncio.run(verify())

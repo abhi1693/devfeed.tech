@@ -242,8 +242,9 @@ class NativeUpgrade:
         This path disappears once the format-1 queue is drained.
         """
         from devfeed_core.analytics_schema import JOB_KINDS, TABLES
-        from devfeed_core.analytics_transform import FACT_SOURCES, _fact
+        from devfeed_core.analytics_transform import FACT_SOURCES, FactTransformer
 
+        transformer = FactTransformer(connection)
         if any(event.get("format_version") not in {1, 2, 3} for event in events):
             raise ValueError("Unsupported analytical capture format")
         legacy = [event for event in events if event["format_version"] == 1]
@@ -339,7 +340,7 @@ class NativeUpgrade:
                     observations.append(promoted[event["id"]])
                 normalized = []
 
-                positive = _fact(source, present, event, generation)
+                positive = transformer.fact(source, present, event, generation)
                 positive_key = (
                     (positive["domain"], positive["bucket_hour"], positive["fact_id"])
                     if positive is not None
@@ -376,7 +377,7 @@ class NativeUpgrade:
                         operation = "I"
                     else:
                         operation = "D"
-                    old = _fact(source, previous, event, generation)
+                    old = transformer.fact(source, previous, event, generation)
                     old_key = (
                         (old["domain"], old["bucket_hour"], old["fact_id"])
                         if old is not None
@@ -651,7 +652,7 @@ class NativeUpgrade:
         await self.client.insert("analytics_audience_archive_daily", archive)
 
     async def _import(self, connection, state, generation, fence):
-        from devfeed_core.analytics_transform import FACT_SOURCES, JOB_KINDS, transform_events
+        from devfeed_core.analytics_transform import FACT_SOURCES, JOB_KINDS, FactTransformer
 
         names = tuple(name for name in V1_KEYS if name in {*FACT_SOURCES, "overview_daily"})
         while state["index"] < len(names):
@@ -696,7 +697,9 @@ class NativeUpgrade:
                     if table == "articles"
                     else None
                 )
-                facts = await transform_events(connection, events, 0, publication_context=context)
+                facts = await FactTransformer(connection).transform(
+                    events, 0, publication_context=context
+                )
                 await self.client.insert("analytics_fact_events", facts)
                 if table == "overview_daily":
                     await self._archive_days(retained, captured)
