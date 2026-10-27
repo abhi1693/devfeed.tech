@@ -30,7 +30,6 @@
       "telemetry",
       "telemetry-privacy",
       "telemetry-fuzz",
-      "telemetry-browser-faro",
       "telemetry-session"
     ],
     "files": {

@@ -1,6 +1,4 @@
 import { connection } from "next/server";
-import { BrowserTelemetry } from "@devfeed/telemetry/browser";
-import { browserSettings } from "@devfeed/telemetry/receiver";
 import type { Metadata } from "next";
 import browserIcon from "@devfeed/theme/assets/devfeed-icon-32.png";
 import appleIcon from "@devfeed/theme/assets/devfeed-icon-180.png";
@@ -23,7 +21,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   return (
     <html lang="en">
       <body>
-        <BrowserTelemetry {...browserSettings("admin")} />
         <Toaster />
         {children}
       </body>

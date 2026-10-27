@@ -14,7 +14,6 @@ const config: NextConfig = {
     turbopackLazyDynamicImports: true,
     turbopackPluginRuntimeStrategy: "workerThreads",
   },
-  productionBrowserSourceMaps: true,
   serverExternalPackages: ["@pyroscope/nodejs", "@prometheus-io/client", "@opentelemetry/sdk-node"],
   outputFileTracingRoot: path.join(import.meta.dirname, "../.."),
   poweredByHeader: false,

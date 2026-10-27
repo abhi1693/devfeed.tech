@@ -103,7 +103,7 @@ the last completed snapshot while refreshes run; see
 [sitemap refresh and retention](apps/aggregator/README.md#cached-sitemaps).
 
 [Configure OpenTelemetry and service metrics](packages/core/OBSERVABILITY.md). The 0.1.2 dependency
-refresh retains the latest compatible OpenTelemetry 2.x JavaScript family until Faro supports SDK 3;
+refresh retains the pinned OpenTelemetry JavaScript family;
 see [telemetry compatibility](packages/telemetry/README.md#dependency-compatibility).
 
 ## Help shape what comes next
@@ -123,3 +123,10 @@ and partnership tiers. Superusers manage accounts in the admin application. See 
 
 Configure product API endpoints, mappings, pagination and authentication in the admin app.
 See [partner API connectors](packages/core/PARTNER_CONNECTORS.md) for setup and supported contracts.
+
+## Browser monitoring
+
+Faro browser monitoring and its source-map receiver have been retired across
+reader, admin and partner frontends. Backend Prometheus metrics, OpenTelemetry
+traces, profiling and product analytics remain enabled. Production browser
+source maps are disabled; no Faro collector credentials are required.
