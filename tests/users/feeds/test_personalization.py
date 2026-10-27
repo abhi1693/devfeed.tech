@@ -15,6 +15,7 @@ from devfeed_core.models import (
 from devfeed_user_api.accounts import save_user, save_user_with_status
 from sqlalchemy import event, insert, select
 
+from tests.support.user_analytics import direct_client as direct_client
 from tests.support.user_personalization import (
     user_data as user_data,
 )
@@ -199,7 +200,7 @@ def test_bulk_preferences_preserve_existing_follow_dates(user_data, database):
         assert session.get(UserTopic, (first, topics[0])).created_at == followed_at
 
 
-def test_bookmarks_are_private_idempotent_and_paginated(user_data, database):
+def test_bookmarks_are_private_idempotent_and_paginated(user_data, database, direct_client):
     from devfeed_core.models import ArticleBookmark
 
     client, current, first, second, _ = user_data

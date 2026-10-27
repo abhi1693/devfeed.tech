@@ -231,6 +231,11 @@ from complete ClickHouse data loss.
 
 The earlier undeployed `0038`–`0044` draft revisions were removed. For a disposable
 development database stamped with one of those drafts, stop its old processes and
-run `uv run alembic stamp --purge 0037` before `uv run devfeed db upgrade`. Stamping
-changes migration metadata only and retains old analytics for the automatic import.
-Do not run this development repair on a deployed database.
+inspect `partner_placement_deliveries` first. If both `impression_recorded_at` and
+`click_recorded_at` already exist as nullable timezone-aware timestamps from the
+former `0044`, run `uv run alembic stamp --purge 0038`. Otherwise, when neither
+column exists, run `uv run alembic stamp --purge 0037` followed by
+`uv run devfeed db upgrade`. Investigate a partial or different column layout
+before stamping it. These commands change migration metadata only or add the two
+operational columns; they retain old analytics for the automatic import. Do not
+run this development repair on a deployed database.

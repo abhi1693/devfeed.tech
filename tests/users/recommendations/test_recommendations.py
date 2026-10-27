@@ -26,6 +26,7 @@ from devfeed_core.recommendations import (
 )
 from sqlalchemy import delete, func, insert, select, update
 
+from tests.support.user_analytics import direct_client as direct_client
 from tests.support.user_personalization import user_data as user_data
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("candidate_query_strategy")]
@@ -421,7 +422,7 @@ def test_orphaned_recommendation_delivery_returns_to_real_queue(user_data, datab
 
 
 @pytest.mark.parametrize("liked", [True, False])
-def test_likes_wait_for_schedule_and_preserve_cursor(user_data, database, liked):
+def test_likes_wait_for_schedule_and_preserve_cursor(user_data, database, liked, direct_client):
     client, user, topics = prepare(user_data, database)
     previous = client.get("/v1/user/feed?limit=1").json()
     article_id = uuid.UUID(previous["items"][0]["id"])
