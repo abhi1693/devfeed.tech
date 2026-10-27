@@ -5,7 +5,8 @@ import os
 import runpy
 import subprocess
 import tempfile
-from pathlib import Path
+from decimal import Decimal
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -47,7 +48,8 @@ def render(values: dict[str, str], *, build: bool = False) -> dict:
         )
     if result.returncode:
         raise RuntimeError("Compose fixture failed to render; configuration output withheld")
-    return json.loads(result.stdout)
+    # Resource budgets must not accept a different decimal rounded into a binary float.
+    return json.loads(result.stdout, parse_float=Decimal)
 
 
 def check_private_mcp_routing(
@@ -69,6 +71,23 @@ def check_private_mcp_routing(
     )
     for name, service in private_mcp.items():
         assert ("DEVFEED_MCP_INTERNAL_URL" in service.get("environment", {})) == (name == "web")
+
+
+def check_ch_ui_runtime(management: dict) -> None:
+    """Require an ephemeral PID directory writable only by the pinned image user."""
+    directory = PurePosixPath("/run/ch-ui")
+    assert management["user"] == "100:101"
+    assert management["read_only"]
+    assert management["command"] == ["--pid-file", str(directory / "ch-ui-server.pid")]
+    mounts = [mount for mount in management["tmpfs"] if mount.partition(":")[0] == str(directory)]
+    assert mounts == [f"{directory}:size=1m,mode=0700,uid=100,gid=101"]
+    for volume in management.get("volumes", []):
+        target = PurePosixPath(volume["target"])
+        assert (
+            target != directory
+            and target not in directory.parents
+            and directory not in target.parents
+        )
 
 
 def check() -> None:
@@ -262,7 +281,7 @@ def check() -> None:
     assert services["analytics-exporter"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == (
         "devfeed_ingest"
     )
-    assert services["analytics-exporter"]["cpus"] == 0.5
+    assert services["analytics-exporter"]["cpus"] == Decimal("0.5")
     assert int(services["analytics-exporter"]["mem_limit"]) == 512 * 1024**2
     for name, service in services.items():
         assert ("DEVFEED_CLICKHOUSE_PASSWORD" in service.get("environment", {})) == (
@@ -280,8 +299,7 @@ def check() -> None:
     assert set(management["depends_on"]) == {"clickhouse"}
     assert management["environment"]["CLICKHOUSE_URL"] == "http://clickhouse:8123"
     assert "CLICKHOUSE_PASSWORD" not in management["environment"]
-    assert management["read_only"]
-    assert management["command"] == ["--pid-file", "/tmp/ch-ui-server.pid"]
+    check_ch_ui_runtime(management)
     assert int(management["mem_limit"]) == 512 * 1024**2
     for name, service in services.items():
         assert ("APP_SECRET_KEY" in service.get("environment", {})) == (name == "ch-ui")

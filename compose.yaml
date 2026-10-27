@@ -211,8 +211,12 @@ services:
   ch-ui:
     <<: *runtime
     image: ${DEVFEED_CH_UI_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/caioricciuti/ch-ui:v2.31.0@sha256:4a51a2c1754ad8866dd50a073a4f388216b3d1fdcd58e9d531dbb065e3d1dfeb}
-    # The upstream entrypoint is `ch-ui server`; keep its PID off the read-only root.
-    command: [--pid-file, /tmp/ch-ui-server.pid]
+    # The pinned image runs as chui (100:101); keep its PID in a private runtime mount.
+    user: "100:101"
+    command: [--pid-file, /run/ch-ui/ch-ui-server.pid]
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+      - /run/ch-ui:size=1m,mode=0700,uid=100,gid=101
     depends_on:
       clickhouse:
         condition: service_healthy

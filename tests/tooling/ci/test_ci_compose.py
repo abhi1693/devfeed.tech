@@ -2,6 +2,7 @@
 
 import importlib.util
 import xml.etree.ElementTree as ET
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -51,6 +52,23 @@ def test_compose_render_isolates_inherited_private_configuration(monkeypatch, co
     assert len(environments) == 1
     for key in configuration:
         assert key not in environments[0]
+
+
+@pytest.mark.parametrize(
+    ("limit", "compliant"),
+    [("0.50", True), ("5e-1", True), ("0.50000000000000001", False)],
+    ids=["decimal", "exponent", "exceeds-exact-budget"],
+)
+def test_compose_render_preserves_exact_fractional_cpu_budget(monkeypatch, limit, compliant):
+    monkeypatch.setattr(
+        check_compose.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout='{"services":{"analytics-exporter":{"cpus":' + limit + "}}}"
+        ),
+    )
+    services = check_compose.render({"POSTGRES_PASSWORD": "fixture-only-password"})["services"]
+    assert (services["analytics-exporter"]["cpus"] == Decimal("0.5")) is compliant
 
 
 @pytest.mark.parametrize("build", [False, True], ids=["registry", "local-build"])
@@ -215,8 +233,66 @@ def test_management_ui_has_private_database_access_and_separate_persistent_state
     assert management["volumes"][0]["target"] == "/app/data"
     assert not management["volumes"][0].get("read_only", False)
     assert management["read_only"] and management["cap_drop"] == ["ALL"]
-    assert management["command"] == ["--pid-file", "/tmp/ch-ui-server.pid"]
+    assert management["command"] == ["--pid-file", "/run/ch-ui/ch-ui-server.pid"]
+    check_compose.check_ch_ui_runtime(management)
     assert management["healthcheck"]["test"][-1] == "http://127.0.0.1:4000/health"
     for name, service in services.items():
         assert "ch-ui" not in service.get("depends_on", {})
         assert ("APP_SECRET_KEY" in service.get("environment", {})) == (name == "ch-ui")
+
+
+@pytest.fixture
+def management_runtime():
+    return check_compose.render({"POSTGRES_PASSWORD": "fixture-postgres-password"})["services"][
+        "ch-ui"
+    ]
+
+
+@pytest.mark.parametrize("option", ["mode=1777", "uid=0", "gid=0"], ids=["mode", "uid", "gid"])
+def test_management_ui_runtime_rejects_public_or_incorrectly_owned_tmpfs(
+    management_runtime, option
+):
+    mounts = management_runtime["tmpfs"]
+    index = next(index for index, mount in enumerate(mounts) if mount.startswith("/run/ch-ui:"))
+    key = option.partition("=")[0]
+    mounts[index] = ",".join(
+        option if part.startswith(f"{key}=") else part for part in mounts[index].split(",")
+    )
+    with pytest.raises(AssertionError):
+        check_compose.check_ch_ui_runtime(management_runtime)
+
+
+@pytest.mark.parametrize("target", ["/run", "/run/ch-ui", "/run/ch-ui/ch-ui-server.pid"])
+def test_management_ui_runtime_rejects_volumes_shadowing_its_private_directory(
+    management_runtime, target
+):
+    management_runtime["volumes"].append(
+        {"type": "bind", "source": "/host/runtime", "target": target}
+    )
+    with pytest.raises(AssertionError):
+        check_compose.check_ch_ui_runtime(management_runtime)
+
+
+def test_management_ui_runtime_requires_its_private_tmpfs(management_runtime):
+    management_runtime["tmpfs"] = [
+        mount for mount in management_runtime["tmpfs"] if not mount.startswith("/run/ch-ui:")
+    ]
+    with pytest.raises(AssertionError):
+        check_compose.check_ch_ui_runtime(management_runtime)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("user", "0:0"),
+        ("read_only", False),
+        ("command", ["--pid-file", "/app/data/ch-ui-server.pid"]),
+    ],
+    ids=["root-user", "writable-root", "persistent-pid"],
+)
+def test_management_ui_runtime_requires_non_root_private_pid_configuration(
+    management_runtime, key, value
+):
+    management_runtime[key] = value
+    with pytest.raises(AssertionError):
+        check_compose.check_ch_ui_runtime(management_runtime)

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Annotated
 
 from devfeed_core.config import get_settings
@@ -18,7 +19,7 @@ def get_session_factory() -> sessionmaker[Session]:
     return session_factory()
 
 
-DBFactory = Annotated[sessionmaker[Session], Depends(get_session_factory)]
+DBFactory = Annotated[Callable[[], Session], Depends(get_session_factory)]
 
 
 async def read_metadata(factory, operation, *args):

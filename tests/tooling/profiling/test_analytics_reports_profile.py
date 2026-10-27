@@ -7,6 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 from devfeed_core.analytics import AnalyticsUnavailable
+from sqlalchemy.engine import make_url
 
 from scripts import profile_analytics_reports as profile
 
@@ -40,6 +41,26 @@ def test_cli_requires_an_explicit_disposable_analytics_target(monkeypatch):
     assert caught.value.code == 2
 
 
+def test_cli_rejects_credentials_in_target_urls_without_exposing_them(monkeypatch, capsys):
+    connect = Mock(side_effect=AssertionError("Unsafe profiling connected"))
+    monkeypatch.setattr(profile, "AnalyticsClient", connect)
+    monkeypatch.setenv(
+        "DEVFEED_TEST_CLICKHOUSE_URL",
+        "http://fixture:origin-private-password@127.0.0.1:8123",
+    )
+    monkeypatch.setenv("DEVFEED_TEST_CLICKHOUSE_DATABASE", "analytics_test")
+    monkeypatch.setenv("DEVFEED_TEST_CLICKHOUSE_PASSWORD", "fixture-private-password")
+    monkeypatch.setattr("sys.argv", ["profile-analytics"])
+    with pytest.raises(SystemExit) as caught:
+        profile.main()
+    assert caught.value.code == 2
+    connect.assert_not_called()
+    captured = capsys.readouterr()
+    assert "explicitly local ClickHouse service origin" in captured.err
+    assert "origin-private-password" not in captured.out + captured.err
+    assert "fixture-private-password" not in captured.out + captured.err
+
+
 @pytest.fixture
 def native(monkeypatch):
     state = NS(
@@ -51,6 +72,7 @@ def native(monkeypatch):
         tagged=[],
         flushes=0,
         omit_log=False,
+        settings=[],
     )
 
     class Client:
@@ -118,7 +140,11 @@ def native(monkeypatch):
             await self.client.query("SELECT count()", {"group": group})
             return NS(model_dump_json=lambda: '{"count":2}')
 
-    monkeypatch.setattr(profile, "AnalyticsClient", lambda _settings: Client())
+    def client(settings):
+        state.settings.append(settings)
+        return Client()
+
+    monkeypatch.setattr(profile, "AnalyticsClient", client)
     monkeypatch.setattr(profile, "Reports", Reports)
     return state
 
@@ -235,6 +261,8 @@ def test_query_budget_stops_before_submitting_an_extra_query(native):
 
 
 def test_cli_uses_only_validated_test_settings_and_prints_json(monkeypatch, native, capsys):
+    monkeypatch.setenv("DEVFEED_DATABASE_URL", "postgresql://inherited@persistent.invalid/live")
+    monkeypatch.setenv("DEVFEED_CLICKHOUSE_PASSWORD", "inherited-private-password")
     monkeypatch.setattr(
         profile,
         "analytics_environment",
@@ -246,8 +274,27 @@ def test_cli_uses_only_validated_test_settings_and_prints_json(monkeypatch, nati
         },
     )
     monkeypatch.setattr("sys.argv", ["profile-analytics", "--group", "inference", "--repeats", "1"])
-    assert profile.main() == 0
-    result = json.loads(capsys.readouterr().out)
-    assert set(result["reports"]) == {"inference"}
-    assert result["queries"] == 1
-    assert "fixture-private-password" not in json.dumps(result)
+    passwords = []
+    for _ in range(2):
+        assert profile.main() == 0
+        settings = native.settings[-1]
+        target = make_url(settings.database_url)
+        assert target.host == "database.invalid" and target.database == "analytics_profile_test"
+        assert target.username == "unused" and target.password and len(target.password) >= 32
+        passwords.append(target.password)
+        assert settings.clickhouse_url == "http://127.0.0.1:8123"
+        assert settings.clickhouse_database == "analytics_test"
+        assert settings.clickhouse_username == "fixture"
+        assert settings.clickhouse_password.get_secret_value() == "fixture-private-password"
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        assert set(result["reports"]) == {"inference"}
+        assert result["queries"] == 1
+        for secret in (
+            target.password,
+            settings.database_url,
+            "fixture-private-password",
+            "inherited-private-password",
+        ):
+            assert secret not in captured.out + captured.err
+    assert len(native.settings) == 2 and passwords[0] != passwords[1]

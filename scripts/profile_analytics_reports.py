@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import contextvars
 import json
+import secrets
 import statistics
 import time
 import uuid
@@ -174,7 +175,10 @@ def main():
     settings = Settings(
         _env_file=None,
         _env_prefix="DEVFEED_REPORT_PROFILE_",
-        database_url="postgresql+psycopg://unused@database.invalid/analytics_profile_test",
+        database_url=(
+            f"postgresql+psycopg://unused:{secrets.token_hex(32)}"
+            "@database.invalid/analytics_profile_test"
+        ),
         redis_url="redis://redis.invalid/15",
         clickhouse_url=environment["DEVFEED_CLICKHOUSE_URL"],
         clickhouse_database=environment["DEVFEED_CLICKHOUSE_DATABASE"],
