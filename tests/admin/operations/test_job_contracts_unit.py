@@ -154,6 +154,15 @@ def test_job_detail_combines_the_record_with_current_retry_metadata(monkeypatch)
     assert result.id == current.id and result.retryable and result.target_name == "Publisher"
 
 
+def test_retry_without_an_eligible_successor_returns_a_conflict(monkeypatch):
+    previous = ingestion()
+    monkeypatch.setattr(jobs, "record", lambda *_: previous)
+    monkeypatch.setattr(jobs, "retry_failed_job", lambda *_: None)
+    session = SimpleNamespace(commit=lambda: pytest.fail("An ineligible retry cannot commit"))
+    with pytest.raises(OperationConflict, match="No eligible retry"):
+        jobs.retry("ingestion", previous.id, administrator(), session)
+
+
 def test_retry_passes_authenticated_attribution_and_returns_new_run_without_rewriting_history(
     monkeypatch,
 ):

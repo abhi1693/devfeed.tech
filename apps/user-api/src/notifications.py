@@ -1,5 +1,7 @@
 """Only the signed-in user's Chimely inbox is accessible through this gateway."""
 
+from __future__ import annotations
+
 from devfeed_core.notifications import notification_subscriber_id
 from devfeed_http.inbox import InboxProxy, InboxRouter, InboxSession
 from devfeed_http.operation_policies import ExtensionTransportPolicy, ReaderGatewayPolicy
@@ -7,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from devfeed_user_api.auth import BrowserUser, User
+from devfeed_user_api.auth import BrowserUser, User, UserIdentity
 from devfeed_user_api.notification_config import get_settings
 
 router = APIRouter(prefix="/v1/user/notifications", tags=["user-notifications"])
@@ -19,7 +21,7 @@ class NotificationConfig(BaseModel):
     subscriber_id: str | None = None
 
 
-def subscriber_id(user):
+def subscriber_id(user: UserIdentity) -> str:
     return notification_subscriber_id(
         audience="user",
         issuer=user.issuer,
@@ -29,7 +31,7 @@ def subscriber_id(user):
 
 
 @router.get("/config", response_model=NotificationConfig)
-def config(user: User):
+def config(user: User) -> NotificationConfig:
     settings = get_settings()
     enabled = settings.notifications_enabled and bool(settings.chimely_user_environment)
     return NotificationConfig(

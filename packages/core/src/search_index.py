@@ -1,9 +1,13 @@
 """Retryable Typesense projection with bounded fanout and a single writer lease."""
 
+from __future__ import annotations
+
 import logging
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, insert, literal, select, text
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.sql import Select
 
 from devfeed_core.cache import invalidate_public_cache
 from devfeed_core.catalog_cache import snapshot
@@ -20,6 +24,7 @@ from devfeed_core.models import (
 from devfeed_core.publication import visible_article
 from devfeed_core.search_engine import KINDS, Typesense
 from devfeed_core.search_records import LINKS, MODELS, documents
+from devfeed_core.telemetry import Instruments
 
 # Serialize remote index writes without locking application rows. A crash releases
 # this transaction-level advisory lock and leaves all unacknowledged events intact.
@@ -27,14 +32,14 @@ INDEX_LOCK = 484530894367
 logger = logging.getLogger(__name__)
 
 
-def _metric_instruments():
+def _metric_instruments() -> Instruments | None:
     from devfeed_core.telemetry import current
 
     runtime = current()
     return runtime.instruments if runtime else None
 
 
-def _visible_tag_count_query():
+def _visible_tag_count_query() -> Select[int]:
     # Deduplicate destination UUIDs before counting. A tag EXISTS semi-join can
     # hash every matching assignment and spill hundreds of thousands of rows.
     visible_tags = (
@@ -47,7 +52,7 @@ def _visible_tag_count_query():
     return select(func.count()).select_from(visible_tags)
 
 
-def _visible_tag_count(session):
+def _visible_tag_count(session: Session) -> int | None:
     # Revisions are changed in the same transaction as every relevant SQL write.
     # Redis expiry bounds storage, never decides publication/approval freshness.
     return snapshot(
@@ -55,7 +60,7 @@ def _visible_tag_count(session):
     )
 
 
-def _visible_topic_count_query():
+def _visible_topic_count_query() -> Select[int]:
     # Keep the early-exit query for cache misses and cache-disabled deployments.
     return (
         select(func.count())
@@ -78,7 +83,7 @@ def _visible_topic_count_query():
     )
 
 
-def _visible_topic_count(session):
+def _visible_topic_count(session: Session) -> int | None:
     return snapshot(
         session,
         ("search_tag_visibility", "topics"),
@@ -86,7 +91,7 @@ def _visible_topic_count(session):
     )
 
 
-def _visible_counts(session):
+def _visible_counts(session: Session) -> dict[str, int]:
     counts = {
         "articles": session.scalar(
             select(func.count()).select_from(Article).where(visible_article())
@@ -110,7 +115,7 @@ def _visible_counts(session):
     return {kind: int(value or 0) for kind, value in counts.items()}
 
 
-def _update_outbox_metrics(session):
+def _update_outbox_metrics(session: Session) -> None:
     metrics = _metric_instruments()
     if not metrics:
         return
@@ -122,7 +127,7 @@ def _update_outbox_metrics(session):
     metrics["search_oldest"].set(age)
 
 
-def reconcile(factory, engine=None):
+def reconcile(factory: sessionmaker[Session], engine: Typesense | None = None) -> dict[str, int]:
     """Refresh durable outbox and projection counts without holding DB connections remotely."""
     engine = engine or Typesense(admin=True)
     with factory() as session:
@@ -142,7 +147,7 @@ def reconcile(factory, engine=None):
     return visible
 
 
-def backfill(factory):
+def backfill(factory: sessionmaker[Session]) -> int:
     count = 0
     with factory.begin() as session:
         for kind, model in MODELS.items():
@@ -152,11 +157,11 @@ def backfill(factory):
                 .returning(SearchEvent.id)
                 .cte("queued")
             )
-            count += session.scalar(select(func.count()).select_from(queued))
+            count += session.scalar(select(func.count()).select_from(queued)) or 0
     return count
 
 
-def sync_batch(factory, engine=None):
+def sync_batch(factory: sessionmaker[Session], engine: Typesense | None = None) -> int:
     engine = engine or Typesense(admin=True)
     batch = get_settings().search_index_batch_size
     with factory.begin() as session:
@@ -198,14 +203,17 @@ def sync_batch(factory, engine=None):
             )
             if cursor:
                 statement = statement.where(link.article_id > cursor)
-            ids = session.scalars(statement).all()
-            if ids:
+            related_ids = session.scalars(statement).all()
+            if related_ids:
                 session.execute(
-                    insert(SearchEvent), [{"kind": "articles", "entity_id": value} for value in ids]
+                    insert(SearchEvent),
+                    [{"kind": "articles", "entity_id": value} for value in related_ids],
                 )
-            if len(ids) == batch:
+            if len(related_ids) == batch:
                 session.add(
-                    SearchEvent(kind=kind, entity_id=identifier, fanout=True, after_id=ids[-1])
+                    SearchEvent(
+                        kind=kind, entity_id=identifier, fanout=True, after_id=related_ids[-1]
+                    )
                 )
         # Only acknowledge this batch. Changes committed during an HTTP import
         # retain their own event IDs and will overwrite any older projection.

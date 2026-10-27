@@ -3,6 +3,10 @@
 Handler names are strings: reading metadata never imports worker execution code.
 """
 
+from __future__ import annotations
+
+import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import timedelta
 from types import MappingProxyType
@@ -10,6 +14,8 @@ from typing import Literal, cast
 
 from sqlalchemy import and_, func, select, true
 from sqlalchemy.orm import defer
+from sqlalchemy.orm.strategy_options import _AbstractLoad
+from sqlalchemy.sql.elements import ColumnElement
 
 from devfeed_core.job_logs import JobKind
 from devfeed_core.jobs import JOB_TIMEOUT_SECONDS
@@ -53,7 +59,7 @@ class JobDefinition:
     def supports_solver(self) -> bool:
         return self.model in {ArticleEnrichmentJob, ArticleImageJob, SourceEnrichmentJob}
 
-    def lane_condition(self, relationships: bool | None):
+    def lane_condition(self, relationships: bool | None) -> ColumnElement[bool] | None:
         if relationships is None:
             return None
         if self.model is ResearchVerificationJob:
@@ -66,14 +72,14 @@ class JobDefinition:
             )
         raise ValueError("Relationship routing requires topic analysis jobs")
 
-    def log_fields(self, job: Job) -> dict:
-        fields = {"job_id": job.id}
+    def log_fields(self, job: Job) -> dict[str, uuid.UUID | str]:
+        fields: dict[str, uuid.UUID | str] = {"job_id": job.id}
         for field in ("article_id", "source_id", "topic_id", "proposal_id"):
             if value := getattr(job, field, None):
                 fields[field] = value
         return fields
 
-    def metadata_options(self):
+    def metadata_options(self) -> tuple[_AbstractLoad, ...]:
         """Dispatch/recovery need lease metadata, not inference or delivery bodies."""
         return tuple(
             defer(getattr(self.model, name), raiseload=True)
@@ -151,7 +157,9 @@ JOB_DEFINITIONS = MappingProxyType(
 )
 
 
-def fresh_article_condition(model: type[ArticleAnalysisJob] | type[ArticleEnrichmentJob]):
+def fresh_article_condition(
+    model: type[ArticleAnalysisJob] | type[ArticleEnrichmentJob],
+) -> ColumnElement[bool]:
     # Stable classification for a durable job, even if it waits for several days.
     return (
         select(Article.id)
@@ -164,7 +172,7 @@ def fresh_article_condition(model: type[ArticleAnalysisJob] | type[ArticleEnrich
     )
 
 
-def queue_lanes():
+def queue_lanes() -> Iterator[tuple[JobDefinition, str, ColumnElement[bool] | None]]:
     """Enumerate each durable table/lane once, including relationship-only work."""
     for definition in JOB_DEFINITIONS.values():
         if definition.supports_solver:

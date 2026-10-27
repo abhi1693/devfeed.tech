@@ -1,7 +1,9 @@
 """Moderation queue for identity-free successful search suggestions."""
 
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Literal
+from typing import Literal, TypedDict
 
 from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.models import SearchQueryStat
@@ -11,6 +13,7 @@ from devfeed_http.dependencies import run_database
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DBFactory
@@ -33,6 +36,14 @@ class SearchSuggestionOut(BaseModel):
     review_note: str | None
 
 
+class SearchReviewData(TypedDict):
+    query_hash: str
+    query: str
+    status: str
+    reviewed_at: datetime | None
+    review_note: str | None
+
+
 class SearchSuggestionReview(BaseModel):
     status: Literal["approved", "rejected"]
     note: DatabaseText | None = Field(default=None, max_length=1000)
@@ -45,7 +56,7 @@ async def list_suggestions(
     status: Literal["pending", "approved", "rejected"] | None = None,
     minimum: int = 0,
     limit: int = 100,
-):
+) -> list[SearchSuggestionOut]:
     try:
         rows = await SearchSuggestionAnalytics(request.app.state.analytics.client).rank(
             factory, status=status, minimum=minimum, limit=limit
@@ -62,8 +73,8 @@ async def review_suggestion(
     factory: DBFactory,
     admin: Admin,
     request: Request,
-):
-    def review(session):
+) -> SearchSuggestionOut:
+    def review(session: Session) -> SearchReviewData:
         value = review_query(
             session, query_hash, status=body.status, reviewer=admin.subject, note=body.note
         )

@@ -1,11 +1,18 @@
 """Bounded public search context and evidence-grounded search intent."""
 
+from __future__ import annotations
+
 import re
 import uuid
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Self
 
 from sqlalchemy import Text, and_, case, column, false, func, literal, or_, select
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.orm import Session
+from sqlalchemy.sql import ColumnElement, Select, SQLColumnExpression
 
 from devfeed_core.models import (
     Article,
@@ -37,7 +44,7 @@ class PublicSearchContext:
     blocked: bool = False
 
     @classmethod
-    def resolve(cls, session, results):
+    def resolve[K: str](cls, session: Session, results: Mapping[K, Iterable[uuid.UUID]]) -> Self:
         return cls(
             {
                 kind: set(public_records(session, kind, identifiers))
@@ -46,7 +53,7 @@ class PublicSearchContext:
             }
         )
 
-    def _source_result(self):
+    def _source_result(self) -> ColumnElement[bool]:
         return (
             select(1)
             .select_from(ArticleOrigin)
@@ -61,7 +68,7 @@ class PublicSearchContext:
             .exists()
         )
 
-    def _tag_result(self):
+    def _tag_result(self) -> ColumnElement[bool]:
         return (
             select(1)
             .select_from(ArticleTag)
@@ -71,7 +78,7 @@ class PublicSearchContext:
             .exists()
         )
 
-    def _article_context(self):
+    def _article_context(self) -> ColumnElement[bool]:
         return or_(
             Article.id.in_(self.results.get("articles", set())),
             ArticleTopic.topic_id.in_(self.results.get("topics", set())),
@@ -79,7 +86,7 @@ class PublicSearchContext:
             self._tag_result(),
         )
 
-    def _witness_conditions(self):
+    def _witness_conditions(self) -> tuple[ColumnElement[bool], ...]:
         return (
             visible_article(),
             self._article_context(),
@@ -87,7 +94,7 @@ class PublicSearchContext:
             ArticleTopic.relevance * case((ArticleTopic.role == "primary", 100), else_=80) >= 39.5,
         )
 
-    def _prepared_conditions(self, query):
+    def _prepared_conditions(self, query: str) -> tuple[ColumnElement[bool], ...]:
         return (
             PartnerProductTopic.score == 100,
             Topic.status == "active",
@@ -97,7 +104,7 @@ class PublicSearchContext:
             search_intent_condition(query),
         )
 
-    def candidates(self, query):
+    def candidates(self, query: str) -> Select[uuid.UUID, int, str, int, datetime]:
         witness = (
             select(1)
             .select_from(ArticleTopic)
@@ -133,7 +140,7 @@ class PublicSearchContext:
             ranked.c.product_updated_at,
         ).where(ranked.c.rank == 1)
 
-    def lock_witness(self, session, product_id, query):
+    def lock_witness(self, session: Session, product_id: uuid.UUID, query: str) -> bool:
         """Fence the selected context once; never retry busy context for every product."""
         if self.blocked:
             return False
@@ -192,7 +199,10 @@ class PublicSearchContext:
         return not self.blocked
 
 
-def _phrase_in(text, phrase):
+def _phrase_in(
+    text: SQLColumnExpression[str] | SQLColumnExpression[str | None],
+    phrase: SQLColumnExpression[str] | SQLColumnExpression[str | None],
+) -> ColumnElement[bool]:
     return (
         func.strpos(
             literal(" ") + normalized_text(text) + literal(" "),
@@ -202,7 +212,9 @@ def _phrase_in(text, phrase):
     )
 
 
-def _evidence_terms(value):
+def _evidence_terms(
+    value: SQLColumnExpression[str] | SQLColumnExpression[str | None],
+) -> ColumnElement[Sequence[str]]:
     """Apply the query's lexical rules in SQL, once per evidence text."""
     separated = func.regexp_replace(func.lower(value), "[-_]", " ", "g")
     tokens = (
@@ -233,7 +245,7 @@ def _evidence_terms(value):
     )
 
 
-def search_intent_condition(query):
+def search_intent_condition(query: str) -> ColumnElement[bool]:
     """Match a query to one supported capability and its independent source quote.
 
     Prepared direct topic edges remain mandatory in the caller. This adds a

@@ -1,23 +1,26 @@
 """Live partner account scope and write authorization bound to one request session."""
 
+from __future__ import annotations
+
 import uuid
 
 from devfeed_core.models import PartnerAccount, PartnerMembership, PartnerProduct
 from devfeed_http.partner_ad_images import lock_image_account, lock_image_product
 from devfeed_http.partner_products import lock_manual_identity
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import SQLColumnExpression, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.selectable import Select
 
 from devfeed_partner_api.auth import PartnerIdentity
 
 
 class PartnerAccountAccess:
-    def __init__(self, session: Session, identity: PartnerIdentity):
+    def __init__(self, session: Session, identity: PartnerIdentity) -> None:
         self.session = session
         self.identity = identity
 
-    def query(self, account_id: uuid.UUID | None = None):
+    def query(self, account_id: uuid.UUID | None = None) -> Select[PartnerAccount]:
         """Scope all current memberships before pagination; authorize explicit filters."""
         statement = select(PartnerAccount).where(
             PartnerAccount.status == "active",
@@ -57,7 +60,9 @@ class PartnerAccountAccess:
             raise HTTPException(404, "Partner account not found")
         return account
 
-    def _membership(self, account_id):
+    def _membership(
+        self, account_id: uuid.UUID | SQLColumnExpression[uuid.UUID]
+    ) -> Select[PartnerMembership]:
         return select(PartnerMembership).where(
             PartnerMembership.account_id == account_id,
             PartnerMembership.issuer == self.identity.issuer,

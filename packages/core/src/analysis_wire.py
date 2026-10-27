@@ -1,24 +1,33 @@
 """Lossless article transport compaction; database identities never leave this mapping."""
 
+from __future__ import annotations
+
 import copy
 import json
 import textwrap
 
-from devfeed_core.analysis import analysis_output_schema, analysis_prompt
+from devfeed_core.analysis import AnalysisCatalog, analysis_output_schema, analysis_prompt
 from devfeed_core.inference_validation import InferenceValidationError
+from devfeed_core.json_types import JsonRecord
 
 
 def compact_request(
-    snapshot: dict, taxonomy: dict, *, short_ids: bool = False, evidence_refs: bool = False
-) -> tuple[str, dict, dict]:
-    catalog: dict[str, list[dict]] = {}
+    snapshot: JsonRecord,
+    taxonomy: AnalysisCatalog,
+    *,
+    short_ids: bool = False,
+    evidence_refs: bool = False,
+) -> tuple[str, JsonRecord, dict[str, dict[str, str]]]:
+    catalog: dict[str, list[JsonRecord]] = {}
     identities: dict[str, dict[str, str]] = {}
     for field, prefix in (("topics", "t"), ("tags", "g")):
         catalog[field], identities[field] = [], {}
         for index, original in enumerate(taxonomy[field]):
             identifier = f"{prefix}{index}" if short_ids else original["id"]
             identities[field][identifier] = original["id"]
-            item = {key: value for key, value in original.items() if value not in (None, "", [])}
+            item: JsonRecord = {
+                key: value for key, value in original.items() if value not in (None, "", [])
+            }
             for key in ("aliases", "keywords"):
                 if key in item:
                     item[key] = list(dict.fromkeys(item[key]))
@@ -103,7 +112,7 @@ def compact_request(
     return prompt, schema, identities
 
 
-def restore_identities(output: dict, identities: dict) -> dict:
+def restore_identities(output: JsonRecord, identities: dict[str, dict[str, str]]) -> JsonRecord:
     result = copy.deepcopy(output)
     if "title_evidence" in identities and result.get("title_evidence") is not None:
         reference = result["title_evidence"]

@@ -1,8 +1,13 @@
 """Human-readable rendering of structured logging payloads."""
 
+from __future__ import annotations
+
 import json
 import re
 from datetime import datetime
+from typing import cast
+
+from devfeed_core.json_types import JsonRecord
 
 _MESSAGES = {
     "taxonomy_auto_approval_blocked": (
@@ -151,14 +156,14 @@ _REASONS = {
 }
 
 
-def inline(value) -> str:
+def inline(value: object) -> str:
     """Keep values on one terminal line, without quotes around ordinary text."""
     if isinstance(value, str):
         return json.dumps(value, ensure_ascii=True)[1:-1]
     return json.dumps(value, ensure_ascii=True, allow_nan=False)
 
 
-def short_id(value) -> str:
+def short_id(value: object) -> str:
     value = str(value)
     if re.fullmatch(r"[0-9a-f-]{32,64}", value):
         return value[:8]
@@ -169,7 +174,7 @@ def local_time(value: str) -> str:
     return datetime.fromisoformat(value).astimezone().strftime("%H:%M:%S")
 
 
-def reason_text(payload: dict) -> str:
+def reason_text(payload: JsonRecord) -> str:
     status = payload.get("upstream_status")
     if status:
         label = {
@@ -185,8 +190,8 @@ def reason_text(payload: dict) -> str:
     return ""
 
 
-def event_text(payload: dict) -> str:
-    event = payload["event"]
+def event_text(payload: JsonRecord) -> str:
+    event = cast(str, payload["event"])
     if event.startswith("partner_"):
         details = [inline(payload[key]) for key in ("provider", "operation") if payload.get(key)]
         for key, label in (
@@ -218,7 +223,7 @@ def event_text(payload: dict) -> str:
             "not_found": "No readable article text or preview metadata found",
             "superseded": "Kept newer publisher metadata; page lookup discarded",
             "unapproved": "Article lookup stopped; no approved source remains",
-        }.get(payload.get("outcome", ""), "Article lookup completed")
+        }.get(cast(str, payload.get("outcome", "")), "Article lookup completed")
     if event == "article_enrichment_retry_scheduled":
         when = payload.get("available_at")
         return (
@@ -258,7 +263,7 @@ def event_text(payload: dict) -> str:
             "found": "Article image found",
             "not_found": "No article image metadata found",
             "already_present": "Article already has an image; kept it",
-        }.get(payload.get("outcome", ""), "Image lookup finished")
+        }.get(cast(str, payload.get("outcome", "")), "Image lookup finished")
     if event == "image_retry_scheduled":
         when = payload.get("available_at")
         return (
@@ -347,7 +352,7 @@ def event_text(payload: dict) -> str:
     return message
 
 
-def error_text(payload: dict, *, verbose: bool) -> str:
+def error_text(payload: JsonRecord, *, verbose: bool) -> str:
     exceptions = payload.get("exception", [])
     if not exceptions:
         return inline(payload["error_type"]) if payload.get("error_type") else ""
@@ -371,7 +376,7 @@ def error_text(payload: dict, *, verbose: bool) -> str:
     return "; ".join(parts)
 
 
-def context_text(payload: dict, *, verbose: bool) -> list[str]:
+def context_text(payload: JsonRecord, *, verbose: bool) -> list[str]:
     if verbose:
         return [
             f"{inline(key)}={inline(value)}"

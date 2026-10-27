@@ -1,7 +1,7 @@
 """Process lifecycle and HTTP policy shared by independently deployed APIs."""
 
 import logging
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated
@@ -12,8 +12,10 @@ from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import SCHEMA_REVISION
 from fastapi import FastAPI
 from fastapi.params import Depends
+from redis import Redis
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
+from starlette.responses import JSONResponse
 
 from devfeed_http.admission import AdmissionMiddleware
 from devfeed_http.errors import register_error_handlers
@@ -34,10 +36,10 @@ class HTTPService:
     name: str
     logger: logging.Logger
     close_clients: Callable[[], None]
-    resources: Callable[[FastAPI], AbstractAsyncContextManager] | None = None
+    resources: Callable[[FastAPI], AbstractAsyncContextManager[None]] | None = None
 
     @asynccontextmanager
-    async def lifespan(self, app: FastAPI):
+    async def lifespan(self, app: FastAPI) -> AsyncIterator[None]:
         runtime = start_runtime(self.name)
         async with AsyncExitStack() as stack:
             event_prefix = self.name.replace("-", "_")
@@ -82,8 +84,8 @@ class HTTPService:
         app: FastAPI,
         *,
         session_dependency: Depends,
-        get_redis: Callable,
-        revision_reader: Callable,
+        get_redis: Callable[[], Redis],
+        revision_reader: Callable[[Session], str | None],
         schema_revision: str = SCHEMA_REVISION,
     ) -> None:
         @app.get(
@@ -94,7 +96,7 @@ class HTTPService:
                 admission="exempt", telemetry_excluded=True, logging_level="debug"
             ).openapi_extra(),
         )
-        async def live():
+        async def live() -> dict[str, str]:
             return {"status": "ok"}
 
         @app.get(
@@ -106,7 +108,7 @@ class HTTPService:
                 telemetry_excluded=True, logging_level="debug"
             ).openapi_extra(),
         )
-        def ready(session: Annotated[Session, session_dependency]):
+        def ready(session: Annotated[Session, session_dependency]) -> JSONResponse | dict[str, str]:
             return readiness_response(
                 session,
                 get_redis(),

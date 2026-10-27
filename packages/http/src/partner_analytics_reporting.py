@@ -1,20 +1,101 @@
 """Partner report aggregation over ClickHouse observations and authorized catalog data."""
 
-from collections import defaultdict
-from datetime import UTC, datetime, timedelta
-from functools import cmp_to_key
-from typing import Any
+from __future__ import annotations
 
-from devfeed_core.analytics import AnalyticsUnavailable
+import uuid
+from collections import defaultdict
+from collections.abc import Collection, Mapping, Sequence
+from datetime import UTC, date, datetime, timedelta
+from functools import cmp_to_key
+from typing import Literal, NotRequired, TypedDict, cast
+
+from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
+from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.models import PartnerAccount, PartnerAsset, PartnerProduct
 from sqlalchemy import any_, func, literal, select
 from sqlalchemy.dialects.postgresql import array
+from sqlalchemy.orm import Session
+from sqlalchemy.sql import Select
+
+type ReportSort = Literal["name", "account", "impressions", "clicks", "ctr"]
+
+type ReportOrder = Literal["asc", "desc"]
+
+type GroupKey = tuple[uuid.UUID, str, uuid.UUID]
+
+
+class ReportingAsset(TypedDict):
+    id: uuid.UUID
+    account_id: uuid.UUID
+    product_id: uuid.UUID | None
+    campaign_id: uuid.UUID | None
+    article_id: uuid.UUID | None
+    name: str
+    kind: str
+    status: str
+    automatic: bool
+    ad_format: str
+    account_name: str
+    canonical_product_id: uuid.UUID | None
+    product_name: str | None
+
+
+class MetricTotals(TypedDict):
+    impressions: int
+    clicks: int
+    ctr: float | None
+    measured_days: int
+
+
+class MetricStat(TypedDict):
+    impressions: int
+    clicks: int
+    days: set[date | str]
+
+
+class AssetMetricData(MetricTotals):
+    id: uuid.UUID
+    account_id: uuid.UUID
+    account_name: str
+    product_id: uuid.UUID | None
+    name: str
+    kind: str
+    status: str
+    automatic: bool
+    aggregated: bool
+    ad_format: str
+    ad_formats: list[str]
+    campaign_id: uuid.UUID | None
+    article_id: uuid.UUID | None
+    _measured: NotRequired[bool]
+
+
+class FormatMetricTotals(MetricTotals):
+    ad_format: str
+
+
+class TrendData(TypedDict):
+    day: date | str
+    impressions: int
+    clicks: int
+
+
+class ReportingMetrics(TypedDict):
+    start: date
+    end: date
+    totals: MetricTotals
+    format_totals: list[FormatMetricTotals]
+    last_updated_at: datetime | None
+    trend: list[TrendData]
+    assets: list[AssetMetricData]
+    asset_total: int
+
 
 # Each query returns at most 50 assets x 365 days; no unbounded IN clause.
 _ASSET_CHUNK = 50
 
 
-async def _require_partner_import(client, expected):
+async def _require_partner_import(client: AnalyticsClient, expected: set[str]) -> None:
     rows = await client.query(
         "SELECT source,complete FROM analytics_backfill_progress FINAL "
         "WHERE import_id={import_id:String} AND source IN {sources:Array(String)}",
@@ -27,12 +108,12 @@ async def _require_partner_import(client, expected):
         raise AnalyticsUnavailable("Partner history import is still running")
 
 
-async def require_partner_claims(client):
+async def require_partner_claims(client: AnalyticsClient) -> None:
     """Accept direct receipts only after legacy operational claims are imported."""
     await _require_partner_import(client, {"partner_delivery_events"})
 
 
-async def require_partner_history(client):
+async def require_partner_history(client: AnalyticsClient) -> None:
     """Do not serve incomplete one-time partner baseline imports."""
     await _require_partner_import(
         client,
@@ -40,7 +121,9 @@ async def require_partner_history(client):
     )
 
 
-def reporting_assets(session, accounts_query, ad_format=None):
+def reporting_assets(
+    session: Session, accounts_query: Select[PartnerAccount], ad_format: str | None = None
+) -> list[ReportingAsset]:
     accounts = (
         accounts_query.with_only_columns(
             PartnerAccount.id.label("account_id"), PartnerAccount.name.label("account_name")
@@ -93,10 +176,10 @@ def reporting_assets(session, accounts_query, ad_format=None):
         .outerjoin(resolved, resolved.c.original_id == scoped.c.product_id)
         .outerjoin(product, product.c.id == canonical)
     )
-    return [dict(row) for row in session.execute(query).mappings().all()]
+    return [cast(ReportingAsset, dict(row)) for row in session.execute(query).mappings().all()]
 
 
-def _totals(impressions, clicks, days):
+def _totals(impressions: int, clicks: int, days: Collection[date | str]) -> MetricTotals:
     return {
         "impressions": impressions,
         "clicks": clicks,
@@ -105,15 +188,17 @@ def _totals(impressions, clicks, days):
     }
 
 
-def _timestamp(value):
+def _timestamp(value: datetime | str) -> datetime:
     if isinstance(value, datetime):
         return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
 
 
-def _group(rows):
-    groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
-    by_asset: dict[str, tuple[Any, ...]] = {}
+def _group(
+    rows: Sequence[ReportingAsset],
+) -> tuple[dict[GroupKey, list[ReportingAsset]], dict[str, GroupKey]]:
+    groups: dict[GroupKey, list[ReportingAsset]] = {}
+    by_asset: dict[str, GroupKey] = {}
     for row in rows:
         product = row["canonical_product_id"]
         key = (row["account_id"], "product" if product else "asset", product or row["id"])
@@ -123,13 +208,15 @@ def _group(rows):
     return groups, by_asset
 
 
-def _asset(groups, stats):
-    items = []
+def _asset(
+    groups: Mapping[GroupKey, list[ReportingAsset]], stats: Mapping[GroupKey, MetricStat]
+) -> list[AssetMetricData]:
+    items: list[AssetMetricData] = []
     status_order = {"active": 0, "paused": 1, "draft": 2, "ended": 3}
     for key, rows in groups.items():
         stat = stats[key]
         first = min(rows, key=lambda row: str(row["id"]))
-        products = [row["product_name"] for row in rows if row["product_name"] is not None]
+        products = [name for row in rows if (name := row["product_name"]) is not None]
         items.append(
             {
                 "id": first["id"],
@@ -154,22 +241,33 @@ def _asset(groups, stats):
     return items
 
 
-def _order(items, sort, order):
-    def compare(left, right):
-        def value(row):
+def _order(
+    items: list[AssetMetricData], sort: ReportSort, order: ReportOrder
+) -> list[AssetMetricData]:
+    def compare(left: AssetMetricData, right: AssetMetricData) -> int:
+        def value(row: AssetMetricData) -> str | int | float | None:
             if sort == "name":
                 return row["name"].lower()
             if sort == "account":
                 return row["account_name"].lower()
             if sort in {"impressions", "clicks"} and not row["_measured"]:
                 return None
-            return row[sort]
+            if sort == "impressions":
+                return row["impressions"]
+            if sort == "clicks":
+                return row["clicks"]
+            return row["ctr"]
 
         a, b = value(left), value(right)
         if a is None or b is None:
             result = (a is None) - (b is None)
         else:
-            result = (a > b) - (a < b)
+            if isinstance(a, str):
+                assert isinstance(b, str)
+                result = (a > b) - (a < b)
+            else:
+                assert isinstance(b, (int, float))
+                result = (a > b) - (a < b)
             if order == "desc":
                 result = -result
         if result:
@@ -186,15 +284,15 @@ def _order(items, sort, order):
 
 
 async def reporting_metrics(
-    assets,
-    analytics,
-    days=30,
-    limit=100,
-    offset=0,
+    assets: Sequence[ReportingAsset],
+    analytics: DirectEngagementAnalytics,
+    days: int = 30,
+    limit: int = 100,
+    offset: int = 0,
     *,
-    sort="name",
-    order="asc",
-):
+    sort: ReportSort = "name",
+    order: ReportOrder = "asc",
+) -> ReportingMetrics:
     """Read bounded CH batches and sort the complete authorized account scope."""
     if sort not in {"name", "account", "impressions", "clicks", "ctr"} or order not in {
         "asc",
@@ -206,14 +304,14 @@ async def reporting_metrics(
     groups, by_asset = _group(assets)
     asset_format = {str(row["id"]): row["ad_format"] for row in assets}
     ids = list(by_asset)
-    stats: dict[tuple[Any, ...], dict[str, Any]] = defaultdict(
+    stats: dict[GroupKey, MetricStat] = defaultdict(
         lambda: {"impressions": 0, "clicks": 0, "days": set()}
     )
-    formats: dict[str, dict[str, Any]] = defaultdict(
+    formats: dict[str, MetricStat] = defaultdict(
         lambda: {"impressions": 0, "clicks": 0, "days": set()}
     )
-    trend: dict[Any, dict[str, int]] = defaultdict(lambda: {"impressions": 0, "clicks": 0})
-    total: dict[str, Any] = {"impressions": 0, "clicks": 0, "days": set()}
+    trend: dict[date | str, dict[str, int]] = defaultdict(lambda: {"impressions": 0, "clicks": 0})
+    total: MetricStat = {"impressions": 0, "clicks": 0, "days": set()}
     end = datetime.now(UTC).date()
     start = end - timedelta(days=days - 1)
     last_updated_at = None
@@ -236,9 +334,11 @@ async def reporting_metrics(
             if last_updated_at is None or stamp > last_updated_at:
                 last_updated_at = stamp
     items = _order(_asset(groups, stats), sort, order)
-    result = []
-    for row in items[offset : offset + limit]:
-        result.append({key: value for key, value in row.items() if key != "_measured"})
+    result: list[AssetMetricData] = []
+    for item in items[offset : offset + limit]:
+        result.append(
+            cast(AssetMetricData, {key: value for key, value in item.items() if key != "_measured"})
+        )
     return {
         "start": start,
         "end": end,
@@ -248,7 +348,10 @@ async def reporting_metrics(
             for key, value in sorted(formats.items())
         ],
         "last_updated_at": last_updated_at,
-        "trend": [{"day": key, **value} for key, value in sorted(trend.items())],
+        "trend": [
+            {"day": key, "impressions": value["impressions"], "clicks": value["clicks"]}
+            for key, value in sorted(trend.items())
+        ],
         "assets": result,
         "asset_total": len(items),
     }

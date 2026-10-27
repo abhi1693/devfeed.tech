@@ -1,15 +1,19 @@
 """Bounded backfill, retry policy and stale-input guards for completed research."""
 
+from __future__ import annotations
+
 from copy import deepcopy
 from datetime import timedelta
 
 from sqlalchemy import func, or_, select, true
+from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_core.ai_capacity import CAPACITY_ERRORS
 from devfeed_core.analysis import fail_analysis, snapshot_hash
 from devfeed_core.article_topic_policy import proposal_condition
 from devfeed_core.config import get_settings
 from devfeed_core.job_lifecycle import VERIFICATION_RETRY
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import (
     ResearchVerificationJob,
     TopicAnalysisJob,
@@ -28,10 +32,10 @@ def metadata_input_current(job: TopicAnalysisJob, proposal: TopicProposal) -> bo
         return False
     current = snapshot_hash(proposal.proposed)
     if recorded := job.result.get("applied_input_hash"):
-        return current == recorded
+        return bool(current == recorded)
     # Recover old successful runs only if their original draft + recorded patch
     # still describes the entire current proposal. Never bless later human edits.
-    evidence: dict = next(
+    evidence: JsonRecord = next(
         (
             item
             for item in reversed(proposal.evidence or [])
@@ -57,7 +61,7 @@ def metadata_input_current(job: TopicAnalysisJob, proposal: TopicProposal) -> bo
     return True
 
 
-def schedule_verification(factory) -> int:
+def schedule_verification(factory: sessionmaker[Session]) -> int:
     settings = get_settings()
     if not settings.ai_enabled:
         return 0
@@ -160,7 +164,7 @@ def schedule_verification(factory) -> int:
     return scheduled
 
 
-def fail_verification(job: ResearchVerificationJob, reason: str, *, retry_after=0):
+def fail_verification(job: ResearchVerificationJob, reason: str, *, retry_after: int = 0) -> None:
     if reason == "relationship_budget_deferred":
         from devfeed_core.job_lifecycle import clear_lease
 

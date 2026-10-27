@@ -1,21 +1,28 @@
 """Durable CLI discovery workflow. External requests never hold database transactions."""
 
+from __future__ import annotations
+
 import hashlib
 import uuid
+from collections.abc import Callable, Iterable
 from datetime import timedelta
-from typing import Any
+from typing import NotRequired, TypedDict
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
 
 from devfeed_core.ai_capacity import CAPACITY_ERRORS
+from devfeed_core.analytics import SqlRecord
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.discovery_crawler import discover
 from devfeed_core.discovery_import import PublisherHint
-from devfeed_core.discovery_quality import VERSION, assessment_evidence, score
+from devfeed_core.discovery_quality import VERSION, DiscoverySampleEntry, assessment_evidence, score
 from devfeed_core.inference_errors import AnalysisError
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import (
+    Base,
     CandidateAssessment,
     CandidateDiscovery,
     CandidateFeed,
@@ -29,11 +36,54 @@ from devfeed_core.schemas import SourceDecision
 from devfeed_core.services import OperationConflict, RecordNotFound, review_source
 
 
-def record(row) -> dict:
+class PublisherImportResult(TypedDict):
+    created: int
+    candidates: list[str]
+
+
+class DiscoveryRequestResult(TypedDict):
+    candidate_id: uuid.UUID
+    stage: str
+    queued: bool
+    job_id: NotRequired[uuid.UUID | None]
+
+
+class FeedSelection(TypedDict):
+    candidate_id: uuid.UUID
+    selected_feed_id: uuid.UUID
+
+
+class CandidateDecision(TypedDict):
+    candidate_id: uuid.UUID
+    status: str
+    source_id: NotRequired[uuid.UUID]
+
+
+class DiscoveryStart(TypedDict):
+    candidate_id: uuid.UUID
+    name: str
+    stage: str
+    attempt: int
+
+
+class DiscoveryRunResult(TypedDict):
+    job_id: uuid.UUID
+    status: str
+    candidate_id: NotRequired[uuid.UUID]
+    error: NotRequired[str | None]
+    candidate_status: NotRequired[str]
+    feeds_found: NotRequired[int | None]
+
+
+class DeleteResult(TypedDict):
+    deleted: int
+
+
+def record(row: Base) -> SqlRecord:
     return {column.name: getattr(row, column.name) for column in row.__table__.columns}
 
 
-def candidate(session, candidate_id, *, lock=False):
+def candidate(session: Session, candidate_id: uuid.UUID, *, lock: bool = False) -> SourceCandidate:
     query = select(SourceCandidate).where(SourceCandidate.id == candidate_id)
     if lock:
         source_id = session.scalar(
@@ -47,7 +97,14 @@ def candidate(session, candidate_id, *, lock=False):
     return row
 
 
-def enqueue(session, candidate_id, stage="discover", *, background=False, assess_after=False):
+def enqueue(
+    session: Session,
+    candidate_id: uuid.UUID,
+    stage: str = "discover",
+    *,
+    background: bool = False,
+    assess_after: bool = False,
+) -> None:
     session.execute(
         insert(SourceDiscoveryJob)
         .values(
@@ -74,7 +131,7 @@ def enqueue(session, candidate_id, stage="discover", *, background=False, assess
         )
 
 
-def attach_source(session, row):
+def attach_source(session: Session, row: SourceCandidate) -> Source | None:
     """Discovery is provenance/work for a normal Source, never an approval system."""
     if row.source_id:
         return session.get(Source, row.source_id)
@@ -93,7 +150,7 @@ def attach_source(session, row):
     return source
 
 
-def handoff(session, row):
+def handoff(session: Session, row: SourceCandidate) -> None:
     from devfeed_core.source_enrichment import request_enrichment
 
     source = attach_source(session, row)
@@ -135,11 +192,11 @@ def import_publishers(
     hints: list[PublisherHint],
     origin: str,
     *,
-    seed_id=None,
-    checksum=None,
-    background=False,
-    assess_after=False,
-):
+    seed_id: uuid.UUID | str | None = None,
+    checksum: str | None = None,
+    background: bool = False,
+    assess_after: bool = False,
+) -> PublisherImportResult:
     if not origin.strip() or len(origin) > 2048:
         raise ValueError("Provenance must contain 1-2048 characters")
     created = 0
@@ -192,7 +249,7 @@ def import_publishers(
     return {"created": created, "candidates": list(dict.fromkeys(ids))}
 
 
-def list_candidates(status=None, limit=50, offset=0):
+def list_candidates(status: str | None = None, limit: int = 50, offset: int = 0) -> list[SqlRecord]:
     with session_factory()() as session:
         query = select(SourceCandidate)
         if status:
@@ -207,14 +264,22 @@ def list_candidates(status=None, limit=50, offset=0):
         ]
 
 
-def show(candidate_id):
+def show(candidate_id: uuid.UUID) -> SqlRecord:
     with session_factory()() as session:
         row = candidate(session, candidate_id)
         result = record(row)
         source = session.get(Source, row.source_id) if row.source_id else None
         if source:
             result["approval_status"] = source.approval_status
-        models: list[tuple[str, Any]] = [
+        models: list[
+            tuple[
+                str,
+                type[CandidateDiscovery]
+                | type[CandidateFeed]
+                | type[CandidateAssessment]
+                | type[SourceDiscoveryJob],
+            ]
+        ] = [
             ("provenance", CandidateDiscovery),
             ("feeds", CandidateFeed),
             ("assessments", CandidateAssessment),
@@ -237,7 +302,7 @@ def show(candidate_id):
         return result
 
 
-def require_idle(session, candidate_id):
+def require_idle(session: Session, candidate_id: uuid.UUID) -> None:
     running = session.scalar(
         select(SourceDiscoveryJob.id)
         .where(
@@ -250,8 +315,14 @@ def require_idle(session, candidate_id):
 
 
 def request(
-    candidate_id, stage="discover", *, reopen=False, actor=None, reason=None, background=False
-):
+    candidate_id: uuid.UUID,
+    stage: str = "discover",
+    *,
+    reopen: bool = False,
+    actor: str | None = None,
+    reason: str | None = None,
+    background: bool = False,
+) -> DiscoveryRequestResult:
     with session_factory().begin() as session:
         row = candidate(session, candidate_id, lock=True)
         require_idle(session, row.id)
@@ -262,6 +333,7 @@ def request(
                 raise OperationConflict("Reopening rejection requires --reopen, --by and --reason")
             audit(session, row, "reopened", actor, reason)
             source = attach_source(session, row)
+            assert source is not None  # The locked candidate retains its source FK.
             source.approval_status = "pending"
             source.enabled = False
         if stage == "assess" and not row.selected_feed_id:
@@ -270,6 +342,7 @@ def request(
             from devfeed_core.source_enrichment import request_source_review
 
             source = attach_source(session, row)
+            assert source is not None  # The locked candidate retains its source FK.
             job = request_source_review(session, source)
             return {
                 "candidate_id": candidate_id,
@@ -293,7 +366,9 @@ def request(
     return {"candidate_id": candidate_id, "stage": stage, "queued": True}
 
 
-def audit(session, row, decision, actor, reason):
+def audit(
+    session: Session, row: SourceCandidate, decision: str, actor: str | None, reason: str | None
+) -> None:
     if (
         not actor
         or not actor.strip()
@@ -315,7 +390,7 @@ def audit(session, row, decision, actor, reason):
     )
 
 
-def select_feed(candidate_id, feed_id):
+def select_feed(candidate_id: uuid.UUID, feed_id: uuid.UUID) -> FeedSelection:
     with session_factory().begin() as session:
         row = candidate(session, candidate_id, lock=True)
         require_idle(session, row.id)
@@ -331,13 +406,14 @@ def select_feed(candidate_id, feed_id):
     return {"candidate_id": candidate_id, "selected_feed_id": feed_id}
 
 
-def reject(candidate_id, actor, reason):
+def reject(candidate_id: uuid.UUID, actor: str, reason: str) -> CandidateDecision:
     with session_factory().begin() as session:
         row = candidate(session, candidate_id, lock=True)
         if row.status == "linked":
             audit(session, row, "rejected", actor, reason)
             return {"candidate_id": candidate_id, "status": "linked"}
         source = attach_source(session, row)
+        assert source is not None  # The locked candidate retains its source FK.
         review_source(
             session, source.id, SourceDecision(decision="rejected", actor=actor, note=reason)
         )
@@ -345,10 +421,11 @@ def reject(candidate_id, actor, reason):
     return {"candidate_id": candidate_id, "status": "rejected"}
 
 
-def approve(candidate_id, actor, reason):
+def approve(candidate_id: uuid.UUID, actor: str, reason: str) -> CandidateDecision:
     with session_factory().begin() as session:
         row = candidate(session, candidate_id, lock=True)
         source = attach_source(session, row)
+        assert source is not None  # The locked candidate retains its source FK.
         if row.status == "linked":
             return {"candidate_id": candidate_id, "source_id": source.id, "status": "linked"}
         review_source(
@@ -358,7 +435,13 @@ def approve(candidate_id, actor, reason):
     return {"candidate_id": candidate_id, "source_id": source.id, "status": "approved"}
 
 
-def run_one(*, allow_ai=False, assessor=None, on_start=None, target_job_id=None):
+def run_one(
+    *,
+    allow_ai: bool = False,
+    assessor: Callable[[list[DiscoverySampleEntry]], JsonRecord] | None = None,
+    on_start: Callable[[DiscoveryStart], None] | None = None,
+    target_job_id: uuid.UUID | None = None,
+) -> DiscoveryRunResult | None:
     # A transaction advisory lock serializes claims. The partial unique index also
     # enforces a single running crawler across CLI processes, including stale owners.
     from sqlalchemy import text
@@ -599,7 +682,7 @@ def run_one(*, allow_ai=False, assessor=None, on_start=None, target_job_id=None)
         }
 
 
-def delete_candidates(candidate_ids):
+def delete_candidates(candidate_ids: Iterable[uuid.UUID]) -> DeleteResult:
     """Delete import records atomically, preserving linked sources and active work."""
     ids = sorted(set(candidate_ids))
     with session_factory().begin() as session:

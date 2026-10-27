@@ -1,16 +1,20 @@
 """One ClickHouse readiness record for the direct analytical stores."""
 
+from __future__ import annotations
+
 import time
 from datetime import UTC, datetime
+
+from devfeed_core.analytics import AnalyticsClient, SqlRecord
 
 IMPORT_ID = "direct-v1"
 
 
 class AnalyticsStatus:
-    def __init__(self, client):
+    def __init__(self, client: AnalyticsClient) -> None:
         self.client = client
 
-    async def write(self, *, ready, cutover, policy):
+    async def write(self, *, ready: bool, cutover: datetime | str, policy: str) -> None:
         if isinstance(cutover, str):
             cutover = datetime.fromisoformat(cutover.replace("Z", "+00:00"))
         now = datetime.now(UTC)
@@ -30,7 +34,7 @@ class AnalyticsStatus:
             ],
         )
 
-    async def read(self):
+    async def read(self) -> SqlRecord:
         from devfeed_core.analytics import AnalyticsUnavailable
 
         rows = await self.client.query(

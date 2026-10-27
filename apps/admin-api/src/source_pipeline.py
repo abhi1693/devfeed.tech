@@ -1,8 +1,11 @@
 """ClickHouse source boards and transactional lifecycle detail/actions."""
 
+from __future__ import annotations
+
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, TypedDict, Unpack
 
 from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.analytics_card_types import (
@@ -56,6 +59,7 @@ from devfeed_core.models import Source, SourceCandidate, SourceReview, utcnow
 from devfeed_core.schemas import DatabaseText
 from devfeed_core.source_lifecycle import (
     SourceLifecycleFacts,
+    _job_items,
     advance_source_processing,
     retry_source_processing,
     source_readiness_batch,
@@ -66,6 +70,7 @@ from devfeed_http.dependencies import run_database
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from devfeed_admin_api.analytics_current import preparing
 from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
@@ -89,7 +94,7 @@ class SourcePipelineQuery:
         needs_attention: bool = False,
         terminal_since: datetime | None = None,
         limit: int = Query(20, ge=1, le=50),
-    ):
+    ) -> None:
         now = utcnow()
         since = terminal_since or now - timedelta(days=7)
         if since.tzinfo is None:
@@ -104,7 +109,7 @@ class SourcePipelineQuery:
 PipelineQuery = Annotated[SourcePipelineQuery, Depends()]
 
 
-def _detail(session, facts: SourceLifecycleFacts) -> SourcePipelineDetail:
+def _detail(session: Session, facts: SourceLifecycleFacts) -> SourcePipelineDetail:
     reviews = (
         list(
             session.scalars(
@@ -140,7 +145,7 @@ def _detail(session, facts: SourceLifecycleFacts) -> SourcePipelineDetail:
                     )
                 },
             )
-            for stage, job in facts.jobs.items()
+            for stage, job in _job_items(facts.jobs)
             if job is not None
         ],
         profile=SourcePipelineProfile.model_validate(facts.source)
@@ -154,7 +159,9 @@ def _detail(session, facts: SourceLifecycleFacts) -> SourcePipelineDetail:
     )
 
 
-def _matching_sources(session, query):
+def _matching_sources(
+    session: Session, query: SourcePipelineQuery
+) -> dict[str, list[uuid.UUID]] | None:
     """Search private identifiers without exporting credentials to ClickHouse.
 
     Only identity UUIDs cross this boundary. Lifecycle filters/counts and paging
@@ -187,7 +194,7 @@ def _matching_sources(session, query):
     }
 
 
-def _hydrate_uris(session, result):
+def _hydrate_uris(session: Session, result: SourcePipelineBoard) -> SourcePipelineBoard:
     items = [item for column in result.columns for item in column.items]
     source_ids = [item.id for item in items if item.kind == "source"]
     candidate_ids = [item.id for item in items if item.kind == "candidate"]
@@ -224,7 +231,17 @@ def _hydrate_uris(session, result):
     return result
 
 
-async def _read_board(factory, analytics, query, **parameters):
+class ReadBoardParameters(TypedDict, total=False):
+    stage: SourcePipelineStage
+    cursor: int
+
+
+async def _read_board(
+    factory: Callable[[], Session],
+    analytics: AnalyticsRuntime,
+    query: SourcePipelineQuery,
+    **parameters: Unpack[ReadBoardParameters],
+) -> SourcePipelineBoard:
     identifiers = await run_database(factory, _matching_sources, query)
     try:
         result = await analytics.source_board(query, matching_ids=identifiers, **parameters)
@@ -234,7 +251,9 @@ async def _read_board(factory, analytics, query, **parameters):
 
 
 @router.get("", response_model=SourcePipelineBoard, operation_id="admin_source_pipeline")
-async def board(factory: DBFactory, query: PipelineQuery, analytics: Analytics):
+async def board(
+    factory: DBFactory, query: PipelineQuery, analytics: Analytics
+) -> SourcePipelineBoard:
     return await _read_board(factory, analytics, query)
 
 
@@ -249,7 +268,7 @@ async def column(
     query: PipelineQuery,
     analytics: Analytics,
     cursor: int = Query(0, ge=0, le=MAX_CURSOR),
-):
+) -> SourcePipelineColumn:
     return (await _read_board(factory, analytics, query, stage=stage, cursor=cursor)).columns[0]
 
 
@@ -258,7 +277,7 @@ async def column(
     response_model=SourcePipelineDetail,
     operation_id="admin_source_pipeline_detail",
 )
-def detail(kind: SourcePipelineKind, identifier: uuid.UUID, session: DB):
+def detail(kind: SourcePipelineKind, identifier: uuid.UUID, session: DB) -> SourcePipelineDetail:
     from devfeed_core.services import RecordNotFound
 
     if kind == "candidate":
@@ -291,7 +310,7 @@ def advance(
     body: SourcePipelineAdvance,
     session: DB,
     admin: Admin,
-):
+) -> SourcePipelineDetail:
     facts = advance_source_processing(
         session, kind, identifier, body.expected_snapshot, actor=admin.subject
     )
@@ -312,7 +331,7 @@ def retry(
     body: SourcePipelineRetry,
     session: DB,
     admin: Admin,
-):
+) -> SourcePipelineDetail:
     facts = retry_source_processing(
         session,
         kind,

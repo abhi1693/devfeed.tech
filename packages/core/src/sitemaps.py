@@ -5,18 +5,48 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime
 from itertools import groupby
+from typing import NotRequired, TypedDict, cast
 from urllib.parse import quote
 
 from sqlalchemy import func, literal, select, text, union_all
+from sqlalchemy.sql.selectable import CompoundSelect
 
 from devfeed_core.cache import RELEASE, CacheUnavailable, get_sitemap_cache
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.models import Article, ArticleOrigin, ArticleTag, ArticleTopic, Source, Tag, Topic
 from devfeed_core.publication import visible_article
+from redis import Redis
+
+
+class SitemapEntry(TypedDict):
+    path: str
+    lastmod: NotRequired[str]
+
+
+class SitemapPartReference(TypedDict):
+    kind: str
+    page: int
+    digest: str
+    modified_at: float
+
+
+class SitemapManifest(TypedDict):
+    format: int
+    generation: str
+    built_at: float
+    parts: list[SitemapPartReference]
+    latest_publication: dict[str, str]
+
+
+class SitemapPart(TypedDict):
+    paths: list[str]
+    entries: NotRequired[list[SitemapEntry]]
+
 
 KINDS = ("articles", "topics", "tags", "sources")
 PART_SIZE = 1000
@@ -32,7 +62,7 @@ class SitemapUnavailable(Exception):
     pass
 
 
-def snapshot_statement():
+def snapshot_statement() -> CompoundSelect[str, uuid.UUID, str, datetime, str | None]:
     # One eligibility evaluation shared by articles and every discovery page.
     visible = (
         select(
@@ -97,36 +127,40 @@ def snapshot_statement():
     return union_all(*branches).order_by("kind", "id")
 
 
-def _prefix():
+def _prefix() -> str:
     return get_sitemap_cache().namespace + ":sitemaps:v1"
 
 
-def _redis(operation):
+def _redis[T](operation: Callable[[Redis], T]) -> T:
     cache = get_sitemap_cache()
     return cache._run(lambda: operation(cache.redis))
 
 
-def _read(key):
-    data = _redis(lambda redis: redis.get(key))
-    return json.loads(data) if data is not None else None
+def _read(key: str) -> object:
+    # Redis exposes an untyped response; only this cache owner writes these keys.
+    data: bytes | str | None = _redis(lambda redis: redis.get(key))
+    decoded: object = json.loads(data) if data is not None else None
+    return decoded
 
 
-def _write(key, value, ttl):
+def _write(key: str, value: object, ttl: int) -> None:
     _redis(lambda redis: redis.set(key, json.dumps(value, separators=(",", ":")), ex=ttl))
 
 
-def build_snapshot(prefix, token, ttl):
+def build_snapshot(prefix: str, token: str, ttl: int) -> SitemapManifest:
     generation = uuid.uuid4().hex
-    parts = []
+    parts: list[SitemapPartReference] = []
     latest_publication: dict[str, datetime] = {}
-    previous = _read(prefix + ":manifest") or {}
-    old_parts = {(p["kind"], p["page"]): p for p in previous.get("parts", [])}
+    # This namespace is owned by the typed manifest writer below. The version
+    # check at the serving boundary handles retained older snapshots.
+    previous = cast(SitemapManifest | None, _read(prefix + ":manifest"))
+    old_parts = {(p["kind"], p["page"]): p for p in previous["parts"]} if previous else {}
 
-    def store_part(kind, page, entries):
+    def store_part(kind: str, page: int, entries: list[SitemapEntry]) -> None:
         # Stable filenames only change their lastmod when their XML content changes.
         digest = hashlib.sha256(json.dumps(entries).encode()).hexdigest()
-        old = old_parts.get((kind, page), {})
-        modified_at = old.get("modified_at") if old.get("digest") == digest else None
+        old = old_parts.get((kind, page))
+        modified_at = old.get("modified_at") if old and old.get("digest") == digest else None
         _write(
             f"{prefix}:{generation}:{kind}:{page}",
             {"paths": [entry["path"] for entry in entries], "entries": entries},
@@ -150,11 +184,12 @@ def build_snapshot(prefix, token, ttl):
         session.execute(text("SET LOCAL statement_timeout = '40s'"))
         rows = session.execute(snapshot_statement().execution_options(yield_per=PART_SIZE))
         for kind, members in groupby(rows, key=lambda row: row.kind):
-            page, entries = 1, []
+            page = 1
+            entries: list[SitemapEntry] = []
             for _, _, slug, published_at, content_type in members:
                 if time.monotonic() > deadline:
                     raise SitemapUnavailable("Sitemap refresh exceeded its budget")
-                entry = {"path": f"/{kind}/" + quote(str(slug), safe="")}
+                entry: SitemapEntry = {"path": f"/{kind}/" + quote(str(slug), safe="")}
                 if published_at is not None:
                     entry["lastmod"] = published_at.isoformat()
                     for key in [kind, *([f"feed:{content_type}"] if content_type else [])]:
@@ -167,7 +202,7 @@ def build_snapshot(prefix, token, ttl):
                     page, entries = page + 1, []
             if entries:
                 store_part(kind, page, entries)
-    manifest = {
+    manifest: SitemapManifest = {
         "format": SNAPSHOT_FORMAT,
         "generation": generation,
         "built_at": time.time(),
@@ -178,10 +213,11 @@ def build_snapshot(prefix, token, ttl):
     }
     # Publish only after all shards exist, and only while this refresh owns its lease.
     new_keys = [f"{prefix}:{generation}:{p['kind']}:{p['page']}" for p in parts]
-    old_keys = [
-        f"{prefix}:{previous['generation']}:{p['kind']}:{p['page']}"
-        for p in previous.get("parts", [])
-    ]
+    old_keys = (
+        [f"{prefix}:{previous['generation']}:{p['kind']}:{p['page']}" for p in previous["parts"]]
+        if previous
+        else []
+    )
     published = _redis(
         lambda redis: redis.eval(
             "if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end; "
@@ -210,14 +246,14 @@ def build_snapshot(prefix, token, ttl):
     return manifest
 
 
-def refresh_snapshot():
+def refresh_snapshot() -> SitemapManifest | None:
     """Scheduled work only: publish a complete inventory without blocking crawlers."""
     prefix = _prefix()
     previous = None
     token = uuid.uuid4().hex
     owns = False
     try:
-        previous = _read(prefix + ":manifest")
+        previous = cast(SitemapManifest | None, _read(prefix + ":manifest"))
         if previous and previous.get("format") != SNAPSHOT_FORMAT:
             previous = None
         refresh = get_settings().sitemap_refresh_seconds
@@ -227,13 +263,15 @@ def refresh_snapshot():
             if previous:
                 return previous
             raise SitemapUnavailable("Sitemap refresh is cooling down")
-        owns = _redis(lambda redis: redis.set(prefix + ":lock", token, nx=True, ex=LOCK_SECONDS))
+        owns = bool(
+            _redis(lambda redis: redis.set(prefix + ":lock", token, nx=True, ex=LOCK_SECONDS))
+        )
         if not owns:
             if previous:
                 return previous
             return None
         # Another owner can finish between our first read and lease acquisition.
-        current = _read(prefix + ":manifest")
+        current = cast(SitemapManifest | None, _read(prefix + ":manifest"))
         if current and current.get("format") == SNAPSHOT_FORMAT:
             previous = current
             if time.time() - current["built_at"] < refresh:
@@ -253,10 +291,10 @@ def refresh_snapshot():
                 _redis(lambda redis: redis.eval(RELEASE, 1, prefix + ":lock", token))
 
 
-def manifest():
+def manifest() -> SitemapManifest:
     """Serve the retained snapshot even when a scheduled refresh is due or failed."""
     try:
-        current = _read(_prefix() + ":manifest")
+        current = cast(SitemapManifest | None, _read(_prefix() + ":manifest"))
     except CacheUnavailable as exc:
         raise SitemapUnavailable("Sitemap is temporarily unavailable") from exc
     if current and current.get("format") == SNAPSHOT_FORMAT:
@@ -264,10 +302,12 @@ def manifest():
     raise SitemapUnavailable("Sitemap is being prepared")
 
 
-def part(kind, page, generation=None):
+def part(kind: str, page: int, generation: str | None = None) -> SitemapPart | list[str] | None:
     if generation is None:
         generation = manifest()["generation"]
     try:
-        return _read(f"{_prefix()}:{generation}:{kind}:{page}")
+        return cast(
+            SitemapPart | list[str] | None, _read(f"{_prefix()}:{generation}:{kind}:{page}")
+        )
     except CacheUnavailable as exc:
         raise SitemapUnavailable("Sitemap is temporarily unavailable") from exc

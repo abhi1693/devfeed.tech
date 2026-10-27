@@ -6,9 +6,14 @@ A committed PostgreSQL change and a ClickHouse insert are separate operations;
 callers must not assume cross-database atomicity.
 """
 
+from __future__ import annotations
+
 import re
 import uuid
+from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
+
+from devfeed_core.analytics import AnalyticsClient, SqlRecord
 
 MAX_BATCH = 1000
 MAX_LOOKUP = 1000
@@ -19,49 +24,49 @@ KINDS = frozenset(
 )
 
 
-def _uuid(value):
+def _uuid(value: object) -> str:
     try:
         return str(uuid.UUID(str(value)))
     except (ValueError, TypeError, AttributeError) as error:
         raise ValueError("Invalid analytics identity") from error
 
 
-def _hash(value):
+def _hash(value: object) -> str:
     if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
         raise ValueError("Invalid search identity")
     return value
 
 
-def _day(value):
+def _day(value: object) -> int:
     if not isinstance(value, date) or isinstance(value, datetime):
         raise ValueError("Invalid analytics day")
     return (value - _EPOCH).days
 
 
-def _time(value):
+def _time(value: object) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("Analytics timestamps require a timezone")
     return value.astimezone(UTC)
 
 
-def _uint(value, *, name):
+def _uint(value: object, *, name: str) -> int:
     if type(value) is not int or not 0 <= value < 2**64:
         raise ValueError(f"Invalid {name}")
     return value
 
 
 def _row(
-    kind,
-    owner,
-    identity,
-    day,
-    revision,
-    impressions=0,
-    clicks=0,
-    searches=0,
-    first_seen=_ZERO_TIME,
-    last_seen=_ZERO_TIME,
-):
+    kind: str,
+    owner: str,
+    identity: str,
+    day: int,
+    revision: int,
+    impressions: int = 0,
+    clicks: int = 0,
+    searches: int = 0,
+    first_seen: datetime = _ZERO_TIME,
+    last_seen: datetime = _ZERO_TIME,
+) -> SqlRecord:
     if kind not in KINDS:
         raise ValueError("Invalid analytics kind")
     return {
@@ -88,10 +93,10 @@ class DirectEngagementAnalytics:
     to provide a strictly increasing revision for the same identity.
     """
 
-    def __init__(self, client):
+    def __init__(self, client: AnalyticsClient) -> None:
         self.client = client
 
-    async def _insert(self, rows):
+    async def _insert(self, rows: Sequence[SqlRecord]) -> None:
         if not isinstance(rows, (list, tuple)) or len(rows) > MAX_BATCH:
             raise ValueError("Invalid analytics batch")
         if rows:
@@ -105,7 +110,7 @@ class DirectEngagementAnalytics:
                 raise ValueError("Mixed analytics domains in one batch")
             await self.client.insert(tables.pop(), list(rows))
 
-    async def partner_events(self, events):
+    async def partner_events(self, events: Sequence[SqlRecord]) -> None:
         if not isinstance(events, (list, tuple)) or len(events) > MAX_BATCH:
             raise ValueError("Invalid partner batch")
         rows = []
@@ -135,7 +140,7 @@ class DirectEngagementAnalytics:
             )
         await self._insert(rows)
 
-    async def partner_totals(self, totals, *, baseline=False):
+    async def partner_totals(self, totals: Sequence[SqlRecord], *, baseline: bool = False) -> None:
         if (
             not isinstance(totals, (list, tuple))
             or len(totals) > MAX_BATCH
@@ -168,7 +173,7 @@ class DirectEngagementAnalytics:
             )
         await self._insert(rows)
 
-    async def search_events(self, events):
+    async def search_events(self, events: Sequence[SqlRecord]) -> None:
         if not isinstance(events, (list, tuple)) or len(events) > MAX_BATCH:
             raise ValueError("Invalid search batch")
         rows = []
@@ -194,7 +199,7 @@ class DirectEngagementAnalytics:
             )
         await self._insert(rows)
 
-    async def search_baselines(self, baselines):
+    async def search_baselines(self, baselines: Sequence[SqlRecord]) -> None:
         if not isinstance(baselines, (list, tuple)) or len(baselines) > MAX_BATCH:
             raise ValueError("Invalid search baselines")
         rows = []
@@ -224,7 +229,13 @@ class DirectEngagementAnalytics:
             )
         await self._insert(rows)
 
-    async def partner_daily(self, asset_ids, *, start=None, end=None):
+    async def partner_daily(
+        self,
+        asset_ids: Sequence[uuid.UUID | str],
+        *,
+        start: date | None = None,
+        end: date | None = None,
+    ) -> list[SqlRecord]:
         ids = _identities(asset_ids, _uuid)
         start_day = _day(start) if start is not None else None
         end_day = _day(end) if end is not None else None
@@ -232,7 +243,8 @@ class DirectEngagementAnalytics:
             raise ValueError("Invalid analytics date range")
         if not ids:
             return []
-        filters, params = [], {"owners": ids}
+        filters: list[str] = []
+        params: dict[str, object] = {"owners": ids}
         if start_day is not None:
             filters.append("day >= {start:Int32}")
             params["start"] = start_day
@@ -256,7 +268,7 @@ class DirectEngagementAnalytics:
             row | {"day": date.fromordinal(_EPOCH.toordinal() + int(row["day"]))} for row in rows
         ]
 
-    async def partner_summary(self, asset_ids):
+    async def partner_summary(self, asset_ids: Sequence[uuid.UUID | str]) -> list[SqlRecord]:
         """Return all-time partner totals per authorized asset in one bounded query."""
         ids = _identities(asset_ids, _uuid)
         if not ids:
@@ -270,7 +282,7 @@ class DirectEngagementAnalytics:
             {"owners": ids},
         )
 
-    async def search_counts(self, query_hashes):
+    async def search_counts(self, query_hashes: Sequence[str]) -> list[SqlRecord]:
         ids = _identities(query_hashes, _hash)
         if not ids:
             return []
@@ -284,7 +296,7 @@ class DirectEngagementAnalytics:
         )
 
 
-def _identities(values, validator):
+def _identities(values: Sequence[object], validator: Callable[[object], str]) -> list[str]:
     if not isinstance(values, (list, tuple)) or len(values) > MAX_LOOKUP:
         raise ValueError("Invalid analytics lookup")
     return list(dict.fromkeys(validator(value) for value in values))

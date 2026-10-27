@@ -1,5 +1,7 @@
 """Topic identity and relationship administration. Linked taxonomy is protected."""
 
+from __future__ import annotations
+
 import logging
 import uuid
 from datetime import datetime
@@ -25,9 +27,10 @@ from devfeed_core.topics import (
     relate_topics,
     save_topic,
 )
-from devfeed_http.pagination import Listing, Page, paginate, prohibit_references, record
+from devfeed_http.pagination import Listing, Page, PageData, paginate, prohibit_references, record
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
@@ -63,7 +66,7 @@ class RelationOut(ORMModel):
 @router.get("/topics", response_model=Page[AdminTopicOut], operation_id="admin_topics_list")
 def topics(
     session: DB, query: Listing, status: Literal["proposed", "active", "rejected"] | None = None
-):
+) -> PageData[Topic]:
     statement = select(Topic)
     if query.q:
         statement = statement.where(topic_search(query.q))
@@ -83,7 +86,7 @@ def topics(
 
 
 @router.get("/topics/{topic_id}", response_model=AdminTopicOut, operation_id="admin_topic_get")
-def topic_detail(topic_id: uuid.UUID, session: DB):
+def topic_detail(topic_id: uuid.UUID, session: DB) -> AdminTopicOut:
     topic = record(session, Topic, topic_id)
     output = AdminTopicOut.model_validate(topic)
     job = session.scalar(
@@ -103,7 +106,7 @@ def topic_detail(topic_id: uuid.UUID, session: DB):
 @router.post(
     "/topics", response_model=AdminTopicOut, status_code=201, operation_id="admin_topic_create"
 )
-def topic_create(body: AdminTopicWrite, session: DB):
+def topic_create(body: AdminTopicWrite, session: DB) -> Topic:
     topic = save_topic(session, body)
     session.commit()
     logger.info("topic_created", extra={"topic_id": topic.id})
@@ -111,7 +114,7 @@ def topic_create(body: AdminTopicWrite, session: DB):
 
 
 @router.put("/topics/{topic_id}", response_model=AdminTopicOut, operation_id="admin_topic_update")
-def topic_update(topic_id: uuid.UUID, body: AdminTopicWrite, session: DB):
+def topic_update(topic_id: uuid.UUID, body: AdminTopicWrite, session: DB) -> Topic:
     lock_topics(session)
     topic = record(session, Topic, topic_id)
     if topic.status == "active" and body.status != "active":
@@ -136,7 +139,7 @@ def topic_update(topic_id: uuid.UUID, body: AdminTopicWrite, session: DB):
     response_model=TopicDeleteImpact,
     operation_id="admin_topic_delete_preview",
 )
-def topic_delete_preview(topic_id: uuid.UUID, session: DB):
+def topic_delete_preview(topic_id: uuid.UUID, session: DB) -> TopicDeleteImpact:
     return deletion_impact(session, topic_id)
 
 
@@ -163,7 +166,9 @@ def topic_delete(
 @router.get(
     "/topic-relations", response_model=Page[RelationOut], operation_id="admin_relations_list"
 )
-def relations(session: DB, query: Listing, topic_id: uuid.UUID | None = None):
+def relations(
+    session: DB, query: Listing, topic_id: uuid.UUID | None = None
+) -> PageData[TopicRelation]:
     statement = select(TopicRelation)
     if topic_id:
         statement = statement.where(
@@ -181,7 +186,9 @@ def relations(session: DB, query: Listing, topic_id: uuid.UUID | None = None):
     return paginate(session, statement, query, {"relation": TopicRelation.relation}, "relation")
 
 
-def relation_record(session, topic_id, related_topic_id, relation):
+def relation_record(
+    session: Session, topic_id: uuid.UUID, related_topic_id: uuid.UUID, relation: RelationKind
+) -> TopicRelation:
     value = session.get(TopicRelation, (topic_id, related_topic_id, relation))
     if value is None:
         raise RecordNotFound("Topic relationship not found")
@@ -195,7 +202,7 @@ def relation_record(session, topic_id, related_topic_id, relation):
 )
 def relation_get(
     topic_id: uuid.UUID, related_topic_id: uuid.UUID, relation: RelationKind, session: DB
-):
+) -> TopicRelation:
     return relation_record(session, topic_id, related_topic_id, relation)
 
 
@@ -205,7 +212,7 @@ def relation_get(
     status_code=201,
     operation_id="admin_relation_create",
 )
-def relation_create(body: RelationWrite, session: DB):
+def relation_create(body: RelationWrite, session: DB) -> TopicRelation:
     if session.get(TopicRelation, (body.topic_id, body.related_topic_id, body.relation)):
         raise OperationConflict("This topic relationship already exists")
     value = relate_topics(session, body)
@@ -225,7 +232,7 @@ def relation_update(
     relation: RelationKind,
     body: RelationWrite,
     session: DB,
-):
+) -> TopicRelation:
     relation_record(session, topic_id, related_topic_id, relation)
     if (topic_id, related_topic_id, relation) != (
         body.topic_id,

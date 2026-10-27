@@ -1,12 +1,27 @@
 """Persist cumulative attempt usage without counting repeated stream updates twice."""
 
 import time
+import uuid
 
-from devfeed_core.models import utcnow
+from devfeed_core.models import (
+    ArticleAnalysisJob,
+    ResearchVerificationJob,
+    TopicAnalysisJob,
+    utcnow,
+)
 from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
 
 
-def record_attempt(factory, model, identifier, client, started, *, attempt):
+def record_attempt[T: ArticleAnalysisJob | TopicAnalysisJob | ResearchVerificationJob](
+    factory: sessionmaker[Session],
+    model: type[T],
+    identifier: uuid.UUID,
+    client: object,
+    started: float,
+    *,
+    attempt: int,
+) -> None:
     with factory.begin() as session:
         job = session.scalar(select(model).where(model.id == identifier).with_for_update())
         if job is None:

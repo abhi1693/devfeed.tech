@@ -1,13 +1,17 @@
 """Single-purpose article inference contracts; workers own execution and persistence."""
 
+from __future__ import annotations
+
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import Field
 
 from devfeed_core.analysis import (
     ARTICLE_INPUT_BYTES,
+    AnalysisCatalog,
     AnalysisResult,
     Classifications,
     LabelSelection,
@@ -19,6 +23,7 @@ from devfeed_core.analysis import (
 )
 from devfeed_core.article_quality import identifying_title, readable_presentation
 from devfeed_core.inference_validation import CODES, InferenceValidationError
+from devfeed_core.json_types import JsonRecord, JsonValue
 from devfeed_core.schemas import ContentFormat, ContentType, InputModel, Language
 
 
@@ -204,7 +209,9 @@ STEP_SPECS: dict[str, ArticleStepSpec] = {
 STEP_NAMES = tuple(STEP_SPECS)
 
 
-def _source_context(snapshot: dict, name: str, *, excerpt: int | None = None) -> dict:
+def _source_context(
+    snapshot: Mapping[str, JsonValue], name: str, *, excerpt: int | None = None
+) -> dict[str, JsonValue]:
     fields = ["source_summary", "text", "text_source"]
     if name != "language":
         fields.append("title")
@@ -220,8 +227,11 @@ def _source_context(snapshot: dict, name: str, *, excerpt: int | None = None) ->
 
 
 def prepare_article_step(
-    name: str, snapshot: dict, taxonomy: dict, outputs: dict
-) -> tuple[str, dict, str]:
+    name: str,
+    snapshot: Mapping[str, JsonValue],
+    taxonomy: AnalysisCatalog,
+    outputs: Mapping[str, JsonRecord],
+) -> tuple[str, JsonRecord, str]:
     spec = STEP_SPECS[name]
     if name == "description":
         overview = outputs.get("overview", {})
@@ -231,8 +241,8 @@ def prepare_article_step(
             raise InferenceValidationError(
                 "missing_ai_summary", "Description requires a valid overview"
             )
-        title = bounded_analysis_source({"title": snapshot.get("title")})
-        context = {"source_title": title["title"], "overview": overview["ai_summary"]}
+        title = bounded_analysis_source({"title": cast(str | None, snapshot.get("title"))})
+        context: JsonRecord = {"source_title": title["title"], "overview": overview["ai_summary"]}
         if title.get("title_is_excerpt"):
             context["source_title_is_excerpt"] = True
     else:
@@ -266,8 +276,12 @@ def prepare_article_step(
 
 
 def validate_article_step(
-    name: str, output: dict, snapshot: dict, taxonomy: dict, outputs: dict
-) -> dict:
+    name: str,
+    output: JsonRecord,
+    snapshot: Mapping[str, JsonValue],
+    taxonomy: AnalysisCatalog,
+    outputs: Mapping[str, JsonRecord],
+) -> JsonRecord:
     value = STEP_SPECS[name].model.model_validate(output)
     result = value.model_dump(mode="json")
     if name in {"topics", "tags"}:
@@ -319,7 +333,7 @@ def validate_article_step(
                     raise InferenceValidationError(
                         "evidence_not_in_input", "Title evidence missing from supplied source body"
                     )
-        if not identifying_title(title or snapshot.get("title")):
+        if not identifying_title(title or cast(str | None, snapshot.get("title"))):
             raise InferenceValidationError(
                 "unidentifiable_title", "A title must identify its subject"
             )
@@ -332,7 +346,9 @@ def validate_article_step(
     return result
 
 
-def next_article_step(snapshot: dict, outputs: dict) -> str | None:
+def next_article_step(
+    snapshot: Mapping[str, JsonValue], outputs: Mapping[str, JsonRecord]
+) -> str | None:
     relevance = outputs.get("developer_relevance")
     if relevance is None:
         return "developer_relevance"
@@ -349,7 +365,9 @@ def next_article_step(snapshot: dict, outputs: dict) -> str | None:
     ):
         return None
     for name in STEP_NAMES[2:]:
-        if name == "identifying_title" and identifying_title(snapshot.get("title")):
+        if name == "identifying_title" and identifying_title(
+            cast(str | None, snapshot.get("title"))
+        ):
             continue
         value = outputs.get(name)
         if value is None:
@@ -359,7 +377,9 @@ def next_article_step(snapshot: dict, outputs: dict) -> str | None:
     return None
 
 
-def assemble_article_analysis(snapshot: dict, outputs: dict) -> AnalysisResult:
+def assemble_article_analysis(
+    snapshot: Mapping[str, JsonValue], outputs: Mapping[str, JsonRecord]
+) -> AnalysisResult:
     fields: dict[str, object] = {
         "developer_relevance": "uncertain",
         "page_kind": "uncertain",
@@ -377,7 +397,9 @@ def assemble_article_analysis(snapshot: dict, outputs: dict) -> AnalysisResult:
     evaluated_topics = False
     reasons = []
     for name in STEP_NAMES:
-        if name == "identifying_title" and identifying_title(snapshot.get("title")):
+        if name == "identifying_title" and identifying_title(
+            cast(str | None, snapshot.get("title"))
+        ):
             continue
         value = outputs.get(name)
         if value is None:
@@ -413,7 +435,7 @@ def assemble_article_analysis(snapshot: dict, outputs: dict) -> AnalysisResult:
     return require_primary_topic(result)[0] if evaluated_topics else result
 
 
-def article_step_feedback(name: str, feedback: dict | None) -> str:
+def article_step_feedback(name: str, feedback: object) -> str:
     if (
         not isinstance(feedback, dict)
         or not isinstance(feedback.get("code"), str)

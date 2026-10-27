@@ -46,6 +46,7 @@ from devfeed_core.urls import canonicalize_url, fingerprint, validate_public_url
 from devfeed_http.pagination import (
     Listing,
     Page,
+    PageData,
     paginate,
     prohibit_references,
     record,
@@ -76,19 +77,19 @@ class ArticleFields(InputModel):
 
     @field_validator("title")
     @classmethod
-    def readable_title(cls, value):
+    def readable_title(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("Title must contain readable text")
         return value.strip()
 
     @field_validator("image_url")
     @classmethod
-    def image_is_public(cls, value):
+    def image_is_public(cls, value: str | None) -> str | None:
         return validate_public_url(value) if value is not None else None
 
     @field_validator("published_at")
     @classmethod
-    def timezone_required(cls, value):
+    def timezone_required(cls, value: datetime | None) -> datetime | None:
         if value is not None and value.tzinfo is None:
             raise ValueError("Publication date requires a timezone")
         return value
@@ -171,7 +172,7 @@ class ClassifyArticle(ManualClassification):
     expected_revision: int = Field(ge=0)
 
 
-def article_view(article):
+def article_view(article: Article) -> AdminArticleOut:
     result = AdminArticleOut.model_validate(article)
     result.sources = [SourceRef.model_validate(origin.source) for origin in article.origins]
     result.topics = [
@@ -201,7 +202,7 @@ def articles(
     source_id: uuid.UUID | None = None,
     topic_id: uuid.UUID | None = None,
     tag_id: uuid.UUID | None = None,
-):
+) -> PageData[AdminArticleOut]:
     statement = select(Article)
     if query.q:
         statement = statement.where(text_search(query.q, Article.title, Article.canonical_url))
@@ -230,19 +231,18 @@ def articles(
         },
         "-discovered_at",
     )
-    result["items"] = [article_view(article) for article in result["items"]]
-    return result
+    return {**result, "items": [article_view(article) for article in result["items"]]}
 
 
 @router.get("/{article_id}", response_model=AdminArticleOut, operation_id="admin_article_get")
-def detail(article_id: uuid.UUID, session: DB):
+def detail(article_id: uuid.UUID, session: DB) -> AdminArticleOut:
     return article_view(record(session, Article, article_id))
 
 
 @router.post(
     "", response_model=AdminArticleOut, status_code=201, operation_id="admin_article_create"
 )
-def create(body: AdminArticleCreate, session: DB, admin: Admin):
+def create(body: AdminArticleCreate, session: DB, admin: Admin) -> AdminArticleOut:
     record(session, Source, body.source_id)
     article = Article(
         **body.model_dump(exclude={"source_id"}),
@@ -276,7 +276,9 @@ def create(body: AdminArticleCreate, session: DB, admin: Admin):
 
 
 @router.put("/{article_id}", response_model=AdminArticleOut, operation_id="admin_article_update")
-def update(article_id: uuid.UUID, body: AdminArticleUpdate, session: DB, admin: Admin):
+def update(
+    article_id: uuid.UUID, body: AdminArticleUpdate, session: DB, admin: Admin
+) -> AdminArticleOut:
     article = record(session, Article, article_id, lock=True)
     if article.editorial_revision != body.expected_revision:
         raise OperationConflict("Article changed; reload before saving")
@@ -317,7 +319,9 @@ def update(article_id: uuid.UUID, body: AdminArticleUpdate, session: DB, admin: 
 @router.post(
     "/{article_id}/review", response_model=AdminArticleOut, operation_id="admin_article_review"
 )
-def review(article_id: uuid.UUID, body: ReviewArticle, session: DB, admin: Admin):
+def review(
+    article_id: uuid.UUID, body: ReviewArticle, session: DB, admin: Admin
+) -> AdminArticleOut:
     article = decide_article(
         session, article_id, EditorialDecision(**body.model_dump(), actor=admin.subject)
     )
@@ -328,7 +332,9 @@ def review(article_id: uuid.UUID, body: ReviewArticle, session: DB, admin: Admin
 @router.post(
     "/{article_id}/classify", response_model=AdminArticleOut, operation_id="admin_article_classify"
 )
-def classify(article_id: uuid.UUID, body: ClassifyArticle, session: DB, admin: Admin):
+def classify(
+    article_id: uuid.UUID, body: ClassifyArticle, session: DB, admin: Admin
+) -> AdminArticleOut:
     try:
         article = classify_manually(
             session,
@@ -348,7 +354,7 @@ def classify(article_id: uuid.UUID, body: ClassifyArticle, session: DB, admin: A
     response_model=ArticleContentOut | None,
     operation_id="admin_article_content",
 )
-def content(article_id: uuid.UUID, session: DB):
+def content(article_id: uuid.UUID, session: DB) -> ArticleContent | None:
     require_record(session, Article, article_id)
     return session.get(ArticleContent, article_id)
 
@@ -358,7 +364,7 @@ def content(article_id: uuid.UUID, session: DB):
     response_model=Page[ArticleReviewOut],
     operation_id="admin_article_reviews",
 )
-def reviews(article_id: uuid.UUID, session: DB, query: Listing):
+def reviews(article_id: uuid.UUID, session: DB, query: Listing) -> PageData[ArticleReview]:
     require_record(session, Article, article_id)
     statement = select(ArticleReview).where(ArticleReview.article_id == article_id)
     if query.q:

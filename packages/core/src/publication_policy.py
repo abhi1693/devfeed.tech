@@ -1,8 +1,19 @@
 """Explicit per-source publication authority, with previews and versioned decisions."""
 
-from sqlalchemy import select
+from __future__ import annotations
 
-from devfeed_core.analysis import analysis_catalog_current, catalog, snapshot_hash, source_snapshot
+from typing import Literal, TypedDict, cast
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from devfeed_core.analysis import (
+    CatalogItem,
+    analysis_catalog_current,
+    catalog,
+    snapshot_hash,
+    source_snapshot,
+)
 from devfeed_core.article_lifecycle import processing_readiness
 from devfeed_core.config import get_settings
 from devfeed_core.editorial import (
@@ -11,7 +22,9 @@ from devfeed_core.editorial import (
     meaningful_text,
     publication_blockers,
 )
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import (
+    Article,
     ArticleAnalysisJob,
     ArticleContent,
     ArticleEnrichmentJob,
@@ -19,11 +32,33 @@ from devfeed_core.models import (
     ArticleReview,
 )
 
+
+class PublicationEvaluation(TypedDict):
+    policy_version: str
+    mode: str
+    full_automation: bool
+    source_id: str | None
+    source_policy_revision: int | None
+    analysis_id: str | None
+    paywall_enrichment_id: str | None
+    paywall_reason: str | None
+    article_revision: int
+    input_hash: str
+    status: Literal["blocked", "would_publish", "would_reject", "published", "rejected"]
+    reasons: list[str]
+
+
 POLICY_VERSION = "trusted-source-v3"
 ACTOR = "devfeed:automatic-publication"
 
 
-def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
+def evaluate_publication(
+    session: Session,
+    article: Article,
+    job: ArticleAnalysisJob | None,
+    *,
+    taxonomy: dict[str, list[CatalogItem]] | None = None,
+) -> PublicationEvaluation:
     full = get_settings().full_automation
     sources = sorted(
         (
@@ -99,8 +134,12 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
         "source_id": str(source.id) if source else None,
         "source_policy_revision": source.publication_policy_revision if source else None,
         "analysis_id": str(job.id) if job else None,
-        "paywall_enrichment_id": str(enrichment.id) if paywalled else None,
-        "paywall_reason": (enrichment.result or {}).get("paywall_reason") if paywalled else None,
+        "paywall_enrichment_id": str(enrichment.id)
+        if paywalled and enrichment is not None
+        else None,
+        "paywall_reason": (enrichment.result or {}).get("paywall_reason")
+        if paywalled and enrichment is not None
+        else None,
         "article_revision": article.editorial_revision,
         "input_hash": snapshot_hash(current),
         "status": "blocked" if reasons else "would_publish",
@@ -108,7 +147,14 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
     }
 
 
-def apply_publication_policy(session, article, job, *, taxonomy=None, evaluation=None) -> dict:
+def apply_publication_policy(
+    session: Session,
+    article: Article,
+    job: ArticleAnalysisJob | None,
+    *,
+    taxonomy: dict[str, list[CatalogItem]] | None = None,
+    evaluation: PublicationEvaluation | None = None,
+) -> PublicationEvaluation:
     """Caller owns source, article and taxonomy locks, in that order.
 
     An evaluation may be reused only from this same locked transaction.
@@ -172,8 +218,9 @@ def apply_publication_policy(session, article, job, *, taxonomy=None, evaluation
         )
     )
     if previous:
-        return previous.decision
+        return cast(PublicationEvaluation, previous.decision)
     if decision["status"] == "would_publish" and decision["mode"] == "auto":
+        assert job is not None
         for action in ("approve", "publish"):
             decide_article(
                 session,
@@ -184,7 +231,7 @@ def apply_publication_policy(session, article, job, *, taxonomy=None, evaluation
                     expected_revision=article.editorial_revision,
                     note=f"Policy {decision['policy_version']}; analysis {job.id}",
                 ),
-                automation=decision,
+                automation=cast(JsonRecord, decision),
             )
         decision = {**decision, "status": "published"}
     elif decision["status"] == "would_reject":
@@ -204,7 +251,7 @@ def apply_publication_policy(session, article, job, *, taxonomy=None, evaluation
                 expected_revision=article.editorial_revision,
                 note=note,
             ),
-            automation=decision,
+            automation=cast(JsonRecord, decision),
         )
         decision = {**decision, "status": "rejected"}
     if job is not None:

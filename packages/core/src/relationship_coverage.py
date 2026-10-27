@@ -1,9 +1,12 @@
 """Incremental relationship coverage: newer topic revisions research older revisions."""
 
+from __future__ import annotations
+
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_core.analysis import snapshot_hash
 from devfeed_core.config import get_settings
@@ -30,7 +33,9 @@ ACTOR = {
 }
 
 
-def reset_scan(session, topic, scan=None):
+def reset_scan(
+    session: Session, topic: Topic, scan: TopicRelationshipScan | None = None
+) -> TopicRelationshipScan:
     """Caller holds the taxonomy lock; the scan commits or rolls back with the topic."""
     if scan is None:
         scan = TopicRelationshipScan(topic_id=topic.id, topic=topic)
@@ -45,7 +50,7 @@ def reset_scan(session, topic, scan=None):
     return scan
 
 
-def _completed_job(scan, job, now):
+def _completed_job(scan: TopicRelationshipScan, job: TopicAnalysisJob, now: datetime) -> None:
     scan.job_id = None
     if job.status == "failed":
         # The worker already made its bounded immediate attempts. Retry this
@@ -65,13 +70,15 @@ def _completed_job(scan, job, now):
     scan.after_topic_id = uuid.UUID(job.input_snapshot["coverage"]["through_topic_id"])
 
 
-def _defer(scan, error, now):
+def _defer(scan: TopicRelationshipScan, error: str | None, now: datetime) -> None:
     scan.failures += 1
     scan.last_error = error
     scan.next_run_at = now + timedelta(hours=min(24, 2 ** min(scan.failures - 1, 5)))
 
 
-def _request_batch(session, topic, peers):
+def _request_batch(
+    session: Session, topic: Topic, peers: list[uuid.UUID]
+) -> tuple[TopicAnalysisJob, uuid.UUID]:
     # Long Unicode identities and excluded edges can fill the byte budget before
     # the count limit. Shrink the batch rather than blocking the scheduler.
     while True:
@@ -86,7 +93,7 @@ def _request_batch(session, topic, peers):
             peers = peers[: max(1, len(peers) // 2)]
 
 
-def schedule_relationship_coverage(factory) -> dict[str, int]:
+def schedule_relationship_coverage(factory: sessionmaker[Session]) -> dict[str, int]:
     counts = {"relationship_jobs_scheduled": 0, "relationship_scans_completed": 0}
     settings = get_settings()
     if not settings.ai_enabled or not settings.auto_research_relationships:
@@ -128,7 +135,7 @@ def schedule_relationship_coverage(factory) -> dict[str, int]:
                 TopicAnalysisJob.status.in_(["queued", "running"]),
             )
         )
-        slots = max(0, settings.relationship_research_max_pending - pending)
+        slots = max(0, settings.relationship_research_max_pending - (pending or 0))
         active_job = select(TopicAnalysisJob.id).where(
             TopicAnalysisJob.topic_id == TopicRelationshipScan.topic_id,
             TopicAnalysisJob.status.in_(["queued", "running"]),
@@ -145,8 +152,9 @@ def schedule_relationship_coverage(factory) -> dict[str, int]:
             .limit(settings.automation_batch_size)
         ).all()
         for scan in scans:
-            topic = session.get(Topic, scan.topic_id)
-            if topic.status != "active":
+            current_topic = session.get(Topic, scan.topic_id)
+            assert current_topic is not None
+            if current_topic.status != "active":
                 scan.finished_at = now
                 continue
             # Only older revisions are candidates. If a peer changes or appears
@@ -168,7 +176,7 @@ def schedule_relationship_coverage(factory) -> dict[str, int]:
             if not slots:
                 break
             try:
-                job, through = _request_batch(session, topic, peers)
+                job, through = _request_batch(session, current_topic, peers)
             except OperationConflict as exc:
                 _defer(scan, str(exc), now)
                 continue

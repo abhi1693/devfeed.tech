@@ -4,19 +4,26 @@ Normal approved-source polling is grandfathered. Only a deliberate upstream boar
 retry pauses ingestion; ordinary reads and profile refreshes never revoke approval.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import uuid
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal
+from typing import Literal, TypedDict
 
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from sqlalchemy.sql import ColumnElement
 
-from devfeed_core.config import get_settings
+from devfeed_core.config import Settings, get_settings
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import (
     ArticleImageJob,
+    Base,
     IngestionJob,
     Source,
     SourceCandidate,
@@ -27,6 +34,30 @@ from devfeed_core.models import (
 from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.source_enrichment import profile_current, source_identity
 from devfeed_core.source_relevance import VERSION
+
+type SourceJob = SourceDiscoveryJob | SourceEnrichmentJob | ArticleImageJob | IngestionJob
+
+
+class SourceJobs(TypedDict, total=False):
+    discovery: SourceDiscoveryJob | None
+    profile: SourceEnrichmentJob | None
+    assessment: SourceEnrichmentJob | None
+    branding: ArticleImageJob | None
+    ingestion: IngestionJob | None
+
+
+def _job_items(jobs: SourceJobs) -> Iterator[tuple[str, SourceJob | None]]:
+    if "discovery" in jobs:
+        yield "discovery", jobs["discovery"]
+    if "profile" in jobs:
+        yield "profile", jobs["profile"]
+    if "assessment" in jobs:
+        yield "assessment", jobs["assessment"]
+    if "branding" in jobs:
+        yield "branding", jobs["branding"]
+    if "ingestion" in jobs:
+        yield "ingestion", jobs["ingestion"]
+
 
 SourceStage = Literal[
     "discovery",
@@ -66,12 +97,12 @@ class SourceLifecycleFacts:
     key: str
     source: Source | None
     candidates: list[SourceCandidate]
-    jobs: dict = field(default_factory=dict)
+    jobs: SourceJobs = field(default_factory=SourceJobs)
     readiness: SourceReadiness = field(init=False)
     snapshot: str = field(init=False)
 
     @property
-    def candidate(self):
+    def candidate(self) -> SourceCandidate | None:
         job = self.jobs.get("discovery")
         return next(
             (row for row in self.candidates if job is not None and row.id == job.candidate_id),
@@ -79,7 +110,7 @@ class SourceLifecycleFacts:
         )
 
 
-def _check(job, now):
+def _check(job: SourceJob | None, now: datetime) -> SourceCheck:
     if job is None:
         return SourceCheck(status="missing")
     state = "complete" if job.status == "succeeded" else job.status
@@ -88,20 +119,24 @@ def _check(job, now):
     return SourceCheck(status=state, job_id=job.id, error=job.error, available_at=job.available_at)
 
 
-def _request(job):
+def _request(job: SourceJob | None) -> JsonRecord | None:
     if job is None:
         return None
     payload = job.storage if isinstance(job, ArticleImageJob) else getattr(job, "result", {})
-    return (payload or {}).get("source_pipeline_request")
+    request: JsonRecord | None = (payload or {}).get("source_pipeline_request")
+    return request
 
 
-def _needs_resume_checks(source, jobs):
+def _needs_resume_checks(source: Source, jobs: SourceJobs) -> bool:
     return source.approval_status != "approved" or bool(source.processing_request)
 
 
-def assessment_current(source, profile, job):
+def assessment_current(
+    source: Source, profile: SourceEnrichmentJob | None, job: SourceEnrichmentJob | None
+) -> bool:
     if not profile_current(source, profile):
         return False
+    assert profile is not None
     output = source.relevance_assessment or {}
     if job is not None:
         result = job.result or {}
@@ -120,11 +155,24 @@ def assessment_current(source, profile, job):
     )
 
 
-def derive_source_readiness(source, *, candidates=(), jobs=None, settings=None, now=None):
+def derive_source_readiness(
+    source: Source | None,
+    *,
+    candidates: Sequence[SourceCandidate] = (),
+    jobs: SourceJobs | None = None,
+    settings: Settings | None = None,
+    now: datetime | None = None,
+) -> SourceReadiness:
     from devfeed_core.logos import logo_current
 
     settings, now, jobs = settings or get_settings(), now or utcnow(), jobs or {}
-    checks = {name: _check(jobs.get(name), now) for name in TARGETS}
+    checks = {
+        "discovery": _check(jobs.get("discovery"), now),
+        "profile": _check(jobs.get("profile"), now),
+        "assessment": _check(jobs.get("assessment"), now),
+        "branding": _check(jobs.get("branding"), now),
+        "ingestion": _check(jobs.get("ingestion"), now),
+    }
     result = SourceReadiness(stage="review", state="waiting", checks=checks)
     candidate = candidates[0] if candidates else None
     if (source is not None and not source.feed_url and source.approval_status == "rejected") or (
@@ -152,7 +200,10 @@ def derive_source_readiness(source, *, candidates=(), jobs=None, settings=None, 
         return result
 
     profile, assessment, branding, ingestion = (
-        jobs.get(name) for name in ("profile", "assessment", "branding", "ingestion")
+        jobs.get("profile"),
+        jobs.get("assessment"),
+        jobs.get("branding"),
+        jobs.get("ingestion"),
     )
     if checks["profile"].status not in {"queued", "running", "retry_wait"} and not profile_current(
         source, profile
@@ -260,6 +311,7 @@ def derive_source_readiness(source, *, candidates=(), jobs=None, settings=None, 
         if (
             settings.ai_enabled
             and profile_current(source, profile)
+            and profile is not None
             and profile.operation == "profile"
         ):
             result.retry_targets.append("assessment")
@@ -279,7 +331,7 @@ def derive_source_readiness(source, *, candidates=(), jobs=None, settings=None, 
     return result
 
 
-def _state(check):
+def _state(check: SourceCheck) -> SourceState:
     return (
         "running"
         if check.status == "running"
@@ -291,7 +343,14 @@ def _state(check):
     )
 
 
-def _latest(session, model, identifiers, *, subject="source_id", condition=None):
+def _latest[T: SourceJob](
+    session: Session,
+    model: type[T],
+    identifiers: Sequence[uuid.UUID],
+    *,
+    subject: str = "source_id",
+    condition: ColumnElement[bool] | None = None,
+) -> dict[uuid.UUID, T]:
     if not identifiers:
         return {}
     column = getattr(model, subject)
@@ -317,8 +376,8 @@ def _latest(session, model, identifiers, *, subject="source_id", condition=None)
     return {getattr(row, subject): row for row in rows}
 
 
-def source_snapshot_token(facts):
-    def values(row):
+def source_snapshot_token(facts: SourceLifecycleFacts) -> str:
+    def values(row: Base | None) -> JsonRecord | None:
         return (
             {column.name: getattr(row, column.name) for column in row.__table__.columns}
             if row is not None
@@ -328,7 +387,7 @@ def source_snapshot_token(facts):
     payload = {
         "source": values(facts.source),
         "candidates": [values(row) for row in sorted(facts.candidates, key=lambda row: row.id)],
-        "jobs": {key: values(value) for key, value in facts.jobs.items()},
+        "jobs": {key: values(value) for key, value in _job_items(facts.jobs)},
         "settings": {
             key: getattr(get_settings(), key)
             for key in (
@@ -343,7 +402,14 @@ def source_snapshot_token(facts):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def source_readiness_batch(session, sources, candidates=None, *, settings=None, now=None):
+def source_readiness_batch(
+    session: Session,
+    sources: Iterable[Source],
+    candidates: Iterable[SourceCandidate] | None = None,
+    *,
+    settings: Settings | None = None,
+    now: datetime | None = None,
+) -> dict[str, SourceLifecycleFacts]:
     sources, candidates = list(sources), list(candidates or [])
     identifiers = [source.id for source in sources]
     linked = (
@@ -399,7 +465,7 @@ def source_readiness_batch(session, sources, candidates=None, *, settings=None, 
             )
             if discovery is not None:
                 group.sort(key=lambda row: row.id != discovery.candidate_id)
-            jobs = {
+            jobs: SourceJobs = {
                 "discovery": discovery,
                 "profile": profiles.get(source.id) if source else None,
                 "assessment": assessments.get(source.id) if source else None,
@@ -415,13 +481,19 @@ def source_readiness_batch(session, sources, candidates=None, *, settings=None, 
     return result
 
 
-def source_readiness(session, source, *, settings=None, now=None):
+def source_readiness(
+    session: Session,
+    source: Source,
+    *,
+    settings: Settings | None = None,
+    now: datetime | None = None,
+) -> SourceLifecycleFacts:
     return source_readiness_batch(session, [source], settings=settings, now=now)[
         f"source:{source.id}"
     ]
 
 
-def source_activation_blockers(session, source):
+def source_activation_blockers(session: Session, source: Source) -> list[str]:
     facts = source_readiness(session, source)
     if source.approval_status == "approved" and not _needs_resume_checks(source, facts.jobs):
         return []
@@ -437,7 +509,9 @@ def source_activation_blockers(session, source):
     ]
 
 
-def reconcile_source_processing(session, source, *, automatic=True):
+def reconcile_source_processing(
+    session: Session, source: Source, *, automatic: bool = True
+) -> SourceLifecycleFacts:
     """Advance missing work once; never retry an unchanged terminal failure."""
     from devfeed_core.schemas import SourceDecision
     from devfeed_core.services import review_source
@@ -490,7 +564,9 @@ def reconcile_source_processing(session, source, *, automatic=True):
     return source_readiness(session, source)
 
 
-def _locked_facts(session, kind, identifier, expected_snapshot):
+def _locked_facts(
+    session: Session, kind: str, identifier: uuid.UUID, expected_snapshot: str
+) -> SourceLifecycleFacts:
     if kind == "source":
         source = session.scalar(select(Source).where(Source.id == identifier).with_for_update())
         if source is None:
@@ -518,14 +594,15 @@ def _locked_facts(session, kind, identifier, expected_snapshot):
     return facts
 
 
-def _discovery_request(session, facts):
+def _discovery_request(session: Session, facts: SourceLifecycleFacts) -> Source | None:
     from devfeed_core.discovery import attach_source, enqueue, handoff
     from devfeed_core.source_enrichment import request_source_review
 
     candidate = facts.candidate
     if candidate is None:
+        assert facts.source is not None
         request_source_review(session, facts.source)
-        return
+        return None
     if candidate.status in {"rejected", "admitted", "linked"}:
         raise OperationConflict("This candidate requires an editorial decision before discovery")
     if candidate.selected_feed_id and (facts.source is None or not facts.source.feed_url):
@@ -535,8 +612,12 @@ def _discovery_request(session, facts):
     candidate.status = "pending"
     enqueue(session, candidate.id, background=True)
 
+    return None
 
-def _after_action(session, facts, source=None):
+
+def _after_action(
+    session: Session, facts: SourceLifecycleFacts, source: Source | None = None
+) -> SourceLifecycleFacts:
     session.flush()
     source = source or facts.source
     if source is not None:
@@ -544,7 +625,14 @@ def _after_action(session, facts, source=None):
     return source_readiness_batch(session, [], facts.candidates)[facts.key]
 
 
-def advance_source_processing(session, kind, identifier, expected_snapshot, *, actor=None):
+def advance_source_processing(
+    session: Session,
+    kind: str,
+    identifier: uuid.UUID,
+    expected_snapshot: str,
+    *,
+    actor: dict[str, str] | str | None = None,
+) -> SourceLifecycleFacts:
     from devfeed_core.jobs import request_ingestion
     from devfeed_core.source_enrichment import request_enrichment, request_relevance
     from devfeed_core.source_logos import request_source_logo
@@ -602,14 +690,21 @@ def advance_source_processing(session, kind, identifier, expected_snapshot, *, a
 
 
 def retry_source_processing(
-    session, kind, identifier, expected_snapshot, target, job_id, *, actor=None
-):
+    session: Session,
+    kind: str,
+    identifier: uuid.UUID,
+    expected_snapshot: str,
+    target: str,
+    job_id: uuid.UUID | None,
+    *,
+    actor: dict[str, str] | str | None = None,
+) -> SourceLifecycleFacts:
     from devfeed_core.jobs import request_ingestion
     from devfeed_core.source_enrichment import request_enrichment, request_relevance
     from devfeed_core.source_logos import request_source_logo
 
     facts = _locked_facts(session, kind, identifier, expected_snapshot)
-    previous = facts.jobs.get(target)
+    previous = dict(_job_items(facts.jobs)).get(target)
     if target not in facts.readiness.retry_targets or (previous.id if previous else None) != job_id:
         raise OperationConflict("This source task cannot be retried from the current snapshot")
     source = facts.source
@@ -635,6 +730,7 @@ def retry_source_processing(
             "requested_at": utcnow().isoformat(),
             "required": sorted(required),
         }
+    job: SourceEnrichmentJob | ArticleImageJob | IngestionJob | None
     if target == "profile":
         job = request_enrichment(session, source.id)
     elif target == "assessment":

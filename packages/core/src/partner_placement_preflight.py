@@ -1,13 +1,27 @@
 """Advisory batch eligibility before the authoritative locked placement checks."""
 
+from __future__ import annotations
+
+import uuid
 from collections import defaultdict
-from typing import Any
+from collections.abc import Sequence
+from datetime import datetime
 
 from sqlalchemy import select
+from sqlalchemy.engine import Row
+from sqlalchemy.orm import Session
 
-from devfeed_core.models import PartnerCampaign, PartnerProductTopic, Topic
+from devfeed_core.models import (
+    PartnerAccount,
+    PartnerAsset,
+    PartnerCampaign,
+    PartnerProduct,
+    PartnerProductTopic,
+    Topic,
+)
 from devfeed_core.partner_ad_formats import ad_format_allowed
 from devfeed_core.partner_audiences import (
+    ReaderAudience,
     audience_entitled,
     audience_matches,
     audience_topic_kinds_match,
@@ -16,11 +30,28 @@ from devfeed_core.partner_audiences import (
 )
 from devfeed_core.partner_placement_capacity import campaign_delivery_usage
 from devfeed_core.partner_placement_destinations import PlacementDestinations
-from devfeed_core.partner_promotions import campaign_is_live, campaign_matches_product
+from devfeed_core.partner_placement_types import PlacementRequest
+from devfeed_core.partner_promotions import (
+    CampaignTarget,
+    campaign_is_live,
+    campaign_matches_product,
+)
 from devfeed_core.partner_tiers import effective_promotion_kind, promotion_kind_allowed
 
+type PreflightRow = (
+    tuple[PartnerAsset, PartnerAccount, PartnerProduct, PartnerCampaign | None, *tuple[object, ...]]
+    | Row[PartnerAsset, PartnerAccount, PartnerProduct, PartnerCampaign | None, *tuple[object, ...]]
+)
 
-def automatic_configuration_available(asset, account, campaign, now, *, surface=None):
+
+def automatic_configuration_available(
+    asset: PartnerAsset,
+    account: PartnerAccount,
+    campaign: PartnerCampaign | None,
+    now: datetime,
+    *,
+    surface: str | None = None,
+) -> bool:
     """Policy that needs no database reads; also rechecked after attribution locks."""
     if account.status != "active" or asset.status != "active":
         return False
@@ -52,23 +83,29 @@ def automatic_configuration_available(asset, account, campaign, now, *, surface=
 
 
 class PlacementPreflight:
-    def __init__(self, session, query, now, user_id):
+    def __init__(
+        self,
+        session: Session,
+        query: PlacementRequest,
+        now: datetime,
+        user_id: uuid.UUID | str | None,
+    ) -> None:
         self.session = session
         self.query = query
         self.now = now
         self.user_id = user_id
         self._reader_loaded = False
-        self._reader = None
-        self._exhausted_campaigns = set()
+        self._reader: ReaderAudience | None = None
+        self._exhausted_campaigns: set[uuid.UUID] = set()
         self.destinations = PlacementDestinations(session)
 
-    def campaign_exhausted(self, campaign):
+    def campaign_exhausted(self, campaign: PartnerCampaign | None) -> bool:
         return campaign is not None and campaign.id in self._exhausted_campaigns
 
-    def reject_campaign(self, campaign):
+    def reject_campaign(self, campaign: PartnerCampaign) -> None:
         self._exhausted_campaigns.add(campaign.id)
 
-    def _rows_with_capacity(self, rows):
+    def _rows_with_capacity[R: PreflightRow](self, rows: Sequence[R]) -> list[R]:
         campaigns = {
             campaign.id: campaign
             for _, _, _, campaign, *_ in rows
@@ -81,11 +118,12 @@ class PlacementPreflight:
             self._exhausted_campaigns.update(
                 identifier
                 for identifier, campaign in campaigns.items()
-                if used.get(identifier, 0) >= campaign.daily_impression_limit
+                if campaign.daily_impression_limit is not None
+                and used.get(identifier, 0) >= campaign.daily_impression_limit
             )
         return [row for row in rows if not self.campaign_exhausted(row[3])]
 
-    def reader(self):
+    def reader(self) -> ReaderAudience | None:
         # Load outside candidate savepoints so rejection cannot release locks
         # protecting the reader snapshot reused by the final audience checks.
         if not self._reader_loaded:
@@ -93,7 +131,7 @@ class PlacementPreflight:
             self._reader_loaded = True
         return self._reader
 
-    def eligible_rows(self, rows):
+    def eligible_rows[R: PreflightRow](self, rows: Sequence[R]) -> list[R]:
         candidates = []
         for row in rows:
             asset, account, _product, campaign = row[:4]
@@ -136,7 +174,7 @@ class PlacementPreflight:
         managed_accounts = {
             account.id for _, account, _, campaign, *_ in rows if campaign and campaign.managed
         }
-        explicit: dict[Any, list[Any]] = defaultdict(list)
+        explicit: dict[tuple[uuid.UUID, str], list[CampaignTarget]] = defaultdict(list)
         if managed_accounts:
             # Scalar columns avoid caching an unlocked campaign ORM instance that
             # a later authoritative read could mistake for current policy.
@@ -156,8 +194,8 @@ class PlacementPreflight:
                     PartnerCampaign.ends_at > self.now,
                 )
             )
-            for campaign in agreements:
-                explicit[(campaign.account_id, campaign.ad_format)].append(campaign)
+            for agreement in agreements:
+                explicit[(agreement.account_id, agreement.ad_format)].append(agreement)
 
         products = {
             product.id: product
@@ -171,7 +209,7 @@ class PlacementPreflight:
                 )
             )
         }
-        topics: dict[Any, set[Any]] = defaultdict(set)
+        topics: dict[uuid.UUID, set[uuid.UUID]] = defaultdict(set)
         if products:
             prepared = self.session.execute(
                 select(

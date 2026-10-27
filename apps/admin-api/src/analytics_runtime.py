@@ -1,22 +1,34 @@
 """Process-wide analytical admission and bounded, coalesced Overview reads."""
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import json
+import uuid
 from collections import OrderedDict
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from typing import Literal, Protocol, Required, TypedDict, TypeVar, Unpack, overload
 
 from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
+from devfeed_core.analytics_card_types import (
+    PipelineBoard,
+    SourcePipelineBoard,
+    SourcePipelineStage,
+    Stage,
+)
 from devfeed_core.analytics_observation import AnalyticsSnapshot, pipeline_policy_version
-from devfeed_core.config import get_settings
+from devfeed_core.config import Settings, get_settings
 from devfeed_core.redis import create_async_redis
 from fastapi import HTTPException, Request
 from redis.asyncio.retry import Retry
 from redis.backoff import NoBackoff
 
-from devfeed_admin_api.analytics_current import CurrentCards, preparing, timestamp
+from devfeed_admin_api.analytics_current import CurrentCards, SourceBoardQuery, preparing, timestamp
 from devfeed_admin_api.analytics_reports import Reports
-from devfeed_admin_api.overview_sections import OverviewSectionReport
+from devfeed_admin_api.overview_sections import OverviewSectionReport, SectionName
+from devfeed_admin_api.overview_windows import ReportWindow
 
 FRESH_SECONDS = 30
 MAX_ENTRIES = 64
@@ -24,8 +36,43 @@ MAX_CACHE_BYTES = 16_000_000
 MAX_INFLIGHT = 32
 
 
+class CacheRedis(Protocol):
+    def get(self, key: str, /) -> Awaitable[bytes | str | None]: ...
+    def set(
+        self, key: str, value: bytes, /, *, ex: int
+    ) -> Awaitable[bool | bytes | str | None]: ...
+
+
+class ArticleBoardParameters(TypedDict, total=False):
+    q: Required[str | None]
+    source_id: Required[uuid.UUID | None]
+    needs_attention: Required[bool]
+    limit: Required[int]
+    stage: Stage | None
+    cursor: int
+    group_by: Literal["source"] | None
+    source_group: uuid.UUID | Literal["unknown"] | None
+    normalized_q: str | None
+
+
+class SourceBoardParameters(TypedDict, total=False):
+    stage: SourcePipelineStage | None
+    cursor: int
+    matching_ids: dict[str, list[uuid.UUID]] | None
+
+
+Result = TypeVar("Result")
+
+
 class AnalyticsRuntime:
-    def __init__(self, settings=None, *, client=None, redis=None, clock=None):
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        *,
+        client: AnalyticsClient | None = None,
+        redis: Callable[[], CacheRedis | None] | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         settings = settings or get_settings()
         # All board and chart requests share these two slots, including connection
         # setup. A request never creates an independent ClickHouse query budget.
@@ -55,11 +102,11 @@ class AnalyticsRuntime:
         namespace = settings.database_url + ":" + settings.clickhouse_database
         self.prefix = "admin:analytics:v2:" + hashlib.sha256(namespace.encode()).hexdigest()[:20]
         self.max_entry_bytes = settings.cache_max_bytes
-        self.cache = OrderedDict()
+        self.cache: OrderedDict[str, bytes | str] = OrderedDict()
         self.cache_bytes = 0
-        self.inflight = {}
+        self.inflight: dict[str, asyncio.Task[OverviewSectionReport]] = {}
 
-    async def close(self):
+    async def close(self) -> None:
         tasks = list(self.inflight.values())
         for task in tasks:
             task.cancel()
@@ -70,23 +117,25 @@ class AnalyticsRuntime:
             if self._cache_redis is not None:
                 await self._cache_redis.aclose()
 
-    def cards(self):
+    def cards(self) -> CurrentCards:
         return CurrentCards(self.client, now=self.clock())
 
-    async def _board(self, method, *args, **parameters):
+    async def _board(self, operation: Awaitable[Result]) -> Result:
         try:
             async with asyncio.timeout(12):
-                return await getattr(self.cards(), method)(*args, **parameters)
+                return await operation
         except TimeoutError as error:
             raise AnalyticsUnavailable("Pipeline request deadline reached") from error
 
-    async def article_board(self, **parameters):
-        return await self._board("article_board", **parameters)
+    async def article_board(self, **parameters: Unpack[ArticleBoardParameters]) -> PipelineBoard:
+        return await self._board(self.cards().article_board(**parameters))
 
-    async def source_board(self, query, **parameters):
-        return await self._board("source_board", query, **parameters)
+    async def source_board(
+        self, query: SourceBoardQuery, **parameters: Unpack[SourceBoardParameters]
+    ) -> SourcePipelineBoard:
+        return await self._board(self.cards().source_board(query, **parameters))
 
-    def _remember(self, key, value):
+    def _remember(self, key: str, value: bytes | str) -> None:
         size = len(value)
         if size > self.max_entry_bytes:
             return
@@ -98,18 +147,38 @@ class AnalyticsRuntime:
             _, removed = self.cache.popitem(last=False)
             self.cache_bytes -= len(removed)
 
-    async def _redis(self, method, *args, **kwargs):
+    @overload
+    async def _redis(self, method: Literal["get"], key: str) -> bytes | str | None: ...
+
+    @overload
+    async def _redis(self, method: Literal["set"], key: str, value: bytes, *, ex: int) -> None: ...
+
+    async def _redis(
+        self,
+        method: Literal["get", "set"],
+        key: str,
+        value: bytes | None = None,
+        *,
+        ex: int = FRESH_SECONDS,
+    ) -> bytes | str | None:
         redis = self.redis
         if redis is None:
             return None
         try:
-            return await getattr(redis(), method)(*args, **kwargs)
+            client = redis()
+            if client is None:
+                return None
+            if method == "get":
+                return await client.get(key)
+            assert value is not None
+            await client.set(key, value, ex=ex)
         except Exception:
             # An unavailable cache is a miss; every result still comes from the
             # current ClickHouse calculation and its normal freshness window.
             return None
+        return None
 
-    def _decode(self, value):
+    def _decode(self, value: bytes | str | None) -> OverviewSectionReport | None:
         if value is None:
             return None
         try:
@@ -121,7 +190,7 @@ class AnalyticsRuntime:
         except (ValueError, TypeError, KeyError):
             return None
 
-    def _observed(self, report):
+    def _observed(self, report: OverviewSectionReport) -> OverviewSectionReport:
         report = report.model_copy(deep=True)
         if report.snapshot is not None:
             age = max(0, (self.clock() - report.generated_at).total_seconds())
@@ -130,7 +199,9 @@ class AnalyticsRuntime:
                 report.snapshot.status = "stale"
         return report
 
-    async def section(self, group, window):
+    async def section(
+        self, group: SectionName | Literal["queues"], window: ReportWindow
+    ) -> OverviewSectionReport:
         key = f"{self.prefix}:{self.policy}:{group}:{window.key}"
         value = self.cache.get(key)
         cached = self._decode(value)
@@ -149,7 +220,9 @@ class AnalyticsRuntime:
         # Client disconnects must not cancel a calculation shared by other cards.
         return self._observed(await asyncio.shield(task))
 
-    async def _calculate(self, group, window, now):
+    async def _calculate(
+        self, group: SectionName | Literal["queues"], window: ReportWindow, now: datetime
+    ) -> OverviewSectionReport:
         if group == "operations":
             return await CurrentCards(self.client, now=now).operations()
         status = await self.client.status()
@@ -171,10 +244,12 @@ class AnalyticsRuntime:
         )
         return report
 
-    async def _section(self, key, group, window):
+    async def _section(
+        self, key: str, group: SectionName | Literal["queues"], window: ReportWindow
+    ) -> OverviewSectionReport:
         value = await self._redis("get", key)
         cached = self._decode(value)
-        if cached is not None:
+        if cached is not None and value is not None:
             self._remember(key, value)
             return cached
         now = self.clock()
@@ -199,4 +274,5 @@ class AnalyticsRuntime:
 
 
 def get_analytics(request: Request) -> AnalyticsRuntime:
-    return request.app.state.analytics
+    runtime: AnalyticsRuntime = request.app.state.analytics
+    return runtime

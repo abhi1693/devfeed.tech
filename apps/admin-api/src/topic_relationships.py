@@ -1,7 +1,10 @@
 """Active-topic relationship discovery and explicit, attributed proposal review."""
 
+from __future__ import annotations
+
 import uuid
-from typing import Annotated, Literal
+from collections.abc import Sequence
+from typing import Annotated, Literal, TypedDict
 
 from devfeed_core.config import get_settings
 from devfeed_core.models import Topic, TopicRelation, TopicRelationProposal
@@ -19,9 +22,10 @@ from devfeed_core.topic_relationships import (
     review_relationship,
 )
 from devfeed_core.topics import lock_topics
-from devfeed_http.pagination import Listing, Page, paginate, record
+from devfeed_http.pagination import Listing, Page, PageData, paginate, record
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import UUID, cast, func, literal, or_, select, union_all
+from sqlalchemy.orm import Session
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
@@ -29,6 +33,18 @@ from devfeed_admin_api.jobs import AdminJobOut, job_view
 from devfeed_admin_api.topic_proposals import actor
 
 router = APIRouter(prefix="/v1/admin", tags=["admin-topics"], dependencies=[Depends(require_admin)])
+
+
+class RelationshipData(TypedDict):
+    topic_id: uuid.UUID
+    related_topic_id: uuid.UUID
+    relation: str
+    evidence_url: str | None
+    status: str
+    proposal_id: uuid.UUID | None
+    topic_name: str
+    related_topic_name: str
+    proposal: RelationshipProposalOut | None
 
 
 class RelationshipOut(ORMModel):
@@ -52,7 +68,7 @@ def relationships(
     query: Listing,
     topic_id: uuid.UUID | None = None,
     status: Literal["approved", "pending"] | None = None,
-):
+) -> PageData[RelationshipData]:
     # Paginate the combined catalog in SQL. Approved proposals are history, not
     # additional edges; only pending proposals join the current relationships.
     rows = union_all(
@@ -131,12 +147,17 @@ def relationships(
         else {}
     )
     return {
-        "total": total,
+        "total": total or 0,
         "offset": query.offset,
         "limit": query.limit,
         "items": [
             {
-                **row,
+                "topic_id": row["topic_id"],
+                "related_topic_id": row["related_topic_id"],
+                "relation": row["relation"],
+                "evidence_url": row["evidence_url"],
+                "status": row["status"],
+                "proposal_id": row["proposal_id"],
                 "topic_name": topics[row["topic_id"]].name,
                 "related_topic_name": topics[row["related_topic_id"]].name,
                 "proposal": proposals.get(row["proposal_id"]),
@@ -146,7 +167,9 @@ def relationships(
     }
 
 
-def views(session, proposals):
+def views(
+    session: Session, proposals: Sequence[TopicRelationProposal]
+) -> list[RelationshipProposalOut]:
     identifiers = {
         identifier
         for proposal in proposals
@@ -169,7 +192,9 @@ def views(session, proposals):
     status_code=202,
     operation_id="admin_topic_relationships_analyze",
 )
-def analyze(topic_id: uuid.UUID, body: RelationshipAnalysisRequest, session: DB, admin: Admin):
+def analyze(
+    topic_id: uuid.UUID, body: RelationshipAnalysisRequest, session: DB, admin: Admin
+) -> AdminJobOut:
     if not get_settings().ai_enabled:
         raise HTTPException(503, "AI analysis is disabled. Start the AI services first")
     job = request_relationship_analysis(session, topic_id, body, actor(admin))
@@ -188,7 +213,7 @@ def listing(
     status: Literal["pending", "approved", "rejected"] | None = None,
     topic_id: uuid.UUID | None = None,
     job_id: uuid.UUID | None = None,
-):
+) -> PageData[RelationshipProposalOut]:
     statement = select(TopicRelationProposal)
     if status:
         statement = statement.where(TopicRelationProposal.status == status)
@@ -224,8 +249,7 @@ def listing(
         },
         "-created_at",
     )
-    page["items"] = views(session, page["items"])
-    return page
+    return {**page, "items": views(session, page["items"])}
 
 
 @router.get(
@@ -233,7 +257,7 @@ def listing(
     response_model=RelationshipProposalOut,
     operation_id="admin_relationship_proposal_get",
 )
-def detail(proposal_id: uuid.UUID, session: DB):
+def detail(proposal_id: uuid.UUID, session: DB) -> RelationshipProposalOut:
     return views(session, [record(session, TopicRelationProposal, proposal_id)])[0]
 
 
@@ -242,7 +266,9 @@ def detail(proposal_id: uuid.UUID, session: DB):
     response_model=RelationshipProposalOut,
     operation_id="admin_relationship_proposal_review",
 )
-def review(proposal_id: uuid.UUID, body: RelationshipReview, session: DB, admin: Admin):
+def review(
+    proposal_id: uuid.UUID, body: RelationshipReview, session: DB, admin: Admin
+) -> RelationshipProposalOut:
     value = review_relationship(session, proposal_id, body, actor(admin))
     session.commit()
     return views(session, [value])[0]

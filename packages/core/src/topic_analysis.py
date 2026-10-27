@@ -1,8 +1,10 @@
 """Research missing topic metadata while retaining the pending review boundary."""
 
+from __future__ import annotations
+
 import json
 import uuid
-from typing import Literal
+from typing import Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 from sqlalchemy import select
@@ -11,6 +13,7 @@ from sqlalchemy.orm import Session
 from devfeed_core.analysis import snapshot_hash
 from devfeed_core.article_topic_policy import proposal_allowed, proposal_condition
 from devfeed_core.config import get_settings
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import Topic, TopicAnalysisJob, TopicProposal, utcnow
 from devfeed_core.schemas import InputModel, Keyword, TopicKind
 from devfeed_core.services import OperationConflict, RecordNotFound
@@ -38,7 +41,7 @@ class TopicAnalysisBatchOut(InputModel):
     pending: int
 
 
-def request_all_topic_analysis(session: Session, actor: dict) -> TopicAnalysisBatchOut:
+def request_all_topic_analysis(session: Session, actor: JsonRecord) -> TopicAnalysisBatchOut:
     # Serialize with single-proposal requests and reviews. Read active jobs without
     # taking job locks, preserving the worker's job-then-proposal lock order.
     proposals = session.scalars(
@@ -69,7 +72,7 @@ def request_all_topic_analysis(session: Session, actor: dict) -> TopicAnalysisBa
     )
 
 
-def _new_job(proposal: TopicProposal, actor: dict) -> TopicAnalysisJob:
+def _new_job(proposal: TopicProposal, actor: JsonRecord) -> TopicAnalysisJob:
     from devfeed_core.topic_branding import VERSION as BRANDING_VERSION
 
     return TopicAnalysisJob(
@@ -114,17 +117,17 @@ class TopicResearchResult(InputModel):
 
     @field_validator("website_url", "logo_url")
     @classmethod
-    def public_url(cls, value):
+    def public_url(cls, value: str | None) -> str | None:
         return validate_public_url(value) if value else None
 
     @model_validator(mode="after")
-    def bounded_reasons(self):
+    def bounded_reasons(self) -> Self:
         if any(len(reason) > 500 for reason in self.reasons):
             raise ValueError("Research reasons must be bounded")
         return self
 
 
-def missing_fields(topic: dict) -> list[str]:
+def missing_fields(topic: JsonRecord) -> list[str]:
     return [
         field
         for field in FIELDS
@@ -132,7 +135,7 @@ def missing_fields(topic: dict) -> list[str]:
     ]
 
 
-def research_fields(snapshot: dict) -> list[str]:
+def research_fields(snapshot: JsonRecord) -> list[str]:
     topic = snapshot["topic"]
     if snapshot.get("branding"):
         return [field for field in ("website_url", "logo_url") if not topic.get(field)]
@@ -143,7 +146,7 @@ def research_fields(snapshot: dict) -> list[str]:
 
 
 def request_topic_analysis(
-    session: Session, identifier: uuid.UUID, actor: dict
+    session: Session, identifier: uuid.UUID, actor: JsonRecord
 ) -> TopicAnalysisJob:
     proposal = session.scalar(
         select(TopicProposal).where(TopicProposal.id == identifier).with_for_update()
@@ -249,7 +252,7 @@ def resume_relationships_after_superseded(session: Session, job: TopicAnalysisJo
         queue_relationships_after_enrichment(session, proposal, analysis)
 
 
-def research_prompt(snapshot: dict) -> str:
+def research_prompt(snapshot: JsonRecord) -> str:
     return (
         SCOPE_POLICY
         + """Research the requested metadata for ONE proposed developer topic. The requested

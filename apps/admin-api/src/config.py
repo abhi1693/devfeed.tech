@@ -2,7 +2,7 @@
 
 import re
 from functools import lru_cache
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
 from devfeed_core.notification_config import ChimelySettings
 from pydantic import (
@@ -61,7 +61,7 @@ class Settings(ChimelySettings):
         mode="before",
     )
     @classmethod
-    def empty_optional_admin_setting(cls, value):
+    def empty_optional_admin_setting(cls, value: object) -> object:
         return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("oidc_github_idp_id", "oidc_google_idp_id")
@@ -72,7 +72,7 @@ class Settings(ChimelySettings):
         return value
 
     @model_validator(mode="after")
-    def validate_admin_configuration(self):
+    def validate_admin_configuration(self) -> Self:
         from urllib.parse import urlsplit
 
         if (

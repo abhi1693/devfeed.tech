@@ -1,10 +1,14 @@
 """Write-only import credentials, authenticated and bound to one connection origin."""
 
+from __future__ import annotations
+
 import json
 
 from cryptography.fernet import Fernet, InvalidToken
 
 from devfeed_core.config import get_settings
+from devfeed_core.json_types import JsonRecord
+from devfeed_core.models import PartnerConnection
 from devfeed_core.partner_connectors import ConnectorConfig, connector_snapshot
 
 
@@ -23,7 +27,7 @@ def cipher() -> Fernet:
     return Fernet(key.get_secret_value().encode("ascii"))
 
 
-def credential_context(connection, config: ConnectorConfig) -> dict[str, str]:
+def credential_context(connection: PartnerConnection, config: ConnectorConfig) -> dict[str, str]:
     if connection.account_id is None:
         raise CredentialUnavailable("An account is required for connection credentials")
     return {
@@ -43,7 +47,7 @@ def validate_credential(value: str) -> str:
     return value
 
 
-def encrypt_credential(connection, config: ConnectorConfig, secret: str) -> str:
+def encrypt_credential(connection: PartnerConnection, config: ConnectorConfig, secret: str) -> str:
     if config.auth.mode == "none":
         raise CredentialUnavailable("Select connection authentication before adding a credential")
     payload = {
@@ -54,7 +58,9 @@ def encrypt_credential(connection, config: ConnectorConfig, secret: str) -> str:
     return cipher().encrypt(json.dumps(payload, sort_keys=True).encode()).decode("ascii")
 
 
-def connection_credential(connection, config=None) -> str | None:
+def connection_credential(
+    connection: PartnerConnection, config: ConnectorConfig | JsonRecord | None = None
+) -> str | None:
     """Decrypt only for the configured owner, origin and authentication scheme.
 
     Workers call this after checking their generation fence, outside the database

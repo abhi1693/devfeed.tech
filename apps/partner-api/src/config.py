@@ -2,7 +2,7 @@
 
 import re
 from functools import lru_cache
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     Field,
@@ -55,7 +55,7 @@ class Settings(BaseSettings):
         mode="before",
     )
     @classmethod
-    def empty_optional_partner_setting(cls, value):
+    def empty_optional_partner_setting(cls, value: object) -> object:
         return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("oidc_github_idp_id", "oidc_google_idp_id")
@@ -66,7 +66,7 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def validate_partner_configuration(self):
+    def validate_partner_configuration(self) -> Self:
         from urllib.parse import urlsplit
 
         if self.oidc_role_scope_template:

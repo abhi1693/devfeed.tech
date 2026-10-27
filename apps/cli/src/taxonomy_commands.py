@@ -27,20 +27,20 @@ ManualLink = Annotated[
 
 
 @tags.command("list")
-def listing(ctx: typer.Context, limit: Limit = 100, offset: Offset = 0):
+def listing(ctx: typer.Context, limit: Limit = 100, offset: Offset = 0) -> None:
     """List stored taxonomy records."""
     invoke(ctx, commands.taxonomy_list, locals())
 
 
-def write(ctx: typer.Context, parameters: dict):
+def write(ctx: typer.Context, parameters: dict[str, object]) -> None:
     fields = {field: field for field in ("name", "slug", "topic_id")}
     clear: dict[str, tuple[str, object]] = {"clear_topic": ("topic_id", None)}
     fields.update(alias="aliases")
     clear.update(clear_aliases=("aliases", []))
     values = updates(ctx, parameters, fields, clear)
     auto_link = boolean_pair(
-        parameters["auto_link_topic"],
-        parameters["no_auto_link_topic"],
+        bool(parameters["auto_link_topic"]),
+        bool(parameters["no_auto_link_topic"]),
         "--auto-link-topic and --no-auto-link-topic",
     )
     if auto_link is not None:
@@ -61,7 +61,7 @@ def add_tag(
     clear_aliases: ClearAliases = False,
     auto_link_topic: AutoLink = False,
     no_auto_link_topic: ManualLink = False,
-):
+) -> None:
     """Create a tag with optional aliases and topic links."""
     write(ctx, locals())
 
@@ -78,6 +78,6 @@ def update_tag(
     clear_aliases: ClearAliases = False,
     auto_link_topic: AutoLink = False,
     no_auto_link_topic: ManualLink = False,
-):
+) -> None:
     """Change only specified tag fields."""
     write(ctx, locals())

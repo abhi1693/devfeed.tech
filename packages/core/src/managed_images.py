@@ -1,6 +1,11 @@
 """Reader metadata only: serving an image never performs storage or proxy I/O."""
 
+from __future__ import annotations
+
+from typing import TypedDict
+
 from devfeed_core.config import get_settings
+from devfeed_core.models import Article
 
 IMAGE_VERSION = "v1"
 THUMBNAIL_VERSION = "v2"
@@ -9,7 +14,12 @@ ARTICLE_THUMBNAIL_WIDTHS = (320, 480, 640, 768, 960)
 ARTICLE_THUMBNAIL_LAYOUT = "cards-v1"
 
 
-def image_variants(article) -> list[dict]:
+class ImageVariant(TypedDict):
+    url: str
+    width: int
+
+
+def image_variants(article: Article) -> list[ImageVariant]:
     settings = get_settings()
     asset = article.managed_image or {}
     if (

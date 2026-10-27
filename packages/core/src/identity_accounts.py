@@ -1,14 +1,18 @@
 """Materialize authenticated OIDC identities for administration user selection."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
+
 from sqlalchemy.dialects.postgresql import insert
 
 from devfeed_core.db import session_factory
 from devfeed_core.models import UserAccount, utcnow
 
 
-def register_verified_user(identity: dict) -> str:
+def register_verified_user(identity: Mapping[str, str | None]) -> str:
     """Upsert a verified identity without changing its profile or granting membership."""
-    values = {
+    values: dict[str, object] = {
         field: identity.get(field)
         for field in ("issuer", "subject", "organization_id", "name", "email")
     }

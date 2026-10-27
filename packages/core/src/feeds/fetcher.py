@@ -1,18 +1,23 @@
 """Bounded public transport for RSS admission, ingestion and article HTML lookup."""
 
+from __future__ import annotations
+
 import ipaddress
 import logging
 import re
 import socket
 import time
 import zlib
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
+from typing import NotRequired, TypedDict, Unpack
 from urllib.parse import quote, urljoin, urlsplit
 
 import httpcore
+from httpcore._backends.base import SOCKET_OPTION
 
 from devfeed_core.config import get_settings
 from devfeed_core.logging import elapsed_ms
@@ -27,7 +32,7 @@ class ImmediateRedirect(HTMLParser):
 
     target: str | None = None
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
         if tag != "meta" or (values.get("http-equiv") or "").lower() != "refresh":
             return
@@ -52,7 +57,7 @@ class FeedError(Exception):
         limit_bytes: int | None = None,
         limit_setting: str | None = None,
         resource: str | None = None,
-    ):
+    ) -> None:
         super().__init__(message)
         self.retryable = retryable
         self.status = status
@@ -70,7 +75,14 @@ class PublicNetworkBackend(httpcore.SyncBackend):
     Every redirected connection goes through the same guard. No environment proxies.
     """
 
-    def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Iterable[SOCKET_OPTION] | None = None,
+    ) -> httpcore.NetworkStream:
         try:
             addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
         except socket.gaierror as exc:
@@ -237,9 +249,22 @@ def fetch_source_page(url: str) -> FetchResult:
     )
 
 
-def _fetch_html_with_solver_fallback(url, *args, **kwargs) -> FetchResult:
+class FetchOptions(TypedDict):
+    accept: str
+    max_bytes: int
+    timeout: float
+    html_only: NotRequired[bool]
+    limit_setting: NotRequired[str]
+    before_request: NotRequired[Callable[[str], object] | None]
+    deadline: NotRequired[float | None]
+    origin_headers: NotRequired[Mapping[str, str] | None]
+
+
+def _fetch_html_with_solver_fallback(
+    url: str, etag: str | None, last_modified: str | None, **kwargs: Unpack[FetchOptions]
+) -> FetchResult:
     try:
-        return _fetch(url, *args, **kwargs)
+        return _fetch(url, etag, last_modified, **kwargs)
     except FeedError as exc:
         if exc.reason != "browser_challenge" or not get_settings().solver_services:
             raise
@@ -258,18 +283,18 @@ def is_browser_challenge(headers: dict[str, str]) -> bool:
 
 @observed_dependency("publisher", "fetch")
 def _fetch(
-    url,
-    etag,
-    last_modified,
+    url: str,
+    etag: str | None,
+    last_modified: str | None,
     *,
-    accept,
-    max_bytes,
-    timeout,
-    html_only=False,
-    limit_setting=None,
-    before_request=None,
-    deadline=None,
-    origin_headers=None,
+    accept: str,
+    max_bytes: int,
+    timeout: float,
+    html_only: bool = False,
+    limit_setting: str | None = None,
+    before_request: Callable[[str], object] | None = None,
+    deadline: float | None = None,
+    origin_headers: Mapping[str, str] | None = None,
 ) -> FetchResult:
     settings = get_settings()
     current = validate_public_url(url)

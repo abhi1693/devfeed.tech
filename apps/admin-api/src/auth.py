@@ -1,5 +1,7 @@
 """Admin identity and revocable Redis sessions; no user accounts or passwords."""
 
+from __future__ import annotations
+
 import hashlib
 import hmac
 import json
@@ -131,7 +133,7 @@ def actor(admin: AdminIdentity) -> dict[str, str]:
 
 
 @router.get("/config", response_model=AuthConfig, operation_id="admin_auth_config")
-def config():
+def config() -> AuthConfig:
     settings = get_settings()
     providers: list[Literal["github", "google"]] = []
     if oidc.configured(settings):
@@ -150,7 +152,7 @@ def login(
     reauthenticate: bool = False,
     provider: Literal["github", "google"] | None = None,
     retry: str | None = None,
-):
+) -> RedirectResponse:
     require_config()
     settings = get_settings()
     recovery = _recovery(request, settings)
@@ -244,7 +246,7 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
 
 
 @router.get("/me", response_model=AdminIdentity, operation_id="admin_auth_me")
-def me(admin: Admin):
+def me(admin: Admin) -> AdminIdentity:
     return admin
 
 

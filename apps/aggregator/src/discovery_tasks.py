@@ -2,19 +2,21 @@
 
 import uuid
 from contextlib import ExitStack
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from devfeed_core import discovery
 from devfeed_core.config import get_settings
+from devfeed_core.discovery_quality import DiscoverySampleEntry
 from devfeed_core.jobs import REDISPATCH_SECONDS
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import SourceDiscoveryJob, utcnow
-from sqlalchemy import case, or_, select, true, tuple_
-from sqlalchemy.orm import load_only
+from sqlalchemy import Select, case, or_, select, true, tuple_
+from sqlalchemy.orm import Session, load_only, sessionmaker
 
 from devfeed_aggregator.queue import get_queue
 
 
-def assess_sample(sample):
+def assess_sample(sample: list[DiscoverySampleEntry]) -> JsonRecord:
     from devfeed_core.config import get_settings
     from devfeed_core.discovery_quality import Quality, prompt
 
@@ -28,7 +30,7 @@ def assess_sample(sample):
     return client.complete(prompt(sample), Quality.model_json_schema())
 
 
-def process_candidate(job_id: str):
+def process_candidate(job_id: str) -> discovery.DiscoveryRunResult | None:
     return discovery.run_one(
         target_job_id=uuid.UUID(job_id), allow_ai=get_settings().ai_enabled, assessor=assess_sample
     )
@@ -37,10 +39,10 @@ def process_candidate(job_id: str):
 class DiscoveryDispatcher:
     """Publish a bounded discovery batch without rechecking an already queued prefix."""
 
-    def __init__(self, factory, now):
+    def __init__(self, factory: sessionmaker[Session], now: datetime) -> None:
         self.factory, self.now = factory, now
 
-    def _statement(self):
+    def _statement(self) -> Select[SourceDiscoveryJob]:
         model = SourceDiscoveryJob
         return (
             select(model)
@@ -67,16 +69,17 @@ class DiscoveryDispatcher:
             )
         )
 
-    def publish(self, limit):
+    def publish(self, limit: int) -> int:
         if limit < 1:
             raise ValueError("Discovery publication limit must be positive")
         model = SourceDiscoveryJob
         with self.factory() as session:
-            candidates = list(
-                session.execute(
+            candidates = [
+                (identifier, stage)
+                for identifier, stage in session.execute(
                     self._statement().with_only_columns(model.id, model.stage).limit(limit)
                 )
-            )
+            ]
         if not get_settings().ai_enabled:
             candidates = [
                 (identifier, stage) for identifier, stage in candidates if stage != "assess"
@@ -126,5 +129,5 @@ class DiscoveryDispatcher:
                 return len(jobs)
 
 
-def dispatch_discovery(factory, limit=10):
+def dispatch_discovery(factory: sessionmaker[Session], limit: int = 10) -> int:
     return DiscoveryDispatcher(factory, utcnow()).publish(limit)

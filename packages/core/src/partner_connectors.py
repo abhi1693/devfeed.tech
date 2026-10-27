@@ -1,21 +1,32 @@
 """Bounded REST/JSON connectors interpreted as data, never executable code."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import re
-from typing import Annotated, Literal
+from collections.abc import Callable, Sequence
+from typing import Annotated, Literal, Self, TypedDict
 from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urljoin, urlsplit, urlunsplit
 
 from pydantic import Field, JsonValue, StringConstraints, field_validator, model_validator
 
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, _fetch
+from devfeed_core.json_types import JsonRecord
+from devfeed_core.models import PartnerConnection
 from devfeed_core.partner_taglines import imported_tagline
 from devfeed_core.partner_tools import ProductInput, ShortText
 from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from devfeed_core.redis import create_redis
 from devfeed_core.schemas import InputModel
 from devfeed_core.urls import validate_public_url
+
+
+class ConnectorPreview(TypedDict):
+    data: JsonValue
+    sampled: bool
+
 
 Path = Annotated[
     str,
@@ -38,7 +49,7 @@ class ConnectorAuth(InputModel):
     header: Parameter = "X-API-Key"
 
     @model_validator(mode="after")
-    def valid_auth(self):
+    def valid_auth(self) -> Self:
         if self.header.lower() in {
             "host",
             "cookie",
@@ -63,7 +74,7 @@ class ConnectorPagination(InputModel):
     has_more_path: Path | None = None
 
     @model_validator(mode="after")
-    def parameter_for_mode(self):
+    def parameter_for_mode(self) -> Self:
         if self.mode in {"cursor", "page", "offset"} and self.parameter is None:
             raise ValueError("This pagination mode requires a request parameter")
         return self
@@ -89,7 +100,7 @@ class ConnectorFilter(InputModel):
 
     @field_validator("values")
     @classmethod
-    def bounded_values(cls, values):
+    def bounded_values(cls, values: list[str]) -> list[str]:
         if any(not value.strip() or len(value) > 200 for value in values):
             raise ValueError("Filter values must be nonempty and at most 200 characters")
         return values
@@ -117,7 +128,7 @@ class ConnectorConfig(InputModel):
 
     @field_validator("base_url")
     @classmethod
-    def public_origin(cls, value):
+    def public_origin(cls, value: str) -> str:
         value = validate_public_url(value)
         parts = urlsplit(value)
         if parts.path != "/" or parts.query or parts.scheme != "https":
@@ -125,7 +136,7 @@ class ConnectorConfig(InputModel):
         return value.rstrip("/")
 
     @model_validator(mode="after")
-    def valid_endpoints(self):
+    def valid_endpoints(self) -> Self:
         for path in [self.list_path, self.detail_path]:
             if path is None:
                 continue
@@ -160,7 +171,7 @@ class ConnectorConfig(InputModel):
 
 
 # A creation preset, not a dispatch table. Persisted definitions drive imports.
-NICK_CONNECTOR = {
+NICK_CONNECTOR: dict[str, JsonValue] = {
     "base_url": "https://nicklaunches.com",
     "list_path": "/api/v1/products/",
     "detail_path": "/api/v1/products/{id}/",
@@ -179,7 +190,7 @@ NICK_CONNECTOR = {
 }
 
 
-SHIPYARD_CONNECTOR = {
+SHIPYARD_CONNECTOR: dict[str, JsonValue] = {
     "base_url": "https://shipyardhq.dev",
     "list_path": "/api/products",
     "items_paths": ["items"],
@@ -205,14 +216,14 @@ SHIPYARD_CONNECTOR = {
 CONNECTOR_PRESETS = {"nick-launches": NICK_CONNECTOR, "shipyardhq": SHIPYARD_CONNECTOR}
 
 
-def connector_snapshot(connection):
-    raw = connection.connector
+def connector_snapshot(connection: PartnerConnection) -> JsonRecord:
+    raw: JsonRecord | None = connection.connector
     if not raw:
         raw = CONNECTOR_PRESETS.get(connection.provider)
     return ConnectorConfig.model_validate(raw).model_dump(mode="json")
 
 
-def value_at(data, path):
+def value_at(data: JsonValue, path: str) -> JsonValue:
     for segment in path.split(".") if path else []:
         if isinstance(data, dict):
             if segment not in data:
@@ -225,7 +236,7 @@ def value_at(data, path):
     return data
 
 
-def first_value(data, paths, *, required=False):
+def first_value(data: JsonValue, paths: Sequence[str], *, required: bool = False) -> JsonValue:
     for path in paths:
         try:
             value = value_at(data, path)
@@ -238,18 +249,18 @@ def first_value(data, paths, *, required=False):
     return None
 
 
-def same_origin(config, value):
+def same_origin(config: ConnectorConfig, value: str) -> str:
     value = validate_public_url(urljoin(config.base_url + "/", value))
     if urlsplit(value)[:2] != urlsplit(config.base_url)[:2]:
         raise ValueError("API URLs must stay on the configured origin")
     return value
 
 
-def normalized_filter(value):
+def normalized_filter(value: JsonValue) -> str:
     return str(value).casefold().replace("-", " ").strip()
 
 
-def included(config, data):
+def included(config: ConnectorConfig, data: JsonValue) -> bool:
     for rule in config.filters:
         try:
             value = value_at(data, rule.path)
@@ -279,7 +290,15 @@ class ProductCandidate(InputModel):
 class ConnectorClient:
     """One validated connector and its bounded, credential-safe requests."""
 
-    def __init__(self, provider, config=None, *, credential=None, fetch=None, deadline=None):
+    def __init__(
+        self,
+        provider: str,
+        config: ConnectorConfig | JsonRecord | None = None,
+        *,
+        credential: str | None = None,
+        fetch: Callable[[str], JsonValue] | None = None,
+        deadline: float | None = None,
+    ) -> None:
         if config is None:
             config = CONNECTOR_PRESETS.get(provider)
             if config is None:
@@ -291,13 +310,13 @@ class ConnectorClient:
         self.deadline = deadline
 
     @property
-    def _secret(self):
+    def _secret(self) -> str | None:
         auth = self.config.auth
         if auth.mode == "none":
             return None
         return self.credential
 
-    def _position(self, cursor):
+    def _position(self, cursor: str | int | None) -> int:
         pagination = self.config.pagination
         start = pagination.start if pagination.mode == "page" else 0
         try:
@@ -308,7 +327,7 @@ class ConnectorClient:
             raise ValueError("Invalid pagination position")
         return position
 
-    def list_url(self, cursor=None):
+    def list_url(self, cursor: str | None = None) -> str:
         config, pagination = self.config, self.config.pagination
         params = {**config.parameters}
         if pagination.size_parameter is not None:
@@ -329,7 +348,7 @@ class ConnectorClient:
             parts._replace(query=urlencode([*parse_qsl(parts.query), *params.items()]))
         )
 
-    def request(self, url):
+    def request(self, url: str) -> JsonValue:
         if self.fetch is not None:
             return self.fetch(url)
         provider, config = self.provider, self.config
@@ -344,7 +363,7 @@ class ConnectorClient:
             )
 
         # Share the budget across preview and every worker/product request for this provider.
-        def before_request(target):
+        def before_request(target: str) -> None:
             same_origin(config, target)
             with create_redis(get_settings()) as redis:
                 retry = consume_rate_limits(
@@ -375,7 +394,7 @@ class ConnectorClient:
             before_request=before_request,
         )
         try:
-            data = json.loads(response.body)
+            data: JsonValue = json.loads(response.body)
         except (ValueError, UnicodeError) as exc:
             raise ConnectorDiagnostic(
                 "The import API returned invalid JSON. Check the endpoint."
@@ -403,7 +422,7 @@ class ConnectorClient:
             re.compile("|".join(sorted(set(patterns), key=len, reverse=True))) if patterns else None
         )
 
-        def without_credential(value, depth=0):
+        def without_credential(value: JsonValue, depth: int = 0) -> JsonValue:
             if depth > 20:
                 return "[omitted]"
             if isinstance(value, str):
@@ -412,14 +431,16 @@ class ConnectorClient:
                 return [without_credential(item, depth + 1) for item in value]
             if isinstance(value, dict):
                 return {
-                    without_credential(key): without_credential(item, depth + 1)
+                    (
+                        credential_pattern.sub("[redacted]", key) if credential_pattern else key
+                    ): without_credential(item, depth + 1)
                     for key, item in value.items()
                 }
             return "[redacted]" if secret and str(value) == secret else value
 
         return without_credential(data)
 
-    def discover_page(self, cursor=None):
+    def discover_page(self, cursor: str | None = None) -> tuple[list[ProductCandidate], str | None]:
         config = self.config
         pagination = config.pagination
         endpoint = self.list_url(cursor)
@@ -432,29 +453,32 @@ class ConnectorClient:
             raise ConnectorDiagnostic(
                 "Product list paths must select an array of at most 1,000 products."
             )
-        next_cursor = None
+        next_cursor: str | None = None
         if pagination.mode in {"cursor", "next_url"}:
             try:
-                next_cursor = value_at(body, pagination.next_path)
+                raw_cursor = value_at(body, pagination.next_path)
             except ValueError:
                 raise ConnectorDiagnostic(
                     "Pagination next-page path did not match the API response."
                 ) from None
             if (
-                next_cursor is not None
-                and next_cursor != ""
-                and (not isinstance(next_cursor, str) or len(next_cursor) > 2000)
+                raw_cursor is not None
+                and raw_cursor != ""
+                and (not isinstance(raw_cursor, str) or len(raw_cursor) > 2000)
             ):
                 raise ConnectorDiagnostic("Import API returned an invalid pagination token")
-            next_cursor = next_cursor or None
+            raw_cursor = raw_cursor or None
+            assert raw_cursor is None or isinstance(raw_cursor, str)
+            next_cursor = raw_cursor
             if pagination.mode == "next_url" and next_cursor:
                 next_cursor = same_origin(config, urljoin(endpoint, next_cursor))
         elif pagination.mode in {"page", "offset"}:
             more = len(items) >= pagination.page_size
             if pagination.has_more_path:
-                more = value_at(body, pagination.has_more_path)
-                if not isinstance(more, bool):
+                raw_more = value_at(body, pagination.has_more_path)
+                if not isinstance(raw_more, bool):
                     raise ConnectorDiagnostic("Pagination has-more field must be a boolean")
+                more = raw_more
             elif pagination.total_path:
                 total = value_at(body, pagination.total_path)
                 if not isinstance(total, int) or isinstance(total, bool) or total < 0:
@@ -470,7 +494,9 @@ class ConnectorClient:
                 next_cursor = str(position + (1 if pagination.mode == "page" else len(items)))
         candidates = []
         for entry in items:
-            data = entry if isinstance(entry, dict) else {"invalid_record": entry}
+            data: dict[str, JsonValue] = (
+                entry if isinstance(entry, dict) else {"invalid_record": entry}
+            )
             if not included(config, data):
                 continue
             identity = first_value(data, config.fields.external_id)
@@ -487,7 +513,7 @@ class ConnectorClient:
             candidates.append(ProductCandidate(external_id=identity, data=data))
         return candidates, next_cursor
 
-    def product(self, candidate):
+    def product(self, candidate: ProductCandidate) -> ProductInput:
         if candidate.normalized:
             return ProductInput.model_validate(candidate.data)
         provider, config = self.provider, self.config
@@ -496,7 +522,7 @@ class ConnectorClient:
             raise ConnectorDiagnostic("Product ID paths did not match a nonempty value.")
         if str(identity) != candidate.external_id or str(identity) in {".", ".."}:
             raise ConnectorDiagnostic("Imported product identity is missing or invalid")
-        data = candidate.data
+        data: JsonValue = candidate.data
         if config.detail_path:
             url = config.base_url + config.detail_path.replace(
                 "{id}", quote(str(identity), safe="")
@@ -514,7 +540,7 @@ class ConnectorClient:
                 )
         hosts = {host.lower() for host in config.platform_hosts}
 
-        def mapped_url(paths, listing):
+        def mapped_url(paths: Sequence[str], listing: bool) -> str:
             label = "Listing URL" if listing else "Website URL"
             failure = f"{label} paths did not match a nonempty URL."
             for path in paths:
@@ -540,7 +566,7 @@ class ConnectorClient:
                 return config.listing_url_template.replace("{id}", quote(str(identity), safe=""))
             raise ConnectorDiagnostic(failure)
 
-        def required_field(paths, label):
+        def required_field(paths: Sequence[str], label: str) -> JsonValue:
             value = first_value(data, paths)
             if value is None:
                 raise ConnectorDiagnostic(f"{label} paths did not match a nonempty value.")
@@ -572,13 +598,13 @@ class ConnectorClient:
             attribution=config.attribution,
         )
 
-    def response_preview(self):
+    def response_preview(self) -> ConnectorPreview:
         """Read one first page without depending on response paths or product mappings."""
         data = self.request(self.list_url())
         secret = self._secret
         sampled, remaining = False, 500
 
-        def sample(value, depth=0):
+        def sample(value: JsonValue, depth: int = 0) -> JsonValue:
             nonlocal sampled, remaining
             remaining -= 1
             if remaining < 0 or depth > 8:
@@ -586,7 +612,7 @@ class ConnectorClient:
                 return "[omitted]"
             if isinstance(value, dict):
                 sampled |= len(value) > 40
-                result = {}
+                result: dict[str, JsonValue] = {}
                 for key, item in list(value.items())[:40]:
                     if remaining <= 0:
                         sampled = True

@@ -1,5 +1,7 @@
 """Bounded publisher-list adapters. Feed URLs are hints, never trusted admission."""
 
+from __future__ import annotations
+
 import json
 import re
 import xml.etree.ElementTree as ET
@@ -55,7 +57,7 @@ def parse_import(body: bytes, format: str) -> list[PublisherHint]:
     text = body.decode("utf-8-sig")
     raw: dict[tuple[str, str | None], PublisherHint] = {}
 
-    def add(hint: PublisherHint):
+    def add(hint: PublisherHint) -> None:
         raw.setdefault((hint.homepage, hint.feed_hint), hint)
         if len(raw) > MAX_CANDIDATES:
             raise ValueError("Import exceeds 1,000 unique publisher entries")

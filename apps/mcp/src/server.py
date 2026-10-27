@@ -8,7 +8,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field, StringConstraints
 
-from devfeed_mcp.api import PublicAPI
+from devfeed_mcp.api import PublicAPI, json_array
 from devfeed_mcp.schemas import (
     Article,
     ContentType,
@@ -35,6 +35,7 @@ READ_ONLY = ToolAnnotations(
 )
 
 
+# SDK constructor options stay extensible at this single forwarding boundary.
 def create_server(api: PublicAPI, **options: Any) -> MCPServer:
     server = MCPServer(
         "DevFeed",
@@ -145,8 +146,8 @@ def create_server(api: PublicAPI, **options: Any) -> MCPServer:
             languages=languages,
         )
         return TopicPage(
-            items=[Topic.model_validate(row) for row in rows[:limit]],
-            next_offset=offset + limit if len(rows) > limit else None,
+            items=[Topic.model_validate(row) for row in json_array(rows)[:limit]],
+            next_offset=offset + limit if len(json_array(rows)) > limit else None,
         )
 
     @server.tool(annotations=READ_ONLY)
@@ -174,8 +175,8 @@ def create_server(api: PublicAPI, **options: Any) -> MCPServer:
             languages=languages,
         )
         return SourcePage(
-            items=[Source.model_validate(row) for row in rows[:limit]],
-            next_offset=offset + limit if len(rows) > limit else None,
+            items=[Source.model_validate(row) for row in json_array(rows)[:limit]],
+            next_offset=offset + limit if len(json_array(rows)) > limit else None,
         )
 
     @server.tool(annotations=READ_ONLY)

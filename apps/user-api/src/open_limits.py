@@ -1,5 +1,7 @@
 """Bound outbound-click tracking without trusting visitor cookies as abuse-proof identities."""
 
+import uuid
+
 from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from fastapi import HTTPException
 from redis.exceptions import RedisError
@@ -7,7 +9,7 @@ from redis.exceptions import RedisError
 from devfeed_user_api.dependencies import get_redis
 
 
-def limit_open_requests(article_id, viewer_key: str, *, anonymous: bool) -> None:
+def limit_open_requests(article_id: uuid.UUID, viewer_key: str, *, anonymous: bool) -> None:
     # Authenticated users have the same request budget, but do not consume the
     # shared anonymous allowance. Keys contain hashes, never identities or IPs.
     prefix = "devfeed:user:open-limits:"

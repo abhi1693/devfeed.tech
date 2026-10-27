@@ -1,24 +1,50 @@
 """Bounded, immutable public-feed batches with recency-first publisher diversity."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import uuid
 from collections import Counter, deque
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from heapq import heapify, heappop, heappush
+from typing import TypedDict
 
 from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
 from devfeed_core.cache import CacheUnavailable, get_feed_sequence_cache
 from devfeed_core.models import Article, ArticleOrigin, Source, utcnow
-from devfeed_core.schemas import ArticleOut, FeedPage
+from devfeed_core.schemas import ArticleOut, ContentType, FeedPage
 from fastapi import HTTPException
-from sqlalchemy import literal, select, tuple_
+from sqlalchemy import ColumnElement, Row, literal, select, tuple_
+from sqlalchemy.orm import Session
 
 BATCH_SIZE = 480
 RETENTION_SECONDS = 3 * 3600
 
 
-def diverse_ids(rows, publishers):
+class FeedFilters(TypedDict, total=False):
+    q: str | None
+    tag: Sequence[str] | None
+    exclude_tag: Sequence[str] | None
+    source_id: uuid.UUID | None
+    exclude_source: Sequence[uuid.UUID] | None
+    content_type: ContentType | None
+    content_types: Sequence[ContentType] | None
+    languages: Sequence[str] | None
+    topic: str | None
+
+
+class FeedSnapshot(TypedDict):
+    ids: list[str]
+    after: list[str] | None
+    as_of: str
+    filter: str
+
+
+def diverse_ids(
+    rows: Sequence[Row[uuid.UUID, datetime]], publishers: Mapping[uuid.UUID, uuid.UUID]
+) -> list[str]:
     result: list[str] = []
     previous = None
     counts: Counter[uuid.UUID | None] = Counter()
@@ -53,11 +79,18 @@ def diverse_ids(rows, publishers):
     return result
 
 
-def filter_key(filters):
+def filter_key(filters: FeedFilters) -> str:
     return hashlib.sha256(json.dumps(filters, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def snapshot(session, conditions, identity, *, as_of=None, after=None):
+def snapshot(
+    session: Session,
+    conditions: list[ColumnElement[bool]],
+    identity: str,
+    *,
+    as_of: datetime | None = None,
+    after: Sequence[str] | None = None,
+) -> FeedSnapshot:
     as_of = as_of or utcnow()
     statement = select(Article.id, Article.feed_at).where(
         *conditions,
@@ -100,7 +133,13 @@ def snapshot(session, conditions, identity, *, as_of=None, after=None):
     }
 
 
-def latest_page(session, conditions, filters, limit, cursor):
+def latest_page(
+    session: Session,
+    conditions: list[ColumnElement[bool]],
+    filters: FeedFilters,
+    limit: int,
+    cursor: str | None,
+) -> FeedPage:
     identity = filter_key(filters)
     cache = get_feed_sequence_cache()
     try:

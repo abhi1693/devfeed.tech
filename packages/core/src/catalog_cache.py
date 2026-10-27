@@ -1,24 +1,36 @@
 """Immutable snapshots keyed by transactional PostgreSQL revisions, never a TTL decision."""
 
+from __future__ import annotations
+
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Iterator
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
+from typing import TypeVar, cast
 
 from sqlalchemy import select
+from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.orm import Session
 
 from devfeed_core.cache import CacheUnavailable, get_cache, record_cache_read
 from devfeed_core.config import get_settings
 from devfeed_core.models import CatalogRevision
 
-_snapshots: ContextVar[dict | None] = ContextVar("catalog_snapshots", default=None)
+T = TypeVar("T")
+type SnapshotKey = tuple[Engine | Connection, tuple[str, ...]]
+type SnapshotRevision = tuple[tuple[str, str], ...]
+type SnapshotCache = dict[SnapshotKey, tuple[SnapshotRevision, object]]
+
+_snapshots: ContextVar[SnapshotCache | None] = ContextVar("catalog_snapshots", default=None)
 _invalidator: ContextVar[Callable[[], None] | None] = ContextVar(
     "catalog_snapshot_invalidator", default=None
 )
 
 
 @contextmanager
-def reuse_snapshots(*, retained=None, on_invalidate=None):
+def reuse_snapshots(
+    *, retained: SnapshotCache | None = None, on_invalidate: Callable[[], None] | None = None
+) -> Iterator[None]:
     """Reuse revision-validated snapshots within a scope or a bounded owner cache."""
     token = _snapshots.set({} if retained is None else retained)
     invalidator_token = _invalidator.set(on_invalidate)
@@ -29,7 +41,7 @@ def reuse_snapshots(*, retained=None, on_invalidate=None):
         _invalidator.reset(invalidator_token)
 
 
-def _forget(values, slot):
+def _forget(values: SnapshotCache | None, slot: SnapshotKey) -> None:
     if values is not None and slot in values:
         del values[slot]
         invalidate = _invalidator.get()
@@ -37,7 +49,7 @@ def _forget(values, slot):
             invalidate()
 
 
-def _revisions(session, names):
+def _revisions(session: Session, names: Collection[str]) -> SnapshotRevision:
     return tuple(
         (name, str(revision))
         for name, revision in session.execute(
@@ -48,7 +60,7 @@ def _revisions(session, names):
     )
 
 
-def snapshot_current(session, names, value) -> bool:
+def snapshot_current(session: Session, names: Collection[str], value: object) -> bool:
     """Validate prepared data under the caller's locks without loading new catalog rows."""
     values = _snapshots.get()
     if values is None:
@@ -58,7 +70,7 @@ def snapshot_current(session, names, value) -> bool:
     return entry is not None and entry[1] is value and _revisions(session, names) == entry[0]
 
 
-def snapshot(session, names, loader):
+def snapshot[T](session: Session, names: Collection[str], loader: Callable[[], T]) -> T:
     """A miss/failure reads PostgreSQL; a concurrent write prevents cache publication.
 
     UUID revisions change in the same transaction as every catalog write, including
@@ -79,7 +91,7 @@ def snapshot(session, names, loader):
         return loader()
     if values is not None and slot in values and values[slot][0] == before:
         record_cache_read("catalog", "hit")
-        return values[slot][1]
+        return cast(T, values[slot][1])
     # Retained prepared indexes can be much larger than a catalog. Release the
     # old generation before allocating its replacement, including missing keys.
     _forget(values, slot)
@@ -102,7 +114,7 @@ def snapshot(session, names, loader):
         if body is not None:
             entry = json.loads(body)
             if entry["revision"] == [list(item) for item in before]:
-                value = entry["value"]
+                value = cast(T, entry["value"])
                 record_cache_read("catalog", "hit")
                 if values is not None:
                     values[slot] = (before, value)

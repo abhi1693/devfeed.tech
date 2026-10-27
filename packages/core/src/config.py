@@ -1,6 +1,6 @@
 from datetime import date
 from functools import lru_cache
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self, overload
 
 from pydantic import (
     AliasChoices,
@@ -21,9 +21,17 @@ class SolverService(BaseModel):
     url: str
     timeout_seconds: int = Field(default=30, ge=5, le=60)
 
+    @overload
+    @classmethod
+    def validate_url(cls, value: str) -> str: ...
+
+    @overload
+    @classmethod
+    def validate_url(cls, value: None) -> None: ...
+
     @field_validator("url")
     @classmethod
-    def validate_url(cls, value):
+    def validate_url(cls, value: str | None) -> str | None:
         from urllib.parse import urlsplit
 
         if value is None:
@@ -54,7 +62,7 @@ class Settings(BaseSettings):
     adaptive_source_polling_max_seconds: int = Field(default=86400, ge=300, le=604800)
 
     @model_validator(mode="after")
-    def validate_polling_bounds(self):
+    def validate_polling_bounds(self) -> Self:
         if self.adaptive_source_polling_min_seconds > self.adaptive_source_polling_max_seconds:
             raise ValueError("Adaptive polling minimum must not exceed maximum")
         return self
@@ -138,27 +146,27 @@ class Settings(BaseSettings):
 
     @field_validator("image_storage_endpoint", "image_public_url", "imgproxy_url")
     @classmethod
-    def validate_image_origin(cls, value):
+    def validate_image_origin(cls, value: str | None) -> str | None:
         return SolverService.validate_url(value) if value else None
 
     partner_tracking_key: SecretStr | None = Field(default=None, min_length=32)
 
     @field_validator("partner_tracking_key", mode="before")
     @classmethod
-    def empty_tracking_key(cls, value):
+    def empty_tracking_key(cls, value: object) -> object:
         return None if value == "" else value
 
     partner_caller_key: SecretStr | None = None
 
     @field_validator("partner_caller_key", mode="before")
     @classmethod
-    def empty_partner_caller_key(cls, value):
+    def empty_partner_caller_key(cls, value: object) -> object:
         raw = value.get_secret_value() if isinstance(value, SecretStr) else value
         return None if isinstance(raw, str) and not raw.strip() else value
 
     @field_validator("partner_caller_key")
     @classmethod
-    def validate_partner_caller_key(cls, value):
+    def validate_partner_caller_key(cls, value: SecretStr | None) -> SecretStr | None:
         if value is not None and len(value.get_secret_value().encode()) < 32:
             raise ValueError("Partner caller key must contain at least 32 bytes")
         return value
@@ -183,12 +191,12 @@ class Settings(BaseSettings):
 
     @field_validator("search_url")
     @classmethod
-    def validate_search_url(cls, value):
+    def validate_search_url(cls, value: str | None) -> str | None:
         return SolverService.validate_url(value)
 
     @field_validator("clickhouse_url")
     @classmethod
-    def validate_clickhouse_url(cls, value):
+    def validate_clickhouse_url(cls, value: str) -> str:
         return SolverService.validate_url(value)
 
     cache_enabled: bool = True
@@ -201,7 +209,7 @@ class Settings(BaseSettings):
 
     @field_validator("ai_content_not_before", mode="before")
     @classmethod
-    def optional_ai_content_date(cls, value):
+    def optional_ai_content_date(cls, value: object) -> object:
         return None if value == "" else value
 
     auto_approve_topics: bool = False
@@ -259,7 +267,7 @@ class Settings(BaseSettings):
 
     @field_validator("partner_credential_key")
     @classmethod
-    def valid_partner_credential_key(cls, value):
+    def valid_partner_credential_key(cls, value: SecretStr | None) -> SecretStr | None:
         if value is not None:
             from cryptography.fernet import Fernet
 
@@ -270,7 +278,7 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def validate_redis_configuration(self):
+    def validate_redis_configuration(self) -> Self:
         from urllib.parse import urlsplit
 
         if bool(self.redis_sentinel_nodes) != bool(self.redis_sentinel_master):
@@ -290,7 +298,7 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def validate_ai_configuration(self):
+    def validate_ai_configuration(self) -> Self:
         from urllib.parse import urlsplit
 
         if self.ai_bounded_topics_enabled:
@@ -345,7 +353,7 @@ class Settings(BaseSettings):
 
     @field_validator("log_level", mode="before")
     @classmethod
-    def normalize_log_level(cls, value):
+    def normalize_log_level(cls, value: object) -> object:
         return value.strip().upper() if isinstance(value, str) else value
 
 

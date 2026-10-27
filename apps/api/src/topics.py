@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import uuid
-from typing import Annotated, Literal
+from collections.abc import Sequence
+from typing import Annotated, Literal, TypedDict
 
 from devfeed_core.models import Article, ArticleTopic, Topic, TopicRelation
 from devfeed_core.publication import visible_article
@@ -33,7 +36,7 @@ def topics(
     ),
     q: Annotated[TextInput, Query(max_length=200)] = "",
     languages: Annotated[list[LanguageCode] | None, Query(min_length=1, max_length=75)] = None,
-):
+) -> Sequence[Topic]:
     statement = select(Topic).where(Topic.status == "active")
     if q.strip():
         statement = statement.where(Topic.name.icontains(q.strip(), autoescape=True))
@@ -81,7 +84,7 @@ def topics(
     response_model=TopicOut,
     openapi_extra=CachePolicy(namespace="topic", revision=1, ttl="metadata").openapi_extra(),
 )
-def topic(slug: TextInput, session: DB, by_id: bool = False):
+def topic(slug: TextInput, session: DB, by_id: bool = False) -> Topic:
     """Read a public topic by canonical slug, or by stable UUID when by_id is true."""
     identity = Topic.slug == slug
     if by_id:
@@ -102,6 +105,12 @@ class TopicRelationOut(BaseModel):
     evidence_url: str | None
 
 
+class RelationData(TypedDict):
+    relation: str
+    topic: TopicOut
+    evidence_url: str | None
+
+
 @router.get(
     "/{slug}/relations",
     response_model=list[TopicRelationOut],
@@ -109,7 +118,7 @@ class TopicRelationOut(BaseModel):
         namespace="topic-relations", revision=1, ttl="metadata"
     ).openapi_extra(),
 )
-def relations(slug: TextInput, session: DB):
+def relations(slug: TextInput, session: DB) -> list[RelationData]:
     current = topic(slug, session)
     rows = session.execute(
         select(TopicRelation, Topic)

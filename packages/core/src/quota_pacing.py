@@ -1,22 +1,38 @@
 """Pace the shared account allowance without inventing a tokens-to-quota conversion."""
 
+from __future__ import annotations
+
 import json
 import math
 import time
 from datetime import UTC, datetime, timedelta
+from typing import TypedDict
 
 from devfeed_core.ai_capacity import cooldown_key
-from devfeed_core.config import get_settings
+from devfeed_core.config import Settings, get_settings
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.redis import create_redis
+from redis import Redis
+
+
+class QuotaSnapshot(TypedDict):
+    used_percent: float
+    resets_at: float
+    day_end: float
+    ceiling_percent: float
+    reserve: float
+    checked_at: float
+    provider_allowed: bool
+
 
 FRESH_SECONDS = 180
 
 
-def quota_key():
+def quota_key() -> str:
     return cooldown_key() + ":quota"
 
 
-def weekly_window(response):
+def weekly_window(response: object) -> tuple[float, float] | None:
     limits = response.get("rateLimits") if isinstance(response, dict) else None
     if not isinstance(limits, dict):
         return None
@@ -38,7 +54,13 @@ def weekly_window(response):
     return None
 
 
-def paced_snapshot(previous, response, *, now: float, reserve: float):
+def paced_snapshot(
+    previous: JsonRecord | None,
+    response: JsonRecord,
+    *,
+    now: float,
+    reserve: float,
+) -> QuotaSnapshot | None:
     window = weekly_window(response)
     if window is None:
         return None
@@ -70,20 +92,30 @@ def paced_snapshot(previous, response, *, now: float, reserve: float):
     }
 
 
-def pause_reason(connection, *, settings=None, now=None):
+def pause_reason(
+    connection: Redis,
+    *,
+    settings: Settings | None = None,
+    now: float | None = None,
+) -> str | None:
     settings = settings or get_settings()
     if not settings.ai_quota_pacing_enabled:
         return None
     return snapshot_pause_reason(connection.get(quota_key()), settings=settings, now=now)
 
 
-def snapshot_pause_reason(raw, *, settings, now=None):
+def snapshot_pause_reason(
+    raw: bytes | str | None,
+    *,
+    settings: Settings,
+    now: float | None = None,
+) -> str | None:
     """Validate the same allowance when a caller batches its Redis reads."""
     if not settings.ai_quota_pacing_enabled:
         return None
     now = time.time() if now is None else now
     try:
-        snapshot = json.loads(raw) if raw else None
+        snapshot: JsonRecord | None = json.loads(raw) if raw else None
         if not snapshot or not 0 <= now - snapshot["checked_at"] <= FRESH_SECONDS:
             return "codex_quota_unavailable"
         if now >= min(snapshot["day_end"], snapshot["resets_at"]):
@@ -98,7 +130,7 @@ def snapshot_pause_reason(raw, *, settings, now=None):
     return None
 
 
-def current_pause_reason(settings=None):
+def current_pause_reason(settings: Settings | None = None) -> str | None:
     settings = settings or get_settings()
     if not settings.ai_quota_pacing_enabled:
         return None

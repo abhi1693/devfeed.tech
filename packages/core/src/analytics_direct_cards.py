@@ -1,27 +1,40 @@
 """Direct, per-identity ClickHouse operator card observations."""
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import json
 import uuid
 from collections import defaultdict
+from collections.abc import AsyncIterator, Iterable, Sequence
 from datetime import UTC, datetime
 
+from psycopg import AsyncConnection
 from sqlalchemy.orm import Session, sessionmaker
 
+from devfeed_core.analytics import AnalyticsClient, SqlRecord
 from devfeed_core.analytics_card_builders import article_rows, proposal_rows, source_rows
 from devfeed_core.analytics_observation import pipeline_policy_version
+from devfeed_core.config import Settings
 
 
-def identity(value):
+def identity(value: object) -> uuid.UUID:
     return uuid.UUID(str(value))
 
 
-def shard_of(value):
+def shard_of(value: object) -> int:
     return identity(value).bytes[0]
 
 
-def normalize_card(row, policy, kind, entity_id, generation, now):
+def normalize_card(
+    row: SqlRecord | None,
+    policy: str,
+    kind: str,
+    entity_id: uuid.UUID,
+    generation: int,
+    now: datetime,
+) -> SqlRecord:
     """Produce one typed safe row; absent selected source identities are tombstones."""
     row = dict(row or {})
     payload = dict(row.get("payload") or {})
@@ -98,7 +111,7 @@ ROUTES = {
 }
 
 
-def card_identities(changes):
+def card_identities(changes: Sequence[SqlRecord]) -> dict[str, set[str]]:
     result = defaultdict(set)
     for change in changes:
         source = change["source_table"]
@@ -113,7 +126,9 @@ def card_identities(changes):
     return result
 
 
-def build_cards(settings, kind, identifiers, revision):
+def build_cards(
+    settings: Settings, kind: str, identifiers: Sequence[uuid.UUID | str], revision: int
+) -> list[SqlRecord]:
     from devfeed_core.db import get_engine
 
     factory = sessionmaker(get_engine(), class_=Session, expire_on_commit=False)
@@ -139,7 +154,13 @@ def build_cards(settings, kind, identifiers, revision):
     ]
 
 
-async def publish_card_ids(client, settings, kind, identifiers, revision):
+async def publish_card_ids(
+    client: AnalyticsClient,
+    settings: Settings,
+    kind: str,
+    identifiers: Iterable[uuid.UUID | str],
+    revision: int,
+) -> None:
     identifiers = sorted(set(map(str, identifiers)))
     for start in range(0, len(identifiers), 200):
         rows = await asyncio.to_thread(
@@ -148,12 +169,16 @@ async def publish_card_ids(client, settings, kind, identifiers, revision):
         await client.insert("analytics_card_canonical", rows)
 
 
-async def publish_cards(client, settings, changes, revision):
+async def publish_cards(
+    client: AnalyticsClient, settings: Settings, changes: Sequence[SqlRecord], revision: int
+) -> None:
     for kind, identifiers in card_identities(changes).items():
         await publish_card_ids(client, settings, kind, identifiers, revision)
 
 
-async def dependent_card_batches(connection, changes):
+async def dependent_card_batches(
+    connection: AsyncConnection[SqlRecord], changes: Sequence[SqlRecord]
+) -> AsyncIterator[list[SqlRecord]]:
     """Stream source identities affected by catalog and research edits in memory."""
     catalog_changed = any(
         change["source_table"] in {"topics", "catalog_revisions"} for change in changes

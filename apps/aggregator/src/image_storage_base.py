@@ -4,18 +4,45 @@ import base64
 import hashlib
 import hmac
 from abc import ABC, abstractmethod
+from typing import TypedDict, Unpack
 
 import httpcore
-from devfeed_core.config import get_settings
+from devfeed_core.config import Settings, get_settings
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.image_processing import ImageProcessor
 from devfeed_core.object_storage import R2Storage
+
+
+class StoredVariant(TypedDict):
+    key: str
+    width: int
+
+
+class ImageMetadata(TypedDict, total=False):
+    source_width: int
+    original_bytes: int
+    thumbnail_version: str
+    thumbnail_layout: str
+    subject_revision: int
+    page_url: str
+    page_final_url: str
+    discovery_method: str
+    icon_url: str
+
+
+class StoredImage(ImageMetadata):
+    source_url: str
+    hash: str
+    original_key: str
+    version: str
+    variants: list[StoredVariant]
+
 
 CACHE_CONTROL = "public, max-age=31536000, immutable"
 
 
 class ImageStore(ImageProcessor):
-    def __init__(self, storage: R2Storage):
+    def __init__(self, storage: R2Storage) -> None:
         super().__init__(max_pixels=40_000_000, formats={"JPEG", "PNG", "WEBP", "GIF", "AVIF"})
         self.storage = storage
 
@@ -27,7 +54,7 @@ class ImageStore(ImageProcessor):
 
 
 class ImgproxyTransform:
-    def __init__(self, settings=None):
+    def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings if settings is not None else get_settings()
 
     def url(self, key: str, width: int, *, options: str | None = None) -> str:
@@ -70,7 +97,7 @@ class ImgproxyTransform:
 
 class OriginalStore(ImageStore, ABC):
     @abstractmethod
-    def store(self, source: str) -> dict:
+    def store(self, source: str) -> StoredImage:
         """Fetch and validate an original using the source's image policy."""
 
     def _save(
@@ -82,8 +109,8 @@ class OriginalStore(ImageStore, ABC):
         namespace: str,
         version: str,
         extension: str = "",
-        **metadata,
-    ) -> dict:
+        **metadata: Unpack[ImageMetadata],
+    ) -> StoredImage:
         digest = hashlib.sha256(body).hexdigest()
         key = f"{namespace}/{digest}{extension}"
         if not self.storage.exists(key):
@@ -99,11 +126,11 @@ class OriginalStore(ImageStore, ABC):
 
 
 class VariantStore(ImageStore, ABC):
-    def __init__(self, storage: R2Storage, *, transform: ImgproxyTransform | None = None):
+    def __init__(self, storage: R2Storage, *, transform: ImgproxyTransform | None = None) -> None:
         super().__init__(storage)
         self.transform = transform if transform is not None else ImgproxyTransform()
 
-    def store(self, asset: dict, size: int) -> dict:
+    def store(self, asset: StoredImage, size: int) -> StoredVariant:
         key = self._key(asset, size)
         if not self.storage.exists(key):
             body = self._render(asset, size)
@@ -111,13 +138,13 @@ class VariantStore(ImageStore, ABC):
         return {"key": key, "width": size}
 
     @abstractmethod
-    def sizes(self, asset: dict) -> list[int]:
+    def sizes(self, asset: StoredImage) -> list[int]:
         """Return the subject's bounded variant sizes."""
 
     @abstractmethod
-    def _key(self, asset: dict, size: int) -> str:
+    def _key(self, asset: StoredImage, size: int) -> str:
         """Validate the encoding policy and choose an immutable object key."""
 
     @abstractmethod
-    def _render(self, asset: dict, size: int) -> bytes:
+    def _render(self, asset: StoredImage, size: int) -> bytes:
         """Render and validate a WebP variant before it can be stored."""

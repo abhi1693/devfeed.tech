@@ -1,5 +1,7 @@
 """Public cards reflect the same initialization metadata as the live transport."""
 
+from collections.abc import Awaitable, Callable
+
 from mcp.server.models import InitializationOptions
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -7,13 +9,15 @@ from starlette.responses import JSONResponse
 from devfeed_mcp.config import Settings
 
 
-def server_card(options: InitializationOptions, settings: Settings):
+def server_card(
+    options: InitializationOptions, settings: Settings
+) -> Callable[[Request], Awaitable[JSONResponse]]:
     capabilities = options.capabilities.model_dump(mode="json", by_alias=True, exclude_none=True)
     # The SDK omits empty extension bookkeeping from its live initialize response.
     if not capabilities.get("extensions"):
         capabilities.pop("extensions", None)
 
-    async def card(request: Request):
+    async def card(request: Request) -> JSONResponse:
         headers = {"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=300"}
         if not settings.public_url:
             return JSONResponse({"detail": "Public MCP endpoint is not configured"}, 404, headers)

@@ -1,11 +1,14 @@
 """Bounded source cadence. Learning is committed only with an owned successful job."""
 
+from __future__ import annotations
+
 import logging
 import math
 from datetime import datetime, timedelta
-from typing import Any
 
 from devfeed_core.config import get_settings
+from devfeed_core.json_types import JsonRecord
+from devfeed_core.models import Source
 
 logger = logging.getLogger(__name__)
 HALF_LIFE = 21600
@@ -14,8 +17,8 @@ PROBE_SECONDS = 3600
 
 
 def decide(
-    state: dict[str, Any], *, now: datetime, arrivals: int, minimum: int = 300, maximum: int = 86400
-) -> dict[str, Any]:
+    state: JsonRecord, *, now: datetime, arrivals: int, minimum: int = 300, maximum: int = 86400
+) -> JsonRecord:
     """Pure time-aware EWMA: one entry/fetch, 6h half-life, 2x/day quiet growth.
 
     First/stale windows establish a baseline at an hourly probe. Limit each
@@ -64,7 +67,7 @@ def decide(
     }
 
 
-def resolve_interval(source) -> int:
+def resolve_interval(source: Source) -> int:
     settings = get_settings()
     if settings.adaptive_source_polling_enabled and source.polling_mode == "adaptive":
         return max(
@@ -77,7 +80,7 @@ def resolve_interval(source) -> int:
     return source.poll_interval_seconds
 
 
-def schedule(source, now: datetime) -> datetime:
+def schedule(source: Source, now: datetime) -> datetime:
     """Stable source jitter (±5%), clipped to bounds; fixed cadence is unchanged."""
     interval = resolve_interval(source)
     adaptive = source.effective_polling_mode == "adaptive"
@@ -93,7 +96,7 @@ def schedule(source, now: datetime) -> datetime:
     return now + timedelta(seconds=interval)
 
 
-def observe(source, now: datetime, arrivals: int, *, automatic: bool) -> None:
+def observe(source: Source, now: datetime, arrivals: int, *, automatic: bool) -> None:
     settings = get_settings()
     if not settings.adaptive_source_polling_enabled or source.polling_mode != "adaptive":
         return

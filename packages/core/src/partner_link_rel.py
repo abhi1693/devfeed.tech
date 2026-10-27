@@ -1,11 +1,19 @@
 """Account-owned advertising link relationships and live tier enforcement."""
 
-from typing import Annotated, Literal
+from __future__ import annotations
+
+import uuid
+from collections.abc import Iterable, Sequence
+from typing import TYPE_CHECKING, Annotated, Literal
+from typing import cast as type_cast
 
 from pydantic import AfterValidator, Field
 from sqlalchemy import Uuid, and_, case, cast, func, literal, select, union
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Session
 
+if TYPE_CHECKING:
+    from devfeed_core.models import PartnerAccount, PartnerProductPromotion
 from devfeed_core.partner_tiers import TIER_POLICIES, tier_policy
 
 LinkRel = Literal["nofollow", "sponsored", "ugc", "external"]
@@ -35,7 +43,7 @@ def qualify_paid_link_rel(values: list[LinkRel]) -> list[LinkRel]:
 
 
 def validate_link_rel(
-    tier: str, values: list[LinkRel] | None, *, previous: list[LinkRel] | None = None
+    tier: str, values: list[LinkRel] | None, *, previous: Sequence[str] | None = None
 ) -> None:
     """Lower tiers may restore the default or product inheritance, never customize."""
     if (
@@ -47,21 +55,28 @@ def validate_link_rel(
         raise ValueError("Custom ad link relationships require Platinum or Diamond")
 
 
-def configured_link_rel(account, policy=None) -> list[LinkRel]:
+def configured_link_rel(
+    account: PartnerAccount, policy: PartnerProductPromotion | None = None
+) -> list[LinkRel]:
     """Read saved choices without persisting a temporary tier restriction."""
     override = policy.link_rel if policy is not None else None
     configured = override if override is not None else account.link_rel
-    return default_link_rel() if configured is None else list(configured)
+    return default_link_rel() if configured is None else type_cast(list[LinkRel], list(configured))
 
 
-def effective_link_rel(account, policy=None) -> list[LinkRel]:
+def effective_link_rel(
+    account: PartnerAccount, policy: PartnerProductPromotion | None = None
+) -> list[LinkRel]:
     """Resolve overrides without SQL and reapply entitlements after tier changes."""
     if not tier_policy(account.tier)["configurable_link_rel"]:
         return default_link_rel()
     return qualify_paid_link_rel(configured_link_rel(account, policy))
 
 
-def sponsored_article_link_rel(session, article_ids) -> dict:
+def sponsored_article_link_rel(
+    session: Session,
+    article_ids: Iterable[uuid.UUID],
+) -> dict[uuid.UUID, list[LinkRel]]:
     """Aggregate current sponsor policies for a result page in one bounded read.
 
     Sponsorship disclosures survive campaign expiry. Their link relationships

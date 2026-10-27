@@ -4,18 +4,25 @@ Old analytical writers must be drained before this importer starts. New direct
 writers use distinct live event identities. The historical importer is temporary.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import math
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from functools import partial
 
+from psycopg import AsyncConnection
+
+from devfeed_core.analytics import AnalyticsClient, SqlRecord
 from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
 from devfeed_core.analytics_backfill import AnalyticsBackfill, BackfillSource
 from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.analytics_inference_store import InferenceStore
 from devfeed_core.analytics_overview_direct import DirectOverviewAnalytics
 from devfeed_core.analytics_schema import JOB_TABLES, TABLES
+from devfeed_core.config import Settings
 from devfeed_core.partner_claim_backfill import backfill_partner_claims
 
 IMPORT_ID = "direct-v1"
@@ -32,13 +39,13 @@ OVERVIEW_SOURCES = (
 )
 
 
-def _date(value):
+def _date(value: date | str) -> date:
     if isinstance(value, date):
         return value
     return date.fromisoformat(value)
 
 
-def _time(value):
+def _time(value: datetime | str) -> datetime:
     if isinstance(value, datetime):
         return value
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -47,7 +54,14 @@ def _time(value):
 class HistoricalAnalyticsImport:
     """Configure the bounded source pages and their direct ClickHouse writers."""
 
-    def __init__(self, client, *, cutover, page_size=1000, settings=None):
+    def __init__(
+        self,
+        client: AnalyticsClient,
+        *,
+        cutover: datetime,
+        page_size: int = 1000,
+        settings: Settings | None = None,
+    ) -> None:
         if (
             not isinstance(cutover, datetime)
             or cutover.tzinfo is None
@@ -58,13 +72,13 @@ class HistoricalAnalyticsImport:
 
         self.client = client
         self.settings = settings or get_settings()
-        self._connection = None
+        self._connection: AsyncConnection[SqlRecord] | None = None
         self.cutover = cutover.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
         self.opens = ArticleOpenAnalytics(client)
         self.engagement = DirectEngagementAnalytics(client)
         self.inference = InferenceStore(client)
         self.overview = DirectOverviewAnalytics(client)
-        self.absent = []
+        self.absent: list[str] = []
         from devfeed_core.analytics_direct_cards import CARD_SOURCES
         from devfeed_core.analytics_observation import pipeline_policy_version
 
@@ -179,7 +193,7 @@ class HistoricalAnalyticsImport:
                 name, spec.fields, spec.keys, partial(self.import_source, name)
             )
 
-    async def configure(self, connection):
+    async def configure(self, connection: AsyncConnection[SqlRecord]) -> None:
         """Inspect retained PostgreSQL history without depending on draft revision numbers."""
         from devfeed_core.analytics_cutover import LEGACY_TABLES
 
@@ -200,7 +214,7 @@ class HistoricalAnalyticsImport:
                     raise RuntimeError(f"Historical source schema is incomplete: {name}")
                 self.absent.append(name)
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Prepare data checkpoints after centralized schema migration."""
         for name in self.absent:
             cursor, page, complete = await self.importer._progress(name)
@@ -224,7 +238,7 @@ class HistoricalAnalyticsImport:
             )
         await self.opens.begin_import(self.cutover)
 
-    async def scan_one(self, connection, source):
+    async def scan_one(self, connection: AsyncConnection[SqlRecord], source: str) -> bool:
         """Scan a page with one coordinator; claim migration uses the same connection."""
         if self._connection is not None:
             raise RuntimeError("Historical import is already processing a page")
@@ -234,7 +248,7 @@ class HistoricalAnalyticsImport:
         finally:
             self._connection = None
 
-    async def import_partner_claims(self, rows):
+    async def import_partner_claims(self, rows: list[SqlRecord]) -> None:
         if self._connection is None:
             raise RuntimeError("A source connection is required for historical partner claims")
         await backfill_partner_claims(self._connection, rows)
@@ -242,7 +256,7 @@ class HistoricalAnalyticsImport:
             "partner_delivery_events", ("asset_id", "delivery_id", "kind"), rows
         )
 
-    async def once(self, connection):
+    async def once(self, connection: AsyncConnection[SqlRecord]) -> bool:
         """Import at most one page; a single coordinator owns each invocation."""
         order = (
             "partner_delivery_events",
@@ -270,12 +284,12 @@ class HistoricalAnalyticsImport:
                 return True
         return False
 
-    async def import_cards(self, kind, rows):
+    async def import_cards(self, kind: str, rows: list[SqlRecord]) -> None:
         from devfeed_core.analytics_direct_cards import publish_card_ids
 
         await publish_card_ids(self.client, self.settings, kind, [row["id"] for row in rows], 1)
 
-    async def import_source(self, name, rows):
+    async def import_source(self, name: str, rows: list[SqlRecord]) -> None:
         from devfeed_core.analytics_producer import hydrate_changes
 
         if self._connection is None:
@@ -285,7 +299,9 @@ class HistoricalAnalyticsImport:
         for offset in range(0, len(changes), 1000):
             await self.overview.publish(changes[offset : offset + 1000], revision=1)
 
-    async def archive_history(self, source, keys, rows):
+    async def archive_history(
+        self, source: str, keys: Sequence[str], rows: list[SqlRecord]
+    ) -> None:
         await self.client.insert(
             "analytics_history_archive",
             [
@@ -300,11 +316,11 @@ class HistoricalAnalyticsImport:
             ],
         )
 
-    async def mark_ready(self):
+    async def mark_ready(self) -> None:
         """Publish open totals only after both required source imports are complete."""
         await self.opens.mark_ready(self.cutover, self.importer)
 
-    async def import_overview(self, rows):
+    async def import_overview(self, rows: list[SqlRecord]) -> None:
         result = []
         for row in rows:
             metrics = row["metrics"]
@@ -333,14 +349,14 @@ class HistoricalAnalyticsImport:
             )
         await self.client.insert("analytics_audience_archive_daily", result)
 
-    async def import_partner_totals(self, rows):
+    async def import_partner_totals(self, rows: list[SqlRecord]) -> None:
         await self.engagement.partner_totals(self._partner_rows(rows), baseline=False)
 
-    async def import_partner_baseline(self, rows):
+    async def import_partner_baseline(self, rows: list[SqlRecord]) -> None:
         await self.engagement.partner_totals(self._partner_rows(rows), baseline=True)
 
     @staticmethod
-    def _partner_rows(rows):
+    def _partner_rows(rows: list[SqlRecord]) -> list[SqlRecord]:
         return [
             {
                 "asset_id": row["asset_id"],
@@ -353,7 +369,7 @@ class HistoricalAnalyticsImport:
             for row in rows
         ]
 
-    async def import_search_baseline(self, rows):
+    async def import_search_baseline(self, rows: list[SqlRecord]) -> None:
         await self.engagement.search_baselines(
             [
                 {

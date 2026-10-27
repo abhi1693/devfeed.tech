@@ -1,10 +1,13 @@
 """Rank public reading habits without exposing account identity or private profiles."""
 
+from __future__ import annotations
+
 from devfeed_core.models import UserAccount, UserReadingStreak
 from fastapi import APIRouter, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select, true
+from sqlalchemy import RowMapping, func, or_, select, true
 from sqlalchemy.orm import InstrumentedAttribute
+from sqlalchemy.sql import Subquery
 
 from devfeed_user_api.auth import User
 from devfeed_user_api.dependencies import DB
@@ -32,7 +35,7 @@ class MyReadingRanks(BaseModel):
     reading_days: LeaderboardEntry | None
 
 
-def ranked_readers(metric: InstrumentedAttribute[int]):
+def ranked_readers(metric: InstrumentedAttribute[int]) -> Subquery:
     # Missing visibility uses the same public default as profile settings.
     # Ties share a competition rank; position identifies rows without exposing account IDs.
     # Profile settings normalize names on write; also ignore legacy empty/space-only names.
@@ -59,7 +62,7 @@ def ranked_readers(metric: InstrumentedAttribute[int]):
     )
 
 
-def entry(row):
+def entry(row: RowMapping) -> LeaderboardEntry:
     return LeaderboardEntry.model_validate(
         {
             key: row[key]
@@ -69,7 +72,7 @@ def entry(row):
 
 
 @router.get("", response_model=ReadingLeaderboard)
-def leaderboard(session: DB, response: Response):
+def leaderboard(session: DB, response: Response) -> ReadingLeaderboard:
     response.headers["Cache-Control"] = "no-store"
     boards = {}
     for key, metric in (
@@ -83,7 +86,7 @@ def leaderboard(session: DB, response: Response):
 
 
 @router.get("/me", response_model=MyReadingRanks)
-def my_ranks(user: User, session: DB, response: Response):
+def my_ranks(user: User, session: DB, response: Response) -> MyReadingRanks:
     response.headers["Cache-Control"] = "no-store"
     account = owned_account(session, user)
     ranks = {}

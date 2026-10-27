@@ -2,6 +2,7 @@ import logging
 import time
 import uuid
 from datetime import datetime
+from typing import TypedDict
 
 from devfeed_core.article_jobs import request_article_enrichment
 from devfeed_core.config import get_settings
@@ -31,15 +32,31 @@ from devfeed_core.telemetry import current
 from devfeed_core.urls import fingerprint
 from sqlalchemy import case, func, select, update
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_aggregator.languages import detect_feed_languages
+
+
+class PollingMetrics(TypedDict):
+    new_source_entries: int
+    interval_seconds: int
+    polling_mode: str
+    queue_delay_seconds: float
+    articles_created: int
+    entries_seen: int
+    entries_skipped: int
+    upstream_status: int
+
 
 logger = logging.getLogger(__name__)
 
 
 def store_entries(
-    session: Session, source_id: uuid.UUID, parsed: ParsedFeed, *, activity: list | None = None
+    session: Session,
+    source_id: uuid.UUID,
+    parsed: ParsedFeed,
+    *,
+    activity: list[datetime | None] | None = None,
 ) -> int:
     topics = session.scalars(select(Topic).where(Topic.status == "active")).all()
     supplied_tags, _ = resolve_source_tags(
@@ -202,13 +219,25 @@ def _ingest(job_id: str) -> None:
         source_id, attempt = claimed_source.id, claimed_job.attempts
         source_type = SourceType(claimed_source.source_type)
     with log_context(source_id=source_id, source_type=source_type, attempt=attempt):
+        assert lease_token is not None  # claim_job initialized ownership before returning.
         _ingest_claimed(factory, identifier, lease_token, url, etag, modified, started, source_type)
 
 
-def _ingest_claimed(factory, identifier, lease_token, url, etag, modified, started, source_type):
+def _ingest_claimed(
+    factory: sessionmaker[Session],
+    identifier: uuid.UUID,
+    lease_token: uuid.UUID,
+    url: str | None,
+    etag: str | None,
+    modified: str | None,
+    started: float,
+    source_type: SourceType,
+) -> None:
     logger.info("ingestion_started")
     # No database transaction or connection is held while downloading/parsing.
     try:
+        if url is None:
+            raise TypeError("Source has no feed URL")
         result = fetch_feed(url, etag, modified)
         parsed = (
             detect_feed_languages(
@@ -245,7 +274,7 @@ def _ingest_claimed(factory, identifier, lease_token, url, etag, modified, start
                 job.lease_token = None
                 job.lease_until = None
                 return
-            activity: list = []
+            activity: list[datetime | None] = []
             if parsed:
                 job.articles_created = store_entries(session, source.id, parsed, activity=activity)
                 job.entries_seen = parsed.seen
@@ -283,13 +312,13 @@ def _ingest_claimed(factory, identifier, lease_token, url, etag, modified, start
                 if result.status == 200
                 else result.last_modified or source.last_modified
             )
-            metrics = {
+            attempted_at = source.last_attempt_at
+            assert attempted_at is not None  # claim_job records the attempt timestamp.
+            metrics: PollingMetrics = {
                 "new_source_entries": job.new_source_entries,
                 "interval_seconds": source.effective_interval_seconds,
                 "polling_mode": source.effective_polling_mode,
-                "queue_delay_seconds": max(
-                    0, (source.last_attempt_at - job.available_at).total_seconds()
-                ),
+                "queue_delay_seconds": max(0, (attempted_at - job.available_at).total_seconds()),
                 "articles_created": job.articles_created,
                 "entries_seen": job.entries_seen,
                 "entries_skipped": job.entries_skipped,

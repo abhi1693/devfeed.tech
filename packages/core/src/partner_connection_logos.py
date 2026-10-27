@@ -1,12 +1,26 @@
 """Managed import-platform branding; public reads never expose remote logo sources."""
 
 import hashlib
+from typing import Protocol
 
 from pydantic import Field, field_validator
 
 from devfeed_core.config import get_settings
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.schemas import InputModel, ORMModel
 from devfeed_core.urls import validate_public_url
+
+
+class ConnectionBranding(Protocol):
+    @property
+    def provider(self) -> str: ...
+    @property
+    def name(self) -> str | None: ...
+    @property
+    def logo_url(self) -> str | None: ...
+    @property
+    def managed_logo(self) -> JsonRecord | None: ...
+
 
 CONNECTION_LOGO_SIZES = (16, 32, 64, 96)
 
@@ -16,7 +30,7 @@ class ConnectionLogoInput(InputModel):
 
     @field_validator("logo_url")
     @classmethod
-    def public_logo_url(cls, value):
+    def public_logo_url(cls, value: str | None) -> str | None:
         if value is None:
             return None
         value = validate_public_url(value)
@@ -41,11 +55,11 @@ class PlacementPlatform(ORMModel):
     logo_variants: list[ConnectionLogoVariant] = Field(default_factory=list)
 
 
-def connection_logo_prefix(provider):
+def connection_logo_prefix(provider: str) -> str:
     return f"connection-logos/v1/{hashlib.sha256(provider.encode()).hexdigest()}"
 
 
-def connection_logo_variants(connection):
+def connection_logo_variants(connection: ConnectionBranding) -> list[ConnectionLogoVariant]:
     asset = connection.managed_logo or {}
     base = (get_settings().image_public_url or "").rstrip("/")
     prefix = connection_logo_prefix(connection.provider)
@@ -69,7 +83,7 @@ def connection_logo_variants(connection):
     ]
 
 
-def connection_platform(connection):
+def connection_platform(connection: ConnectionBranding) -> PlacementPlatform:
     variants = connection_logo_variants(connection)
     return PlacementPlatform(
         name=connection.name or connection.provider.replace("-", " ").title(),

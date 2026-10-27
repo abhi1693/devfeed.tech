@@ -1,5 +1,7 @@
 """Pure source-card formatting shared by publishing and transactional detail."""
 
+from __future__ import annotations
+
 from datetime import datetime
 
 from devfeed_core.analytics_card_types import (
@@ -7,12 +9,14 @@ from devfeed_core.analytics_card_types import (
     SourcePipelineKind,
     SourcePipelineRetryTarget,
 )
-from devfeed_core.source_lifecycle import SourceLifecycleFacts
+from devfeed_core.source_lifecycle import SourceLifecycleFacts, _job_items
 
 
 def _activity(facts: SourceLifecycleFacts) -> datetime:
     rows = ([facts.source] if facts.source is not None else []) + list(facts.candidates)
-    values = [getattr(row, field, None) for row in rows for field in ("updated_at", "created_at")]
+    values: list[datetime | None] = [
+        getattr(row, field, None) for row in rows for field in ("updated_at", "created_at")
+    ]
     values.extend(
         getattr(job, field, None)
         for job in facts.jobs.values()
@@ -27,6 +31,12 @@ def _card(facts: SourceLifecycleFacts) -> SourcePipelineCard:
     subject = source if source is not None else candidate
     assert subject is not None
     kind: SourcePipelineKind = "source" if source is not None else "candidate"
+    if source is not None:
+        website_url = source.website_url
+    else:
+        assert candidate is not None
+        website_url = candidate.identity_url
+    jobs_by_stage = dict(_job_items(facts.jobs))
     return SourcePipelineCard(
         key=facts.key,
         kind=kind,
@@ -34,7 +44,7 @@ def _card(facts: SourceLifecycleFacts) -> SourcePipelineCard:
         source_id=source.id if source is not None else None,
         candidate_id=candidate.id if candidate is not None else None,
         name=subject.name,
-        website_url=source.website_url if source is not None else candidate.identity_url,
+        website_url=website_url,
         feed_url=source.feed_url if source is not None else None,
         source_type=source.source_type if source is not None else "publisher",
         approval_status=subject.approval_status,
@@ -64,7 +74,7 @@ def _card(facts: SourceLifecycleFacts) -> SourcePipelineCard:
         retry_targets=[
             SourcePipelineRetryTarget(
                 stage=target,
-                job_id=facts.jobs[target].id if facts.jobs.get(target) is not None else None,
+                job_id=job.id if (job := jobs_by_stage.get(target)) is not None else None,
             )
             for target in readiness.retry_targets
         ],

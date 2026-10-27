@@ -1,6 +1,7 @@
 """Execute one resumable topic decision; network calls never hold database locks."""
 
 import time
+import uuid
 from copy import deepcopy
 from datetime import timedelta
 
@@ -10,6 +11,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.inference_routing import route_for, total_tokens
 from devfeed_core.job_lifecycle import finish_job
 from devfeed_core.jobs import owned_job
+from devfeed_core.json_types import JsonRecord, JsonValue
 from devfeed_core.models import TopicAnalysisJob, TopicDecisionRun, TopicProposal, utcnow
 from devfeed_core.topic_auto_approval import ACTOR, auto_approve_research
 from devfeed_core.topic_decision_budget import initial_state, reserve, settle
@@ -17,14 +19,25 @@ from devfeed_core.topic_decisions import VERSION, DecisionDeferred, fetch_bundle
 from devfeed_core.topic_proposals import TopicReview, review_proposal
 from devfeed_core.topics import lock_topics
 from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_aggregator.codex_client import AnalysisError, CodexClient
 
 
-def execute_decision(factory, identifier, token, proposal_id, topic):
+def execute_decision(
+    factory: sessionmaker[Session],
+    identifier: uuid.UUID,
+    token: uuid.UUID,
+    proposal_id: uuid.UUID,
+    topic: JsonRecord,
+) -> None:
     settings = get_settings()
+    job: TopicAnalysisJob | None
+    run: TopicDecisionRun | None
 
-    def locked(session, *, current=True):
+    def locked(
+        session: Session, *, current: bool = True
+    ) -> tuple[TopicAnalysisJob, TopicDecisionRun]:
         job = owned_job(session, TopicAnalysisJob, identifier, token)
         if job is None:
             raise DecisionDeferred("lease_lost")
@@ -48,14 +61,18 @@ def execute_decision(factory, identifier, token, proposal_id, topic):
         job.lease_until = utcnow() + timedelta(seconds=300)
         return job, run
 
-    def save(key, value):
+    def save(key: str, value: JsonValue) -> None:
         with factory.begin() as session:
             _, run = locked(session)
             run.state = {**run.state, key: value}
             run.updated_at = utcnow()
         state[key] = value
 
-    def call(stage, prompt, schema, *, escalated=False, web=False):
+    def call(
+        stage: str, prompt: str, schema: JsonRecord, *, escalated: bool = False, web: bool = False
+    ) -> JsonRecord:
+        job: TopicAnalysisJob | None
+        run: TopicDecisionRun | None
         with factory.begin() as session:
             job, run = locked(session)
             if run.status != "active":
@@ -103,6 +120,7 @@ def execute_decision(factory, identifier, token, proposal_id, topic):
                     .with_for_update()
                 )
                 run = session.get(TopicDecisionRun, proposal_id, with_for_update=True)
+                assert run is not None and job is not None  # locked() persisted both rows.
                 newly_settled = run.state["calls"][index]["status"] == "running"
                 run.state = settle(
                     run.state,
@@ -147,7 +165,7 @@ def execute_decision(factory, identifier, token, proposal_id, topic):
                 raise DecisionDeferred(run.reason or "proposal_changed")
             state = deepcopy(run.state)
 
-        def fetch(urls):
+        def fetch(urls: list[str]) -> JsonRecord:
             started = time.perf_counter()
             try:
                 return fetch_bundle(urls)
@@ -165,6 +183,9 @@ def execute_decision(factory, identifier, token, proposal_id, topic):
             lock_topics(session)
             proposal = session.get(TopicProposal, proposal_id, with_for_update=True)
             run = session.get(TopicDecisionRun, proposal_id, with_for_update=True)
+            assert (
+                proposal is not None and run is not None
+            )  # locked() verified this decision input.
             if proposal.status != "pending" or snapshot_hash(proposal.proposed) != job.input_hash:
                 run.status, run.reason = "deferred", "proposal_changed"
                 finish_job(job, "superseded", utcnow())

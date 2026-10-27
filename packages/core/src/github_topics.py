@@ -1,12 +1,14 @@
 """Read GitHub's curated Explore catalog into supervised topic import previews."""
 
+from __future__ import annotations
+
 import io
 import json
 import re
 import uuid
 import zipfile
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, cast
 
 import httpcore
 import yaml
@@ -16,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, _fetch
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import TopicProposal
 from devfeed_core.schemas import InputModel
 from devfeed_core.topic_proposals import TopicDraft, catalogs
@@ -76,22 +79,22 @@ def read_document(url: str, max_bytes: int, *, timeout: int = 8) -> bytes:
 
 
 class FrontMatterLoader(yaml.SafeLoader):
-    def compose_node(self, parent, index):
+    def compose_node(self, parent: yaml.Node | None, index: str | int | None) -> yaml.Node:
         if self.check_event(yaml.AliasEvent):
             raise ValueError("YAML aliases are not accepted")
         return super().compose_node(parent, index)
 
-    def construct_mapping(self, node, deep=False):
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[object, object]:
         keys = [self.construct_object(key, deep=deep) for key, _ in node.value]
         for index, key in enumerate(keys):
             # GitHub carries metadata we do not import (for example, released).
             # Duplicate values there cannot make the resulting proposal ambiguous.
             if key in IMPORTED_FIELDS and key in keys[:index]:
                 raise GitHubMetadataError(f"Duplicate front matter fields: {key}")
-        return super().construct_mapping(node, deep=deep)
+        return cast(dict[object, object], super().construct_mapping(node, deep=deep))
 
 
-def topic_document(content: bytes, slug: str, revision: str, kind: str) -> dict:
+def topic_document(content: bytes, slug: str, revision: str, kind: str) -> JsonRecord:
     document = content.decode("utf-8-sig").replace("\r\n", "\n")
     if not document.startswith("---\n") or "\n---\n" not in document[4:]:
         raise GitHubMetadataError("Missing topic front matter")
@@ -121,7 +124,7 @@ def topic_document(content: bytes, slug: str, revision: str, kind: str) -> dict:
 
 
 @lru_cache(maxsize=2)
-def repository_topics(revision: str) -> list[dict]:
+def repository_topics(revision: str) -> list[JsonRecord]:
     """Read only bounded topic documents; never extract or execute repository files."""
     payload = read_document(
         f"https://codeload.github.com/github/explore/zip/{revision}", 33_554_432, timeout=30

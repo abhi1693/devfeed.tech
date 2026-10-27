@@ -1,7 +1,10 @@
 """Daily ranked picks; requests only read prepared recommendations."""
 
+from __future__ import annotations
+
 import uuid
 from datetime import date
+from typing import TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from devfeed_core.models import (
@@ -22,6 +25,7 @@ from devfeed_http.agent_permissions import AgentAccessPolicy
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
+from sqlalchemy.orm import Session
 
 from devfeed_user_api.auth import User
 from devfeed_user_api.dependencies import DB
@@ -40,7 +44,7 @@ class DailySelection(BaseModel):
     preparing: bool = False
 
 
-def selection_day(timezone):
+def selection_day(timezone: str) -> date:
     try:
         zone = ZoneInfo(timezone)
     except (ZoneInfoNotFoundError, ValueError) as exc:
@@ -48,7 +52,9 @@ def selection_day(timezone):
     return utcnow().astimezone(zone).date()
 
 
-def load_selection(session, user_id, timezone):
+def load_selection(
+    session: Session, user_id: uuid.UUID, timezone: str
+) -> tuple[UserMustRead | None, DailySelection]:
     day = selection_day(timezone)
     # Serialize both creation and presentation for this account across all devices.
     account = session.scalar(select(UserAccount).where(UserAccount.id == user_id).with_for_update())
@@ -112,7 +118,7 @@ def load_selection(session, user_id, timezone):
     response_model=DailySelection,
     openapi_extra=AgentAccessPolicy(scope="devfeed:read").openapi_extra(),
 )
-def daily(user: User, session: DB, timezone: str = Query("UTC", max_length=100)):
+def daily(user: User, session: DB, timezone: str = Query("UTC", max_length=100)) -> DailySelection:
     _, result = load_selection(session, uuid.UUID(user.user_id), timezone)
     session.commit()
     return result
@@ -124,12 +130,16 @@ class Presentation(BaseModel):
     automatic: bool = True
 
 
+class PresentationData(TypedDict):
+    claimed: bool
+
+
 class PresentationResult(BaseModel):
     claimed: bool
 
 
 @router.post("/presentation", response_model=PresentationResult)
-def present(payload: Presentation, user: User, session: DB):
+def present(payload: Presentation, user: User, session: DB) -> PresentationData:
     if selection_day(payload.timezone) != payload.date:
         raise HTTPException(409, "A new daily selection is available")
     snapshot, result = load_selection(session, uuid.UUID(user.user_id), payload.timezone)

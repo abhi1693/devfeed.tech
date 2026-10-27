@@ -1,9 +1,14 @@
 """Invalidate user responses after application writes from API, CLI or workers."""
 
+from __future__ import annotations
+
 import weakref
+from collections.abc import Sequence
 
 from sqlalchemy import Engine, event, inspect
-from sqlalchemy.orm import Session
+from sqlalchemy.engine import Connection, ExecutionContext
+from sqlalchemy.engine.interfaces import DBAPICursor
+from sqlalchemy.orm import ORMExecuteState, Session, SessionTransaction, UOWTransaction
 
 from devfeed_core.cache import invalidate_public_cache
 
@@ -53,13 +58,15 @@ class AppSession(Session):
     """Only application sessions participate; migrations and raw connections don't."""
 
 
-def mark_dirty(session, table):
+def mark_dirty(session: Session, table: str) -> None:
     session.info[DIRTY] = True
     session.info.setdefault(REASONS, set()).add(table)
 
 
 @event.listens_for(AppSession, "before_flush")
-def track_objects(session, flush_context, instances):
+def track_objects(
+    session: Session, flush_context: UOWTransaction, instances: Sequence[object] | None
+) -> None:
     for obj in session.new | session.deleted | session.dirty:
         state = inspect(obj)
         table = state.mapper.local_table.name
@@ -120,7 +127,7 @@ def track_objects(session, flush_context, instances):
 
 
 @event.listens_for(AppSession, "do_orm_execute")
-def track_statements(state):
+def track_statements(state: ORMExecuteState) -> None:
     # Ingestion/image workers use INSERT ... ON CONFLICT and UPDATE ... RETURNING,
     # which do not appear in session.dirty or mapper flush events.
     if state.is_insert or state.is_update or state.is_delete:
@@ -137,7 +144,14 @@ def track_statements(state):
 
 
 @event.listens_for(Engine, "after_cursor_execute")
-def track_affected_rows(connection, cursor, statement, parameters, context, executemany):
+def track_affected_rows(
+    connection: Connection,
+    cursor: DBAPICursor,
+    statement: str,
+    parameters: object,
+    context: ExecutionContext,
+    executemany: bool,
+) -> None:
     reference = context.execution_options.get(SESSION_OPTION)
     if reference is None or cursor.rowcount == 0:
         return
@@ -149,7 +163,7 @@ def track_affected_rows(connection, cursor, statement, parameters, context, exec
 
 
 @event.listens_for(AppSession, "after_commit")
-def committed(session):
+def committed(session: Session) -> None:
     if not session.in_nested_transaction():
         session.info.pop(PRIVATE_ARTICLES, None)
         reasons = session.info.pop(REASONS, ())
@@ -158,7 +172,7 @@ def committed(session):
 
 
 @event.listens_for(AppSession, "after_soft_rollback")
-def rolled_back(session, previous_transaction):
+def rolled_back(session: Session, previous_transaction: SessionTransaction) -> None:
     if previous_transaction.parent is None:
         session.info.pop(DIRTY, None)
         session.info.pop(REASONS, None)

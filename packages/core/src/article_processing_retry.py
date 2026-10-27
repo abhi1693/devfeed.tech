@@ -1,19 +1,24 @@
 """Explicit processing retries preserve independent work and editorial authority."""
 
+from __future__ import annotations
+
 import uuid
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from devfeed_core.ai_content import eligible_article
 from devfeed_core.article_jobs import approved_sources, request_article_enrichment
 from devfeed_core.article_lifecycle import (
+    ProcessingFacts,
+    ProcessingInputs,
     ProcessingReadiness,
     _processing_facts,
     derive_processing_readiness,
     derive_publication_readiness,
 )
-from devfeed_core.config import get_settings
+from devfeed_core.config import Settings, get_settings
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
@@ -23,6 +28,9 @@ from devfeed_core.models import (
 )
 from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.urls import validate_public_url
+
+if TYPE_CHECKING:
+    from devfeed_core.analysis import AnalysisCatalog
 
 RetryTarget = Literal["enrichment", "analysis", "images"]
 RETRY_TARGETS: tuple[RetryTarget, ...] = ("enrichment", "analysis", "images")
@@ -34,20 +42,33 @@ _positions = {
 }
 
 
-def retry_readiness(article, readiness, facts, *, taxonomy=None, settings=None):
+def retry_readiness(
+    article: Article,
+    readiness: ProcessingReadiness,
+    facts: ProcessingFacts,
+    *,
+    taxonomy: AnalysisCatalog | None = None,
+    settings: Settings | None = None,
+) -> ProcessingReadiness:
     """Preview prerequisites for published processing without changing its stage."""
     if article.publication_status != "published":
         return readiness
-    return derive_processing_readiness(
-        article,
-        **{**facts, "taxonomy": taxonomy or facts.get("taxonomy"), "settings": settings},
-        allow_published=True,
-    )
+    inputs: ProcessingInputs = {
+        **facts,
+        "taxonomy": taxonomy or facts.get("taxonomy"),
+        "settings": settings,
+        "allow_published": True,
+    }
+    return derive_processing_readiness(article, **inputs)
 
 
-def current_processing_job(facts, target: RetryTarget, *, readiness=None):
-    if target != "images":
-        return facts[target]
+def current_processing_job(
+    facts: ProcessingFacts, target: RetryTarget, *, readiness: ProcessingReadiness | None = None
+) -> ArticleAnalysisJob | ArticleEnrichmentJob | ArticleImageJob | None:
+    if target == "enrichment":
+        return facts["enrichment"]
+    if target == "analysis":
+        return facts["analysis"]
     images = [job for job in (facts["discovery"], facts["storage"]) if job is not None]
     if readiness is not None and "images" in readiness.checks:
         identifier = readiness.checks["images"].job_id
@@ -61,7 +82,13 @@ def current_processing_job(facts, target: RetryTarget, *, readiness=None):
     )
 
 
-def processing_retry_targets(article, readiness: ProcessingReadiness, facts, *, settings=None):
+def processing_retry_targets(
+    article: Article,
+    readiness: ProcessingReadiness,
+    facts: ProcessingFacts,
+    *,
+    settings: Settings | None = None,
+) -> list[RetryTarget]:
     """Pure action eligibility; cards and locked mutation use the same facts."""
     settings = settings or get_settings()
     if article.review_status == "rejected" or not any(
@@ -120,14 +147,14 @@ def processing_retry_targets(article, readiness: ProcessingReadiness, facts, *, 
 
 
 def request_processing_retry(
-    session,
+    session: Session,
     identifier: uuid.UUID,
     *,
     target: RetryTarget,
     expected_revision: int,
     expected_job_id: uuid.UUID | None,
-    actor: dict,
-):
+    actor: dict[str, str],
+) -> Article:
     from devfeed_core.analysis import request_analysis
     from devfeed_core.editorial import EditorialDecision, decide_article
     from devfeed_core.image_jobs import request_image, retry_image
@@ -181,13 +208,13 @@ def request_processing_retry(
         )
     )
     job: ArticleAnalysisJob | ArticleEnrichmentJob | ArticleImageJob | None
-    if eligible_failed and target == "images":
+    if eligible_failed and previous is not None and target == "images":
         job = retry_image(session, previous.id, refresh=True)
         if job is None:
             # A completed thumbnail-layout upgrade can make its specialized
             # checkpoint obsolete; the explicit image refresh must still run.
             job = request_image(session, identifier, refresh=True)
-    elif eligible_failed:
+    elif eligible_failed and previous is not None:
         job = retry_failed_job(
             session, previous, "article-enrichment" if target == "enrichment" else target, actor
         )

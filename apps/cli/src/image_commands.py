@@ -11,18 +11,18 @@ app = group("Discover article images and process managed images and topic logos 
 
 @app.command("fetch", help="Queue image discovery for an article ID; keep existing images.")
 @app.command("retry", help="Retry a failed image job ID, preserving its history.")
-def fetch_or_retry(ctx: typer.Context, id: Identifier, force: Force = False):
+def fetch_or_retry(ctx: typer.Context, id: Identifier, force: Force = False) -> None:
     invoke(ctx, images.fetch if ctx.info_name == "fetch" else images.retry, locals())
 
 
 @app.command()
-def show(ctx: typer.Context, id: Identifier):
+def show(ctx: typer.Context, id: Identifier) -> None:
     """Inspect an image job ID."""
     invoke(ctx, images.show, locals())
 
 
 @app.command()
-def dispatch(ctx: typer.Context, id: Identifier):
+def dispatch(ctx: typer.Context, id: Identifier) -> None:
     """Publish a queued image job ID to RQ immediately."""
     invoke(ctx, images.dispatch, locals())
 
@@ -34,7 +34,7 @@ def backfill(
     store: bool = False,
     topics: bool = False,
     sources: bool = False,
-):
+) -> None:
     """Backfill article discovery, --store thumbnails, --topics or --sources logos."""
     invoke(ctx, images.backfill, locals())
 
@@ -46,30 +46,30 @@ def jobs(
     offset: Offset = 0,
     article_id: UUID | None = None,
     status: JobStatus | None = None,
-):
+) -> None:
     """List image lookup jobs."""
     invoke(ctx, images.jobs, locals())
 
 
 @app.command("topic-logo")
-def topic_logo(ctx: typer.Context, id: Identifier):
+def topic_logo(ctx: typer.Context, id: Identifier) -> None:
     """Queue or retry processing the current logo of a topic ID."""
     invoke(ctx, images.topic_logo, locals())
 
 
 @app.command("source-logo")
-def source_logo(ctx: typer.Context, id: Identifier, refresh: bool = False):
+def source_logo(ctx: typer.Context, id: Identifier, refresh: bool = False) -> None:
     """Queue a source logo; --refresh re-fetches changed artwork at the same URL."""
     invoke(ctx, images.source_logo, locals())
 
 
 @app.command()
-def recompress(ctx: typer.Context, limit: Limit = 100):
+def recompress(ctx: typer.Context, limit: Limit = 100) -> None:
     """Queue a bounded thumbnail encoding upgrade using saved managed originals."""
     invoke(ctx, images.recompress, locals())
 
 
 @app.command()
-def resize(ctx: typer.Context, limit: Limit = 100):
+def resize(ctx: typer.Context, limit: Limit = 100) -> None:
     """Queue missing card thumbnail sizes from saved v2 originals without refetching publishers."""
     invoke(ctx, images.resize, locals())

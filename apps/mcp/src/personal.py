@@ -2,7 +2,7 @@
 
 import json
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 from uuid import UUID
 
 import anyio
@@ -11,10 +11,10 @@ from mcp.server import MCPServer
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, Field
-from starlette.types import ASGIApp
+from pydantic import BaseModel, Field, JsonValue
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from devfeed_mcp.api import PublicAPI
+from devfeed_mcp.api import PublicAPI, QueryValue, query_parameters
 from devfeed_mcp.schemas import Article, FeedPage
 from devfeed_mcp.server import READ_ONLY, Limit
 
@@ -63,7 +63,15 @@ class Like(BaseModel):
 
 
 class UserAPI(PublicAPI):
-    async def request(self, method: str, path: str, *, scope: str, payload=None, **params):
+    async def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        scope: str,
+        payload: JsonValue | None = None,
+        **params: QueryValue,
+    ) -> JsonValue:
         token = get_access_token()
         if not token or scope not in token.scopes:
             raise ToolError(
@@ -75,7 +83,7 @@ class UserAPI(PublicAPI):
                     method,
                     path,
                     headers={"Authorization": f"Bearer {token.token}"},
-                    params={k: v for k, v in params.items() if v is not None},
+                    params=query_parameters(params),
                     json=payload,
                 ) as response:
                     if response.status_code == 401:
@@ -96,12 +104,12 @@ class UserAPI(PublicAPI):
                         body.extend(chunk)
                         if len(body) > self.settings.max_response_bytes:
                             raise ToolError("Response too large. Use a smaller page.")
-                    return json.loads(body)
+                    return cast(JsonValue, json.loads(body))
         except (httpx.HTTPError, TimeoutError, ValueError, UnicodeError):
             raise ToolError("DevFeed is temporarily unavailable.") from None
 
 
-def register_personal_tools(server: MCPServer, api: UserAPI):
+def register_personal_tools(server: MCPServer, api: UserAPI) -> None:
     @server.tool(annotations=READ_ONLY)
     async def get_my_feed(
         limit: Limit = 20,
@@ -218,11 +226,11 @@ def register_personal_tools(server: MCPServer, api: UserAPI):
 class AccountToolAuth:
     """Challenge OAuth discovery and account calls on the shared transport."""
 
-    def __init__(self, public_transport: ASGIApp, required_auth: ASGIApp):
+    def __init__(self, public_transport: ASGIApp, required_auth: ASGIApp) -> None:
         self.required_auth = required_auth
         self.public_transport = public_transport
 
-    async def __call__(self, scope, receive, send):
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         import json
 
         from starlette.responses import JSONResponse
@@ -258,7 +266,7 @@ class AccountToolAuth:
             except (ValueError, UnicodeError):
                 pass
 
-            async def replay():
+            async def replay() -> Message:
                 return messages.pop(0) if messages else await receive()
 
         discovery = scope.get("method") in {"GET", "HEAD"}

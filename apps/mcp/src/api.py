@@ -1,23 +1,52 @@
 """Only fixed public GET routes are available to tools; no caller credentials propagate."""
 
 import json
-from typing import Any
+from collections.abc import Mapping, Sequence
+from datetime import date
+from typing import cast
+from uuid import UUID
 
 import anyio
 import httpx
 from mcp.server.mcpserver.exceptions import ToolError
+from pydantic import JsonValue
 
 from devfeed_mcp.config import Settings
 
+# HTTPX normalizes UUID/date query values through their string representation.
+type QueryValue = str | int | float | bool | UUID | date | Sequence[str | UUID] | None
+
+
+def query_parameters(
+    values: Mapping[str, QueryValue],
+) -> dict[str, str | int | float | bool | list[str]]:
+    result: dict[str, str | int | float | bool | list[str]] = {}
+    for key, value in values.items():
+        if value is None:
+            continue
+        if isinstance(value, (str, int, float, bool)):
+            result[key] = value
+        elif isinstance(value, (UUID, date)):
+            result[key] = str(value)
+        else:
+            result[key] = [str(item) for item in value]
+    return result
+
+
+def json_array(value: JsonValue) -> list[JsonValue]:
+    if not isinstance(value, list):
+        raise ToolError("DevFeed returned an invalid response. Please retry later.")
+    return value
+
 
 class PublicAPI:
-    def __init__(self, client: httpx.AsyncClient, settings: Settings):
+    def __init__(self, client: httpx.AsyncClient, settings: Settings) -> None:
         self.client = client
         self.settings = settings
 
-    async def get(self, path: str, **params: Any) -> Any:
+    async def get(self, path: str, **params: QueryValue) -> JsonValue:
         # Preserve repeated query parameters; httpx otherwise serializes None as an empty value.
-        query = {key: value for key, value in params.items() if value is not None}
+        query = query_parameters(params)
         try:
             # Include pool wait and the whole streamed body in the deadline.
             with anyio.fail_after(self.settings.timeout_seconds):
@@ -33,7 +62,8 @@ class PublicAPI:
                         body.extend(chunk)
                         if len(body) > self.settings.max_response_bytes:
                             raise ToolError("DevFeed response is too large. Use a smaller page.")
-                    return json.loads(body)
+                    # json.loads produces only the recursive JSON value types.
+                    return cast(JsonValue, json.loads(body))
         except (httpx.HTTPError, TimeoutError):
             raise ToolError("DevFeed is temporarily unavailable. Please retry later.") from None
         except (ValueError, UnicodeError):

@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import uuid
-from typing import Annotated, Literal, get_args
+from collections.abc import Sequence
+from typing import Annotated, Literal, TypedDict, TypeVar, get_args
 
 from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
 from devfeed_core.models import Article, ArticleOrigin, ArticleTopic, Source, Tag, Topic
@@ -17,15 +20,35 @@ from devfeed_http.cursors import decode_cursor as decode_cursor
 from devfeed_http.cursors import encode_cursor as encode_cursor
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func, literal, literal_column, select, tuple_, union_all
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import Session, load_only
+from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.selectable import ScalarSelect, Select
 
 from devfeed_api.cache import CachedReadRoute, CachePolicy
 from devfeed_api.dependencies import DB
+from devfeed_api.latest import FeedFilters
 
 router = APIRouter(prefix="/v1", tags=["discovery"], route_class=CachedReadRoute)
 
 
-def _option_sources(*conditions, article_conditions=None):
+class FacetFilters(TypedDict):
+    q: str | None
+    topic: str | None
+    tag: Sequence[str] | None
+    languages: Sequence[str] | None
+
+
+class FeedOptionsData(TypedDict):
+    content_types: list[ContentType]
+    sources: Sequence[Source]
+
+
+Facet = TypeVar("Facet")
+
+
+def _option_sources(
+    *conditions: ColumnElement[bool], article_conditions: list[ColumnElement[bool]] | None = None
+) -> Select[Source]:
     # Establish catalog order before testing articles so a nested-loop semijoin
     # can stop after 500 matches. OFFSET 0 preserves this subquery boundary;
     # otherwise the planner can probe the whole catalog before sorting matches.
@@ -75,17 +98,17 @@ def _option_sources(*conditions, article_conditions=None):
 
 def feed_conditions(
     *,
-    q=None,
-    tag=None,
-    exclude_tag=None,
-    source_id=None,
-    exclude_source=None,
-    content_type=None,
-    content_types=None,
-    languages=None,
-    topic=None,
-    _approved_origin=False,
-):
+    q: str | None = None,
+    tag: Sequence[str] | None = None,
+    exclude_tag: Sequence[str] | None = None,
+    source_id: uuid.UUID | None = None,
+    exclude_source: Sequence[uuid.UUID] | None = None,
+    content_type: ContentType | None = None,
+    content_types: Sequence[ContentType] | None = None,
+    languages: Sequence[str] | None = None,
+    topic: str | None = None,
+    _approved_origin: bool = False,
+) -> list[ColumnElement[bool]]:
     conditions = (
         [Article.publication_status == "published", Article.review_status == "approved"]
         if _approved_origin
@@ -140,7 +163,7 @@ def feed_options(
     content_type: ContentType | None = None,
     source_id: uuid.UUID | None = None,
     languages: Annotated[list[LanguageCode] | None, Query(min_length=1, max_length=75)] = None,
-):
+) -> FeedOptionsData:
     # Sparse topic/tag/search matches should be resolved once, not tested again
     # for every source. Broad browsing benefits from the early-exit probes below.
     if q or topic or tag:
@@ -155,7 +178,7 @@ def feed_options(
         )
     # Probe each possible facet with an early exit instead of materializing every
     # visible article. Each facet still omits only its own selected filter.
-    common = dict(q=q, topic=topic, tag=tag, languages=languages)
+    common: FacetFilters = dict(q=q, topic=topic, tag=tag, languages=languages)
     # Literal branches let the planner distinguish rare/absent kinds instead of
     # applying an average selectivity to every row of a VALUES table.
     types = session.scalars(
@@ -183,10 +206,19 @@ def feed_options(
     return dict(content_types=sorted(types or []), sources=sources)
 
 
-def _filtered_feed_options(session, *, q, topic, tag, languages, content_type, source_id):
+def _filtered_feed_options(
+    session: Session,
+    *,
+    q: str | None,
+    topic: str | None,
+    tag: Sequence[str] | None,
+    languages: Sequence[str] | None,
+    content_type: ContentType | None,
+    source_id: uuid.UUID | None,
+) -> FeedOptionsData:
     # Each facet omits only its own filter, so changing a selection stays possible.
     # Fixed query count, no article hydration; the public route cache reuses results.
-    common = dict(q=q, topic=topic, tag=tag, languages=languages)
+    common: FacetFilters = dict(q=q, topic=topic, tag=tag, languages=languages)
     # Materialize the common visibility/search work once for both facets.
     # Project only facet keys; never hydrate full article bodies for discovery.
     visible = (
@@ -196,7 +228,7 @@ def _filtered_feed_options(session, *, q, topic, tag, languages, content_type, s
         .prefix_with("MATERIALIZED")
     )
 
-    def facet_conditions(*, kind=False, source=False):
+    def facet_conditions(*, kind: bool = False, source: bool = False) -> list[ColumnElement[bool]]:
         conditions = []
         if kind and content_type:
             conditions.append(visible.c.content_type == content_type)
@@ -220,7 +252,7 @@ def _filtered_feed_options(session, *, q, topic, tag, languages, content_type, s
 
     # Deduplicate before aggregation: hash a small set instead of sorting every
     # visible article once per facet (tens of thousands of repeated values).
-    def facet_values(statement):
+    def facet_values(statement: Select[Facet]) -> ScalarSelect[list[Facet]]:
         rows = statement.subquery()
         return select(func.array_agg(next(iter(rows.c)))).scalar_subquery()
 
@@ -254,11 +286,11 @@ def feed(
     topic: TextInput | None = Query(None, max_length=100, description="Active topic slug or UUID"),
     languages: Annotated[list[LanguageCode] | None, Query(min_length=1, max_length=75)] = None,
     sort: Literal["newest", "oldest", "most_liked"] = "newest",
-):
+) -> FeedPage:
     if sort != "newest":
         from devfeed_api.ordered_feed import ordered_page
 
-        filters = dict(
+        filters: FeedFilters = dict(
             q=q,
             tag=tag,
             exclude_tag=exclude_tag,
@@ -337,7 +369,7 @@ def feed(
     response_model=ArticleOut,
     openapi_extra=CachePolicy(namespace="article", revision=1, ttl="content").openapi_extra(),
 )
-def article_detail(article_id: TextInput, session: DB):
+def article_detail(article_id: TextInput, session: DB) -> ArticleOut:
     try:
         identity = Article.id == uuid.UUID(article_id)
     except ValueError:

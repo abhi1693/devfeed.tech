@@ -1,16 +1,22 @@
 """Serve bounded prepared matches, then apply live commercial policy and attribution."""
 
-import uuid
-from datetime import datetime, timedelta
-from typing import Any
+from __future__ import annotations
 
-from sqlalchemy import and_, case, func, literal, or_, select, union_all
-from sqlalchemy.orm import aliased
+import uuid
+from collections.abc import Collection, Generator, Iterable
+from datetime import datetime, timedelta
+from typing import Literal, cast, overload
+
+from sqlalchemy import Nullable, and_, case, func, literal, or_, select, union_all
+from sqlalchemy.orm import Session, aliased
+from sqlalchemy.sql import CompoundSelect, Select, SQLColumnExpression
 from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.selectable import ScalarSelect
 
 from devfeed_core.models import (
     Article,
     ArticleTopic,
+    Base,
     PartnerAccount,
     PartnerArticleMatch,
     PartnerAsset,
@@ -42,6 +48,7 @@ from devfeed_core.partner_placement_preflight import (
     PlacementPreflight,
     automatic_configuration_available,
 )
+from devfeed_core.partner_placement_types import PlacementData, PlacementRequest
 from devfeed_core.partner_product_images import product_image_url, product_image_variants
 from devfeed_core.partner_product_logos import product_logo_url
 from devfeed_core.partner_promotions import (
@@ -58,10 +65,37 @@ from devfeed_core.partner_tracking import (
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import ArticleOut
 
+type CandidateSelect = Select[uuid.UUID, int, str, int, datetime]
+
+type ProductMatches = dict[uuid.UUID, tuple[int, str, int, datetime]]
+
+type FormatCandidates = (
+    Select[uuid.UUID, int, str, int, datetime, bool, int]
+    | CompoundSelect[uuid.UUID, int, str, int, datetime, bool, int]
+)
+
+type RankedPlacement = tuple[
+    PartnerAsset,
+    PartnerAccount,
+    PartnerProduct,
+    PartnerCampaign | None,
+    int,
+    str,
+    int,
+    datetime,
+    bool,
+]
+
 
 def account_product_available(
-    session, account_id, product_id, *, busy_error=False, ad_format=None, surface=None
-):
+    session: Session,
+    account_id: uuid.UUID,
+    product_id: uuid.UUID,
+    *,
+    busy_error: bool = False,
+    ad_format: str | None = None,
+    surface: str | None = None,
+) -> bool:
     ownership = (
         select(PartnerListing.id)
         .join(PartnerConnection)
@@ -122,7 +156,9 @@ def account_product_available(
     return not excluded
 
 
-def prepared_product_topics(session, product, now):
+def prepared_product_topics(
+    session: Session, product: PartnerProduct, now: datetime
+) -> set[uuid.UUID]:
     return set(
         session.scalars(
             select(PartnerProductTopic.topic_id)
@@ -139,8 +175,15 @@ def prepared_product_topics(session, product, now):
 
 
 def automatic_asset_available(
-    session, asset, account, product, now, *, surface=None, busy_error=False
-):
+    session: Session,
+    asset: PartnerAsset,
+    account: PartnerAccount,
+    product: PartnerProduct | None,
+    now: datetime,
+    *,
+    surface: str | None = None,
+    busy_error: bool = False,
+) -> bool:
     """Shared serving/tracking fence; legacy reporting assets keep their original contract."""
     if account.status != "active" or asset.status != "active":
         return False
@@ -200,13 +243,16 @@ def automatic_asset_available(
             return False
     return bool(
         automatic_configuration_available(asset, account, campaign, now, surface=surface)
+        and campaign is not None
         and campaign_matches_product(
             campaign, product, prepared_product_topics(session, product, now)
         )
     )
 
 
-def personal_topic_weights(session, user_id, now):
+def personal_topic_weights(
+    session: Session, user_id: uuid.UUID | str, now: datetime
+) -> dict[uuid.UUID, int]:
     weights = {
         topic_id: 100
         for topic_id in session.scalars(
@@ -239,7 +285,7 @@ def personal_topic_weights(session, user_id, now):
     return weights
 
 
-def feed_topic_weights(session, article_ids):
+def feed_topic_weights(session: Session, article_ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, int]:
     """Resolve displayed content into approved context without accepting reader topic claims."""
     if not article_ids:
         return {}
@@ -264,7 +310,7 @@ def feed_topic_weights(session, article_ids):
     return weights
 
 
-def product_delivery_history():
+def product_delivery_history() -> ScalarSelect[datetime]:
     """Read a candidate product's latest delivery across all of its assets.
 
     Product/asset and asset/issuance indexes bound the two lookups. History spans
@@ -287,7 +333,7 @@ def product_delivery_history():
     )
 
 
-def prepared_article_candidates(*conditions):
+def prepared_article_candidates(*conditions: ColumnElement[bool]) -> CandidateSelect:
     """Current grounded article edges, including authoritative evaluation decisions."""
     return (
         select(
@@ -311,9 +357,39 @@ def prepared_article_candidates(*conditions):
     )
 
 
+@overload
 def contextual_candidates(
-    session, query, now, user_id=None, *, as_query=False, search_context=None
-):
+    session: Session,
+    query: PlacementRequest,
+    now: datetime,
+    user_id: uuid.UUID | str | None = None,
+    *,
+    as_query: Literal[True],
+    search_context: PublicSearchContext | None = None,
+) -> CandidateSelect | None: ...
+
+
+@overload
+def contextual_candidates(
+    session: Session,
+    query: PlacementRequest,
+    now: datetime,
+    user_id: uuid.UUID | str | None = None,
+    *,
+    as_query: Literal[False] = False,
+    search_context: PublicSearchContext | None = None,
+) -> ProductMatches: ...
+
+
+def contextual_candidates(
+    session: Session,
+    query: PlacementRequest,
+    now: datetime,
+    user_id: uuid.UUID | str | None = None,
+    *,
+    as_query: bool = False,
+    search_context: PublicSearchContext | None = None,
+) -> CandidateSelect | ProductMatches | None:
     if query.surface == "article":
         article = session.scalar(
             select(Article)
@@ -451,7 +527,9 @@ def contextual_candidates(
     return dict(sorted(candidates.items(), key=lambda item: -item[1][0])[:100])
 
 
-def engagement_feed_candidates(session, article_ids):
+def engagement_feed_candidates(
+    session: Session, article_ids: Iterable[uuid.UUID]
+) -> CandidateSelect | None:
     """Resolve at most 24 visible tutorials once; topic overlap cannot imply a task."""
     if not article_ids:
         return None
@@ -500,7 +578,9 @@ def engagement_feed_candidates(session, article_ids):
     ).where(ranked.c.rank == 1)
 
 
-def placement_format_candidates(session, query, matches):
+def placement_format_candidates(
+    session: Session, query: PlacementRequest, matches: CandidateSelect | None
+) -> FormatCandidates | None:
     """Keep each creative's score and reason attached to its own relevance contract."""
     groups = []
     if matches is not None and any(value != "engagement" for value in query.ad_formats):
@@ -530,7 +610,7 @@ def placement_format_candidates(session, query, matches):
     return union_all(*groups) if len(groups) > 1 else groups[0]
 
 
-def fallback_formats(query, *, feed_context):
+def fallback_formats(query: PlacementRequest, *, feed_context: bool) -> set[str]:
     """Header is explicit branding; ordinary Feed fallback remains contextless."""
     if query.surface == "header":
         return set(query.ad_formats) & {"header_sponsorship"}
@@ -542,10 +622,12 @@ def fallback_formats(query, *, feed_context):
     return formats
 
 
-def lock_attribution_row(session, model, identifier, *, busy_error=False):
+def lock_attribution_row[T: Base](
+    session: Session, model: type[T], identifier: uuid.UUID, *, busy_error: bool = False
+) -> T | None:
     row = session.scalar(
         select(model)
-        .where(model.id == identifier)
+        .where(model.__table__.c.id == identifier)
         .with_for_update(skip_locked=True)
         .execution_options(populate_existing=True)
     )
@@ -554,12 +636,14 @@ def lock_attribution_row(session, model, identifier, *, busy_error=False):
     return row
 
 
-def placement_rows_query(query, now):
+def placement_rows_query(
+    query: PlacementRequest, now: datetime
+) -> Select[PartnerAsset, PartnerAccount, PartnerProduct, PartnerCampaign | None]:
     """Cheap current eligibility before ranking; locked policy rechecks remain final."""
     ownership = account_product_source(PartnerAccount.id, PartnerProduct.id)
     formats = [value for value in query.ad_formats if placement_format_allowed(value, query)]
     return (
-        select(PartnerAsset, PartnerAccount, PartnerProduct, PartnerCampaign)
+        select(PartnerAsset, PartnerAccount, PartnerProduct, Nullable(PartnerCampaign))
         .join(PartnerAccount, PartnerAccount.id == PartnerAsset.account_id)
         .join(PartnerProduct, PartnerProduct.id == PartnerAsset.product_id)
         .outerjoin(PartnerCampaign, PartnerCampaign.id == PartnerAsset.campaign_id)
@@ -610,24 +694,29 @@ def placement_rows_query(query, now):
 
 
 def ranked_placement_rows(
-    session,
-    query,
-    now,
-    matches,
+    session: Session,
+    query: PlacementRequest,
+    now: datetime,
+    matches: FormatCandidates | None,
     *,
-    phase,
-    seen,
-    selected_formats=(),
-    user_id=None,
-    preflight=None,
-    feed_context=False,
-):
+    phase: str,
+    seen: Collection[uuid.UUID],
+    selected_formats: Collection[str] = (),
+    user_id: uuid.UUID | str | None = None,
+    preflight: PlacementPreflight | None = None,
+    feed_context: bool = False,
+) -> Generator[RankedPlacement, None, None]:
     """Stream ranked assets in bounded batches past any rejected live policies.
 
     A fixed candidate cutoff before audience/destination/budget checks can leave
     later eligible products permanently unreachable. Fetching batches instead of
     imposing a terminal cutoff keeps those checks authoritative without starvation.
     """
+    score: ColumnElement[int]
+    intent: ColumnElement[int]
+    reason: ColumnElement[str]
+    revision: SQLColumnExpression[int]
+    updated_at: SQLColumnExpression[datetime]
     if phase == "fallback":
         formats = fallback_formats(query, feed_context=feed_context)
         if not formats:
@@ -658,12 +747,12 @@ def ranked_placement_rows(
     else:
         if matches is None:
             return
-        matches = matches.subquery()
+        match_rows = matches.subquery()
         statement = placement_rows_query(query, now).join(
-            matches,
+            match_rows,
             and_(
-                matches.c.product_id == PartnerProduct.id,
-                matches.c.engagement == (PartnerAsset.ad_format == "engagement"),
+                match_rows.c.product_id == PartnerProduct.id,
+                match_rows.c.engagement == (PartnerAsset.ad_format == "engagement"),
             ),
         )
         statement = statement.where(
@@ -678,9 +767,9 @@ def ranked_placement_rows(
                 PartnerCampaign.ends_at > now,
                 PartnerCampaign.surfaces.contains([query.surface]),
             )
-        score, reason = matches.c.score, matches.c.reason
-        intent = matches.c.intent
-        revision, updated_at = matches.c.product_revision, matches.c.product_updated_at
+        score, reason = match_rows.c.score, match_rows.c.reason
+        intent = match_rows.c.intent
+        revision, updated_at = match_rows.c.product_revision, match_rows.c.product_updated_at
     if phase != "organic" and selected_formats:
         statement = statement.where(PartnerAsset.ad_format.not_in(selected_formats))
     statement = statement.add_columns(score, reason, revision, updated_at).order_by(
@@ -704,12 +793,21 @@ def ranked_placement_rows(
                 user_id,
             )
             for row in batch:
-                yield (*row, row[0].article_id is None or row[0].article_id in stories)
+                yield cast(
+                    RankedPlacement,
+                    (*row, row[0].article_id is None or row[0].article_id in stories),
+                )
     finally:
         rows.close()
 
 
-def sponsored_story_matches(session, query, article_ids, now, user_id=None):
+def sponsored_story_matches(
+    session: Session,
+    query: PlacementRequest,
+    article_ids: Iterable[uuid.UUID],
+    now: datetime,
+    user_id: uuid.UUID | str | None = None,
+) -> set[uuid.UUID]:
     """A product match cannot lend relevance to an unrelated promoted story."""
     if not article_ids:
         return set()
@@ -740,7 +838,14 @@ def sponsored_story_matches(session, query, article_ids, now, user_id=None):
     )
 
 
-def deliver_placements(session, query, key, *, user_id=None, now=None):
+def deliver_placements(
+    session: Session,
+    query: PlacementRequest,
+    key: str | None,
+    *,
+    user_id: uuid.UUID | str | None = None,
+    now: datetime | None = None,
+) -> list[PlacementData]:
     """Issue up to two placements after relevance and locked live-policy checks.
 
     Article placements and feed Engagement require current grounded tutorial tasks;
@@ -759,9 +864,9 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
         session, query, now, user_id, as_query=True, search_context=search_context
     )
     feed_context = bool(query.article_ids) or matches is not None
-    matches = placement_format_candidates(session, query, matches)
+    formatted_matches = placement_format_candidates(session, query, matches)
     signer = PartnerTrackingTokens(key, clock=lambda: now.timestamp())
-    selected: list[dict[str, Any]] = []
+    selected: list[PlacementData] = []
     delivery_limit = 1 if query.surface in {"search", "header"} else 2
     seen: set[uuid.UUID] = set()
     selected_formats: set[str] = set()
@@ -786,7 +891,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
             session,
             query,
             now,
-            matches,
+            formatted_matches,
             phase=phase,
             seen=seen,
             selected_formats=selected_formats,
@@ -856,7 +961,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                 if phase != "fallback":
                     # Ranking is an earlier snapshot. Recheck every contextual
                     # placement and use its current reason, including ordinary
-                    # topic/feed matches. Product locks also fence task evaluations.
+                    # topic/feed formatted_matches. Product locks also fence task evaluations.
                     task_match = query.surface == "article" or (
                         ad_format == "engagement" and query.surface == "feed"
                     )
@@ -866,8 +971,9 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                         and not search_context.lock_witness(session, product.id, search.query)
                     ):
                         break
-                    current = matches.subquery()
-                    reason = session.scalar(
+                    assert formatted_matches is not None
+                    current = formatted_matches.subquery()
+                    current_reason: str | None = session.scalar(
                         select(current.c.reason)
                         .where(
                             current.c.product_id == product.id,
@@ -876,8 +982,9 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                         )
                         .limit(1)
                     )
-                    if reason is None:
+                    if current_reason is None:
                         continue
+                    reason = current_reason
                 if not automatic_asset_available(
                     session, asset, account, product, now, surface=query.surface
                 ):
@@ -897,7 +1004,13 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                     )
                     if article is None:
                         continue
-                if sponsored and not campaign_capacity(session, campaign, now):
+                if sponsored:
+                    assert campaign is not None
+                if (
+                    sponsored
+                    and campaign is not None
+                    and not campaign_capacity(session, campaign, now)
+                ):
                     preflight.reject_campaign(campaign)
                     continue
                 creative = account_product_creative(session, account, product, lock=True)
@@ -923,7 +1036,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                 session.flush()
                 policy = session.get(PartnerProductPromotion, (account.id, product.id))
                 selected.append(
-                    dict(
+                    PlacementData(
                         product_id=product.id,
                         asset_id=asset.id,
                         campaign_id=asset.campaign_id,

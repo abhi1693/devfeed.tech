@@ -1,12 +1,20 @@
 """Configurable image validation and encoding without storage or transport dependencies."""
 
+from __future__ import annotations
+
 import io
 import warnings
 from collections.abc import Iterable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from PIL import Image
 
 
 class ImageProcessor:
-    def __init__(self, *, max_pixels: int, formats: Iterable[str], orient_width: bool = True):
+    def __init__(
+        self, *, max_pixels: int, formats: Iterable[str], orient_width: bool = True
+    ) -> None:
         self.max_pixels = max_pixels
         self.formats = frozenset(formats)
         self.orient_width = orient_width
@@ -40,7 +48,14 @@ class ImageProcessor:
         ) as exc:
             raise ValueError("Unsupported or invalid image") from exc
 
-    def encode(self, image, *, format: str, strip_metadata: bool = False, **options) -> bytes:
+    def encode(
+        self,
+        image: Image.Image,
+        *,
+        format: str,
+        strip_metadata: bool = False,
+        **options: str | int | float | bool,
+    ) -> bytes:
         if strip_metadata:
             image.info.clear()
         output = io.BytesIO()

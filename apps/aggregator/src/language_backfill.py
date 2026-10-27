@@ -5,6 +5,7 @@ import time
 import uuid
 
 from devfeed_core.db import session_factory
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.logging import elapsed_ms
 from devfeed_core.models import Article, ArticleOrigin
 from sqlalchemy import select, update
@@ -20,7 +21,7 @@ def backfill_languages(
     after: uuid.UUID | None = None,
     source_id: uuid.UUID | None = None,
     dry_run: bool = False,
-) -> dict:
+) -> JsonRecord:
     if not 1 <= limit <= 500:
         raise ValueError("Limit must be between 1 and 500")
     started = time.perf_counter()

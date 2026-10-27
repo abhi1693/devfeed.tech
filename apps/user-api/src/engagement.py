@@ -1,10 +1,13 @@
 """First-party article interactions; no IP addresses or browser fingerprints stored."""
 
+from __future__ import annotations
+
 import hashlib
 import secrets
 import uuid
-from datetime import timedelta
-from typing import Annotated
+from collections.abc import Sequence
+from datetime import datetime, timedelta
+from typing import Annotated, TypedDict
 
 from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
 from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
@@ -25,10 +28,11 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import delete, func, literal, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
 
 from devfeed_user_api import oidc
 from devfeed_user_api.auth import TOKEN, User, UserIdentity, require_user
-from devfeed_user_api.config import get_settings
+from devfeed_user_api.config import Settings, get_settings
 from devfeed_user_api.dependencies import DBFactory
 from devfeed_user_api.open_limits import limit_open_requests
 from devfeed_user_api.trending import trending_page
@@ -56,6 +60,13 @@ Viewer = Annotated[UserIdentity | None, Depends(optional_user)]
 ClickHouse = Annotated[AnalyticsClient, Depends(analytics_client)]
 
 
+class EngagementRow(TypedDict):
+    article_id: uuid.UUID
+    likes: int
+    liked: bool
+    bookmarked: bool
+
+
 class EngagementOut(BaseModel):
     article_id: uuid.UUID
     likes: int
@@ -69,7 +80,9 @@ class LikeInput(BaseModel):
     liked: bool
 
 
-def engagement_rows(session, article_ids: list[uuid.UUID], user: UserIdentity | None):
+def engagement_rows(
+    session: Session, article_ids: list[uuid.UUID], user: UserIdentity | None
+) -> list[EngagementRow]:
     likes = (
         select(func.count())
         .select_from(ArticleLike)
@@ -102,15 +115,25 @@ def engagement_rows(session, article_ids: list[uuid.UUID], user: UserIdentity | 
         liked.label("liked"),
         bookmarked.label("bookmarked"),
     ).where(Article.id.in_(article_ids), visible_article())
-    return [dict(row) for row in session.execute(statement).mappings()]
+    return [
+        {
+            "article_id": row["article_id"],
+            "likes": row["likes"],
+            "liked": row["liked"],
+            "bookmarked": row["bookmarked"],
+        }
+        for row in session.execute(statement).mappings()
+    ]
 
 
-async def _with_opens(rows, analytics, cutover):
+async def _with_opens(
+    rows: Sequence[EngagementRow], analytics: ArticleOpenAnalytics, cutover: datetime
+) -> list[EngagementOut]:
     totals = await analytics.totals([row["article_id"] for row in rows], cutover=cutover)
     return [EngagementOut(**row, opens=totals[str(row["article_id"])]) for row in rows]
 
 
-def public_article(session, article_id: uuid.UUID) -> None:
+def public_article(session: Session, article_id: uuid.UUID) -> None:
     if (
         session.scalar(select(Article.id).where(Article.id == article_id, visible_article()))
         is None
@@ -124,14 +147,16 @@ async def engagement(
     viewer: Viewer,
     client: ClickHouse,
     article_id: Annotated[list[uuid.UUID], Query(min_length=1, max_length=100)],
-):
+) -> list[EngagementOut]:
     analytics = ArticleOpenAnalytics(client)
     cutover = await analytics.cutover()
     rows = await run_database(factory, engagement_rows, article_id, viewer)
     return await _with_opens(rows, analytics, cutover)
 
 
-def _write_like(session, article_id, payload, user):
+def _write_like(
+    session: Session, article_id: uuid.UUID, payload: LikeInput, user: UserIdentity
+) -> list[EngagementRow]:
     public_article(session, article_id)
     values = {"article_id": article_id, "user_id": uuid.UUID(user.user_id)}
     if payload.liked:
@@ -153,19 +178,23 @@ def _write_like(session, article_id, payload, user):
 )
 async def like(
     article_id: uuid.UUID, payload: LikeInput, user: User, factory: DBFactory, client: ClickHouse
-):
+) -> EngagementOut:
     analytics = ArticleOpenAnalytics(client)
     cutover = await analytics.cutover()
     rows = await run_database(factory, _write_like, article_id, payload, user)
     return (await _with_opens(rows, analytics, cutover))[0]
 
 
-def _authorize_open(session, article_id, viewer_key, anonymous):
+def _authorize_open(
+    session: Session, article_id: uuid.UUID, viewer_key: str, anonymous: bool
+) -> None:
     limit_open_requests(article_id, viewer_key, anonymous=anonymous)
     public_article(session, article_id)
 
 
-def _record_reading_day(session, viewer, article_id, opened_at):
+def _record_reading_day(
+    session: Session, viewer: UserIdentity, article_id: uuid.UUID, opened_at: datetime
+) -> None:
     from devfeed_user_api.preferences import lock_account
 
     account = lock_account(session, viewer)
@@ -173,7 +202,7 @@ def _record_reading_day(session, viewer, article_id, opened_at):
     session.commit()
 
 
-def _set_visitor_cookie(response, name, token, settings):
+def _set_visitor_cookie(response: Response, name: str, token: str, settings: Settings) -> None:
     response.set_cookie(
         name,
         token,
@@ -193,7 +222,7 @@ async def opened(
     viewer: Viewer,
     factory: DBFactory,
     client: ClickHouse,
-):
+) -> EngagementOut | JSONResponse:
     settings = get_settings()
     if not settings.base_url or not settings.allows_request_origin(request.headers.get("origin")):
         raise HTTPException(403, "Invalid request origin")
@@ -235,7 +264,7 @@ async def trending(
     client: ClickHouse,
     limit: int = Query(24, ge=1, le=100),
     cursor: int = Query(0, ge=0, le=1_000_000),
-):
+) -> FeedPage:
     analytics = ArticleOpenAnalytics(client)
     await analytics.cutover()
     return await trending_page(

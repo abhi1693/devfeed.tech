@@ -5,10 +5,20 @@ observation. ClickHouse keeps the completed revision when a delayed start is
 retried. No prompts, hashes, responses, or credentials are stored.
 """
 
+from __future__ import annotations
+
 import asyncio
 import re
 import uuid
+from collections.abc import Callable, Sequence
+from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime, timedelta
+from typing import Protocol
+
+from psycopg.abc import Params
+
+from devfeed_core.analytics import AnalyticsClient, SqlRecord
+from devfeed_core.json_types import JsonRecord
 
 MAX_BATCH_SIZE = 1000
 
@@ -20,7 +30,7 @@ _BUCKETS = {
 }
 
 
-def _timestamp(value):
+def _timestamp(value: object) -> datetime:
     if isinstance(value, str):
         try:
             value = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -31,12 +41,12 @@ def _timestamp(value):
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
-def _number(value):
+def _number(value: object) -> int:
     raw = str(value)
     return int(raw) if re.fullmatch(r"[0-9]{1,12}", raw) else 0
 
 
-def _row(record):
+def _row(record: JsonRecord) -> SqlRecord:
     if not isinstance(record, dict):
         raise ValueError("Inference observation must be an object")
     try:
@@ -102,10 +112,10 @@ def _row(record):
 class InferenceStore:
     """Insert and query inference events directly without PostgreSQL reporting tables."""
 
-    def __init__(self, client):
+    def __init__(self, client: AnalyticsClient) -> None:
         self.client = client
 
-    async def write(self, records):
+    async def write(self, records: Sequence[JsonRecord]) -> int:
         """Write one bounded batch; the caller retries with the same IDs and start times.
 
         A successful insert is acknowledged only after ClickHouse persists its
@@ -118,7 +128,7 @@ class InferenceStore:
             await self.client.insert("analytics_inference_events", rows)
         return len(rows)
 
-    async def relationship_count(self, since):
+    async def relationship_count(self, since: datetime) -> int:
         """Count recent calls; admission must serialize separately across workers."""
         rows = await self.client.query(
             "SELECT count() AS calls FROM analytics_inference_events FINAL "
@@ -129,9 +139,11 @@ class InferenceStore:
         )
         if len(rows) != 1 or type(rows[0].get("calls")) is not int:
             raise RuntimeError("Invalid inference count")
-        return rows[0]["calls"]
+        count = rows[0]["calls"]
+        assert isinstance(count, int)
+        return count
 
-    async def exists(self, identity, started_at):
+    async def exists(self, identity: uuid.UUID | str, started_at: datetime) -> bool:
         """Check an exact invocation before accepting a retried reservation."""
         try:
             identity = str(uuid.UUID(str(identity)))
@@ -146,7 +158,9 @@ class InferenceStore:
             raise RuntimeError("Invalid inference identity count")
         return bool(rows[0]["calls"])
 
-    async def aggregate(self, start, end, *, granularity="day"):
+    async def aggregate(
+        self, start: datetime, end: datetime, *, granularity: str = "day"
+    ) -> list[SqlRecord]:
         """Return bucket, total and dimension aggregates in one consistent query."""
         if granularity not in _BUCKETS:
             raise ValueError("Invalid inference granularity")
@@ -188,6 +202,14 @@ class InferenceStore:
         return await self.client.query(query, {"start": start, "end": end})
 
 
+class QuotaConnection(Protocol):
+    """Quota admission only needs transactions and acknowledged SQL execution."""
+
+    def transaction(self) -> AbstractAsyncContextManager[object]: ...
+
+    async def execute(self, query: str, /, params: Params | None = None) -> object: ...
+
+
 class RelationshipQuota:
     """Serialize a relationship-call reservation without PG analytics tables.
 
@@ -198,14 +220,20 @@ class RelationshipQuota:
     not execute, but cannot authorize an uncounted call.
     """
 
-    def __init__(self, store, connection_factory, *, timeout_seconds=30):
+    def __init__(
+        self,
+        store: InferenceStore,
+        connection_factory: Callable[[], AbstractAsyncContextManager[QuotaConnection]],
+        *,
+        timeout_seconds: int = 30,
+    ) -> None:
         if not callable(connection_factory) or not 0 < timeout_seconds <= 300:
             raise ValueError("Invalid relationship quota configuration")
         self.store = store
         self.connection_factory = connection_factory
         self.timeout_seconds = timeout_seconds
 
-    async def admit(self, record, limit):
+    async def admit(self, record: JsonRecord, limit: int) -> bool:
         if type(limit) is not int or limit < 0:
             raise ValueError("Invalid relationship budget")
         row = _row(record)

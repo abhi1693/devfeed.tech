@@ -6,6 +6,8 @@ Delivery is bounded and best effort; accepted business commits are never retried
 because ClickHouse is unavailable.
 """
 
+from __future__ import annotations
+
 import asyncio
 import atexit
 import logging
@@ -15,20 +17,33 @@ import re
 import threading
 import uuid
 import weakref
+from collections.abc import Collection, Mapping, Sequence
 from contextlib import suppress
-from typing import Any
+from typing import Protocol, cast
 
-from psycopg import sql
+from psycopg import AsyncConnection, sql
 from psycopg.rows import dict_row
-from sqlalchemy import Engine, Uuid, and_, event, or_, select, tuple_
-from sqlalchemy.pool import Pool
+from sqlalchemy import Column, Engine, Table, Uuid, and_, event, or_, select, tuple_
+from sqlalchemy.engine import Connection, ScalarResult
+from sqlalchemy.engine.interfaces import DBAPICursor
+from sqlalchemy.orm import Session, SessionTransaction
+from sqlalchemy.pool import ConnectionPoolEntry, Pool
 from sqlalchemy.sql import Select, operators, visitors
-from sqlalchemy.sql.elements import BinaryExpression, BindParameter, BooleanClauseList
+from sqlalchemy.sql.compiler import SQLCompiler
+from sqlalchemy.sql.dml import Delete, Insert, Update
+from sqlalchemy.sql.elements import (
+    BinaryExpression,
+    BindParameter,
+    BooleanClauseList,
+    ColumnElement,
+)
+from sqlalchemy.sql.schema import ColumnCollectionConstraint
 
-from devfeed_core.analytics import AnalyticsClient
+from devfeed_core.analytics import AnalyticsClient, SqlRecord
 from devfeed_core.analytics_overview_direct import DirectOverviewAnalytics
 from devfeed_core.analytics_schema import JOB_TABLES, AnalyticsTable
 from devfeed_core.analytics_schema import TABLES as CAPTURE_TABLES
+from devfeed_core.config import Settings
 from devfeed_core.models import Base
 
 TABLES = dict(CAPTURE_TABLES)
@@ -64,18 +79,40 @@ FEED_SOURCES = frozenset(
 SOURCES = frozenset(TABLES) - {"article_opens", "inference_calls", "topic_decision_calls"}
 
 
-def _identity_value(column, value):
+type WriteStatement = Insert | Update | Delete
+
+
+class CaptureContext(Protocol):
+    """SQLAlchemy execution state plus this listener's per-statement scratch data."""
+
+    compiled: SQLCompiler | None
+    compiled_parameters: list[SqlRecord]
+    execution_options: Mapping[str, object]
+    _devfeed_analytics_parameters: list[SqlRecord]
+    _devfeed_analytics_before: list[SqlRecord]
+    _devfeed_analytics_pairs: list[tuple[SqlRecord, SqlRecord]]
+    _devfeed_analytics_cascades: list[tuple[str, SqlRecord]]
+    _devfeed_analytics_articles: list[uuid.UUID]
+
+
+def _capture_table(statement: WriteStatement) -> Table:
+    # Capture is installed only for registered ORM metadata tables. SQLAlchemy's
+    # wider DML type also allows aliases/joins, which do not enter this adapter.
+    return cast(Table, statement.table)
+
+
+def _identity_value(column: Column[object], value: object) -> str:
     if isinstance(column.type, Uuid):
         return str(uuid.UUID(str(value)))
     return str(value)
 
 
-def _key(source, record):
+def _key(source: str, record: SqlRecord) -> tuple[str, ...]:
     columns = Base.metadata.tables[source].c
     return tuple(_identity_value(columns[name], record[name]) for name in TABLES[source].keys)
 
 
-def _remember(session, source, record):
+def _remember(session: Session, source: str, record: SqlRecord | None) -> None:
     if source not in SOURCES or record is None:
         return
     identity = {name: record[name] for name in TABLES[source].keys}
@@ -96,47 +133,68 @@ def _remember(session, source, record):
     }
 
 
-def _bound_predicate(statement, compiled, parameters):
+def _bound_predicate(
+    statement: WriteStatement, compiled: SQLCompiler, parameters: SqlRecord
+) -> ColumnElement[bool] | None:
     criteria = tuple(getattr(statement, "_where_criteria", ()))
     if not criteria:
         return None
 
-    def replace(element: Any, **kw: Any) -> Any:
+    def replace(
+        element: visitors.ExternallyTraversible, **kw: object
+    ) -> visitors.ExternallyTraversible | None:
         node = element
         if isinstance(node, BindParameter):
             name = compiled.bind_names.get(node, node.key)
             if name in parameters:
-                return node._with_value(parameters[name], maintain_key=True, required=False)
+                return cast(
+                    visitors.ExternallyTraversible,
+                    node._with_value(parameters[name], maintain_key=True, required=False),
+                )
         return None
 
     return visitors.replacement_traverse(and_(*criteria), {}, replace)
 
 
-def _records(connection, table, predicate=None):
+def _records(
+    connection: Connection, table: Table, predicate: ColumnElement[bool] | None = None
+) -> ScalarResult[SqlRecord]:
     spec = TABLES[table.name]
     from sqlalchemy import literal_column
 
-    statement: Select[Any] = select(literal_column(spec.record_sql(table.name))).select_from(table)
+    statement: Select[SqlRecord] = select(literal_column(spec.record_sql(table.name))).select_from(
+        table
+    )
     if predicate is not None:
         statement = statement.where(predicate)
     return connection.execute(statement.execution_options(**{_SKIP: True})).scalars()
 
 
-def _insert_candidates(connection, statement, compiled, parameters):
+def _insert_candidates(
+    connection: Connection,
+    statement: WriteStatement,
+    compiled: SQLCompiler,
+    parameters: Sequence[SqlRecord],
+) -> list[SqlRecord]:
     """Read before-images only for updates on conflict, in bounded groups."""
     conflict = getattr(statement, "_post_values_clause", None)
     if not getattr(conflict, "update_values_to_set", None):
         return []
-    table = statement.table
+    table = _capture_table(statement)
     columns = getattr(conflict, "inferred_target_elements", None)
     if not columns:
         constraint = getattr(conflict, "constraint_target", None)
         columns = next(
-            (item.columns for item in table.constraints if item.name == constraint), None
+            (
+                cast(ColumnCollectionConstraint, item).columns
+                for item in table.constraints
+                if item.name == constraint
+            ),
+            None,
         )
     columns = tuple(columns) if columns is not None else tuple(table.primary_key)
     columns = tuple(table.c[column] if isinstance(column, str) else column for column in columns)
-    records = []
+    records: list[SqlRecord] = []
     for start in range(0, len(parameters), MAX_BATCH):
         keys = [
             tuple(row[column.name] for column in columns)
@@ -148,8 +206,11 @@ def _insert_candidates(connection, statement, compiled, parameters):
     return records
 
 
-def _primary_key_bindings(statement, compiled):
+def _primary_key_bindings(
+    statement: WriteStatement, compiled: SQLCompiler
+) -> dict[str, str] | None:
     """Recognize exact primary-key updates without interpreting arbitrary SQL."""
+    table = _capture_table(statement)
     criteria = list(getattr(statement, "_where_criteria", ()))
     bindings = {}
     while criteria:
@@ -166,29 +227,29 @@ def _primary_key_bindings(statement, compiled):
         ):
             if not isinstance(parameter, BindParameter):
                 continue
-            if (
-                getattr(getattr(column, "table", None), "fullname", None)
-                != statement.table.fullname
-            ):
+            if getattr(getattr(column, "table", None), "fullname", None) != table.fullname:
                 continue
-            key = next(
-                (key for key in statement.table.primary_key if key.shares_lineage(column)), None
-            )
+            key = next((key for key in table.primary_key if key.shares_lineage(column)), None)
             if key is not None:
                 binding = key.name, compiled.bind_names.get(parameter, parameter.key)
                 break
         if binding is None or binding[0] in bindings:
             return None
         bindings[binding[0]] = binding[1]
-    return bindings if len(bindings) == len(statement.table.primary_key) else None
+    return bindings if len(bindings) == len(table.primary_key) else None
 
 
-def _update_candidates(connection, statement, compiled, parameters):
+def _update_candidates(
+    connection: Connection,
+    statement: WriteStatement,
+    compiled: SQLCompiler,
+    parameters: Sequence[SqlRecord],
+) -> tuple[list[SqlRecord], list[tuple[SqlRecord, SqlRecord]]]:
     """Capture ORM batch preimages in bounded reads, retaining per-row assignments."""
-    table = statement.table
+    table = _capture_table(statement)
     bindings = _primary_key_bindings(statement, compiled)
-    captured: list[dict] = []
-    pairs: list[tuple[dict, dict]] = []
+    captured: list[SqlRecord] = []
+    pairs: list[tuple[SqlRecord, SqlRecord]] = []
     if bindings and all(
         all(name in row and row[name] is not None for name in bindings.values())
         for row in parameters
@@ -222,13 +283,13 @@ def _update_candidates(connection, statement, compiled, parameters):
     return captured, pairs
 
 
-def _parameter_rows(context):
+def _parameter_rows(context: CaptureContext) -> list[SqlRecord]:
     """Normalize Core VALUES lists and ordinary executemany to column dictionaries."""
-    if not getattr(context.compiled.statement, "_multi_values", ()):
+    if not getattr(cast(SQLCompiler, context.compiled).statement, "_multi_values", ()):
         return context.compiled_parameters
-    output: list[dict] = []
+    output: list[SqlRecord] = []
     for parameters in context.compiled_parameters:
-        rows: dict[int, dict] = {}
+        rows: dict[int, SqlRecord] = {}
         shared = {}
         for name, value in parameters.items():
             match = re.fullmatch(r"(.+)_m([0-9]+)", name)
@@ -240,22 +301,29 @@ def _parameter_rows(context):
     return output
 
 
-def _ignored_update(operation, parameters):
-    if not operation.is_update or operation.table.name not in {"articles", "user_accounts"}:
+def _ignored_update(operation: WriteStatement, parameters: Sequence[SqlRecord]) -> bool:
+    table = _capture_table(operation)
+    if not operation.is_update or table.name not in {"articles", "user_accounts"}:
         return False
     assignments = getattr(operation, "_values", None)
     if assignments is not None:
         fields = {getattr(column, "name", column) for column in assignments}
     else:
-        fields = {name for row in parameters for name in row if name in operation.table.c}
-    if operation.table.name == "user_accounts":
+        fields = {name for row in parameters for name in row if name in table.c}
+    if table.name == "user_accounts":
         # Sign-in activity and private reader layouts do not change registered
         # account counts or current feed inputs. Their writes need no analytics.
         return bool(fields) and not fields.intersection(TABLES["user_accounts"].fields)
     return bool(fields) and fields <= {"automation_next_check_at", "automation_started_at"}
 
 
-def _dependent_articles(connection, source, records, operation, parameters):
+def _dependent_articles(
+    connection: Connection,
+    source: str,
+    records: Sequence[SqlRecord],
+    operation: WriteStatement,
+    parameters: Sequence[SqlRecord],
+) -> list[uuid.UUID]:
     from devfeed_core.models import ArticleOrigin, ArticleTopic
 
     if source == "sources":
@@ -280,11 +348,13 @@ def _dependent_articles(connection, source, records, operation, parameters):
     return list(connection.execute(statement).scalars())
 
 
-def _cascaded_records(connection, target, previous):
+def _cascaded_records(
+    connection: Connection, target: Table, previous: Sequence[SqlRecord]
+) -> list[tuple[str, SqlRecord]]:
     """Keep old child identities before PostgreSQL applies source FK actions."""
     if not previous:
         return []
-    changes: list[tuple[str, dict]] = []
+    changes: list[tuple[str, SqlRecord]] = []
     for child in target.metadata.tables.values():
         if child.name not in SOURCES:
             continue
@@ -310,7 +380,7 @@ class ApplicationAnalyticsCapture:
     """Observe application transactions without changing results or creating PG state."""
 
     @classmethod
-    def install(cls, session_type):
+    def install(cls, session_type: type[Session]) -> None:
         for target, name, callback in (
             (session_type, "after_begin", cls.attach),
             (session_type, "after_transaction_create", cls.savepoint),
@@ -323,18 +393,18 @@ class ApplicationAnalyticsCapture:
             event.listen(target, name, callback)
 
     @staticmethod
-    def attach(session, transaction, connection):
+    def attach(session: Session, transaction: SessionTransaction, connection: Connection) -> None:
         connection.info[_SESSION] = weakref.ref(session)
 
     @staticmethod
-    def savepoint(session, transaction):
+    def savepoint(session: Session, transaction: SessionTransaction) -> None:
         if transaction.nested:
             session.info.setdefault(_SAVEPOINTS, {})[transaction] = dict(
                 session.info.get(_PENDING, {})
             )
 
     @staticmethod
-    def rollback(session, transaction):
+    def rollback(session: Session, transaction: SessionTransaction) -> None:
         if transaction.parent is None:
             session.info.pop(_PENDING, None)
             session.info.pop(_SAVEPOINTS, None)
@@ -342,7 +412,7 @@ class ApplicationAnalyticsCapture:
             session.info[_PENDING] = session.info.get(_SAVEPOINTS, {}).pop(transaction, {})
 
     @staticmethod
-    def committed(session):
+    def committed(session: Session) -> None:
         if session.in_nested_transaction():
             return
         changes = list(session.info.pop(_PENDING, {}).values())
@@ -351,20 +421,27 @@ class ApplicationAnalyticsCapture:
             submit(changes)
 
     @staticmethod
-    def detach(dbapi_connection, record):
+    def detach(dbapi_connection: object, record: ConnectionPoolEntry) -> None:
         record.info.pop(_SESSION, None)
 
     @staticmethod
-    def before(connection, cursor, statement, parameters, context, executemany):
+    def before(
+        connection: Connection,
+        cursor: DBAPICursor,
+        statement: str,
+        parameters: object,
+        context: CaptureContext,
+        executemany: bool,
+    ) -> None:
         if connection.dialect.name != "postgresql" or context.execution_options.get(_SKIP):
             return
         reference = connection.info.get(_SESSION)
         session = reference() if reference else None
         compiled = context.compiled
         target = getattr(getattr(compiled, "statement", None), "table", None)
-        if session is None or target is None or target.name not in SOURCES:
+        if session is None or compiled is None or target is None or target.name not in SOURCES:
             return
-        operation = compiled.statement
+        operation = cast(WriteStatement, compiled.statement)
         if not (
             getattr(operation, "is_insert", False)
             or getattr(operation, "is_update", False)
@@ -376,7 +453,7 @@ class ApplicationAnalyticsCapture:
             return
         context._devfeed_analytics_parameters = values_rows
         captured = []
-        pairs: list[tuple[dict, dict]] = []
+        pairs: list[tuple[SqlRecord, SqlRecord]] = []
         if operation.is_insert:
             captured = _insert_candidates(connection, operation, compiled, values_rows)
         else:
@@ -391,7 +468,14 @@ class ApplicationAnalyticsCapture:
         )
 
     @staticmethod
-    def after(connection, cursor, statement, parameters, context, executemany):
+    def after(
+        connection: Connection,
+        cursor: DBAPICursor,
+        statement: str,
+        parameters: object,
+        context: CaptureContext,
+        executemany: bool,
+    ) -> None:
         previous = getattr(context, "_devfeed_analytics_before", None)
         if previous is None or cursor.rowcount == 0:
             return
@@ -399,8 +483,8 @@ class ApplicationAnalyticsCapture:
         session = reference() if reference else None
         if session is None:
             return
-        operation = context.compiled.statement
-        source = operation.table.name
+        operation = cast(WriteStatement, cast(SQLCompiler, context.compiled).statement)
+        source = _capture_table(operation).name
         for record in previous:
             _remember(session, source, record)
         for child, record in getattr(context, "_devfeed_analytics_cascades", ()):
@@ -411,9 +495,11 @@ class ApplicationAnalyticsCapture:
         ApplicationAnalyticsCapture.remember_attempts(session, connection, context, previous)
 
     @staticmethod
-    def remember_keys(session, context, previous):
-        operation = context.compiled.statement
-        source = operation.table.name
+    def remember_keys(
+        session: Session, context: CaptureContext, previous: Sequence[SqlRecord]
+    ) -> None:
+        operation = cast(WriteStatement, cast(SQLCompiler, context.compiled).statement)
+        source = _capture_table(operation).name
         parameters = context._devfeed_analytics_parameters
         if operation.is_update:
             for record, values in context._devfeed_analytics_pairs:
@@ -428,19 +514,24 @@ class ApplicationAnalyticsCapture:
                     _remember(session, source, record)
 
     @staticmethod
-    def remember_attempts(session, connection, context, previous):
-        operation = context.compiled.statement
-        source = operation.table.name
+    def remember_attempts(
+        session: Session,
+        connection: Connection,
+        context: CaptureContext,
+        previous: Sequence[SqlRecord],
+    ) -> None:
+        operation = cast(WriteStatement, cast(SQLCompiler, context.compiled).statement)
+        source = _capture_table(operation).name
         if source not in JOB_TABLES or operation.is_delete:
             return
         parameters = context._devfeed_analytics_parameters
-        identities = list(previous)
+        identity_rows = list(previous)
         if operation.is_insert:
-            identities.extend(
+            identity_rows.extend(
                 row for row in parameters if row.get("status") in {"succeeded", "failed"}
             )
         keys = TABLES[source].keys
-        identities = list({tuple(row[key] for key in keys) for row in identities})
+        identities = list({tuple(row[key] for key in keys) for row in identity_rows})
         for start in range(0, len(identities), MAX_BATCH):
             predicate = and_(
                 tuple_(*(operation.table.c[key] for key in keys)).in_(
@@ -448,11 +539,13 @@ class ApplicationAnalyticsCapture:
                 ),
                 operation.table.c.status.in_(["succeeded", "failed"]),
             )
-            for record in _records(connection, operation.table, predicate):
+            for record in _records(connection, _capture_table(operation), predicate):
                 _remember(session, source, record)
 
 
-async def _publication_rows(connection, identities):
+async def _publication_rows(
+    connection: AsyncConnection[SqlRecord], identities: Collection[str]
+) -> dict[str, SqlRecord]:
     if not identities:
         return {}
     identifiers = sorted(identities)
@@ -486,7 +579,9 @@ async def _publication_rows(connection, identities):
     }
 
 
-async def _feed_rows(connection, identities):
+async def _feed_rows(
+    connection: AsyncConnection[SqlRecord], identities: Collection[str]
+) -> dict[str, SqlRecord]:
     if not identities:
         return {}
     rows = await (
@@ -518,7 +613,9 @@ async def _feed_rows(connection, identities):
     }
 
 
-async def hydrate_changes(connection, changes):
+async def hydrate_changes(
+    connection: AsyncConnection[SqlRecord], changes: Sequence[SqlRecord]
+) -> list[SqlRecord]:
     """Hydrate complete current publication/feed inputs for bounded source IDs."""
     articles, users = set(), set()
     for change in changes:
@@ -560,7 +657,7 @@ async def hydrate_changes(connection, changes):
     return result
 
 
-def _same_completed_attempt(current, previous):
+def _same_completed_attempt(current: SqlRecord | None, previous: SqlRecord) -> bool:
     if (
         current is None
         or current.get("status") not in {"succeeded", "failed"}
@@ -573,8 +670,10 @@ def _same_completed_attempt(current, previous):
     return bool(attempt) or current.get("finished_at") == previous.get("finished_at")
 
 
-async def read_current_changes(connection, changes):
-    grouped: dict[str, list[dict]] = {}
+async def read_current_changes(
+    connection: AsyncConnection[SqlRecord], changes: Sequence[SqlRecord]
+) -> list[SqlRecord]:
+    grouped: dict[str, list[SqlRecord]] = {}
     for change in changes:
         grouped.setdefault(change["source_table"], []).append(change)
     output = []
@@ -603,10 +702,12 @@ async def read_current_changes(connection, changes):
 
 
 class DirectAnalyticsPublisher:
-    def __init__(self, client, settings):
+    def __init__(self, client: AnalyticsClient, settings: Settings) -> None:
         self.client, self.settings = client, settings
 
-    async def _publish_current(self, connection, changes):
+    async def _publish_current(
+        self, connection: AsyncConnection[SqlRecord], changes: Sequence[SqlRecord]
+    ) -> list[SqlRecord]:
         from devfeed_core.analytics_direct_cards import publish_cards
 
         async with connection.transaction():
@@ -629,7 +730,7 @@ class DirectAnalyticsPublisher:
             await publish_cards(self.client, self.settings, current, revision)
         return current
 
-    async def publish(self, changes):
+    async def publish(self, changes: Sequence[SqlRecord]) -> None:
         import psycopg
 
         from devfeed_core.analytics_direct_cards import dependent_card_batches
@@ -649,16 +750,18 @@ class DirectAnalyticsPublisher:
 
 
 class AnalyticsProducer:
-    def __init__(self, settings):
+    def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.pending: queue.Queue = queue.Queue(MAX_PENDING_TRANSACTIONS)
+        self.pending: queue.Queue[list[SqlRecord] | _StopToken] = queue.Queue(
+            MAX_PENDING_TRANSACTIONS
+        )
         self.pid = os.getpid()
         self._stopping = False
         self._submission_lock = threading.Lock()
         self.thread = threading.Thread(target=self._run, name="analytics-writer", daemon=True)
         self.thread.start()
 
-    def submit(self, changes):
+    def submit(self, changes: list[SqlRecord]) -> bool:
         with self._submission_lock:
             if self._stopping:
                 logger.warning("analytics_direct_writer_stopping")
@@ -670,7 +773,7 @@ class AnalyticsProducer:
                 logger.warning("analytics_direct_buffer_full")
                 return False
 
-    def shutdown(self, timeout=5.0):
+    def shutdown(self, timeout: float = 5.0) -> bool:
         """Stop accepting work and drain this process's bounded memory buffer.
 
         A stalled network call may outlive the deadline; the daemon then exits
@@ -691,11 +794,12 @@ class AnalyticsProducer:
             logger.warning("analytics_direct_drain_timed_out")
         return stopped
 
-    def _take_batch(self):
+    def _take_batch(self) -> tuple[list[SqlRecord], int, bool]:
         changes = self.pending.get()
         consumed = 1
         if changes is _STOP:
             return [], consumed, True
+        changes = cast(list[SqlRecord], changes)
         stopping = False
         while len(changes) < MAX_BATCH:
             try:
@@ -706,10 +810,16 @@ class AnalyticsProducer:
             if following is _STOP:
                 stopping = True
                 break
-            changes = [*changes, *following]
+            changes = [*changes, *cast(list[SqlRecord], following)]
         return changes, consumed, stopping
 
-    def _deliver(self, runner, publisher, changes, consumed):
+    def _deliver(
+        self,
+        runner: asyncio.Runner,
+        publisher: DirectAnalyticsPublisher,
+        changes: list[SqlRecord],
+        consumed: int,
+    ) -> None:
         # Preserve every committed before-image. An association can move A -> B
         # -> C while another process publishes B; all three owners need refresh.
         try:
@@ -721,7 +831,7 @@ class AnalyticsProducer:
             for _ in range(consumed):
                 self.pending.task_done()
 
-    def _run(self):
+    def _run(self) -> None:
         with asyncio.Runner() as runner:
             client = AnalyticsClient(self.settings)
             client.insert_settings = {"async_insert_busy_timeout_ms": 50}
@@ -739,12 +849,16 @@ class AnalyticsProducer:
                 runner.run(client.close())
 
 
-_STOP = object()
-_producer = None
+class _StopToken:
+    """Private typed sentinel for the process-local writer queue."""
+
+
+_STOP = _StopToken()
+_producer: AnalyticsProducer | None = None
 _lock = threading.Lock()
 
 
-def submit(changes):
+def submit(changes: list[SqlRecord]) -> bool:
     from devfeed_core.config import get_settings
 
     global _producer
@@ -755,7 +869,7 @@ def submit(changes):
     return producer.submit(changes)
 
 
-def shutdown(timeout=5.0):
+def shutdown(timeout: float = 5.0) -> bool:
     """Drain an existing writer without creating clients or opening services."""
     global _producer
     with _lock:
@@ -770,7 +884,7 @@ def shutdown(timeout=5.0):
     return stopped
 
 
-def _after_fork():
+def _after_fork() -> None:
     # The child inherits neither the daemon thread nor a usable queue/lock.
     # Its first business commit creates a fresh writer owned by the child.
     global _producer, _lock

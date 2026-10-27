@@ -5,9 +5,15 @@ legacy foreign keys are removed so their deletion cannot block business work.
 The write guard is temporary and disappears with the imported legacy tables.
 """
 
-import asyncio
+from __future__ import annotations
 
-from psycopg import sql
+import asyncio
+from collections.abc import Collection
+
+from psycopg import AsyncConnection, sql
+from psycopg.abc import Params, QueryNoTemplate
+
+from devfeed_core.analytics import SqlRecord, SqlTuple
 
 # TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Retire this entire module once all
 # supported installations have completed their one-time analytical import.
@@ -107,24 +113,28 @@ class AnalyticsCutoverBusy(RuntimeError):
     """A short lock admission attempt encountered an active source writer."""
 
 
-async def _rows(connection, statement, parameters=None):
+async def _rows(
+    connection: AsyncConnection[SqlRecord],
+    statement: QueryNoTemplate,
+    parameters: Params | None = None,
+) -> list[SqlRecord]:
     cursor = await connection.execute(statement, parameters)
     return await cursor.fetchall()
 
 
-def _values(row):
+def _values(row: SqlRecord | SqlTuple) -> SqlTuple:
     return tuple(row.values()) if isinstance(row, dict) else tuple(row)
 
 
 class LegacyAnalyticsCutover:
     """Freeze and later drop legacy analytics under bounded NOWAIT DDL locks."""
 
-    def __init__(self, *, timeout=2):
+    def __init__(self, *, timeout: int = 2) -> None:
         if type(timeout) not in (int, float) or not 0 < timeout <= 10:
             raise ValueError("Invalid analytics cutover timeout")
         self.timeout = timeout
 
-    async def tables(self, connection):
+    async def tables(self, connection: AsyncConnection[SqlRecord]) -> set[str]:
         return {
             _values(row)[0]
             for row in await _rows(
@@ -135,7 +145,7 @@ class LegacyAnalyticsCutover:
             )
         }
 
-    async def _triggers(self, connection):
+    async def _triggers(self, connection: AsyncConnection[SqlRecord]) -> list[SqlRecord]:
         return await _rows(
             connection,
             "SELECT c.relname,t.tgname,p.proname FROM pg_trigger t "
@@ -146,7 +156,9 @@ class LegacyAnalyticsCutover:
             (sorted(TRIGGERS), sorted(CAPTURE_SOURCES)),
         )
 
-    async def _foreign_keys(self, connection, tables):
+    async def _foreign_keys(
+        self, connection: AsyncConnection[SqlRecord], tables: Collection[str]
+    ) -> list[SqlRecord]:
         return await _rows(
             connection,
             "SELECT c.relname,k.conname,r.relname AS referenced FROM pg_constraint k "
@@ -156,7 +168,7 @@ class LegacyAnalyticsCutover:
             (sorted(tables),),
         )
 
-    async def _lock(self, connection, names):
+    async def _lock(self, connection: AsyncConnection[SqlRecord], names: Collection[str]) -> None:
         await connection.execute(
             "SELECT set_config('statement_timeout',%s,true),set_config('lock_timeout','1ms',true)",
             (f"{self.timeout}s",),
@@ -168,7 +180,7 @@ class LegacyAnalyticsCutover:
                 )
             )
 
-    async def freeze(self, connection):
+    async def freeze(self, connection: AsyncConnection[SqlRecord]) -> set[str]:
         """Atomically stop old analytics writers, without scanning source data."""
         import psycopg
 
@@ -182,7 +194,9 @@ class LegacyAnalyticsCutover:
                     "WHERE table_schema='public' AND table_name='search_query_stats' "
                     "AND column_name='successful_count')"
                 )
-                search = _values(await has_search.fetchone())[0]
+                search_row = await has_search.fetchone()
+                assert search_row is not None
+                search = _values(search_row)[0]
                 names = tables | {_values(row)[0] for row in triggers}
                 names |= {_values(row)[2] for row in foreign_keys}
                 if search:
@@ -228,7 +242,7 @@ class LegacyAnalyticsCutover:
         except (psycopg.errors.LockNotAvailable, TimeoutError) as error:
             raise AnalyticsCutoverBusy("Legacy analytics are waiting for active writers") from error
 
-    async def _freeze_search(self, connection):
+    async def _freeze_search(self, connection: AsyncConnection[SqlRecord]) -> None:
         await connection.execute(
             "CREATE OR REPLACE FUNCTION public.devfeed_search_analytics_frozen() RETURNS trigger "
             "LANGUAGE plpgsql AS $$ BEGIN "
@@ -248,7 +262,7 @@ class LegacyAnalyticsCutover:
             "EXECUTE FUNCTION public.devfeed_search_analytics_frozen()"
         )
 
-    async def frozen(self, connection):
+    async def frozen(self, connection: AsyncConnection[SqlRecord]) -> bool:
         """Prove guard coverage and absence of old calculation/capture triggers."""
         tables = await self.tables(connection)
         if await self._triggers(connection):
@@ -276,7 +290,7 @@ class LegacyAnalyticsCutover:
         has_counts, search_guarded = _values(search[0])
         return tables <= guarded and (not has_counts or search_guarded)
 
-    async def _drop_functions(self, connection):
+    async def _drop_functions(self, connection: AsyncConnection[SqlRecord]) -> None:
         functions = await _rows(
             connection,
             "SELECT p.proname,pg_get_function_identity_arguments(p.oid) FROM pg_proc p "
@@ -294,7 +308,7 @@ class LegacyAnalyticsCutover:
                 )
             )
 
-    async def cleanup(self, connection):
+    async def cleanup(self, connection: AsyncConnection[SqlRecord]) -> None:
         """Drop imported analytics only after the caller verifies CH completion."""
         import psycopg
 

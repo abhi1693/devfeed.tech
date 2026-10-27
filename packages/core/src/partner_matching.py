@@ -1,17 +1,24 @@
 """Prepare grounded product/topic and product/article edges outside reader requests."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import re
+import uuid
+from datetime import datetime
+from typing import cast
 
 from sqlalchemy import Text, and_, delete, false, func, literal, or_, select, true, union
 from sqlalchemy.dialects.postgresql import ARRAY, array, insert
-from sqlalchemy.orm import raiseload
+from sqlalchemy.orm import Session, raiseload, sessionmaker
+from sqlalchemy.sql import CompoundSelect
 from sqlalchemy.sql.elements import ColumnElement
 
 from devfeed_core.models import (
     Article,
     PartnerArticleMatch,
+    PartnerEvaluation,
     PartnerMatchJob,
     PartnerProduct,
     PartnerProductTopic,
@@ -20,7 +27,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.partner_promotions import ensure_automatic_assets
-from devfeed_core.partner_tools import article_snapshot
+from devfeed_core.partner_tools import ArticleSnapshotSource, article_snapshot
 
 # Shared by topic publication, placement issuance, and taxonomy invalidation triggers.
 TAXONOMY_LOCK_KEY = 832604285
@@ -91,11 +98,11 @@ STOP_WORDS = set(
 )
 
 
-def contains(text, term):
+def contains(text: str, term: str) -> bool:
     return bool(term and re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", text, re.I))
 
 
-def words(text):
+def words(text: str) -> set[str]:
     """Small lexical normalization; broad marketing words never establish a task match."""
     result = set()
     for word in re.findall(r"[a-z][a-z0-9_-]{2,}", text.casefold()):
@@ -113,14 +120,14 @@ def words(text):
     return result
 
 
-def article_fingerprint(article):
+def article_fingerprint(article: ArticleSnapshotSource) -> str:
     snapshot = article_snapshot(article)
     # Rules read the full summary, even when evaluations sample a bounded excerpt.
     snapshot["text"] = article.summary
     return hashlib.sha256(json.dumps(snapshot, sort_keys=True).encode()).hexdigest()
 
 
-def grounded_technologies(product):
+def grounded_technologies(product: PartnerProduct) -> list[str]:
     return [
         technology
         for technology in product.technologies
@@ -129,7 +136,7 @@ def grounded_technologies(product):
     ]
 
 
-def article_match(product, article):
+def article_match(product: PartnerProduct, article: ArticleSnapshotSource) -> tuple[bool, int, str]:
     """Require a specific shared technology AND two independently grounded task terms."""
     if (
         article.content_type != "tutorial"
@@ -159,7 +166,7 @@ def article_match(product, article):
     return best
 
 
-def prepare_topics(session, product, now):
+def prepare_topics(session: Session, product: PartnerProduct, now: datetime) -> bool | None:
     technologies = grounded_technologies(product)
     direct = (
         session.scalars(
@@ -242,8 +249,16 @@ def prepare_topics(session, product, now):
 
 
 def save_article_match(
-    session, product, article, relevant, score, reason, *, origin="rules", now=None
-):
+    session: Session,
+    product: PartnerProduct,
+    article: ArticleSnapshotSource,
+    relevant: bool,
+    score: int,
+    reason: str,
+    *,
+    origin: str = "rules",
+    now: datetime | None = None,
+) -> bool:
     now = now or utcnow()
     fingerprint = article_fingerprint(article)
     # Queued rules retry busy inputs. Validated evaluations are a durable
@@ -323,9 +338,10 @@ def save_article_match(
     return True
 
 
-def save_evaluation_matches(session, job):
+def save_evaluation_matches(session: Session, job: PartnerEvaluation) -> None:
     """Only call after the existing evaluator validates evidence and fences stale inputs."""
     product = session.get(PartnerProduct, job.product_id)
+    assert product is not None
     articles = {
         str(article.id): article
         for article in session.scalars(
@@ -348,7 +364,9 @@ def save_evaluation_matches(session, job):
             )
 
 
-def product_article_candidates(product, *, after=None):
+def product_article_candidates(
+    product: PartnerProduct, *, after: uuid.UUID | None = None
+) -> CompoundSelect[uuid.UUID]:
     """Indexed technology candidates plus old positives needing invalidation."""
     tokens = product.matching_tokens
     condition: ColumnElement[bool] = false()
@@ -369,7 +387,9 @@ def product_article_candidates(product, *, after=None):
     )
 
 
-def article_product_candidates(article, *, after=None):
+def article_product_candidates(
+    article: Article, *, after: uuid.UUID | None = None
+) -> CompoundSelect[uuid.UUID]:
     """Reverse technology lookup includes tutorials with no topic labels."""
     tokens = func.unnest(literal([*article.matching_tokens, "__any__"], type_=ARRAY(Text)))
     terms = tokens.table_valued("token").render_derived()
@@ -404,7 +424,9 @@ def article_product_candidates(article, *, after=None):
     )
 
 
-def _prepare_job(session, job, *, article_limit, now):
+def _prepare_job(
+    session: Session, job: PartnerMatchJob, *, article_limit: int, now: datetime
+) -> tuple[int, bool]:
     """Process a bounded page; retain the cursor before any busy input."""
     product_job = job.kind != "article"
     model = PartnerProduct if product_job else Article
@@ -418,19 +440,21 @@ def _prepare_job(session, job, *, article_limit, now):
     )
     if source is None:
         return 0, not session.scalar(select(model.id).where(model.id == job.entity_id))
+    if product_job:
+        product = cast(PartnerProduct, source)
     if product_job and (job.kind == "topics" or job.cursor is None):
         # Serialize topic publication with atomic taxonomy invalidation without
         # waiting on the editor's row/queue locks.
         if not session.scalar(select(func.pg_try_advisory_xact_lock_shared(TAXONOMY_LOCK_KEY))):
             return 0, False
-        if prepare_topics(session, source, now) is None:
+        if prepare_topics(session, product, now) is None:
             return 0, False
     if job.kind == "topics":
         return 0, True
     candidate_ids = (
-        product_article_candidates(source, after=job.cursor)
+        product_article_candidates(product, after=job.cursor)
         if product_job
-        else article_product_candidates(source, after=job.cursor)
+        else article_product_candidates(cast(Article, source), after=job.cursor)
     )
     candidate_model = Article if product_job else PartnerProduct
     candidates = candidate_ids.subquery()
@@ -452,17 +476,27 @@ def _prepare_job(session, job, *, article_limit, now):
     )
     count = 0
     for candidate in page[:article_limit]:
-        product, article = (source, candidate) if product_job else (candidate, source)
+        if product_job:
+            article = cast(Article, candidate)
+        else:
+            product = cast(PartnerProduct, candidate)
+            article = cast(Article, source)
         if not save_article_match(
             session, product, article, *article_match(product, article), now=now
         ):
             return count, False
-        job.cursor = candidate.id
+        job.cursor = article.id if product_job else product.id
         count += 1
     return count, len(page_ids) <= article_limit
 
 
-def refresh_partner_matches(factory, *, product_limit=10, article_limit=100, now=None):
+def refresh_partner_matches(
+    factory: sessionmaker[Session],
+    *,
+    product_limit: int = 10,
+    article_limit: int = 100,
+    now: datetime | None = None,
+) -> int:
     """Drain durable changes in bounded indexed pages; quiet catalogs do no work.
 
     Both endpoints enqueue transactionally, so whichever concurrent change is

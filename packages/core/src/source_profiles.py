@@ -1,5 +1,7 @@
 """Bounded source profile metadata; publishers are not submitter identities."""
 
+from __future__ import annotations
+
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -7,6 +9,7 @@ from html.parser import HTMLParser
 
 from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.images import decode_html, extract_image, image_url
+from devfeed_core.json_types import JsonRecord
 
 PROFILE_FIELDS = ("description", "website_url", "logo_url", "image_url", "language")
 
@@ -19,7 +22,7 @@ def merge_profile_candidates(*candidates: Mapping[str, str | None]) -> dict[str,
     }
 
 
-def language_code(value) -> str | None:
+def language_code(value: object) -> str | None:
     value = str(value or "").strip().lower()
     return (
         value
@@ -37,7 +40,7 @@ class SourceProfile:
     language: str | None = None
 
 
-def feed_profile(feed, base_url: str) -> SourceProfile:
+def feed_profile(feed: JsonRecord, base_url: str) -> SourceProfile:
     # Local import avoids a parser/profile cycle; the parser's text cleaner is shared.
     from devfeed_core.feeds.parser import plain_text
 
@@ -55,7 +58,7 @@ def feed_profile(feed, base_url: str) -> SourceProfile:
 
 
 class WebsiteProfileParser(HTMLParser):
-    def __init__(self, base: str):
+    def __init__(self, base: str) -> None:
         super().__init__(convert_charrefs=True)
         self.base = base
         self.base_seen = False
@@ -64,7 +67,7 @@ class WebsiteProfileParser(HTMLParser):
         self.language: str | None = None
         self.suppressed = 0
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
         if tag in {"template", "noscript"}:
             self.suppressed += 1
@@ -77,18 +80,17 @@ class WebsiteProfileParser(HTMLParser):
             self.base = image_url(values.get("href"), self.base) or self.base
         elif tag == "meta":
             key = (values.get("property") or values.get("name") or "").lower()
-            if key in {"description", "og:description", "twitter:description"} and values.get(
-                "content"
-            ):
-                self.descriptions.setdefault(key, values["content"][:10000])
-        elif tag == "link" and values.get("href") and len(self.icons) < 30:
+            content = values.get("content")
+            if key in {"description", "og:description", "twitter:description"} and content:
+                self.descriptions.setdefault(key, content[:10000])
+        elif tag == "link" and (href := values.get("href")) and len(self.icons) < 30:
             rels = (values.get("rel") or "").lower().split()
             if "apple-touch-icon" in rels:
-                self.icons.append((0, values["href"]))
+                self.icons.append((0, href))
             elif "icon" in rels:
-                self.icons.append((1, values["href"]))
+                self.icons.append((1, href))
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag in {"template", "noscript"}:
             self.suppressed = max(0, self.suppressed - 1)
 

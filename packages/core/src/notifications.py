@@ -7,13 +7,13 @@ The notification service lives behind HTTP; it never shares application tables.
 import hashlib
 import json
 import uuid
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, StringConstraints, field_validator
 from sqlalchemy import event, inspect
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Connection
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import InstanceState, Mapper, Session
 
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
@@ -49,7 +49,7 @@ class NotificationMessage(BaseModel):
 
     @field_validator("action_url")
     @classmethod
-    def local_action(cls, value):
+    def local_action(cls, value: str) -> str:
         if value.startswith("//"):
             raise ValueError("Notification action must stay inside the receiving app")
         return value
@@ -86,7 +86,7 @@ def _insert(
     *,
     audience: Audience,
     subscriber_id: str | None = None,
-):
+) -> uuid.UUID | None:
     if not event_key or len(event_key) > 255:
         raise ValueError("Notification event key must be 1–255 characters")
     if audience not in {"admin", "user"}:
@@ -115,7 +115,16 @@ def _insert(
     )
 
 
-PIPELINES = {
+type NotifiableJob = (
+    IngestionJob
+    | ArticleEnrichmentJob
+    | ArticleImageJob
+    | SourceEnrichmentJob
+    | ArticleAnalysisJob
+    | TopicAnalysisJob
+)
+
+PIPELINES: dict[type[NotifiableJob], tuple[str, str, str]] = {
     IngestionJob: ("ingestion", "Feed ingestion", "jobs/ingestion"),
     ArticleEnrichmentJob: ("article-enrichment", "Article enrichment", "jobs/enrichment/articles"),
     ArticleImageJob: ("images", "Image lookup", "jobs/enrichment/images"),
@@ -125,7 +134,7 @@ PIPELINES = {
 }
 
 
-def job_notification(job) -> NotificationMessage | None:
+def job_notification(job: NotifiableJob) -> NotificationMessage | None:
     kind, label, resource = PIPELINES[type(job)]
     if isinstance(job, TopicAnalysisJob) and job.topic_id is not None:
         label = "Relationship research"
@@ -162,7 +171,8 @@ def job_notification(job) -> NotificationMessage | None:
                 f"{job.entries_skipped or 0} entries skipped."
             )
         elif getattr(job, "changed_fields", None):
-            body += f" Updated {len(job.changed_fields)} metadata field(s)."
+            changed_fields: list[str] = getattr(job, "changed_fields", [])
+            body += f" Updated {len(changed_fields)} metadata field(s)."
         body += " Open the run for details and runtime logs."
     else:
         return None
@@ -175,16 +185,21 @@ def job_notification(job) -> NotificationMessage | None:
     )
 
 
-def record_job_transition(mapper, connection, job):
+def record_job_transition[T: NotifiableJob](
+    mapper: Mapper[T], connection: Connection, job: T
+) -> None:
     if not get_settings().notifications_enabled:
         return
     # after_update also runs for dirty objects with no net change. Dispatch
     # timestamps, duplicate deliveries and lease renewals must never notify.
-    if not inspect(job).attrs.status.history.has_changes():
+    # Mapper events always supply a mapped instance; SQLAlchemy exposes the
+    # generic inspection result as object at this framework boundary.
+    state = cast(InstanceState[T], inspect(job))
+    if not state.attrs.status.history.has_changes():
         return
     notification = job_notification(job)
     if notification is not None:
-        kind = PIPELINES[type(job)][0]
+        kind = PIPELINES[cast(type[NotifiableJob], type(job))][0]
         _insert(
             connection,
             f"job:{kind}:{job.id}:{job.attempts}:{job.status}",

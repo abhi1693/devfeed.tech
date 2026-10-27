@@ -1,19 +1,27 @@
 """Bounded materialized recommendations. Serving never invokes this computation."""
 
+from __future__ import annotations
+
 import heapq
 import logging
 import math
 import time
 import uuid
 from collections import defaultdict
-from datetime import timedelta
+from collections.abc import Sequence
+from datetime import datetime, timedelta
+from typing import TypedDict, cast
 
 from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import RowMapping
+from sqlalchemy.orm import InstrumentedAttribute, Session, sessionmaker
+from sqlalchemy.sql import ColumnElement, SQLColumnExpression
 
 from devfeed_core.cache import CacheUnavailable
 from devfeed_core.delivery import delivery_id
 from devfeed_core.feed_generations import publish_generation
+from devfeed_core.job_dispatch import JobQueue
 from devfeed_core.models import (
     Article,
     ArticleLike,
@@ -35,6 +43,38 @@ from devfeed_core.models import (
 from devfeed_core.publication import visible_article
 from devfeed_core.user_settings import normalize_feed_settings
 
+
+class InterestData(TypedDict):
+    topic_id: uuid.UUID
+    seed_topic_id: uuid.UUID
+    weight: int
+    reason: str
+
+
+class RankedCandidate(TypedDict):
+    id: uuid.UUID
+    feed_at: datetime
+    weight: float
+    reason: str
+    source_id: uuid.UUID | None
+    tag_id: uuid.UUID | None
+    topic_id: uuid.UUID | None
+    seed_topic_id: uuid.UUID | None
+    score: float
+
+
+class RecommendationData(TypedDict):
+    user_id: uuid.UUID
+    article_id: uuid.UUID
+    position: int
+    score: float
+    topic_id: uuid.UUID | None
+    seed_topic_id: uuid.UUID | None
+    source_id: uuid.UUID | None
+    tag_id: uuid.UUID | None
+    reason: str
+
+
 logger = logging.getLogger(__name__)
 MAX_INTERESTS = 200
 MAX_RECOMMENDATIONS = 500
@@ -45,7 +85,9 @@ EXPIRY_HOURS = 24
 REDISPATCH_SECONDS = 300
 
 
-def has_recommendation_work(user_id):
+def has_recommendation_work(
+    user_id: uuid.UUID | SQLColumnExpression[uuid.UUID],
+) -> ColumnElement[bool]:
     """Keep stale edges eligible for cleanup even after the last input is removed."""
     return or_(
         *[
@@ -62,7 +104,7 @@ def has_recommendation_work(user_id):
     )
 
 
-def request_recommendation_refresh(session, user_id):
+def request_recommendation_refresh(session: Session, user_id: uuid.UUID) -> bool:
     """Durably request a rebuild using the same state lock as the worker."""
     if not session.scalar(select(has_recommendation_work(user_id))):
         return False
@@ -74,6 +116,7 @@ def request_recommendation_refresh(session, user_id):
         .where(UserRecommendationState.user_id == user_id)
         .with_for_update()
     )
+    assert state is not None
     if not state.invalidated or state.attempts or state.next_refresh_at > utcnow():
         state.invalidated = True
         state.candidates_dirty = True
@@ -85,7 +128,14 @@ def request_recommendation_refresh(session, user_id):
     return True
 
 
-def _expand_events(factory, model, event_key, membership, membership_key, batch):
+def _expand_events[T: RecommendationTopicEvent | RecommendationSourceEvent](
+    factory: sessionmaker[Session],
+    model: type[T],
+    event_key: InstrumentedAttribute[uuid.UUID],
+    membership: type[UserInterest] | type[UserSource],
+    membership_key: InstrumentedAttribute[uuid.UUID],
+    batch: int,
+) -> int:
     """One indexed topic/user page, checkpointed atomically with refresh requests."""
     with factory.begin() as session:
         event = session.scalar(
@@ -122,7 +172,7 @@ def _expand_events(factory, model, event_key, membership, membership_key, batch)
         return len(ids)
 
 
-def expand_recommendation_events(factory, batch=100):
+def expand_recommendation_events(factory: sessionmaker[Session], batch: int = 100) -> int:
     topics = _expand_events(
         factory,
         RecommendationTopicEvent,
@@ -142,7 +192,9 @@ def expand_recommendation_events(factory, batch=100):
     return topics + sources
 
 
-def dispatch_recommendations(factory, queue, batch=25):
+def dispatch_recommendations(
+    factory: sessionmaker[Session], queue: JobQueue, batch: int = 25
+) -> int:
     """Publish one locked batch; durable identities repair interrupted publication."""
     if batch < 1:
         return 0
@@ -192,7 +244,7 @@ def dispatch_recommendations(factory, queue, batch=25):
     return len(logs)
 
 
-def interests(session, user_id):
+def interests(session: Session, user_id: uuid.UUID) -> list[InterestData]:
     """Explicit follows dominate likes; inferred interests expand one directed hop."""
     follows = list(
         session.scalars(
@@ -203,8 +255,8 @@ def interests(session, user_id):
             .limit(100)
         )
     )
-    result = {
-        tid: dict(topic_id=tid, seed_topic_id=tid, weight=100, reason="followed_topic")
+    result: dict[uuid.UUID, InterestData] = {
+        tid: InterestData(topic_id=tid, seed_topic_id=tid, weight=100, reason="followed_topic")
         for tid in follows
     }
     liked = (
@@ -232,7 +284,7 @@ def interests(session, user_id):
     for tid, count in liked_topics:
         result.setdefault(
             tid,
-            dict(
+            InterestData(
                 topic_id=tid,
                 seed_topic_id=tid,
                 weight=min(80, 55 + count * 5),
@@ -284,7 +336,7 @@ def interests(session, user_id):
                     continue
                 weight = int(seeds[seed]["weight"] * 0.4)
                 if topic not in result or result[topic]["weight"] < weight:
-                    result[topic] = dict(
+                    result[topic] = InterestData(
                         topic_id=topic,
                         seed_topic_id=seed,
                         weight=weight,
@@ -400,7 +452,7 @@ FROM tag_candidates WHERE candidate_rank<=:candidate_limit
 """
 
 
-def _association_row_estimate(row):
+def _association_row_estimate(row: RowMapping) -> float | None:
     """Estimate selected association rows from ordinary PostgreSQL column statistics."""
     try:
         total = float(row["total_rows"])
@@ -431,10 +483,12 @@ def _association_row_estimate(row):
     if remaining < -0.000001:
         return None
     typical = max(0, remaining) / max(1, distinct - len(identities))
-    return total * sum(common.get(identifier, typical) for identifier in set(row["selected_ids"]))
+    return float(
+        total * sum(common.get(identifier, typical) for identifier in set(row["selected_ids"]))
+    )
 
 
-def _reuse_candidate_visibility(session, user_id):
+def _reuse_candidate_visibility(session: Session, user_id: uuid.UUID) -> bool:
     """Share eligibility when selected associations repeat at least one catalog pass.
 
     These are advisory estimates only. Missing statistics retain indexed probes;
@@ -484,7 +538,13 @@ def _reuse_candidate_visibility(session, user_id):
     return article_rows > 0 and repeated_rows >= article_rows
 
 
-def _use_broad_candidate_query(session, interest_count, content_types, languages, user_id=None):
+def _use_broad_candidate_query(
+    session: Session,
+    interest_count: int,
+    content_types: Sequence[str],
+    languages: Sequence[str],
+    user_id: uuid.UUID | None = None,
+) -> bool:
     # Dense/narrow profiles benefit from early-exit LATERAL probes. For broad,
     # selective profiles, rank qualifying matches in sets instead of repeating
     # sparse filtering per follow. Estimates select a strategy, never eligibility.
@@ -517,7 +577,14 @@ def _use_broad_candidate_query(session, interest_count, content_types, languages
     return user_id is not None and _reuse_candidate_visibility(session, user_id)
 
 
-def ranked_candidates(session, user_id, now, interest_count, content_types, languages):
+def ranked_candidates(
+    session: Session,
+    user_id: uuid.UUID,
+    now: datetime,
+    interest_count: int,
+    content_types: Sequence[str],
+    languages: Sequence[str],
+) -> list[RecommendationData]:
     candidate_sql = (
         _BROAD_CANDIDATES_SQL
         if _use_broad_candidate_query(session, interest_count, content_types, languages, user_id)
@@ -533,26 +600,28 @@ def ranked_candidates(session, user_id, now, interest_count, content_types, lang
             "candidate_limit": min(MAX_RECOMMENDATIONS, CANDIDATE_BUDGET // interest_count),
         },
     ).mappings()
-    unique: dict[uuid.UUID, dict] = {}
-    for row in rows:
-        age_days = max(0, (now - row["feed_at"]).total_seconds() / 86400)
-        score = row["weight"] + 40 / (1 + age_days / 7)
-        candidate = dict(row, score=score)
-        previous = unique.get(row["id"])
+    unique: dict[uuid.UUID, RankedCandidate] = {}
+    for raw_row in rows:
+        age_days = max(0, (now - raw_row["feed_at"]).total_seconds() / 86400)
+        score = raw_row["weight"] + 40 / (1 + age_days / 7)
+        candidate = cast(RankedCandidate, dict(raw_row, score=score))
+        previous = unique.get(raw_row["id"])
         if previous is None or (
             score,
-            str(row["source_id"] or row.get("tag_id") or row["topic_id"]),
+            str(raw_row["source_id"] or raw_row.get("tag_id") or raw_row["topic_id"]),
         ) > (
             previous["score"],
             str(previous["source_id"] or previous.get("tag_id") or previous["topic_id"]),
         ):
-            unique[row["id"]] = candidate
-    groups = defaultdict(list)
+            unique[raw_row["id"]] = candidate
+    groups: dict[tuple[int, uuid.UUID], list[RankedCandidate]] = defaultdict(list)
     for row in unique.values():
+        identity = row["source_id"] or row.get("tag_id") or row["topic_id"]
+        assert identity is not None
         groups[
             (
                 2 if row["reason"] == "followed_tag" else int(row["reason"] == "followed_source"),
-                row["source_id"] or row.get("tag_id") or row["topic_id"],
+                identity,
             )
         ].append(row)
     heap: list[tuple[float, float, str, int, tuple[int, uuid.UUID]]] = []
@@ -568,12 +637,12 @@ def ranked_candidates(session, user_id, now, interest_count, content_types, lang
                 topic,
             ),
         )
-    output: list[dict] = []
+    output: list[RecommendationData] = []
     while heap and len(output) < MAX_RECOMMENDATIONS:
         negative_score, _, _, offset, topic = heapq.heappop(heap)
         row = groups[topic][offset]
         output.append(
-            dict(
+            RecommendationData(
                 user_id=user_id,
                 article_id=row["id"],
                 position=len(output) + 1,
@@ -602,7 +671,7 @@ def ranked_candidates(session, user_id, now, interest_count, content_types, lang
     return output
 
 
-def refresh_recommendations(factory, user_id):
+def refresh_recommendations(factory: sessionmaker[Session], user_id: uuid.UUID | str) -> int:
     """Publish all edges and generation atomically; crashes leave the prior list intact."""
     user_id = uuid.UUID(str(user_id))
     started = time.monotonic()
@@ -655,7 +724,7 @@ def refresh_recommendations(factory, user_id):
                 tag_count = session.scalar(
                     select(func.count()).select_from(UserTag).where(UserTag.user_id == user_id)
                 )
-                interest_count = len(selected) + source_count + tag_count
+                interest_count = len(selected) + (source_count or 0) + (tag_count or 0)
                 settings = normalize_feed_settings(
                     session.scalar(
                         select(UserAccount.feed_settings).where(UserAccount.id == user_id)
@@ -690,11 +759,15 @@ def refresh_recommendations(factory, user_id):
             except CacheUnavailable:
                 # Keep freshly ranked DB candidates usable during a cache outage.
                 state.generation = None
-                count = session.scalar(
-                    select(func.count())
-                    .select_from(UserRecommendation)
-                    .where(UserRecommendation.user_id == user_id)
+                count = (
+                    session.scalar(
+                        select(func.count())
+                        .select_from(UserRecommendation)
+                        .where(UserRecommendation.user_id == user_id)
+                    )
+                    or 0
                 )
+            count = count or 0
             state.invalidated = False
             state.computed_at = now
             state.expires_at = now + timedelta(hours=EXPIRY_HOURS)

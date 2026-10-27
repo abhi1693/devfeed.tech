@@ -1,20 +1,68 @@
 """Current operator boards query canonical ClickHouse observations directly."""
 
+from __future__ import annotations
+
 import json
 import uuid
 from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Literal, NotRequired, Protocol, TypedDict, TypeVar
 
-from devfeed_core.analytics import AnalyticsUnavailable
+from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable, SqlRecord
+from devfeed_core.analytics_card_types import (
+    PipelineBoard,
+    SourcePipelineBoard,
+    SourcePipelineStage,
+    Stage,
+)
 from devfeed_core.analytics_observation import AnalyticsSnapshot, pipeline_policy_version
+from devfeed_core.source_types import SourceType
 from fastapi import HTTPException
+from pydantic import BaseModel
+
+from devfeed_admin_api.overview_sections import OverviewSectionReport
+
+Card = TypeVar("Card", bound=BaseModel)
+
+
+class SourceBoardQuery(Protocol):
+    q: str
+    source_type: SourceType | None
+    needs_attention: bool
+    terminal_since: datetime
+    limit: int
+
+
+class ArticleQueryParameters(TypedDict):
+    since: datetime
+    stages: tuple[Stage, ...]
+    offset: int
+    limit: int
+    needle: NotRequired[str]
+    source_id: NotRequired[str]
+    source_group: NotRequired[str]
+
+
+class SourceQueryParameters(TypedDict):
+    since: datetime
+    terminal_stages: tuple[str, ...]
+    stages: tuple[SourcePipelineStage, ...]
+    offset: int
+    limit: int
+    sources: NotRequired[list[str]]
+    candidates: NotRequired[list[str]]
+    source_type: NotRequired[SourceType]
+
 
 CARD_KINDS = ("article", "source", "candidate", "topic-proposal", "relationship-proposal")
 FRESH_SECONDS = 60
 
 
-def preparing(message="Analytics are being prepared.", *, retry_after=2):
+def preparing(
+    message: str = "Analytics are being prepared.", *, retry_after: int = 2
+) -> HTTPException:
     return HTTPException(
         503,
         {"code": "analytics_preparing", "message": message},
@@ -22,13 +70,13 @@ def preparing(message="Analytics are being prepared.", *, retry_after=2):
     )
 
 
-def timestamp(value):
+def timestamp(value: datetime | str) -> datetime:
     if isinstance(value, datetime):
         return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
 
 
-def _next_cursor(offset, count, total):
+def _next_cursor(offset: int, count: int, total: int) -> int | None:
     end = offset + count
     return end if end < total else None
 
@@ -39,11 +87,11 @@ class CurrentSelection:
     kinds: tuple[str, ...]
     snapshot: AnalyticsSnapshot
 
-    def parameters(self):
+    def parameters(self) -> dict[str, object]:
         return {"policy": self.policy, "kinds": self.kinds}
 
     @staticmethod
-    def source():
+    def source() -> str:
         # FINAL must choose the newest identity before applying mutable filters;
         # otherwise an old stage or a deleted card can reappear.
         return """(SELECT * REPLACE(if(state='retry_wait'
@@ -54,12 +102,12 @@ class CurrentSelection:
 
 
 class CurrentCards:
-    def __init__(self, client, *, now=None):
+    def __init__(self, client: AnalyticsClient, *, now: datetime | None = None) -> None:
         self.client = client
         self.now = now or datetime.now(UTC)
         self.policy = pipeline_policy_version(getattr(client, "settings", None))
 
-    async def selection(self, kinds):
+    async def selection(self, kinds: Iterable[str]) -> CurrentSelection:
         kinds = tuple(sorted(set(kinds)))
         if not kinds or set(kinds) - set(CARD_KINDS):
             raise ValueError("Unknown current analytical kind")
@@ -77,14 +125,23 @@ class CurrentCards:
         )
         return CurrentSelection(self.policy, kinds, snapshot)
 
-    async def _query(self, selection, query, **parameters):
+    async def _query(
+        self, selection: CurrentSelection, query: str, **parameters: object
+    ) -> list[SqlRecord]:
         return await self.client.query(
             query + " SETTINGS optimize_move_to_prewhere_if_final=0,"
             "enable_optimize_predicate_expression=0",
             selection.parameters() | {"as_of": self.now} | parameters,
         )
 
-    async def _stage_page(self, selection, base, board, order, params):
+    async def _stage_page(
+        self,
+        selection: CurrentSelection,
+        base: str,
+        board: str,
+        order: str,
+        params: Mapping[str, object],
+    ) -> list[SqlRecord]:
         # Count and page in one statement. Rank only narrow metadata, then read
         # JSON for the selected identities so a large board does not sort every
         # payload. A left join preserves totals for an out-of-range lane offset.
@@ -116,8 +173,10 @@ class CurrentCards:
         )
 
     @staticmethod
-    def _stage_items(rows, card_type):
-        result = defaultdict(list)
+    def _stage_items(
+        rows: Sequence[SqlRecord], card_type: type[Card]
+    ) -> defaultdict[str, list[Card]]:
+        result: defaultdict[str, list[Card]] = defaultdict(list)
         for row in rows:
             for _, _, _, payload, state in sorted(row["items"], key=lambda item: item[0]):
                 value = json.loads(payload)
@@ -128,16 +187,16 @@ class CurrentCards:
     async def article_board(
         self,
         *,
-        q,
-        source_id,
-        needs_attention,
-        limit,
-        stage=None,
-        cursor=0,
-        group_by=None,
-        source_group=None,
-        normalized_q=None,
-    ):
+        q: str | None,
+        source_id: uuid.UUID | None,
+        needs_attention: bool,
+        limit: int,
+        stage: Stage | None = None,
+        cursor: int = 0,
+        group_by: Literal["source"] | None = None,
+        source_group: uuid.UUID | Literal["unknown"] | None = None,
+        normalized_q: str | None = None,
+    ) -> PipelineBoard:
         from devfeed_core.analytics_card_types import (
             STAGES,
             PipelineBoard,
@@ -148,7 +207,7 @@ class CurrentCards:
 
         selected = await self.selection(("article",))
         since = self.now - timedelta(days=7)
-        params = {
+        params: ArticleQueryParameters = {
             "since": since,
             "stages": (stage,) if stage else STAGES,
             "offset": cursor if stage else 0,
@@ -212,7 +271,7 @@ class CurrentCards:
             )
             columns = []
             for key in stages:
-                row: dict = next((row for row in rows if row["stage"] == key), {})
+                row: SqlRecord = next((row for row in rows if row["stage"] == key), {})
                 group_count = int(row.get("group_count", 0))
                 groups = [
                     PipelineSourceGroup(
@@ -261,7 +320,14 @@ class CurrentCards:
             snapshot=selected.snapshot,
         )
 
-    async def source_board(self, query, *, stage=None, cursor=0, matching_ids=None):
+    async def source_board(
+        self,
+        query: SourceBoardQuery,
+        *,
+        stage: SourcePipelineStage | None = None,
+        cursor: int = 0,
+        matching_ids: Mapping[str, Sequence[uuid.UUID]] | None = None,
+    ) -> SourcePipelineBoard:
         from devfeed_core.analytics_card_types import (
             SOURCE_STAGES,
             SOURCE_TERMINAL_STAGES,
@@ -271,7 +337,7 @@ class CurrentCards:
         )
 
         selected = await self.selection(("source", "candidate"))
-        params = {
+        params: SourceQueryParameters = {
             "since": query.terminal_since,
             "terminal_stages": tuple(SOURCE_TERMINAL_STAGES),
             "stages": (stage,) if stage else SOURCE_STAGES,
@@ -289,10 +355,8 @@ class CurrentCards:
                 " AND ((c.kind='source' AND c.entity_id IN {sources:Array(UUID)})"
                 " OR (c.kind='candidate' AND c.entity_id IN {candidates:Array(UUID)}))"
             )
-            params.update(
-                sources=list(map(str, matching_ids["source"])),
-                candidates=list(map(str, matching_ids["candidate"])),
-            )
+            params["sources"] = list(map(str, matching_ids["source"]))
+            params["candidates"] = list(map(str, matching_ids["candidate"]))
         if query.source_type:
             condition += " AND c.source_type={source_type:String}"
             params["source_type"] = query.source_type
@@ -328,7 +392,7 @@ class CurrentCards:
             snapshot=selected.snapshot,
         )
 
-    async def operations(self):
+    async def operations(self) -> OverviewSectionReport:
         from devfeed_core.analytics_blockers import RecoveryTarget, blocker_catalog
         from devfeed_core.config import get_settings
 

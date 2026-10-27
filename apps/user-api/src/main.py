@@ -44,7 +44,7 @@ from devfeed_user_api.dependencies import database_session, get_redis
 logger = logging.getLogger(__name__)
 
 
-def close_clients():
+def close_clients() -> None:
     close_shared_clients(get_redis)
 
 
@@ -68,7 +68,9 @@ def create_app() -> FastAPI:
     service.configure(app, settings, private=True)
 
     @app.exception_handler(AnalyticsUnavailable)
-    async def analytics_unavailable(_request: Request, _error: AnalyticsUnavailable):
+    async def analytics_unavailable(
+        _request: Request, _error: AnalyticsUnavailable
+    ) -> JSONResponse:
         return JSONResponse(status_code=503, content={"detail": "Analytics unavailable"})
 
     service.register_health(

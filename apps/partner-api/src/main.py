@@ -1,6 +1,7 @@
 """Independently deployable partner API; public traffic never loads this service."""
 
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from devfeed_core.client_lifecycle import close_shared_clients
@@ -19,6 +20,7 @@ from devfeed_http.route_policies import RouteRuntimePolicy, install_runtime_poli
 from devfeed_http.schemas import ERROR_RESPONSES, HealthResponse, UnhealthyResponse
 from devfeed_http.telemetry import fastapi_telemetry
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from devfeed_partner_api import auth, connections, portal, workspace
@@ -28,12 +30,12 @@ from devfeed_partner_api.dependencies import DB, get_redis
 logger = logging.getLogger(__name__)
 
 
-def close_clients():
+def close_clients() -> None:
     close_shared_clients(get_redis)
 
 
 @asynccontextmanager
-async def lifespan(app):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     telemetry = start_runtime("partner-api")
     logger.info("partner_api_started")
     try:
@@ -83,7 +85,7 @@ def create_app() -> FastAPI:
             admission="exempt", telemetry_excluded=True, logging_level="debug"
         ).openapi_extra(),
     )
-    async def live():
+    async def live() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.get(
@@ -95,7 +97,7 @@ def create_app() -> FastAPI:
             telemetry_excluded=True, logging_level="debug"
         ).openapi_extra(),
     )
-    def ready(session: DB):
+    def ready(session: DB) -> dict[str, str] | JSONResponse:
         return readiness_response(
             session,
             get_redis(),

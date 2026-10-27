@@ -1,5 +1,7 @@
 """Reporting and limited marketing preferences scoped to live account memberships."""
 
+from __future__ import annotations
+
 import uuid
 from typing import Annotated
 
@@ -9,6 +11,7 @@ from devfeed_core.models import PartnerAccount
 from devfeed_core.partner_ad_formats import AdFormat, validate_account_formats
 from devfeed_core.partner_audiences import (
     AudienceDimension,
+    AudienceTopicsData,
     audience_topic_options,
     validate_audience,
 )
@@ -25,12 +28,15 @@ from devfeed_http.partner_ad_images import (
     upload_product_ad_image,
 )
 from devfeed_http.partner_analytics_reporting import (
+    ReportingAsset,
+    ReportingMetrics,
     reporting_assets,
     reporting_metrics,
     require_partner_history,
 )
 from devfeed_http.partner_portal import (
     AccountOut,
+    AccountsData,
     AccountsOut,
     AssetSort,
     AudienceTopicsOut,
@@ -38,6 +44,8 @@ from devfeed_http.partner_portal import (
     Dashboard,
     DestinationPreviewOut,
     InventoryOut,
+    InventoryPageData,
+    InventoryProductData,
     PartnerPreferencesInput,
     ProductPromotionInput,
     ProductPromotionOut,
@@ -59,10 +67,16 @@ from devfeed_http.partner_products import (
 )
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from devfeed_partner_api.access import PartnerAccountAccess
-from devfeed_partner_api.auth import Partner, require_partner
+from devfeed_partner_api.auth import Partner, PartnerIdentity, require_partner
 from devfeed_partner_api.dependencies import DB, DBFactory, get_redis
+
+
+class DashboardData(ReportingMetrics):
+    account: AccountOut
+
 
 router = APIRouter(
     prefix="/v1/partner",
@@ -81,7 +95,7 @@ router = APIRouter(
 )
 def create_product(
     account_id: uuid.UUID, payload: ManualProductInput, session: DB, partner: Partner
-):
+) -> InventoryProductData:
     access = PartnerAccountAccess(session, partner)
     access.require(account_id)
     limit_product_write(get_redis(), partner, account_id)
@@ -96,7 +110,9 @@ def create_product(
     response_model=ProductDetailOut,
     operation_id="partnerProductGet",
 )
-def get_product(account_id: uuid.UUID, product_id: uuid.UUID, session: DB, partner: Partner):
+def get_product(
+    account_id: uuid.UUID, product_id: uuid.UUID, session: DB, partner: Partner
+) -> InventoryProductData:
     return product_detail(
         session, PartnerAccountAccess(session, partner).require(account_id), product_id
     )
@@ -114,11 +130,12 @@ def update_product(
     payload: ManualProductUpdate,
     session: DB,
     partner: Partner,
-):
+) -> InventoryProductData:
     access = PartnerAccountAccess(session, partner)
     access.require(account_id)
     limit_product_write(get_redis(), partner, account_id)
     account, product = access.lock_manual(account_id, product_id=product_id)
+    assert product is not None
     result = update_manual_product(session, account, product, payload)
     session.commit()
     return result
@@ -131,11 +148,14 @@ def update_product(
     operation_id="partnerProductArchive",
     openapi_extra=GatewayPolicy(body_limit=65536).openapi_extra(),
 )
-def archive_product(account_id: uuid.UUID, product_id: uuid.UUID, session: DB, partner: Partner):
+def archive_product(
+    account_id: uuid.UUID, product_id: uuid.UUID, session: DB, partner: Partner
+) -> Response:
     access = PartnerAccountAccess(session, partner)
     access.require(account_id)
     limit_product_write(get_redis(), partner, account_id)
     account, product = access.lock_manual(account_id, product_id=product_id)
+    assert product is not None
     archive_manual_product(session, account, product)
     session.commit()
     return Response(status_code=204)
@@ -148,7 +168,7 @@ def accounts(
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
     q: str = Query("", max_length=200, pattern=r"^[^\x00]*$"),
-):
+) -> AccountsData:
     query = PartnerAccountAccess(session, partner).query()
     if q.strip():
         query = query.where(text_search(q.strip(), PartnerAccount.name))
@@ -156,16 +176,18 @@ def accounts(
         "items": session.scalars(
             query.order_by(PartnerAccount.name, PartnerAccount.id).limit(limit).offset(offset)
         ).all(),
-        "total": session.scalar(select(func.count()).select_from(query.subquery())),
+        "total": session.scalar(select(func.count()).select_from(query.subquery())) or 0,
     }
 
 
 @router.get("/accounts/{account_id}", response_model=AccountOut, operation_id="partnerAccountGet")
-def get_account(account_id: uuid.UUID, session: DB, partner: Partner):
+def get_account(account_id: uuid.UUID, session: DB, partner: Partner) -> PartnerAccount:
     return PartnerAccountAccess(session, partner).require(account_id)
 
 
-def _dashboard_metadata(session, partner, account_id, ad_format):
+def _dashboard_metadata(
+    session: Session, partner: PartnerIdentity, account_id: uuid.UUID, ad_format: AdFormat | None
+) -> tuple[AccountOut, list[ReportingAsset]]:
     account = AccountOut.model_validate(PartnerAccountAccess(session, partner).require(account_id))
     assets = reporting_assets(
         session, select(PartnerAccount).where(PartnerAccount.id == account_id), ad_format
@@ -185,7 +207,7 @@ async def dashboard(
     sort: AssetSort = Query("name"),
     order: SortOrder = Query("asc"),
     ad_format: AdFormat | None = None,
-):
+) -> DashboardData:
     account, assets = await run_database(
         factory, _dashboard_metadata, partner, account_id, ad_format
     )
@@ -211,7 +233,9 @@ async def dashboard(
     response_model=DestinationPreviewOut,
     operation_id="partnerDestinationPreview",
 )
-def preview_destination(account_id: uuid.UUID, session: DB, partner: Partner):
+def preview_destination(
+    account_id: uuid.UUID, session: DB, partner: Partner
+) -> DestinationPreviewOut:
     return destination_preview(session, PartnerAccountAccess(session, partner).require(account_id))
 
 
@@ -222,14 +246,14 @@ def preview_destination(account_id: uuid.UUID, session: DB, partner: Partner):
 )
 def update_preferences(
     account_id: uuid.UUID, payload: PartnerPreferencesInput, session: DB, partner: Partner
-):
+) -> PartnerAccount:
     account = PartnerAccountAccess(session, partner).lock(account_id)
     if payload.link_rel is not None:
         try:
             validate_link_rel(account.tier, payload.link_rel)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
-        account.link_rel = payload.link_rel
+        account.link_rel = list(payload.link_rel)
     if payload.audience is not None:
         try:
             validate_audience(session, account.tier, payload.audience, previous=account.audience)
@@ -243,7 +267,7 @@ def update_preferences(
             validate_account_formats(account.tier, payload.ad_formats, previous=account.ad_formats)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
-        account.ad_formats = payload.ad_formats
+        account.ad_formats = list(payload.ad_formats)
     session.flush()
     request_promotion_enrollment(session, account.id)
     session.commit()
@@ -264,7 +288,7 @@ def audience_topics(
     topic_id: uuid.UUID | None = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(25, ge=1, le=100),
-):
+) -> AudienceTopicsData:
     account = PartnerAccountAccess(session, partner).require(account_id)
     return audience_topic_options(
         session, dimension, account=account, q=q, topic_id=topic_id, offset=offset, limit=limit
@@ -278,7 +302,7 @@ def audience_topics(
 )
 def preview_creative(
     account_id: uuid.UUID, session: DB, partner: Partner, product_id: uuid.UUID | None = None
-):
+) -> CreativePreviewOut:
     return creative_preview(
         session, PartnerAccountAccess(session, partner).require(account_id), product_id=product_id
     )
@@ -298,7 +322,7 @@ def inventory(
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     include_archived: bool = False,
-):
+) -> InventoryPageData:
     return inventory_products(
         session,
         PartnerAccountAccess(session, partner).require(account_id),
@@ -317,7 +341,7 @@ def inventory(
 )
 def get_product_promotion(
     account_id: uuid.UUID, product_id: uuid.UUID, session: DB, partner: Partner
-):
+) -> ProductPromotionOut:
     return product_promotion(
         session, PartnerAccountAccess(session, partner).require(account_id), product_id
     )
@@ -334,7 +358,7 @@ def update_product_promotion(
     payload: ProductPromotionInput,
     session: DB,
     partner: Partner,
-):
+) -> ProductPromotionOut:
     account = PartnerAccountAccess(session, partner).lock_product(account_id, product_id)
     return save_product_promotion_with_images(session, account, product_id, payload)
 
@@ -353,7 +377,7 @@ def upload_ad_image(
     file: Annotated[UploadFile, File(description="JPEG, PNG or WebP, up to 5 MB")],
     session: DB,
     partner: Partner,
-):
+) -> ProductPromotionOut:
     access = PartnerAccountAccess(session, partner)
     access.require(account_id)
     limit_image_upload(get_redis(), partner, account_id)

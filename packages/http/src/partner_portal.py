@@ -1,11 +1,15 @@
 """Shared schemas and reporting queries for partner and administrator services."""
 
+from __future__ import annotations
+
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self, TypedDict
 
 from devfeed_core.cache_events import mark_dirty
 from devfeed_core.config import get_settings
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import (
     Article,
     ArticleImageJob,
@@ -80,6 +84,57 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
+from sqlalchemy.sql import Select
+
+from devfeed_http.partner_analytics_reporting import MetricTotals
+
+
+class InventoryProductData(TypedDict):
+    id: uuid.UUID
+    account_id: uuid.UUID
+    account_name: str
+    name: str
+    technologies: list[str]
+    status: str
+    excluded: bool
+    globally_excluded: bool
+    commercial_approved: bool
+    approval_source: Literal["qualified", "trusted"] | None
+    ad_formats: list[str] | None
+    link_rel: list[str] | None
+    effective_link_rel: list[LinkRel]
+    configurable_link_rel: bool
+    link_rel_options: list[LinkRel]
+    promotion_surfaces: list[str] | None
+    ad_image_url: str | None
+    product_url: str
+    tagline: str
+    pricing: str
+    assessment: JsonRecord
+    revision: int
+    source: Literal["manual", "imported"]
+    editable: bool
+    active: bool
+    manual_active: bool | None
+
+
+class InventoryPageData(TypedDict):
+    items: list[InventoryProductData]
+    total: int
+    limit: int
+    offset: int
+
+
+class AccountsData(TypedDict):
+    items: Sequence[PartnerAccount]
+    total: int
+
+
+class SponsorArticlesData(TypedDict):
+    items: list[ArticleOut]
+    total: int
+
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
@@ -127,7 +182,7 @@ class AccountInput(BaseModel):
     link_rel: LinkRelationships = Field(default_factory=default_link_rel)
 
     @model_validator(mode="after")
-    def unique_surfaces(self):
+    def unique_surfaces(self) -> Self:
         if len(self.ad_formats) != len(set(self.ad_formats)) or not set(self.ad_formats).issubset(
             AUTOMATIC_AD_FORMATS
         ):
@@ -165,7 +220,7 @@ class PartnerPreferencesInput(BaseModel):
     link_rel: LinkRelationships | None = None
 
     @model_validator(mode="after")
-    def supplied_preference(self):
+    def supplied_preference(self) -> Self:
         if (
             self.outbound_destination is None
             and self.audience is None
@@ -220,7 +275,9 @@ class SponsorArticlesOut(BaseModel):
     total: int
 
 
-def _preview_product(session, account, product_id=None):
+def _preview_product(
+    session: Session, account: PartnerAccount, product_id: uuid.UUID | None = None
+) -> tuple[PartnerProduct, str] | None:
     """Read actual accepted inventory without issuing a placement or reserving capacity."""
     qualified = and_(
         PartnerProduct.status == "approved",
@@ -266,7 +323,7 @@ def _preview_product(session, account, product_id=None):
     return None
 
 
-def destination_preview(session, account) -> DestinationPreviewOut:
+def destination_preview(session: Session, account: PartnerAccount) -> DestinationPreviewOut:
     selected = _preview_product(session, account)
     if selected is None:
         return DestinationPreviewOut(product=None)
@@ -284,7 +341,9 @@ def destination_preview(session, account) -> DestinationPreviewOut:
     )
 
 
-def creative_preview(session, account, product_id=None) -> CreativePreviewOut:
+def creative_preview(
+    session: Session, account: PartnerAccount, product_id: uuid.UUID | None = None
+) -> CreativePreviewOut:
     selected = _preview_product(session, account, product_id)
     if selected is None:
         return CreativePreviewOut(product=None)
@@ -335,7 +394,7 @@ class AssetInput(BaseModel):
     status: Literal["draft", "active", "paused", "ended"] = "draft"
 
     @model_validator(mode="after")
-    def product_required(self):
+    def product_required(self) -> Self:
         if self.kind == "product" and self.product_id is None:
             raise ValueError("Product placements require a catalog product")
         return self
@@ -373,7 +432,7 @@ class CampaignInput(BaseModel):
     daily_impression_limit: int | None = Field(default=None, ge=1, le=2**63 - 1)
 
     @model_validator(mode="after")
-    def valid_agreement(self):
+    def valid_agreement(self) -> Self:
         if (self.ad_format == "sponsored_content") != (self.article_id is not None):
             raise ValueError("Supply an article only for sponsored content campaigns")
         if "surfaces" not in self.model_fields_set:
@@ -433,7 +492,7 @@ class ProductPromotionInput(BaseModel):
 
     @field_validator("ad_image_url")
     @classmethod
-    def valid_image_url(cls, value):
+    def valid_image_url(cls, value: str | None) -> str | None:
         if value is None:
             return None
         normalized = validate_public_url(value)
@@ -442,7 +501,7 @@ class ProductPromotionInput(BaseModel):
         return normalized
 
     @model_validator(mode="after")
-    def valid_policy(self):
+    def valid_policy(self) -> Self:
         if not self.model_fields_set:
             raise ValueError("Supply at least one product promotion setting")
         if "excluded" in self.model_fields_set and self.excluded is None:
@@ -517,7 +576,7 @@ class MetricInput(BaseModel):
     clicks: int = Field(ge=0, le=2**63 - 1)
 
     @model_validator(mode="after")
-    def valid_day(self):
+    def valid_day(self) -> Self:
         if self.day > datetime.now(UTC).date():
             raise ValueError("Measurement day cannot be in the future")
         return self
@@ -570,12 +629,12 @@ class WorkspaceDashboard(ReportSummary):
     assets: list[WorkspaceAssetMetrics]
 
 
-def validate_product(payload: AssetInput, session):
+def validate_product(payload: AssetInput, session: Session) -> None:
     if payload.product_id is not None and session.get(PartnerProduct, payload.product_id) is None:
         raise HTTPException(422, "Catalog product not found")
 
 
-def asset_access(session, account_id, asset_id):
+def asset_access(session: Session, account_id: uuid.UUID, asset_id: uuid.UUID) -> PartnerAsset:
     asset = session.scalar(
         select(PartnerAsset).where(
             PartnerAsset.id == asset_id, PartnerAsset.account_id == account_id
@@ -586,7 +645,7 @@ def asset_access(session, account_id, asset_id):
     return asset
 
 
-def totals(impressions, clicks, measured_days):
+def totals(impressions: int, clicks: int, measured_days: int | None) -> MetricTotals:
     impressions, clicks = int(impressions or 0), int(clicks or 0)
     return {
         "impressions": impressions,
@@ -596,7 +655,14 @@ def totals(impressions, clicks, measured_days):
     }
 
 
-def sponsor_articles(session, *, q="", article_id=None, offset=0, limit=25):
+def sponsor_articles(
+    session: Session,
+    *,
+    q: str = "",
+    article_id: uuid.UUID | None = None,
+    offset: int = 0,
+    limit: int = 25,
+) -> SponsorArticlesData:
     query = select(Article).where(
         visible_article(),
         select(ArticleTopic.article_id)
@@ -617,10 +683,18 @@ def sponsor_articles(session, *, q="", article_id=None, offset=0, limit=25):
     rows = session.scalars(
         query.order_by(Article.feed_at.desc(), Article.id).offset(offset).limit(limit)
     ).all()
-    return {"items": ArticleOut.from_articles(rows), "total": total}
+    return {"items": ArticleOut.from_articles(rows), "total": total or 0}
 
 
-def inventory_product_view(account, product, policy, now, manual=None, *, active=True):
+def inventory_product_view(
+    account: PartnerAccount,
+    product: PartnerProduct,
+    policy: PartnerProductPromotion | None,
+    now: datetime,
+    manual: PartnerManualProduct | None = None,
+    *,
+    active: bool = True,
+) -> InventoryProductData:
     """Build policy summaries from a loaded account-product policy without extra SQL."""
     excluded = bool(policy and policy.excluded)
     trusted = bool(
@@ -629,7 +703,7 @@ def inventory_product_view(account, product, policy, now, manual=None, *, active
         and policy.commercial_approved_at
         and policy.approval_source == "trusted"
     )
-    return dict(
+    return InventoryProductData(
         id=product.id,
         account_id=account.id,
         account_name=account.name,
@@ -668,8 +742,15 @@ def inventory_product_view(account, product, policy, now, manual=None, *, active
 
 
 def inventory_page(
-    session, accounts_query, *, q="", product_id=None, offset=0, limit=100, include_archived=False
-):
+    session: Session,
+    accounts_query: Select[PartnerAccount],
+    *,
+    q: str = "",
+    product_id: uuid.UUID | None = None,
+    offset: int = 0,
+    limit: int = 100,
+    include_archived: bool = False,
+) -> InventoryPageData:
     query = associated_products_query(include_archived=include_archived).where(
         PartnerAccount.id.in_(accounts_query.with_only_columns(PartnerAccount.id).order_by(None))
     )
@@ -712,15 +793,22 @@ def inventory_page(
             inventory_product_view(account, product, policy, now, manual, active=active)
             for account, product, policy, manual, active in rows
         ],
-        "total": total,
+        "total": total or 0,
         "limit": limit,
         "offset": offset,
     }
 
 
 def inventory_products(
-    session, account, *, q="", product_id=None, offset=0, limit=100, include_archived=False
-):
+    session: Session,
+    account: PartnerAccount,
+    *,
+    q: str = "",
+    product_id: uuid.UUID | None = None,
+    offset: int = 0,
+    limit: int = 100,
+    include_archived: bool = False,
+) -> InventoryPageData:
     return inventory_page(
         session,
         select(PartnerAccount).where(PartnerAccount.id == account.id),
@@ -732,7 +820,9 @@ def inventory_products(
     )
 
 
-def _product_promotion_policy(session, account, product_id, *, lock=False):
+def _product_promotion_policy(
+    session: Session, account: PartnerAccount, product_id: uuid.UUID, *, lock: bool = False
+) -> PartnerProductPromotion:
     if (
         session.execute(
             associated_products_query(account.id).where(PartnerProduct.id == product_id)
@@ -750,7 +840,14 @@ def _product_promotion_policy(session, account, product_id, *, lock=False):
     )
 
 
-def _product_promotion_out(session, account, policy, product, *, status=None):
+def _product_promotion_out(
+    session: Session,
+    account: PartnerAccount,
+    policy: PartnerProductPromotion,
+    product: PartnerProduct,
+    *,
+    status: AdImageStatus | None = None,
+) -> ProductPromotionOut:
     return ProductPromotionOut(
         account_id=policy.account_id,
         product_id=policy.product_id,
@@ -769,12 +866,16 @@ def _product_promotion_out(session, account, policy, product, *, status=None):
     )
 
 
-def product_promotion(session, account, product_id):
+def product_promotion(
+    session: Session, account: PartnerAccount, product_id: uuid.UUID
+) -> ProductPromotionOut:
     policy = _product_promotion_policy(session, account, product_id)
-    return _product_promotion_out(session, account, policy, session.get(PartnerProduct, product_id))
+    product = session.get(PartnerProduct, product_id)
+    assert product is not None
+    return _product_promotion_out(session, account, policy, product)
 
 
-def list_product_promotions(session, account_id):
+def list_product_promotions(session: Session, account_id: uuid.UUID) -> list[ProductPromotionOut]:
     """Read policy, artwork and latest revision-bound image jobs in one grouped query."""
     statuses = (
         select(ArticleImageJob.product_id, ArticleImageJob.status)
@@ -823,7 +924,9 @@ def list_product_promotions(session, account_id):
     ]
 
 
-def save_product_promotion(session, account, product_id, payload):
+def save_product_promotion(
+    session: Session, account: PartnerAccount, product_id: uuid.UUID, payload: ProductPromotionInput
+) -> ProductPromotionOut:
     previous = _product_promotion_policy(session, account, product_id, lock=True)
     values = payload.model_dump(mode="json", exclude_unset=True)
     if "link_rel" in values:
@@ -867,4 +970,7 @@ def save_product_promotion(session, account, product_id, payload):
         .execution_options(populate_existing=True)
     )
 
-    return _product_promotion_out(session, account, row, session.get(PartnerProduct, product_id))
+    product = session.get(PartnerProduct, product_id)
+    assert product is not None
+    assert row is not None
+    return _product_promotion_out(session, account, row, product)

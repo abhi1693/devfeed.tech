@@ -4,6 +4,8 @@ The application publishes live observations directly. This process imports
 bounded frozen history, retires PostgreSQL analytics, then only reports health.
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import contextlib
@@ -21,7 +23,7 @@ from devfeed_core.analytics_import_runner import (
 from devfeed_core.analytics_migrations import ClickHouseMigrationRunner
 from devfeed_core.analytics_observation import pipeline_policy_version
 from devfeed_core.analytics_status import AnalyticsStatus
-from devfeed_core.config import get_settings
+from devfeed_core.config import Settings, get_settings
 from devfeed_core.logging import configure_logging
 from devfeed_core.runtime_files import runtime_marker, write_runtime_marker
 from devfeed_core.telemetry import background_cycle, start_runtime, stop_runtime
@@ -33,7 +35,7 @@ HEALTH_SECONDS = 120
 class AnalyticsImportWorker:
     """Coordinate finite migration; retain no ongoing PostgreSQL analytics work."""
 
-    def __init__(self, client, settings=None):
+    def __init__(self, client: AnalyticsClient, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self.client = client
         self.status = AnalyticsStatus(client)
@@ -51,7 +53,7 @@ class AnalyticsImportWorker:
         self._initialized = False
         self._started = False
 
-    async def once(self):
+    async def once(self) -> bool:
         if not self._initialized:
             await ClickHouseMigrationRunner(self.client).check()
             self._initialized = True
@@ -90,16 +92,16 @@ class AnalyticsImportWorker:
         return False
 
     @staticmethod
-    def _write_heartbeat():
+    def _write_heartbeat() -> None:
         write_runtime_marker(runtime_marker("analytics-worker"), str(time.time()))
 
 
-async def pause(stopping, delay):
+async def pause(stopping: asyncio.Event, delay: float) -> None:
     with contextlib.suppress(TimeoutError):
         await asyncio.wait_for(stopping.wait(), timeout=delay)
 
 
-def _poll_delay(settings, *, busy, bootstrapping, failures):
+def _poll_delay(settings: Settings, *, busy: bool, bootstrapping: bool, failures: int) -> float:
     delay = (
         settings.analytics_backfill_poll_seconds
         if busy and bootstrapping
@@ -108,7 +110,7 @@ def _poll_delay(settings, *, busy, bootstrapping, failures):
     return max(delay, min(60, 2 ** min(failures, 6))) if failures else delay
 
 
-async def run(once=False):
+async def run(once: bool = False) -> None:
     settings = get_settings()
     async with AnalyticsClient(settings) as client:
         worker = AnalyticsImportWorker(client, settings)
@@ -143,7 +145,7 @@ async def run(once=False):
                 loop.remove_signal_handler(item)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--check", action="store_true")

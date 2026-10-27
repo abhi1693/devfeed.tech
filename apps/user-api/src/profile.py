@@ -1,5 +1,7 @@
 """Private profile settings and explicitly filtered public presentation."""
 
+from __future__ import annotations
+
 import uuid
 from contextlib import nullcontext, suppress
 from datetime import date, timedelta
@@ -11,6 +13,7 @@ from devfeed_core.cache import (
     record_cache_read,
 )
 from devfeed_core.config import get_settings
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.logos import logo_url, logo_variants
 from devfeed_core.models import (
     Topic,
@@ -48,9 +51,10 @@ from devfeed_core.user_settings import (
 )
 from devfeed_core.usernames import normalize_username
 from fastapi import APIRouter, HTTPException, Response
-from sqlalchemy import delete, select, update
+from sqlalchemy import Row, delete, select, update
+from sqlalchemy.orm import Session
 
-from devfeed_user_api.auth import User
+from devfeed_user_api.auth import User, UserIdentity
 from devfeed_user_api.avatar_storage import AvatarStorage
 from devfeed_user_api.dependencies import DB
 from devfeed_user_api.preferences import lock_account
@@ -59,7 +63,7 @@ router = APIRouter(prefix="/v1/user/settings", tags=["user-settings"])
 public_router = APIRouter(prefix="/v1/user/profiles", tags=["user-profiles"])
 
 
-def owned_account(session, user):
+def owned_account(session: Session, user: UserIdentity) -> UserAccount:
     account = session.scalar(
         select(UserAccount).where(
             UserAccount.id == uuid.UUID(user.user_id),
@@ -73,7 +77,7 @@ def owned_account(session, user):
     return account
 
 
-def profile_value(session, account):
+def profile_value(session: Session, account: UserAccount) -> UserProfileSettings:
     stack = session.execute(
         select(UserStackAssociation, Topic)
         .join(Topic, Topic.id == UserStackAssociation.topic_id)
@@ -113,11 +117,11 @@ def profile_value(session, account):
 
 
 @router.get("/profile", response_model=UserProfileSettings)
-def profile(user: User, session: DB):
+def profile(user: User, session: DB) -> UserProfileSettings:
     return profile_value(session, owned_account(session, user))
 
 
-def heatmap_value(session, user_id, year):
+def heatmap_value(session: Session, user_id: uuid.UUID, year: int | None) -> UserReadingHeatmap:
     today = utcnow().date()
     selected_year = today.year if year is None else year
     if not 2000 <= selected_year <= today.year:
@@ -149,11 +153,11 @@ def heatmap_value(session, user_id, year):
 
 
 @router.get("/reading-heatmap", response_model=UserReadingHeatmap)
-def reading_heatmap(user: User, session: DB, year: int | None = None):
+def reading_heatmap(user: User, session: DB, year: int | None = None) -> UserReadingHeatmap:
     return heatmap_value(session, owned_account(session, user).id, year)
 
 
-def reading_week_value(session, user_id):
+def reading_week_value(session: Session, user_id: uuid.UUID) -> UserReadingWeek:
     today = utcnow().date()
     start = today - timedelta(days=6)
     counts = dict(
@@ -179,13 +183,13 @@ def reading_week_value(session, user_id):
 
 
 @router.get("/reading-week", response_model=UserReadingWeek)
-def reading_week(user: User, session: DB, response: Response):
+def reading_week(user: User, session: DB, response: Response) -> UserReadingWeek:
     response.headers["Cache-Control"] = "no-store"
     return reading_week_value(session, owned_account(session, user).id)
 
 
 @router.put("/profile", response_model=UserProfileSettings)
-def save_profile(payload: UserProfileUpdate, user: User, session: DB):
+def save_profile(payload: UserProfileUpdate, user: User, session: DB) -> UserProfileSettings:
     account_id = lock_account(session, user)
     account = session.get(UserAccount, account_id)
     assert account is not None
@@ -262,7 +266,7 @@ def save_profile(payload: UserProfileUpdate, user: User, session: DB):
     return result
 
 
-def public_account(session, username):
+def public_account(session: Session, username: str) -> UserAccount:
     try:
         canonical = normalize_username(username)
     except ValueError:
@@ -281,7 +285,7 @@ def public_account(session, username):
 @public_router.get(
     "/{username}", response_model=PublicUserProfile, response_model_exclude_none=True
 )
-def public_profile(username: str, session: DB, response: Response):
+def public_profile(username: str, session: DB, response: Response) -> PublicUserProfile:
     response.headers["Cache-Control"] = "no-store"
     # Check visibility even on cache hits. Browsers must never retain a card
     # independently of this check or the shared cache's invalidation generation.
@@ -322,7 +326,7 @@ def public_profile(username: str, session: DB, response: Response):
             cache.release(lookup)
 
 
-def public_profile_value(session, account):
+def public_profile_value(session: Session, account: UserAccount) -> PublicUserProfile:
     value = profile_value(session, account)
     return PublicUserProfile(
         username=account.username,
@@ -340,14 +344,16 @@ def public_profile_value(session, account):
 
 
 @public_router.get("/{username}/reading-heatmap", response_model=UserReadingHeatmap)
-def public_heatmap(username: str, session: DB, response: Response, year: int | None = None):
+def public_heatmap(
+    username: str, session: DB, response: Response, year: int | None = None
+) -> UserReadingHeatmap:
     response.headers["Cache-Control"] = "no-store"
     account = public_account(session, username)
     return heatmap_value(session, account.id, year)
 
 
 @router.get("/notifications", response_model=NotificationSettings)
-def notification_settings(user: User, session: DB):
+def notification_settings(user: User, session: DB) -> NotificationSettings:
     value = session.scalar(
         select(UserAccount.notification_settings).where(
             UserAccount.id == uuid.UUID(user.user_id),
@@ -362,7 +368,9 @@ def notification_settings(user: User, session: DB):
 
 
 @router.put("/notifications", response_model=NotificationSettings)
-def save_notification_settings(payload: NotificationSettings, user: User, session: DB):
+def save_notification_settings(
+    payload: NotificationSettings, user: User, session: DB
+) -> NotificationSettings:
     account = lock_account(session, user)
     session.execute(
         update(UserAccount)
@@ -373,7 +381,9 @@ def save_notification_settings(payload: NotificationSettings, user: User, sessio
     return payload
 
 
-def owned_feed_settings(session, user, *, lock=False):
+def owned_feed_settings(
+    session: Session, user: UserIdentity, *, lock: bool = False
+) -> Row[uuid.UUID, JsonRecord]:
     """Read only reader preferences, acquiring their snapshot under the write lock."""
     statement = select(UserAccount.id, UserAccount.feed_settings).where(
         UserAccount.id == uuid.UUID(user.user_id),
@@ -390,13 +400,13 @@ def owned_feed_settings(session, user, *, lock=False):
 
 
 @router.get("/feed", response_model=FeedSettings)
-def feed_settings(user: User, session: DB):
+def feed_settings(user: User, session: DB) -> FeedSettings:
     _, stored = owned_feed_settings(session, user)
     return normalize_feed_settings(stored)
 
 
 @router.put("/feed", response_model=FeedSettings)
-def save_feed_settings(payload: FeedSettings, user: User, session: DB):
+def save_feed_settings(payload: FeedSettings, user: User, session: DB) -> FeedSettings:
     account, stored = owned_feed_settings(session, user, lock=True)
     previous = normalize_feed_settings(stored)
     changes = payload.model_dump(mode="json")
@@ -417,7 +427,9 @@ def save_feed_settings(payload: FeedSettings, user: User, session: DB):
 
 
 @router.get("/feed-view", response_model=FeedViewSettings)
-def feed_view_settings(user: User, session: DB, response: Response, feed: FeedViewScope):
+def feed_view_settings(
+    user: User, session: DB, response: Response, feed: FeedViewScope
+) -> FeedViewSettings:
     response.headers["Cache-Control"] = "no-store"
     _, stored = owned_feed_settings(session, user)
     return reader_feed_view(stored, feed)
@@ -426,7 +438,7 @@ def feed_view_settings(user: User, session: DB, response: Response, feed: FeedVi
 @router.put("/feed-view", response_model=FeedViewSettings)
 def save_feed_view_settings(
     payload: FeedViewSettings, user: User, session: DB, response: Response, feed: FeedViewScope
-):
+) -> FeedViewSettings:
     response.headers["Cache-Control"] = "no-store"
     account, stored = owned_feed_settings(session, user, lock=True)
     try:
@@ -441,7 +453,9 @@ def save_feed_view_settings(
 
 
 @router.get("/columns", response_model=ReaderColumnsState)
-def columns_settings(user: User, session: DB, workspace: ReaderWorkspace = "latest"):
+def columns_settings(
+    user: User, session: DB, workspace: ReaderWorkspace = "latest"
+) -> ReaderColumnsState:
     _, stored = owned_feed_settings(session, user)
     return reader_columns_state(stored, workspace)
 
@@ -449,7 +463,7 @@ def columns_settings(user: User, session: DB, workspace: ReaderWorkspace = "late
 @router.put("/columns", response_model=ReaderColumnsState)
 def save_columns_settings(
     payload: ReaderColumnsUpdate, user: User, session: DB, workspace: ReaderWorkspace = "latest"
-):
+) -> ReaderColumnsState:
     account, stored = owned_feed_settings(session, user, lock=True)
     current = reader_columns_state(stored, workspace)
     if (payload.mode == "initialize" and current.initialized) or (
@@ -470,7 +484,7 @@ def save_columns_settings(
 
 
 @router.get("/columns/starters", response_model=ReaderColumnStarters)
-def columns_starters(user: User, session: DB, response: Response):
+def columns_starters(user: User, session: DB, response: Response) -> ReaderColumnStarters:
     response.headers["Cache-Control"] = "no-store"
     account, stored = owned_feed_settings(session, user)
     settings = normalize_feed_settings(stored)
@@ -478,7 +492,7 @@ def columns_starters(user: User, session: DB, response: Response):
 
 
 @router.get("/appearance", response_model=UserAppearanceSettings)
-def appearance_settings(user: User, session: DB):
+def appearance_settings(user: User, session: DB) -> UserAppearanceSettings:
     value = session.scalar(
         select(UserAccount.appearance_settings).where(
             UserAccount.id == uuid.UUID(user.user_id),
@@ -493,7 +507,9 @@ def appearance_settings(user: User, session: DB):
 
 
 @router.put("/appearance", response_model=UserAppearanceSettings)
-def save_appearance_settings(payload: UserAppearanceSettings, user: User, session: DB):
+def save_appearance_settings(
+    payload: UserAppearanceSettings, user: User, session: DB
+) -> UserAppearanceSettings:
     account = lock_account(session, user)
     session.execute(
         update(UserAccount)

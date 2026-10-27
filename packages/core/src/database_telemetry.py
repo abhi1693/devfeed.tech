@@ -1,23 +1,37 @@
 """SQLAlchemy instrumentation without SQL text, bind values, or row contents."""
 
+from __future__ import annotations
+
 import logging
 import os
 import time
+from contextlib import AbstractContextManager
+from typing import Protocol, cast
 
+from opentelemetry.trace import Span
 from sqlalchemy import event
+from sqlalchemy.engine import Connection, Engine, ExceptionContext, ExecutionContext
+from sqlalchemy.engine.interfaces import DBAPICursor
 from sqlalchemy.exc import TimeoutError as PoolTimeout
-from sqlalchemy.pool import NullPool, Pool, QueuePool
+from sqlalchemy.pool import ConnectionPoolEntry, NullPool, Pool, PoolProxiedConnection, QueuePool
 
 from devfeed_core.telemetry import current, span
 
 logger = logging.getLogger(__name__)
 
 
+type QueryTrace = tuple[float, str, AbstractContextManager[Span | None], Span | None]
+
+
+class _ObservedQuery(Protocol):
+    _devfeed_query: QueryTrace
+
+
 class AcquisitionMetrics(Pool):
     # Keep SQLAlchemy lifecycle/debug messages under its existing log policy.
     _sqla_logger_namespace = "sqlalchemy.pool"
 
-    def connect(self):
+    def connect(self) -> PoolProxiedConnection:
         started, result = time.monotonic(), "ok"
         try:
             return super().connect()
@@ -47,10 +61,17 @@ def operation(statement: str) -> str:
     return word.lower() if word in {"SELECT", "INSERT", "UPDATE", "DELETE"} else "other"
 
 
-def instrument_engine(engine) -> None:
+def instrument_engine(engine: Engine) -> None:
     last_slow_log = 0.0
 
-    def before(_connection, _cursor, statement, _parameters, context, _many):
+    def before(
+        _connection: Connection,
+        _cursor: DBAPICursor,
+        statement: str,
+        _parameters: object,
+        context: ExecutionContext,
+        _many: bool,
+    ) -> None:
         if not current():
             return
         verb = operation(statement)
@@ -59,14 +80,15 @@ def instrument_engine(engine) -> None:
             attributes={"db.system.name": "postgresql", "db.operation.name": verb},
         )
         active = scope.__enter__()
-        context._devfeed_query = (time.monotonic(), verb, scope, active)
+        observed = cast(_ObservedQuery, context)
+        observed._devfeed_query = time.monotonic(), verb, scope, active
 
-    def finish(context, error=None):
+    def finish(context: ExecutionContext, error: BaseException | None = None) -> None:
         nonlocal last_slow_log
         value = getattr(context, "_devfeed_query", None)
         if not value:
             return
-        del context._devfeed_query
+        delattr(context, "_devfeed_query")
         started, verb, scope, _active = value
         elapsed = time.monotonic() - started
         if (runtime := current()) and (instrument := runtime.instruments.get("database")):
@@ -80,20 +102,29 @@ def instrument_engine(engine) -> None:
             logger.warning("database_slow_operation", extra={"duration_ms": round(elapsed * 1000)})
         scope.__exit__(type(error) if error is not None else None, error, None)
 
-    def after(_connection, _cursor, _statement, _parameters, context, _many):
+    def after(
+        _connection: Connection,
+        _cursor: DBAPICursor,
+        _statement: str,
+        _parameters: object,
+        context: ExecutionContext,
+        _many: bool,
+    ) -> None:
         finish(context)
 
-    def failed(context):
+    def failed(context: ExceptionContext) -> None:
         if context.execution_context is not None:
             finish(context.execution_context, context.original_exception)
 
-    def checkout(_connection, record, _proxy):
+    def checkout(
+        _connection: object, record: ConnectionPoolEntry, _proxy: PoolProxiedConnection
+    ) -> None:
         if runtime := current():
             record.info["devfeed_metrics_pid"] = os.getpid()
             if instrument := runtime.instruments.get("db_connections"):
                 instrument.add(1, {"state": "used"})
 
-    def checkin(_connection, record):
+    def checkin(_connection: object, record: ConnectionPoolEntry) -> None:
         if (
             record.info.pop("devfeed_metrics_pid", None) == os.getpid()
             and (runtime := current())

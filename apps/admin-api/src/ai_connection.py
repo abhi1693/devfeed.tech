@@ -4,7 +4,12 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from devfeed_admin_api.auth import Admin
-from devfeed_admin_api.codex_connection import CodexStatus, ConnectionProblem, DeviceLogin
+from devfeed_admin_api.codex_connection import (
+    CodexConnection,
+    CodexStatus,
+    ConnectionProblem,
+    DeviceLogin,
+)
 
 router = APIRouter(prefix="/v1/admin/ai/connection", tags=["admin-ai-connection"])
 
@@ -14,16 +19,18 @@ class CancelLogin(BaseModel):
 
 
 @router.get("", response_model=CodexStatus, operation_id="admin_ai_connection")
-async def status(request: Request, response: Response, admin: Admin):
+async def status(request: Request, response: Response, admin: Admin) -> CodexStatus:
     response.headers["Cache-Control"] = "no-store"
-    return request.app.state.codex.status
+    connection: CodexConnection = request.app.state.codex
+    return connection.status
 
 
 @router.post("/login", response_model=DeviceLogin, operation_id="admin_ai_login")
-async def login(request: Request, response: Response, admin: Admin):
+async def login(request: Request, response: Response, admin: Admin) -> DeviceLogin:
     response.headers["Cache-Control"] = "no-store"
     try:
-        return await request.app.state.codex.login()
+        connection: CodexConnection = request.app.state.codex
+        return await connection.login()
     except ConnectionProblem as exc:
         # A reachable admin API with an unavailable Codex service is an operation
         # conflict. The UI reserves 503 for an unavailable admin service.

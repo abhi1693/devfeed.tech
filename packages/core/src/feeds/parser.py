@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import calendar
 import logging
 import re
+import time
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,6 +14,7 @@ import feedparser
 
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.source_profiles import SourceProfile, feed_profile
 from devfeed_core.source_types import SourceType
 from devfeed_core.urls import canonicalize_url, fingerprint, validate_public_url
@@ -19,24 +23,24 @@ logger = logging.getLogger(__name__)
 
 
 class TextExtractor(HTMLParser):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self.suppressed = 0
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in {"script", "style"}:
             self.suppressed += 1
         elif tag in {"p", "br", "div", "li"}:
             self.parts.append(" ")
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag in {"script", "style"}:
             self.suppressed = max(0, self.suppressed - 1)
         elif tag in {"p", "div", "li"}:
             self.parts.append(" ")
 
-    def handle_data(self, data):
+    def handle_data(self, data: str) -> None:
         if not self.suppressed:
             self.parts.append(data)
 
@@ -58,7 +62,7 @@ class ParsedArticle:
     tags: list[str]
     source_type: SourceType
     feed_at: datetime
-    source_metadata: dict
+    source_metadata: JsonRecord
     image_url: str | None = None
     language: str | None = None
     original_url: str | None = None
@@ -170,7 +174,7 @@ def entry_url(value: str, base_url: str) -> str:
     return validate_public_url(urljoin(base_url, encoded))
 
 
-def entry_date(value, now: datetime) -> datetime | None:
+def entry_date(value: tuple[int, ...] | time.struct_time | None, now: datetime) -> datetime | None:
     if value:
         with suppress(ValueError, OverflowError, OSError, TypeError):
             date = datetime.fromtimestamp(calendar.timegm(value), UTC)
@@ -179,14 +183,14 @@ def entry_date(value, now: datetime) -> datetime | None:
     return None
 
 
-def optional_url(value, base_url: str) -> str | None:
+def optional_url(value: str | None, base_url: str) -> str | None:
     if value:
         with suppress(ValueError, TypeError):
             return validate_public_url(urljoin(base_url, value))
     return None
 
 
-def entry_image(entry, base_url: str) -> str | None:
+def entry_image(entry: JsonRecord, base_url: str) -> str | None:
     candidates = [item.get("url") for item in entry.get("media_thumbnail", [])]
     candidates.extend(
         item.get("url")

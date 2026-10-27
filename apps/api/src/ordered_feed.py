@@ -1,20 +1,33 @@
 """Keyset pagination for chronological ascending and most-liked public feeds."""
 
+from __future__ import annotations
+
 import base64
 import binascii
 import hashlib
 import json
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
 from devfeed_core.models import Article, ArticleLike
 from devfeed_core.schemas import ArticleOut, FeedPage
 from fastapi import HTTPException
-from sqlalchemy import func, literal, select, tuple_
+from sqlalchemy import ColumnElement, func, literal, select, tuple_
+from sqlalchemy.orm import Session
+
+from devfeed_api.latest import FeedFilters
 
 
-def ordered_page(session, conditions, filters, sort, limit, cursor):
+def ordered_page(
+    session: Session,
+    conditions: list[ColumnElement[bool]],
+    filters: FeedFilters,
+    sort: Literal["oldest", "most_liked"],
+    limit: int,
+    cursor: str | None,
+) -> FeedPage:
     scope = hashlib.sha256(
         json.dumps([sort, filters], sort_keys=True, default=str).encode()
     ).hexdigest()[:16]

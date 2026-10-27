@@ -1,5 +1,7 @@
 """Authenticated source suggestions; approval is a separate, attributed decision."""
 
+from __future__ import annotations
+
 import uuid
 from dataclasses import replace
 from datetime import datetime
@@ -10,6 +12,7 @@ from devfeed_core.feeds.validation import FeedValidationError
 from devfeed_core.models import Source
 from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from devfeed_core.schemas import InputModel, Name, SourceCreate
+from devfeed_core.services import ValidatedSource
 from devfeed_core.source_enrichment import request_enrichment
 from devfeed_core.source_types import SourceType
 from devfeed_core.urls import validate_public_url
@@ -18,6 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from devfeed_user_api.auth import User
 from devfeed_user_api.dependencies import DB, get_redis
@@ -33,7 +37,7 @@ class SourcePreviewRequest(InputModel):
 
     @field_validator("feed_url", mode="before")
     @classmethod
-    def trim_url(cls, value):
+    def trim_url(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
 
     _url = field_validator("feed_url")(validate_public_url)
@@ -54,7 +58,7 @@ class SuggestionReceipt(BaseModel):
     created_at: datetime
 
 
-def limit_requests(user_id: str, *, namespace: str, limit: int, window: int, message: str):
+def limit_requests(user_id: str, *, namespace: str, limit: int, window: int, message: str) -> None:
     try:
         retry_after = consume_rate_limits(
             get_redis(),
@@ -66,7 +70,7 @@ def limit_requests(user_id: str, *, namespace: str, limit: int, window: int, mes
         raise HTTPException(429, message, headers={"Retry-After": str(retry_after)})
 
 
-def limit_suggestions(user_id: str):
+def limit_suggestions(user_id: str) -> None:
     limit_requests(
         user_id,
         namespace="source-suggestions",
@@ -76,7 +80,7 @@ def limit_suggestions(user_id: str):
     )
 
 
-def validated_source(body):
+def validated_source(body: SourcePreviewRequest) -> ValidatedSource:
     try:
         return services.validate_source(SourceCreate(**body.model_dump(), enabled=True))
     except FeedValidationError as exc:
@@ -91,7 +95,7 @@ def validated_source(body):
 @router.post(
     "/suggestions/preview", response_model=SourcePreview, operation_id="user_source_preview"
 )
-def preview(body: SourcePreviewRequest, user: User):
+def preview(body: SourcePreviewRequest, user: User) -> SourcePreview:
     limit_requests(
         user.user_id,
         namespace="source-previews",
@@ -102,7 +106,7 @@ def preview(body: SourcePreviewRequest, user: User):
     return SourcePreview(name=validated_source(body).name)
 
 
-def reject_duplicate(session, url):
+def reject_duplicate(session: Session, url: str | None) -> None:
     if session.scalar(select(Source.id).where(Source.feed_url == url)) is not None:
         raise HTTPException(409, "This feed has already been added or suggested.")
 
@@ -113,7 +117,7 @@ def reject_duplicate(session, url):
     status_code=201,
     operation_id="user_source_suggest",
 )
-def suggest(body: SourceSuggestion, user: User, session: DB):
+def suggest(body: SourceSuggestion, user: User, session: DB) -> SuggestionReceipt:
     limit_suggestions(user.user_id)
     with session.begin():
         reject_duplicate(session, body.feed_url)

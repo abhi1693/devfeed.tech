@@ -1,10 +1,12 @@
 """Private explicit product inventory; imports and qualification remain independent."""
 
 import hashlib
-from typing import Literal
+import uuid
+from typing import Literal, Self, cast
 
 from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.models import (
+    PartnerAccount,
     PartnerEvaluation,
     PartnerManualProduct,
     PartnerPipelineJob,
@@ -26,15 +28,22 @@ from devfeed_core.schemas import InputModel
 from devfeed_core.urls import canonicalize_url, fingerprint
 from fastapi import HTTPException
 from pydantic import Field, field_validator, model_validator
+from redis import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-from devfeed_http.partner_portal import WorkspaceInventoryProductOut, inventory_product_view
+from devfeed_http.image_uploads import UploadActor
+from devfeed_http.partner_portal import (
+    InventoryProductData,
+    WorkspaceInventoryProductOut,
+    inventory_product_view,
+)
 
 Pricing = Literal["free", "freemium", "paid", "unknown"]
 
 
-def validate_manual_product_url(value):
+def validate_manual_product_url(value: str) -> str:
     value = canonicalize_url(value)
     if not value.startswith("https://"):
         raise ValueError("Products require a public HTTPS website")
@@ -51,7 +60,7 @@ class ManualProductInput(InputModel):
 
     @field_validator("name", mode="before")
     @classmethod
-    def clean_text(cls, value):
+    def clean_text(cls, value: object) -> object:
         if isinstance(value, str):
             value = value.strip()
             if "\x00" in value:
@@ -69,16 +78,16 @@ class ManualProductUpdate(InputModel):
 
     @field_validator("product_url")
     @classmethod
-    def clean_url(cls, value):
+    def clean_url(cls, value: str | None) -> str | None:
         return validate_manual_product_url(value) if value is not None else value
 
     @field_validator("name", mode="before")
     @classmethod
-    def clean_text(cls, value):
+    def clean_text(cls, value: object) -> object:
         return ManualProductInput.clean_text(value)
 
     @model_validator(mode="after")
-    def complete_update(self):
+    def complete_update(self) -> Self:
         fields = self.model_fields_set - {"expected_revision"}
         if not fields or any(getattr(self, field) is None for field in fields):
             raise ValueError("Supply at least one non-null product setting")
@@ -91,7 +100,7 @@ class ProductDetailOut(WorkspaceInventoryProductOut):
     pass
 
 
-def limit_product_write(redis, actor, account_id):
+def limit_product_write(redis: Redis, actor: UploadActor, account_id: uuid.UUID) -> None:
     caller = hashlib.sha256(f"{actor.issuer}\0{actor.subject}".encode()).hexdigest()
     try:
         retry = consume_rate_limits(
@@ -111,10 +120,17 @@ def limit_product_write(redis, actor, account_id):
         )
 
 
-def lock_manual_identity(session, account_id, *, product_id=None, url=None):
+def lock_manual_identity(
+    session: Session,
+    account_id: uuid.UUID,
+    *,
+    product_id: uuid.UUID | None = None,
+    url: str | None = None,
+) -> PartnerProduct | None:
     """Catalog -> product -> account matches import, merge and ad-image lock order."""
     lock_catalog(session)
     if product_id is None:
+        assert url is not None
         alias = session.get(PartnerProductURL, fingerprint(url))
         product_id = alias.product_id if alias else None
     elif session.get(PartnerManualProduct, (account_id, product_id)) is None:
@@ -132,7 +148,9 @@ def lock_manual_identity(session, account_id, *, product_id=None, url=None):
     return None
 
 
-def product_detail(session, account, product_id):
+def product_detail(
+    session: Session, account: PartnerAccount, product_id: uuid.UUID
+) -> InventoryProductData:
     source = session.get(PartnerManualProduct, (account.id, product_id))
     product = session.get(PartnerProduct, product_id)
     if (
@@ -158,7 +176,12 @@ def product_detail(session, account, product_id):
     return inventory_product_view(account, product, policy, utcnow(), source, active=active)
 
 
-def create_manual_product(session, account, payload, existing=None):
+def create_manual_product(
+    session: Session,
+    account: PartnerAccount,
+    payload: ManualProductInput,
+    existing: PartnerProduct | None = None,
+) -> InventoryProductData:
     if existing is None:
         existing = PartnerProduct(
             **payload.model_dump(),
@@ -191,7 +214,9 @@ def create_manual_product(session, account, payload, existing=None):
     return product_detail(session, account, existing.id)
 
 
-def update_manual_product(session, account, product, payload):
+def update_manual_product(
+    session: Session, account: PartnerAccount, product: PartnerProduct, payload: ManualProductUpdate
+) -> InventoryProductData:
     source = session.get(PartnerManualProduct, (account.id, product.id))
     if source is None:
         raise HTTPException(404, "Manual product not found")
@@ -202,6 +227,7 @@ def update_manual_product(session, account, product, payload):
         raise HTTPException(409, "This catalog product is managed by its original source")
     url = changes.get("product_url")
     if url:
+        assert url is not None
         alias = session.get(PartnerProductURL, fingerprint(url))
         if alias and alias.product_id != product.id:
             raise HTTPException(409, "This website already belongs to another catalog product")
@@ -224,13 +250,15 @@ def update_manual_product(session, account, product, payload):
         }
         product.status = "paused" if product.excluded else "pending"
         for model in (PartnerPipelineJob, PartnerEvaluation):
-            for job in session.scalars(
+            for untyped_job in session.scalars(
                 select(model).where(
                     model.product_id == product.id, model.status.in_(["queued", "running"])
                 )
             ):
+                job = cast(PartnerPipelineJob | PartnerEvaluation, untyped_job)
                 fail_or_retry(job, "Product facts changed", utcnow(), retryable=False)
     if "active" in payload.model_fields_set:
+        assert payload.active is not None
         source.active = payload.active
         source.updated_at = utcnow()
     session.flush()
@@ -242,5 +270,7 @@ def update_manual_product(session, account, product, payload):
     return product_detail(session, account, product.id)
 
 
-def archive_manual_product(session, account, product):
+def archive_manual_product(
+    session: Session, account: PartnerAccount, product: PartnerProduct
+) -> None:
     update_manual_product(session, account, product, ManualProductUpdate(active=False))

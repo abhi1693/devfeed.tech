@@ -1,5 +1,7 @@
 """Account-private saved articles. Bookmarking never changes article visibility."""
 
+from __future__ import annotations
+
 import base64
 import json
 import uuid
@@ -36,7 +38,7 @@ class BookmarkOut(BookmarkInput):
     response_model=BookmarkOut,
     openapi_extra=AgentAccessPolicy(scope="devfeed:write").openapi_extra(),
 )
-def bookmark(article_id: uuid.UUID, payload: BookmarkInput, user: User, session: DB):
+def bookmark(article_id: uuid.UUID, payload: BookmarkInput, user: User, session: DB) -> BookmarkOut:
     user_id = uuid.UUID(user.user_id)
     if payload.bookmarked:
         public_article(session, article_id)
@@ -66,7 +68,7 @@ def bookmarks(
     session: DB,
     limit: int = Query(24, ge=1, le=100),
     cursor: str | None = Query(None, max_length=300),
-):
+) -> FeedPage:
     statement = (
         select(Article, ArticleBookmark.created_at)
         .join(ArticleBookmark, ArticleBookmark.article_id == Article.id)

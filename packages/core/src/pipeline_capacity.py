@@ -10,13 +10,14 @@ from devfeed_core.ai_capacity import cooldown_remaining
 from devfeed_core.config import get_settings
 from devfeed_core.models import utcnow
 from devfeed_core.redis import create_redis
+from redis import Redis
 
 
-def worker_capacity(connection) -> dict:
+def worker_capacity(connection: Redis) -> dict[str, int | bool]:
     keys = sorted(connection.smembers("rq:workers"))
     if len(keys) > 1000:
         raise ValueError("Worker registry exceeds observation limit")
-    result = {
+    result: dict[str, int | bool] = {
         "observed": True,
         "cooldown_seconds": cooldown_remaining(connection),
         "topic_workers": 0,
@@ -62,7 +63,7 @@ def worker_capacity(connection) -> dict:
     return result
 
 
-def observe_capacity() -> dict:
+def observe_capacity() -> dict[str, int | bool]:
     try:
         with create_redis(
             get_settings(),
@@ -75,7 +76,7 @@ def observe_capacity() -> dict:
         return {"observed": False}
 
 
-def topic_admission_limit(capacity: dict) -> int:
+def topic_admission_limit(capacity: dict[str, int | bool]) -> int:
     settings = get_settings()
     if not capacity["observed"]:
         return min(4, settings.topic_decision_max_pending)

@@ -1,5 +1,7 @@
 """Private Typesense search analytics for the administration dashboard."""
 
+from __future__ import annotations
+
 from datetime import datetime
 
 from devfeed_core.models import utcnow
@@ -32,7 +34,7 @@ class SearchAnalytics(BaseModel):
 
 
 @router.get("/search-analytics", response_model=SearchAnalytics)
-def search_analytics(admin: Admin, limit: int = Query(default=25, ge=1, le=100)):
+def search_analytics(admin: Admin, limit: int = Query(default=25, ge=1, le=100)) -> SearchAnalytics:
     """Return aggregated Typesense queries for the authenticated admin UI."""
     from devfeed_core.config import get_settings
 

@@ -1,5 +1,7 @@
 """Partner identity and revocable Redis sessions; shared verified user records and no passwords."""
 
+from __future__ import annotations
+
 import hashlib
 import hmac
 import json
@@ -145,7 +147,7 @@ def actor(partner: PartnerIdentity) -> dict[str, str]:
 
 
 @router.get("/config", response_model=AuthConfig, operation_id="partner_auth_config")
-def config():
+def config() -> AuthConfig:
     settings = get_settings()
     providers: list[Literal["github", "google"]] = []
     if oidc.configured(settings):
@@ -164,7 +166,7 @@ def login(
     reauthenticate: bool = False,
     provider: Literal["github", "google"] | None = None,
     retry: str | None = None,
-):
+) -> RedirectResponse:
     require_config()
     settings = get_settings()
     recovery = _recovery(request, settings)
@@ -260,7 +262,7 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
 
 
 @router.get("/me", response_model=PartnerIdentity, operation_id="partner_auth_me")
-def me(request: Request, partner: Partner):
+def me(request: Request, partner: Partner) -> PartnerIdentity:
     session_key, raw, record = request.state.partner_session
     if record.get("identity_registration_version") == IDENTITY_REGISTRATION_VERSION:
         return partner

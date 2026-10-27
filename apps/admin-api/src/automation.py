@@ -1,5 +1,7 @@
 """Explain current pipeline blockers and provide revision-checked, targeted recovery."""
 
+from __future__ import annotations
+
 import uuid
 from datetime import datetime
 from typing import Literal
@@ -32,7 +34,7 @@ from devfeed_core.schemas import InputModel, ORMModel
 from devfeed_core.services import OperationConflict
 from devfeed_core.text_search import text_search
 from devfeed_core.topics import lock_topics
-from devfeed_http.pagination import Listing, Page, paginate, record, require_record
+from devfeed_http.pagination import Listing, Page, PageData, paginate, record, require_record
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import (
@@ -72,15 +74,16 @@ class PublicationPolicyReviewOut(ORMModel):
     response_model=Page[PublicationDecisionOut],
     operation_id="admin_publication_decisions",
 )
-def publication_decisions(article_id: uuid.UUID, session: DB, query: Listing):
+def publication_decisions(
+    article_id: uuid.UUID, session: DB, query: Listing
+) -> PageData[ArticlePublicationDecision]:
     require_record(session, Article, article_id)
     statement = select(ArticlePublicationDecision).where(
         ArticlePublicationDecision.article_id == article_id
     )
     if query.q:
-        statement = statement.where(
-            text_search(query.q, cast(ArticlePublicationDecision.decision, String))
-        )
+        decision_text = cast(ArticlePublicationDecision.decision, String)
+        statement = statement.where(text_search(query.q, decision_text))
     return paginate(
         session,
         statement,
@@ -95,7 +98,9 @@ def publication_decisions(article_id: uuid.UUID, session: DB, query: Listing):
     response_model=Page[PublicationPolicyReviewOut],
     operation_id="admin_publication_policy_history",
 )
-def publication_policy_history(source_id: uuid.UUID, session: DB, query: Listing):
+def publication_policy_history(
+    source_id: uuid.UUID, session: DB, query: Listing
+) -> PageData[SourcePublicationPolicyReview]:
     require_record(session, Source, source_id)
     statement = select(SourcePublicationPolicyReview).where(
         SourcePublicationPolicyReview.source_id == source_id
@@ -132,7 +137,7 @@ def recover(
     body: RecoveryRequest,
     session: DB,
     admin: Admin,
-):
+) -> RecoveryResult:
     # Keep the same source -> article -> taxonomy order as the analysis worker.
     if not approved_sources(session, article_id, lock=True):
         raise OperationConflict("An approved source is required")
@@ -150,8 +155,8 @@ def recover(
     elif action == "analyze":
         if not get_settings().ai_enabled:
             raise OperationConflict("Enable AI before requesting analysis")
-        job = request_analysis(session, article_id)
-        result = RecoveryResult(status="queued", job_id=job.id)
+        requested_job = request_analysis(session, article_id)
+        result = RecoveryResult(status="queued", job_id=requested_job.id)
     else:
         if session.scalar(
             select(ArticleAnalysisJob.id)

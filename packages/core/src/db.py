@@ -1,7 +1,10 @@
 from functools import lru_cache
+from typing import cast
 
-from sqlalchemy import create_engine, event, text
+from psycopg import Connection
+from sqlalchemy import Engine, create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import ConnectionPoolEntry
 
 from devfeed_core import automation_events as _automation_events  # noqa: F401
 from devfeed_core import notifications as _notifications  # noqa: F401
@@ -13,11 +16,11 @@ ApplicationAnalyticsCapture.install(AppSession)
 
 
 @lru_cache
-def get_engine():
+def get_engine() -> Engine:
     return create_database_engine(get_settings())
 
 
-def create_database_engine(settings: Settings):
+def create_database_engine(settings: Settings) -> Engine:
     from devfeed_core.database_telemetry import ObservedNullPool, ObservedQueuePool
 
     pool_options = (
@@ -55,7 +58,9 @@ def create_database_engine(settings: Settings):
     return engine
 
 
-def configure_connection(connection, _record):
+def configure_connection(
+    connection: Connection[tuple[object, ...]], _record: ConnectionPoolEntry
+) -> None:
     # Session-mode PgBouncer rejects statement_timeout in the startup packet.
     # Set it after connecting, outside a transaction so rollback cannot undo it.
     autocommit = connection.autocommit
@@ -71,8 +76,9 @@ def session_factory() -> sessionmaker[Session]:
     return sessionmaker(get_engine(), class_=AppSession, expire_on_commit=False)
 
 
-def database_revision(session: Session):
+def database_revision(session: Session) -> str | None:
     # Health checks use the real application pool. The local timeout is rolled
     # back when the request session closes, preserving normal query budgets.
     session.execute(text("SET LOCAL statement_timeout = '2s'"))
-    return session.scalar(text("SELECT version_num FROM alembic_version"))
+    # Alembic stores this column as VARCHAR; TextClause erases its result type.
+    return cast(str | None, session.scalar(text("SELECT version_num FROM alembic_version")))

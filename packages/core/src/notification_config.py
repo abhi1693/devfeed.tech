@@ -1,5 +1,8 @@
 """Shared connection contract; credentials belong to each consuming service."""
 
+from __future__ import annotations
+
+from typing import Self
 from urllib.parse import urlsplit
 
 from pydantic import field_validator, model_validator
@@ -19,11 +22,11 @@ class ChimelySettings(BaseSettings):
         "chimely_api_url", "chimely_admin_environment", "chimely_user_environment", mode="before"
     )
     @classmethod
-    def empty_optional_setting(cls, value):
+    def empty_optional_setting[T](cls, value: T) -> T | None:
         return None if isinstance(value, str) and not value.strip() else value
 
     @model_validator(mode="after")
-    def validate_chimely(self):
+    def validate_chimely(self) -> Self:
         if not self.notifications_enabled:
             return self
         environments = [self.chimely_admin_environment, self.chimely_user_environment]

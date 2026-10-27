@@ -2,12 +2,14 @@
 
 import logging
 import uuid
-from datetime import timedelta
+from collections.abc import Callable
+from datetime import datetime, timedelta
 
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, start_job
 from devfeed_core.job_logs import job_log_context
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import PartnerEvaluation, utcnow
 from devfeed_core.partner_catalog import lock_catalog
 from devfeed_core.partner_matching import save_evaluation_matches
@@ -18,6 +20,8 @@ from devfeed_core.partner_tools import (
     validate_result,
 )
 from sqlalchemy import or_, select
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.sql import ColumnElement
 
 from devfeed_aggregator.partner_outbox import PartnerOutbox
 from devfeed_aggregator.queue import get_queue
@@ -25,7 +29,7 @@ from devfeed_aggregator.queue import get_queue
 logger = logging.getLogger(__name__)
 
 
-def assess(snapshot):
+def assess(snapshot: JsonRecord) -> JsonRecord:
     from devfeed_aggregator.codex_client import CodexClient
 
     client = CodexClient(get_settings())
@@ -33,14 +37,19 @@ def assess(snapshot):
     return client.complete(evaluation_prompt(snapshot), EvaluationResult.model_json_schema())
 
 
-def runnable(now):
+def runnable(now: datetime) -> ColumnElement[bool]:
     return or_(
         (PartnerEvaluation.status == "queued") & (PartnerEvaluation.available_at <= now),
         (PartnerEvaluation.status == "running") & (PartnerEvaluation.lease_until < now),
     )
 
 
-def process_evaluation(job_id: str, *, factory=None, assessor=None):
+def process_evaluation(
+    job_id: str,
+    *,
+    factory: sessionmaker[Session] | None = None,
+    assessor: Callable[[JsonRecord], JsonRecord] | None = None,
+) -> None:
     with job_log_context("partner-evaluation", job_id):
         try:
             return _process_evaluation(job_id, factory=factory, assessor=assessor)
@@ -51,7 +60,12 @@ def process_evaluation(job_id: str, *, factory=None, assessor=None):
             raise
 
 
-def _process_evaluation(job_id: str, *, factory=None, assessor=None):
+def _process_evaluation(
+    job_id: str,
+    *,
+    factory: sessionmaker[Session] | None = None,
+    assessor: Callable[[JsonRecord], JsonRecord] | None = None,
+) -> None:
     if not get_settings().ai_enabled:
         logger.info("partner_evaluation_waiting_for_ai")
         return
@@ -140,7 +154,7 @@ def _process_evaluation(job_id: str, *, factory=None, assessor=None):
             )
 
 
-def dispatch_partner_evaluations(factory, limit=None):
+def dispatch_partner_evaluations(factory: sessionmaker[Session], limit: int | None = None) -> int:
     if limit is not None and limit < 1:
         raise ValueError("Partner dispatch limit must be positive")
     if not get_settings().ai_enabled:

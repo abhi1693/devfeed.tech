@@ -1,5 +1,7 @@
 """Current operator observation contracts, independent of serving storage."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 from datetime import datetime
@@ -7,7 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from devfeed_core.config import get_settings
+from devfeed_core.config import Settings, get_settings
 
 PIPELINE_POLICY_VERSION = "pipeline-direct-v3"
 
@@ -24,7 +26,7 @@ class AnalyticsSnapshot(BaseModel):
     lag_seconds: float | None = Field(default=None, ge=0)
 
 
-def pipeline_policy_version(settings=None) -> str:
+def pipeline_policy_version(settings: Settings | None = None) -> str:
     """Configuration and code changes invalidate every affected derived decision."""
     from devfeed_core.analysis import PROMPT_VERSION
     from devfeed_core.article_analysis_steps import STEP_SPECS

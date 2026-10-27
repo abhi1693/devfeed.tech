@@ -4,6 +4,7 @@ import hashlib
 import json
 import secrets
 
+from devfeed_core.json_types import JsonRecord
 from devfeed_http import oidc as protocol
 from devfeed_http.oidc import FLOW_TTL as FLOW_TTL
 from devfeed_http.oidc import TOKEN as TOKEN
@@ -45,11 +46,11 @@ def cookie_name(settings: Settings, kind: str) -> str:
 
 def start(
     settings: Settings,
-    metadata: dict,
+    metadata: JsonRecord,
     *,
     reauthenticate: bool = False,
     identity_provider_id: str | None = None,
-) -> tuple[str, dict]:
+) -> tuple[str, JsonRecord]:
     scope = settings.oidc_role_scope_template
     return protocol.start(
         settings,
@@ -62,7 +63,7 @@ def start(
     )
 
 
-def identity(settings: Settings, metadata: dict, flow: dict, code: str) -> dict:
+def identity(settings: Settings, metadata: JsonRecord, flow: JsonRecord, code: str) -> JsonRecord:
     result = protocol.identity(
         settings,
         metadata,

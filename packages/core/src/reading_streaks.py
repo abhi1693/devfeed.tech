@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import UTC, date, datetime, timedelta
+from typing import TypedDict
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -16,7 +17,16 @@ from devfeed_core.models import (
 )
 
 
-def reading_streak_value(streak: UserReadingStreak | None, today: date | None = None) -> dict:
+class ReadingStreakData(TypedDict):
+    current_days: int
+    longest_days: int
+    total_days: int
+    last_read_date: date | None
+
+
+def reading_streak_value(
+    streak: UserReadingStreak | None, today: date | None = None
+) -> ReadingStreakData:
     today = today or utcnow().date()
     active = streak is not None and streak.last_read_date in {today, today - timedelta(days=1)}
     return {

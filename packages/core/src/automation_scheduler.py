@@ -1,10 +1,14 @@
 """Bounded, resumable automation using the existing durable analysis outbox."""
 
+from __future__ import annotations
+
+from typing import cast
+
 from sqlalchemy import select
-from sqlalchemy.orm import lazyload
+from sqlalchemy.orm import Session, lazyload, sessionmaker
 
 from devfeed_core.ai_content import eligible_articles
-from devfeed_core.analysis import candidate_score, request_analysis, source_snapshot
+from devfeed_core.analysis import CatalogItem, candidate_score, request_analysis, source_snapshot
 from devfeed_core.article_automation import schedule_article_automation, schedule_source_admission
 from devfeed_core.article_topic_policy import proposal_condition
 from devfeed_core.config import get_settings
@@ -31,7 +35,7 @@ ACTOR = {
 }
 
 
-def schedule_automation(factory) -> dict[str, int]:
+def schedule_automation(factory: sessionmaker[Session]) -> dict[str, int]:
     settings = get_settings()
     counts = {
         "topic_research_scheduled": 0,
@@ -107,7 +111,7 @@ def schedule_automation(factory) -> dict[str, int]:
             articles = session.scalars(query.with_for_update(of=Article)).all()
             for article in articles:
                 snapshot = source_snapshot(article, session.get(ArticleContent, article.id))
-                if candidate_score(task.topic_snapshot, snapshot) > 0:
+                if candidate_score(cast(CatalogItem, task.topic_snapshot), snapshot) > 0:
                     from devfeed_core.article_jobs import approved_sources
 
                     if approved_sources(session, article.id):

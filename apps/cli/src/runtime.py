@@ -5,6 +5,7 @@ import logging
 import sys
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -24,6 +25,7 @@ from redis.exceptions import RedisError
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from devfeed_cli.commands import InputError
+from devfeed_cli.contracts import CommandHandler
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,9 @@ class Invocation:
     code: int | None = None
 
 
-def invoke(ctx: typer.Context, handler, values: dict, **overrides) -> None:
+def invoke(
+    ctx: typer.Context, handler: CommandHandler, values: Mapping[str, object], **overrides: object
+) -> None:
     """Adapt validated Typer parameters to the existing shared operation handlers."""
     command = ctx.info_name
     action = None
@@ -66,7 +70,7 @@ def invoke(ctx: typer.Context, handler, values: dict, **overrides) -> None:
         raise typer.Exit(code)
 
 
-def execute(args) -> int:
+def execute(args: SimpleNamespace) -> int:
     telemetry = None
     try:
         settings = get_settings()
@@ -80,7 +84,7 @@ def execute(args) -> int:
         ):
             telemetry = start_runtime("cli", serve_metrics=False, profiling=False)
         logger.info("command_started")
-        result = args.execute(args)
+        result: object = args.execute(args)
         fields = {}
         if isinstance(result, dict):
             for key in ("submitted", "enabled"):
@@ -112,7 +116,11 @@ def execute(args) -> int:
                     fields[f"{resource}_id"] = result[resource].get("id")
         if result is not None:
             print(json.dumps(result, indent=2, default=str))
-        if args.command == "status" and not result["dependencies_ready"]:
+        if (
+            args.command == "status"
+            and isinstance(result, dict)
+            and not result["dependencies_ready"]
+        ):
             logger.warning("command_dependencies_unavailable")
             return 1
         logger.info("command_succeeded", extra=fields)

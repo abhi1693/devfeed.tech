@@ -1,7 +1,10 @@
 """Safe validation feedback for durable inference retries; never retain model output."""
 
+from __future__ import annotations
+
 import json
 import re
+from typing import TypedDict
 
 from pydantic import ValidationError
 
@@ -48,13 +51,18 @@ FIELDS = {
 }
 
 
+class ValidationFeedback(TypedDict):
+    code: str
+    fields: list[str]
+
+
 class InferenceValidationError(ValueError):
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
 
 
-def validation_feedback(error: Exception) -> dict | None:
+def validation_feedback(error: Exception) -> ValidationFeedback | None:
     if isinstance(error, InferenceValidationError) and error.code in CODES:
         return {"code": error.code, "fields": []}
     if not isinstance(error, ValidationError):
@@ -79,7 +87,7 @@ def validation_feedback(error: Exception) -> dict | None:
     return {"code": code, "fields": fields}
 
 
-def feedback_prompt(feedback) -> str:
+def feedback_prompt(feedback: object) -> str:
     if (
         not isinstance(feedback, dict)
         or not isinstance(feedback.get("code"), str)

@@ -1,16 +1,27 @@
 """Explicit retries use current eligibility and the pipelines' coalescing requests."""
 
+from __future__ import annotations
+
+import uuid
+from typing import Literal, cast, overload
+
 from sqlalchemy import and_, or_, select, tuple_
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import Session, aliased
+from sqlalchemy.sql.elements import ColumnElement
 
 from devfeed_core.analysis import request_analysis
 from devfeed_core.article_jobs import retry_article
 from devfeed_core.config import get_settings
 from devfeed_core.image_jobs import retry_image
+from devfeed_core.job_definitions import Job, PipelineKind
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import (
     Article,
+    ArticleAnalysisJob,
+    ArticleEnrichmentJob,
     ArticleImageJob,
     NotificationDelivery,
+    SourceEnrichmentJob,
     TopicAnalysisJob,
     utcnow,
 )
@@ -24,7 +35,7 @@ from devfeed_core.topic_relationships import (
 )
 
 
-def retry_candidate(model):
+def retry_candidate(model: type[Job]) -> ColumnElement[bool]:
     """Only the latest failed run per subject is an unresolved failure.
 
     Keep historical failures visible, but never offer them again once another run
@@ -34,35 +45,40 @@ def retry_candidate(model):
     failed = model.status == "failed"
     if model is NotificationDelivery:
         return failed
-    newer = aliased(model)
+    newer: type[Job]
     if model is ArticleImageJob:
+        newer = aliased(ArticleImageJob)
         same_subject = or_(
             and_(
-                model.article_id.is_not(None),
-                newer.article_id == model.article_id,
+                ArticleImageJob.article_id.is_not(None),
+                newer.article_id == ArticleImageJob.article_id,
                 or_(
                     newer.status.in_(("queued", "running")),
                     and_(
-                        newer.operation == model.operation,
+                        newer.operation == ArticleImageJob.operation,
                         or_(
                             and_(
-                                model.operation == "store",
-                                newer.image_url.is_not_distinct_from(model.image_url),
+                                ArticleImageJob.operation == "store",
+                                newer.image_url.is_not_distinct_from(ArticleImageJob.image_url),
                             ),
                             and_(
-                                model.operation == "discover",
+                                ArticleImageJob.operation == "discover",
                                 or_(
-                                    model.storage["input_url"].as_string().is_(None),
+                                    ArticleImageJob.storage["input_url"].as_string().is_(None),
                                     newer.storage["input_url"]
                                     .as_string()
-                                    .is_not_distinct_from(model.storage["input_url"].as_string()),
+                                    .is_not_distinct_from(
+                                        ArticleImageJob.storage["input_url"].as_string()
+                                    ),
                                 ),
                                 or_(
-                                    model.storage["article_refresh"].as_boolean().is_not(True),
+                                    ArticleImageJob.storage["article_refresh"]
+                                    .as_boolean()
+                                    .is_not(True),
                                     newer.storage["previous_image_url"]
                                     .as_string()
                                     .is_not_distinct_from(
-                                        model.storage["previous_image_url"].as_string()
+                                        ArticleImageJob.storage["previous_image_url"].as_string()
                                     ),
                                 ),
                             ),
@@ -70,21 +86,30 @@ def retry_candidate(model):
                     ),
                 ),
             ),
-            and_(model.source_id.is_not(None), newer.source_id == model.source_id),
-            and_(model.topic_id.is_not(None), newer.topic_id == model.topic_id),
             and_(
-                model.product_id.is_not(None),
-                newer.product_id == model.product_id,
-                newer.operation == model.operation,
-                newer.account_id.is_not_distinct_from(model.account_id),
+                ArticleImageJob.source_id.is_not(None), newer.source_id == ArticleImageJob.source_id
+            ),
+            and_(ArticleImageJob.topic_id.is_not(None), newer.topic_id == ArticleImageJob.topic_id),
+            and_(
+                ArticleImageJob.product_id.is_not(None),
+                newer.product_id == ArticleImageJob.product_id,
+                newer.operation == ArticleImageJob.operation,
+                newer.account_id.is_not_distinct_from(ArticleImageJob.account_id),
             ),
         )
     elif model is TopicAnalysisJob:
+        newer = aliased(TopicAnalysisJob)
         same_subject = or_(
-            and_(model.proposal_id.is_not(None), newer.proposal_id == model.proposal_id),
-            and_(model.topic_id.is_not(None), newer.topic_id == model.topic_id),
+            and_(
+                TopicAnalysisJob.proposal_id.is_not(None),
+                newer.proposal_id == TopicAnalysisJob.proposal_id,
+            ),
+            and_(
+                TopicAnalysisJob.topic_id.is_not(None), newer.topic_id == TopicAnalysisJob.topic_id
+            ),
         )
     else:
+        newer = aliased(model)
         subject = "article_id" if hasattr(model, "article_id") else "source_id"
         same_subject = getattr(newer, subject) == getattr(model, subject)
     superseded = (
@@ -105,28 +130,32 @@ def retry_candidate(model):
         current_article = (
             select(Article.id)
             .where(
-                Article.id == model.article_id,
+                Article.id == ArticleImageJob.article_id,
                 Article.publication_status != "published",
                 or_(
                     and_(
-                        model.operation == "store",
-                        Article.image_url == model.image_url,
+                        ArticleImageJob.operation == "store",
+                        Article.image_url == ArticleImageJob.image_url,
                     ),
                     and_(
-                        model.operation == "discover",
+                        ArticleImageJob.operation == "discover",
                         or_(
-                            model.storage["input_url"].as_string().is_(None),
-                            model.storage["input_url"].as_string() == Article.canonical_url,
+                            ArticleImageJob.storage["input_url"].as_string().is_(None),
+                            ArticleImageJob.storage["input_url"].as_string()
+                            == Article.canonical_url,
                         ),
                         or_(
                             and_(
-                                model.storage["article_refresh"].as_boolean().is_not(True),
+                                ArticleImageJob.storage["article_refresh"]
+                                .as_boolean()
+                                .is_not(True),
                                 Article.image_url.is_(None),
                             ),
                             and_(
-                                model.storage["article_refresh"].as_boolean().is_(True),
-                                model.storage["input_url"].as_string() == Article.canonical_url,
-                                model.storage["previous_image_url"]
+                                ArticleImageJob.storage["article_refresh"].as_boolean().is_(True),
+                                ArticleImageJob.storage["input_url"].as_string()
+                                == Article.canonical_url,
+                                ArticleImageJob.storage["previous_image_url"]
                                 .as_string()
                                 .is_not_distinct_from(Article.image_url),
                             ),
@@ -137,11 +166,11 @@ def retry_candidate(model):
             .correlate(model)
             .exists()
         )
-        eligibility = and_(eligibility, or_(model.article_id.is_(None), current_article))
+        eligibility = and_(eligibility, or_(ArticleImageJob.article_id.is_(None), current_article))
     return eligibility
 
 
-def retry_notification(session, identifier):
+def retry_notification(session: Session, identifier: uuid.UUID) -> NotificationDelivery:
     job = session.scalar(
         select(NotificationDelivery)
         .where(NotificationDelivery.id == identifier)
@@ -163,7 +192,24 @@ def retry_notification(session, identifier):
     return job
 
 
-def retry_failed_job(session, job, kind, actor):
+@overload
+def retry_failed_job(
+    session: Session,
+    job: ArticleAnalysisJob | ArticleEnrichmentJob | ArticleImageJob,
+    kind: Literal["analysis", "article-enrichment", "images"],
+    actor: JsonRecord,
+) -> ArticleAnalysisJob | ArticleEnrichmentJob | ArticleImageJob | None: ...
+
+
+@overload
+def retry_failed_job(
+    session: Session, job: Job, kind: PipelineKind, actor: JsonRecord
+) -> Job | None: ...
+
+
+def retry_failed_job(
+    session: Session, job: Job, kind: PipelineKind, actor: JsonRecord
+) -> Job | None:
     if job.status != "failed":
         raise OperationConflict("Only failed jobs can be retried")
     model = type(job)
@@ -185,36 +231,40 @@ def retry_failed_job(session, job, kind, actor):
             raise OperationConflict("The article already has an image; no retry is needed")
         return result
     if kind == "source-enrichment":
-        if getattr(job, "operation", "legacy") == "relevance":
+        source_job = cast(SourceEnrichmentJob, job)
+        if getattr(source_job, "operation", "legacy") == "relevance":
             from devfeed_core.source_enrichment import request_relevance
 
-            return request_relevance(session, job.source_id)
-        return request_enrichment(session, job.source_id)
+            return request_relevance(session, source_job.source_id)
+        return request_enrichment(session, source_job.source_id)
     if kind == "analysis":
-        successor = request_analysis(session, job.article_id)
+        analysis_job = cast(ArticleAnalysisJob, job)
+        successor = request_analysis(session, analysis_job.article_id)
         if (
-            job.steps
-            and successor.id != job.id
-            and successor.input_hash == job.input_hash
+            analysis_job.steps
+            and successor.id != analysis_job.id
+            and successor.input_hash == analysis_job.input_hash
             and successor.status == "queued"
             and not successor.attempts
             and not successor.steps
         ):
             successor.steps = {
                 name: dict(step)
-                for name, step in job.steps.items()
+                for name, step in analysis_job.steps.items()
                 if isinstance(step, dict) and step.get("status") == "succeeded"
             }
         return successor
     if kind == "topic-analysis":
-        if job.proposal_id:
-            return request_topic_analysis(session, job.proposal_id, actor)
+        topic_job = cast(TopicAnalysisJob, job)
+        if topic_job.proposal_id:
+            return request_topic_analysis(session, topic_job.proposal_id, actor)
         # Retain a targeted relationship query rather than broadening its scope.
+        assert topic_job.topic_id is not None  # Relationship jobs have a topic subject.
         return request_relationship_analysis(
             session,
-            job.topic_id,
+            topic_job.topic_id,
             RelationshipAnalysisRequest(
-                related_topic_id=job.input_snapshot.get("related_topic_id")
+                related_topic_id=topic_job.input_snapshot.get("related_topic_id")
             ),
             actor,
         )

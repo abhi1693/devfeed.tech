@@ -6,7 +6,7 @@ import anyio
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.responses import JSONResponse
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 REQUEST_BODY_POLICY_EXTENSION = "x-devfeed-request-body"
 
@@ -38,7 +38,7 @@ class RequestBodyPolicy(BaseModel):
 class RequestBodyReader:
     """Share byte accounting and one complete-body deadline between HTTP consumers."""
 
-    def __init__(self, *, policy: RequestBodyPolicy):
+    def __init__(self, *, policy: RequestBodyPolicy) -> None:
         self.policy = policy
 
     def declared_oversize(self, scope: Scope) -> bool:
@@ -69,7 +69,7 @@ class RequestBodyReader:
 class BoundedRequestBody(RequestBodyReader):
     """Read and replay one body using the policy of an already selected endpoint."""
 
-    def __init__(self, app: ASGIApp, *, policy: RequestBodyPolicy):
+    def __init__(self, app: ASGIApp, *, policy: RequestBodyPolicy) -> None:
         super().__init__(policy=policy)
         self.app = app
 
@@ -89,7 +89,7 @@ class BoundedRequestBody(RequestBodyReader):
             return
         delivered = False
 
-        async def replay():
+        async def replay() -> Message:
             nonlocal delivered
             if delivered:
                 return await receive()
@@ -102,7 +102,7 @@ class BoundedRequestBody(RequestBodyReader):
 class BodyLimitedRoute(APIRoute):
     """Use native routing, then bound the body before FastAPI parses the request."""
 
-    def __init__(self, *args: Any, **kwargs: Any):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         extra = self.openapi_extra or {}
         self.body_policy = (

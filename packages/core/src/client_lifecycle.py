@@ -1,5 +1,7 @@
 """Shutdown shared cache, database, and Redis clients without opening them."""
 
+from __future__ import annotations
+
 from contextlib import ExitStack
 from typing import Protocol
 
@@ -28,12 +30,12 @@ def close_shared_clients(
 ) -> None:
     """Close initialized shared clients; preserve each app's Redis provider."""
 
-    def close_engine():
+    def close_engine() -> None:
         if get_engine.cache_info().currsize:
             engine: Engine = get_engine()
             engine.dispose()
 
-    def close_redis(provider: CachedRedisProvider):
+    def close_redis(provider: CachedRedisProvider) -> None:
         if provider.cache_info().currsize:
             provider().close()
 

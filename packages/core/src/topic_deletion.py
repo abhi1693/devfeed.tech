@@ -1,15 +1,20 @@
 """Remove a topic and reconcile its links in one editorial transaction."""
 
+from __future__ import annotations
+
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import ColumnElement
 
 from devfeed_core.models import (
     Article,
     ArticleReview,
     ArticleTopic,
+    Base,
     Tag,
     Topic,
     TopicAnalysisJob,
@@ -36,7 +41,9 @@ class TopicDeleteImpact(ORMModel):
     pending_topic_proposals: int
 
 
-def _edges(model, identifier):
+def _edges(
+    model: type[TopicRelation] | type[TopicRelationProposal], identifier: uuid.UUID
+) -> ColumnElement[bool]:
     return or_(model.topic_id == identifier, model.related_topic_id == identifier)
 
 
@@ -44,7 +51,7 @@ def deletion_impact(session: Session, identifier: uuid.UUID) -> TopicDeleteImpac
     if session.get(Topic, identifier) is None:
         raise RecordNotFound("Topic not found")
 
-    def count(model, *where):
+    def count(model: type[Base], *where: ColumnElement[bool]) -> int:
         return session.scalar(select(func.count()).select_from(model).where(*where)) or 0
 
     article_ids = select(ArticleTopic.article_id).where(ArticleTopic.topic_id == identifier)
@@ -83,7 +90,13 @@ def delete_topic(
         raise
 
 
-def _delete_topic(session, identifier, actor, replacement_id, replacement_proposal_id):
+def _delete_topic(
+    session: Session,
+    identifier: uuid.UUID,
+    actor: dict[str, str],
+    replacement_id: uuid.UUID | None,
+    replacement_proposal_id: uuid.UUID | None,
+) -> None:
     if replacement_id and replacement_proposal_id:
         raise OperationConflict("Choose one replacement topic or proposal")
     lock_topics(session)
@@ -119,7 +132,7 @@ def _delete_topic(session, identifier, actor, replacement_id, replacement_propos
         if replacement is None:
             raise RecordNotFound("Replacement topic not found")
 
-    def locked(model, *where):
+    def locked[T: Base](model: type[T], *where: ColumnElement[bool]) -> Sequence[T]:
         return session.scalars(
             select(model).where(*where).with_for_update(of=model, nowait=True)
         ).all()

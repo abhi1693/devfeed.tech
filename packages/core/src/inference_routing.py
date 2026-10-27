@@ -1,5 +1,8 @@
 """Explicit per-task routes. Validation, not model confidence, permits escalation."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from devfeed_core.config import Settings
@@ -31,10 +34,10 @@ def route_for(settings: Settings, operation: str, *, quality_failure: bool = Fal
     )
 
 
-def total_tokens(usage: dict) -> int:
+def total_tokens(usage: Mapping[str, object]) -> int:
     """Cached input is included in input; reasoning is included in output."""
 
-    def count(key):
+    def count(key: str) -> int:
         value = usage.get(key, 0)
         return value if type(value) is int and value >= 0 else 0
 

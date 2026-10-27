@@ -4,13 +4,15 @@ Jobs remain the durable execution state. This module does not persist another
 workflow status or schedule work while rendering a readiness result.
 """
 
+from __future__ import annotations
+
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, Unpack, cast
 
 from pydantic import BaseModel, Field
 from sqlalchemy import func, inspect, select
-from sqlalchemy.orm import defer
+from sqlalchemy.orm import Session, defer
 
 from devfeed_core.article_quality import presentation_blockers
 from devfeed_core.config import Settings, get_settings
@@ -23,6 +25,9 @@ from devfeed_core.models import (
     ArticleImageJob,
     utcnow,
 )
+
+if TYPE_CHECKING:
+    from devfeed_core.analysis import AnalysisCatalog
 
 LifecycleStage = Literal[
     "ingested", "enrichment", "analysis", "images", "review", "ready", "published", "rejected"
@@ -41,6 +46,27 @@ CheckStatus = Literal[
 ]
 
 
+class ProcessingFacts(TypedDict):
+    content: ArticleContent | None
+    taxonomy: NotRequired[AnalysisCatalog | None]
+    enrichment: ArticleEnrichmentJob | None
+    analysis: ArticleAnalysisJob | None
+    discovery: ArticleImageJob | None
+    storage: ArticleImageJob | None
+
+
+class ProcessingInputs(TypedDict, total=False):
+    content: ArticleContent | None
+    taxonomy: AnalysisCatalog | None
+    enrichment: ArticleEnrichmentJob | None
+    analysis: ArticleAnalysisJob | None
+    discovery: ArticleImageJob | None
+    storage: ArticleImageJob | None
+    settings: Settings | None
+    now: datetime | None
+    allow_published: bool
+
+
 class ProcessingCheck(BaseModel):
     status: CheckStatus
     job_id: uuid.UUID | None = None
@@ -56,7 +82,9 @@ class ProcessingReadiness(BaseModel):
     checks: dict[str, ProcessingCheck] = Field(default_factory=dict)
 
 
-def _check(job, now: datetime) -> ProcessingCheck:
+def _check(
+    job: ArticleAnalysisJob | ArticleEnrichmentJob | ArticleImageJob | None, now: datetime
+) -> ProcessingCheck:
     if job is None:
         return ProcessingCheck(status="missing")
     status = job.status
@@ -71,7 +99,7 @@ def _check(job, now: datetime) -> ProcessingCheck:
     )
 
 
-def _current_page(job, article: Article) -> bool:
+def _current_page(job: ArticleEnrichmentJob, article: Article) -> bool:
     evidence = job.result or {}
     return evidence.get("input_url", evidence.get("final_url")) == article.canonical_url
 
@@ -104,7 +132,7 @@ def derive_processing_readiness(
     analysis: ArticleAnalysisJob | None = None,
     discovery: ArticleImageJob | None = None,
     storage: ArticleImageJob | None = None,
-    taxonomy: dict | None = None,
+    taxonomy: AnalysisCatalog | None = None,
     settings: Settings | None = None,
     now: datetime | None = None,
     allow_published: bool = False,
@@ -296,7 +324,9 @@ def derive_processing_readiness(
     )
 
 
-def derive_publication_readiness(article: Article, **facts) -> ProcessingReadiness:
+def derive_publication_readiness(
+    article: Article, **facts: Unpack[ProcessingInputs]
+) -> ProcessingReadiness:
     result = derive_processing_readiness(article, **facts)
     if result.stage in {"published", "rejected"}:
         return result
@@ -312,10 +342,15 @@ def derive_publication_readiness(article: Article, **facts) -> ProcessingReadine
     return result
 
 
-def _processing_facts(session, article: Article, taxonomy: dict | None) -> dict:
+def _processing_facts(
+    session: Session, article: Article, taxonomy: AnalysisCatalog | None
+) -> ProcessingFacts:
     from devfeed_core.analysis import catalog
 
-    facts = {"content": session.get(ArticleContent, article.id), "taxonomy": taxonomy}
+    facts: dict[str, object] = {
+        "content": session.get(ArticleContent, article.id),
+        "taxonomy": taxonomy,
+    }
     for name, model, operation in (
         ("enrichment", ArticleEnrichmentJob, None),
         ("analysis", ArticleAnalysisJob, None),
@@ -353,29 +388,36 @@ def _processing_facts(session, article: Article, taxonomy: dict | None) -> dict:
                 model.id.desc(),
             ).limit(1)
         )
-    analysis = facts["analysis"]
+    analysis = cast(ArticleAnalysisJob | None, facts["analysis"])
     if analysis is not None and analysis.status not in {"queued", "running"}:
         details = {"catalog_snapshot", "result", "usage"} & inspect(analysis).unloaded
         if details:
             session.refresh(analysis, attribute_names=sorted(details))
     if facts["taxonomy"] is None and analysis is not None and analysis.status == "succeeded":
         facts["taxonomy"] = catalog(session)
-    return facts
+    # Every fixed model lane above installs its key before this typed view escapes.
+    return cast(ProcessingFacts, facts)
 
 
-def processing_readiness(session, article: Article, *, taxonomy=None) -> ProcessingReadiness:
+def processing_readiness(
+    session: Session, article: Article, *, taxonomy: AnalysisCatalog | None = None
+) -> ProcessingReadiness:
     if article.review_status == "rejected" or article.publication_status == "published":
         return derive_processing_readiness(article)
     return derive_processing_readiness(article, **_processing_facts(session, article, taxonomy))
 
 
-def publication_readiness(session, article: Article, *, taxonomy=None) -> ProcessingReadiness:
+def publication_readiness(
+    session: Session, article: Article, *, taxonomy: AnalysisCatalog | None = None
+) -> ProcessingReadiness:
     if article.review_status == "rejected" or article.publication_status == "published":
         return derive_publication_readiness(article)
     return derive_publication_readiness(article, **_processing_facts(session, article, taxonomy))
 
 
-def reconcile_processing(session, article: Article, *, taxonomy=None) -> ProcessingReadiness:
+def reconcile_processing(
+    session: Session, article: Article, *, taxonomy: AnalysisCatalog | None = None
+) -> ProcessingReadiness:
     """Queue missing prerequisites once; terminal failures need explicit job retry.
 
     Callers hold source authority and the article row lock. No publication or
@@ -433,7 +475,9 @@ def reconcile_processing(session, article: Article, *, taxonomy=None) -> Process
                 job.input_hash != snapshot_hash(snapshot)
                 or job.prompt_version != PROMPT_VERSION
                 or job.outcome not in {"applied", "insufficient_evidence"}
-                or not analysis_catalog_current(job, facts["taxonomy"], snapshot)
+                or not analysis_catalog_current(
+                    job, cast("AnalysisCatalog", facts["taxonomy"]), snapshot
+                )
                 or (
                     job.outcome == "applied"
                     and any(

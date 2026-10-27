@@ -1,10 +1,12 @@
 """One federated index request plus bounded, authoritative public-record lookups."""
 
+from __future__ import annotations
+
 import time
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as day_time
-from typing import Literal
+from typing import Literal, TypedDict
 
 from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.config import get_settings
@@ -13,7 +15,7 @@ from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from devfeed_core.schemas import ContentType, DatabaseText, ImageVariant
 from devfeed_core.search_clicks import SearchClickTokens
 from devfeed_core.search_engine import KINDS, MAX_PAGE, PAGE_SIZE, SearchUnavailable, Typesense
-from devfeed_core.search_records import hit, public_records
+from devfeed_core.search_records import SearchHitData, hit, public_records
 from devfeed_core.search_suggestions import (
     SearchSuggestionAnalytics,
     normalize_query,
@@ -28,6 +30,8 @@ from pydantic import BaseModel, Field
 from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import TextClause
 
 from devfeed_api.cache import CachedReadRoute, CachePolicy
 from devfeed_api.dependencies import DB, DBFactory, get_rate_limit_redis
@@ -59,6 +63,16 @@ class SearchResponse(BaseModel):
     sections: dict[Literal["articles", "topics", "sources", "tags"], SearchSection]
 
 
+class SearchSectionData(TypedDict):
+    items: list[SearchHitData]
+    next_cursor: str | None
+
+
+class SearchResponseData(TypedDict):
+    query: str
+    sections: dict[str, SearchSectionData]
+
+
 class SearchClick(BaseModel):
     query: DatabaseText = Field(max_length=200)
     result_kind: Literal["articles", "topics", "sources", "tags"]
@@ -83,7 +97,7 @@ async def suggestions(
     request: Request,
     q: str = Query("", max_length=200),
     limit: int = Query(5, ge=1, le=10),
-):
+) -> list[str]:
     try:
         items = await SearchSuggestionAnalytics(analytics_client(request)).rank(
             factory,
@@ -105,7 +119,7 @@ async def suggestions(
     response_class=Response,
     openapi_extra=RequestBodyPolicy(body_limit=4096).openapi_extra(),
 )
-async def successful_click(body: SearchClick, factory: DBFactory, request: Request):
+async def successful_click(body: SearchClick, factory: DBFactory, request: Request) -> Response:
     headers = {"Cache-Control": "no-store"}
     try:
         query = normalize_query(body.query)
@@ -120,7 +134,7 @@ async def successful_click(body: SearchClick, factory: DBFactory, request: Reque
     ):
         raise HTTPException(403, "Invalid search event", headers=headers)
 
-    def persist_metadata(session):
+    def persist_metadata(session: Session) -> str:
         digest = query_hash(query)
         prefix = "devfeed:search-click:"
         retry = consume_rate_limits(
@@ -170,7 +184,7 @@ def search(
     sources: list[uuid.UUID] | None = Query(None, max_length=20),
     tags: list[uuid.UUID] | None = Query(None, max_length=20),
     content_types: list[ContentType] | None = Query(None, max_length=6),
-):
+) -> SearchResponseData:
     if date_from and date_to and date_from > date_to:
         raise HTTPException(422, "Start date must not be after end date")
     today = datetime.now(UTC).date()
@@ -206,7 +220,7 @@ def search(
             tags=tags,
             content_types=content_types,
         )
-        sections = {}
+        sections: dict[str, SearchSectionData] = {}
         tokens = click_tokens()
         for kind in kinds:
             remaining = int((deadline - time.monotonic()) * 1000)
@@ -217,7 +231,7 @@ def search(
                 dict.fromkeys(uuid.UUID(item["document"]["id"]) for item in matches[kind]["hits"])
             )
             records = public_records(session, kind, ids)
-            items = [
+            items: list[SearchHitData] = [
                 {
                     **hit(kind, records[value]),
                     "click_token": tokens.issue(query, kind, value) if tokens else None,
@@ -239,5 +253,5 @@ def search(
         raise HTTPException(503, "Search is temporarily unavailable. Please try again.") from exc
 
 
-def select_timeout():
+def select_timeout() -> TextClause:
     return text("SELECT set_config('statement_timeout', :timeout, true)")

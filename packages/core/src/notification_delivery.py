@@ -1,9 +1,12 @@
 """Durable delivery policy; scheduler and admin never load the HTTP adapter."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.job_lifecycle import clear_lease
@@ -36,11 +39,11 @@ class DeliveryPolicy:
 DELIVERY_POLICY = DeliveryPolicy()
 
 
-def retry_delivery(job, error: str, retry_after: int = 0):
+def retry_delivery(job: NotificationDelivery, error: str, retry_after: int = 0) -> None:
     DELIVERY_POLICY.retry(job, error, utcnow(), retry_after)
 
 
-def recover_notifications(factory, batch, now):
+def recover_notifications(factory: sessionmaker[Session], batch: int, now: datetime) -> int:
     with factory.begin() as session:
         jobs = session.scalars(
             select(NotificationDelivery)

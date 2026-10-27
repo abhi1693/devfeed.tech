@@ -1,5 +1,7 @@
 """FlareSolverr v1 API adapter. Browser sessions/cookies never leave this adapter."""
 
+from __future__ import annotations
+
 import json
 import re
 import time
@@ -9,10 +11,11 @@ import httpcore
 
 from devfeed_core.feeds.fetcher import FeedError, FetchResult, _fetch, is_browser_challenge
 from devfeed_core.feeds.solver_types import SolveRequest, SolverUnavailable
+from devfeed_core.json_types import JsonRecord
 
 
 class FlareSolverr:
-    def __init__(self, url: str):
+    def __init__(self, url: str) -> None:
         self.url = url
 
     def solve(self, request: SolveRequest) -> FetchResult:
@@ -111,7 +114,7 @@ class FlareSolverr:
             raise SolverUnavailable(stage="invalid_response") from exc
 
 
-def image_headers(solution: dict, url: str) -> dict[str, str]:
+def image_headers(solution: JsonRecord, url: str) -> dict[str, str]:
     """Do not export credentials, forward foreign cookies, or permit header injection."""
     agent = solution.get("userAgent")
     if (

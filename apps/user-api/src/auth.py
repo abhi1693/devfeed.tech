@@ -1,5 +1,7 @@
 """Optional user identity and isolated revocable browser sessions."""
 
+from __future__ import annotations
+
 import hashlib
 import hmac
 import json
@@ -185,7 +187,7 @@ BrowserUser = Annotated[UserIdentity, Depends(require_browser_user)]
     operation_id="user_auth_config",
     openapi_extra=ReaderGatewayPolicy(extension=ExtensionTransportPolicy()).openapi_extra(),
 )
-def config():
+def config() -> AuthConfig:
     settings = get_settings()
     providers = [
         provider
@@ -211,7 +213,7 @@ def login(
     return_to: str = "/",
     provider: Literal["github", "google"] | None = None,
     retry: str | None = None,
-):
+) -> RedirectResponse:
     destination = parse_reader_destination(return_to)
     if destination is None:
         raise HTTPException(422, "Invalid sign-in destination")
@@ -344,7 +346,7 @@ def callback(
     operation_id="user_auth_me",
     openapi_extra=ReaderGatewayPolicy(extension=ExtensionTransportPolicy()).openapi_extra(),
 )
-def me(request: Request):
+def me(request: Request) -> UserIdentity | None:
     # Anonymous browsing is normal; protected routes still use require_user.
     try:
         require_user(request)

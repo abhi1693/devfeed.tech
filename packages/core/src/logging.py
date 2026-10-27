@@ -1,5 +1,7 @@
 """Shared, bounded text/JSON logging with authentication material removed."""
 
+from __future__ import annotations
+
 import json
 import logging
 import math
@@ -14,12 +16,14 @@ from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, NotRequired, TextIO, TypedDict, cast
 from uuid import UUID
 
+from devfeed_core.json_types import JsonRecord, JsonValue
 from devfeed_core.log_privacy import redact_auth_text, redact_authentication
 from devfeed_core.log_text import context_text, error_text, event_text, inline, local_time
 
-_context: ContextVar[dict | None] = ContextVar("devfeed_log_context", default=None)
+_context: ContextVar[dict[str, object] | None] = ContextVar("devfeed_log_context", default=None)
 _EVENT = re.compile(r"[a-z][a-z0-9_]{0,100}\Z")
 _APP_LOGGERS = (
     "devfeed_core.",
@@ -45,7 +49,7 @@ def elapsed_ms(started: float) -> float:
 
 
 @contextmanager
-def log_context(**fields) -> Iterator[None]:
+def log_context(**fields: object) -> Iterator[None]:
     """ContextVars also propagate from ASGI to FastAPI's synchronous thread pool."""
     token = _context.set({**(_context.get() or {}), **fields})
     try:
@@ -54,7 +58,7 @@ def log_context(**fields) -> Iterator[None]:
         _context.reset(token)
 
 
-def log_value(value, depth: int = 0):
+def log_value(value: object, depth: int = 0) -> JsonValue:
     if value is None or isinstance(value, (bool, int)):
         return value
     if isinstance(value, float):
@@ -73,14 +77,14 @@ def log_value(value, depth: int = 0):
 
 
 class JsonFormatter(logging.Formatter):
-    def __init__(self, service: str):
+    def __init__(self, service: str) -> None:
         super().__init__()
         self.service = service
 
     def format(self, record: logging.LogRecord) -> str:
         return json.dumps(self.payload(record), ensure_ascii=True, allow_nan=False)
 
-    def payload(self, record: logging.LogRecord) -> dict:
+    def payload(self, record: logging.LogRecord) -> JsonRecord:
         from devfeed_core.telemetry import trace_fields
 
         fields = {**(_context.get() or {}), **record.__dict__, **trace_fields()}
@@ -107,12 +111,12 @@ class JsonFormatter(logging.Formatter):
             payload["location"] = f"{record.module}.{record.funcName}:{record.lineno}"
         if record.exc_info and record.exc_info[1] is not None:
             payload["error_type"] = type(record.exc_info[1]).__name__
-            payload["exception"] = exception_details(record.exc_info[1])
-        return redact_authentication(payload)
+            payload["exception"] = cast(JsonValue, exception_details(record.exc_info[1]))
+        return cast(JsonRecord, redact_authentication(cast(JsonValue, payload)))
 
 
 class TextFormatter(JsonFormatter):
-    def __init__(self, service: str, *, verbose: bool = False):
+    def __init__(self, service: str, *, verbose: bool = False) -> None:
         super().__init__(service)
         self.verbose = verbose
 
@@ -163,13 +167,27 @@ class TextFormatter(JsonFormatter):
         return False
 
 
-def exception_details(exc: BaseException | None) -> list[dict]:
+class LogFrame(TypedDict):
+    file: str
+    line: int
+    function: str
+
+
+class LogException(TypedDict):
+    type: str
+    message: str
+    frames: list[LogFrame]
+    attribute: NotRequired[str]
+    object_type: NotRequired[str]
+
+
+def exception_details(exc: BaseException | None) -> list[LogException]:
     """Preserve exception messages, chained causes and bounded stack locations."""
-    details: list[dict] = []
+    details: list[LogException] = []
     seen: set[int] = set()
     while exc is not None and id(exc) not in seen and len(details) < 5:
         seen.add(id(exc))
-        frames = []
+        frames: list[LogFrame] = []
         for frame, lineno in traceback.walk_tb(exc.__traceback__):
             frames.append(
                 {
@@ -178,7 +196,7 @@ def exception_details(exc: BaseException | None) -> list[dict]:
                     "function": frame.f_code.co_name,
                 }
             )
-        detail = {
+        detail: LogException = {
             "type": type(exc).__name__,
             "message": redact_auth_text(str(exc)),
             "frames": frames[-30:],
@@ -198,7 +216,13 @@ def exception_details(exc: BaseException | None) -> list[dict]:
     return details
 
 
-class StderrHandler(logging.StreamHandler):
+if TYPE_CHECKING:
+    _StderrHandlerBase = logging.StreamHandler[TextIO]
+else:
+    _StderrHandlerBase = logging.StreamHandler
+
+
+class StderrHandler(_StderrHandlerBase):
     """Resolve stderr at emit time, including after CLI redirection or an RQ fork."""
 
     def emit(self, record: logging.LogRecord) -> None:
@@ -222,9 +246,11 @@ class QueuedStderrHandler(StderrHandler):
     When full, discard new logs rather than block requests or grow memory forever.
     """
 
-    def __init__(self, capacity: int = 1024):
+    def __init__(self, capacity: int = 1024) -> None:
         super().__init__()
-        self.pending: queue.Queue = queue.Queue(maxsize=capacity)
+        self.pending: queue.Queue[tuple[TextIO, str] | threading.Event] = queue.Queue(
+            maxsize=capacity
+        )
         self.stopping = threading.Event()
         self.dropped = 0
         self.worker = threading.Thread(target=self._write_logs, name="api-log-output", daemon=True)

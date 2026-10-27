@@ -4,14 +4,17 @@ import signal
 import threading
 import time
 import uuid
+from collections.abc import Sequence
 from contextlib import suppress
+from datetime import datetime
+from typing import Literal, cast
 
 from devfeed_core.analysis import fail_analysis
 from devfeed_core.analytics_producer import shutdown as drain_analytics
 from devfeed_core.automation_scheduler import schedule_automation
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
-from devfeed_core.job_definitions import JOB_DEFINITIONS
+from devfeed_core.job_definitions import JOB_DEFINITIONS, Job, PipelineKind
 from devfeed_core.job_dispatch import DispatchLane, dispatch_jobs, dispatch_lanes
 from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.jobs import fail_job, request_ingestion
@@ -19,7 +22,9 @@ from devfeed_core.logging import configure_logging, elapsed_ms, log_context
 from devfeed_core.models import (
     ArticleAnalysisJob,
     IngestionJob,
+    ResearchVerificationJob,
     Source,
+    TopicAnalysisJob,
     utcnow,
 )
 from devfeed_core.partner_matching import refresh_partner_matches
@@ -33,6 +38,7 @@ from devfeed_core.research_verification import fail_verification, schedule_verif
 from devfeed_core.telemetry import background_cycle, start_runtime, stop_runtime
 from devfeed_core.version import __version__
 from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_aggregator.discovery_tasks import dispatch_discovery
 from devfeed_aggregator.partner_dispatcher import partner_dispatcher
@@ -46,7 +52,12 @@ from devfeed_aggregator.sitemap_refresher import sitemap_refresher
 logger = logging.getLogger(__name__)
 
 
-def dispatch_article_lanes(factory, kind, batch, now):
+def dispatch_article_lanes(
+    factory: sessionmaker[Session],
+    kind: Literal["analysis", "article-enrichment", "images", "source-enrichment"],
+    batch: int,
+    now: datetime,
+) -> int:
     """Reserve dispatch capacity for both fresh content and older eligible articles."""
     count = 0
     name = JOB_DEFINITIONS[kind].queue
@@ -321,7 +332,7 @@ RECOVERY_ERRORS = {
 }
 
 
-def recover_article_step(job: ArticleAnalysisJob, reason: str, now) -> bool:
+def recover_article_step(job: ArticleAnalysisJob, reason: str, now: datetime) -> bool:
     """Recover interrupted specialists against their own bounded attempt budget."""
     name = job.active_step or next(
         (
@@ -331,7 +342,9 @@ def recover_article_step(job: ArticleAnalysisJob, reason: str, now) -> bool:
         ),
         None,
     )
-    step = job.steps.get(name) if name else None
+    if name is None:
+        return False
+    step = job.steps.get(name)
     if not isinstance(step, dict) or type(step.get("attempts")) is not int:
         return False  # Legacy parent jobs retain their existing recovery policy.
     step = dict(step)
@@ -353,7 +366,9 @@ def recover_article_step(job: ArticleAnalysisJob, reason: str, now) -> bool:
     return True
 
 
-def recover_jobs(factory, batch, now, *, kind="analysis") -> int:
+def recover_jobs(
+    factory: sessionmaker[Session], batch: int, now: datetime, *, kind: PipelineKind = "analysis"
+) -> int:
     if kind not in RECOVERY_ERRORS and kind not in {
         "analysis",
         "topic-analysis",
@@ -365,21 +380,26 @@ def recover_jobs(factory, batch, now, *, kind="analysis") -> int:
     reason = RECOVERY_ERRORS.get(kind, "worker_lease_expired")
     recovered = []
     with factory.begin() as session:
-        jobs = session.scalars(
-            select(model)
-            .options(*definition.metadata_options())
-            .where(model.status == "running", model.lease_until < now)
-            .order_by(model.lease_until)
-            .limit(batch)
-            .with_for_update(skip_locked=True)
-        ).all()
+        # The metadata registry restricts every selected ORM class to Job.
+        # SQLAlchemy joins the heterogeneous model union to Base in this overload.
+        jobs = cast(
+            Sequence[Job],
+            session.scalars(
+                select(model)
+                .options(*definition.metadata_options())
+                .where(model.status == "running", model.lease_until < now)
+                .order_by(model.lease_until)
+                .limit(batch)
+                .with_for_update(skip_locked=True)
+            ).all(),
+        )
         for job in jobs:
             if kind == "research-verification":
-                fail_verification(job, reason)
+                fail_verification(cast(ResearchVerificationJob, job), reason)
             elif isinstance(job, ArticleAnalysisJob) and recover_article_step(job, reason, now):
                 pass
             elif kind in {"analysis", "topic-analysis"}:
-                fail_analysis(job, reason)
+                fail_analysis(cast(ArticleAnalysisJob | TopicAnalysisJob, job), reason)
             else:
                 fail_or_retry(job, reason, utcnow())
             recovered.append({**definition.log_fields(job), "job_status": job.status})

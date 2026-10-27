@@ -1,5 +1,7 @@
 """Bounded error responses shared by the public and administrative APIs."""
 
+from __future__ import annotations
+
 import logging
 
 from devfeed_core.services import OperationConflict, RecordNotFound
@@ -13,7 +15,7 @@ from devfeed_http.schemas import ErrorResponse, ValidationIssue
 
 def register_error_handlers(app: FastAPI, logger: logging.Logger, *, admin: bool = False) -> None:
     @app.exception_handler(Exception)
-    async def unexpected_error(request: Request, exc: Exception):
+    async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:
         # The middleware logs the safe stack. ServerErrorMiddleware sends this response
         # outside that middleware, so attach the same request ID explicitly on 500s.
         return JSONResponse(
@@ -26,7 +28,7 @@ def register_error_handlers(app: FastAPI, logger: logging.Logger, *, admin: bool
         )
 
     @app.exception_handler(IntegrityError)
-    async def conflict(request: Request, exc: IntegrityError):
+    async def conflict(request: Request, exc: IntegrityError) -> JSONResponse:
         if not admin:
             logger.warning("request_conflict", extra={"error_type": type(exc).__name__})
         return JSONResponse(
@@ -35,7 +37,7 @@ def register_error_handlers(app: FastAPI, logger: logging.Logger, *, admin: bool
         )
 
     @app.exception_handler(SQLAlchemyError)
-    async def database_unavailable(request: Request, exc: SQLAlchemyError):
+    async def database_unavailable(request: Request, exc: SQLAlchemyError) -> JSONResponse:
         logger.error(
             "admin_database_unavailable" if admin else "database_operation_failed",
             extra={"error_type": type(exc).__name__},
@@ -54,15 +56,15 @@ def register_error_handlers(app: FastAPI, logger: logging.Logger, *, admin: bool
         )
 
     @app.exception_handler(RecordNotFound)
-    async def unknown_record(request: Request, exc: RecordNotFound):
+    async def unknown_record(request: Request, exc: RecordNotFound) -> JSONResponse:
         return JSONResponse(status_code=404, content=ErrorResponse(detail=str(exc)).model_dump())
 
     @app.exception_handler(OperationConflict)
-    async def conflicting_operation(request: Request, exc: OperationConflict):
+    async def conflicting_operation(request: Request, exc: OperationConflict) -> JSONResponse:
         return JSONResponse(status_code=409, content=ErrorResponse(detail=str(exc)).model_dump())
 
     @app.exception_handler(RequestValidationError)
-    async def invalid_input(request: Request, exc: RequestValidationError):
+    async def invalid_input(request: Request, exc: RequestValidationError) -> JSONResponse:
         if not admin:
             logger.warning("request_validation_failed", extra={"error_type": type(exc).__name__})
         # Keep validation responses bounded rather than echoing raw input.

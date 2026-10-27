@@ -1,5 +1,7 @@
 """Disposable Redis response cache; never owns database or RQ state."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import logging
@@ -7,10 +9,11 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from contextlib import suppress
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import TypeVar, cast
 
 from redis.backoff import NoBackoff
 from redis.exceptions import RedisError
@@ -19,6 +22,7 @@ from redis.retry import Retry
 from devfeed_core.config import get_settings
 from devfeed_core.redis import create_redis
 from devfeed_core.telemetry import current
+from redis import Redis
 
 logger = logging.getLogger(__name__)
 LOCK_SECONDS = 30
@@ -146,8 +150,11 @@ class CacheLookup:
     body: bytes | None = None
 
 
+T = TypeVar("T")
+
+
 class ResponseCache:
-    def __init__(self, redis, namespace: str):
+    def __init__(self, redis: Redis, namespace: str) -> None:
         self.redis = redis
         self.namespace = namespace
         self.blocked_until = 0.0
@@ -155,7 +162,7 @@ class ResponseCache:
         self.sitemap: ResponseCache | None = None
         self.feed_sequences: ResponseCache | None = None
 
-    def _run(self, operation):
+    def _run(self, operation: Callable[[], T]) -> T:
         with self.guard:
             if self.blocked_until > time.monotonic():
                 raise CacheUnavailable
@@ -169,8 +176,8 @@ class ResponseCache:
                 logger.warning("cache_unavailable", extra={"error_type": type(exc).__name__})
             raise CacheUnavailable from None
 
-    def lookup(self, identity: str, domain: str, *, observe=True) -> CacheLookup:
-        def operation():
+    def lookup(self, identity: str, domain: str, *, observe: bool = True) -> CacheLookup:
+        def operation() -> CacheLookup:
             generation_key = f"{self.namespace}:{domain}:generation"
             generation = self.redis.get(generation_key)
             if generation is None:
@@ -220,6 +227,7 @@ class ResponseCache:
     def publish(self, lookup: CacheLookup, body: bytes, ttl: int) -> bool:
         if lookup.token is None or len(body) > get_settings().cache_max_bytes:
             return False
+        token = lookup.token
         return bool(
             self._run(
                 lambda: self.redis.eval(
@@ -229,7 +237,7 @@ class ResponseCache:
                     lookup.lock_key,
                     lookup.key,
                     lookup.generation,
-                    lookup.token,
+                    token,
                     body,
                     ttl,
                 )
@@ -237,8 +245,9 @@ class ResponseCache:
         )
 
     def release(self, lookup: CacheLookup) -> None:
-        if lookup.token:
-            self._run(lambda: self.redis.eval(RELEASE, 1, lookup.lock_key, lookup.token))
+        token = lookup.token
+        if token:
+            self._run(lambda: self.redis.eval(RELEASE, 1, lookup.lock_key, token))
 
     def invalidate(
         self, domain: str = "public", *, reasons: Collection[str] = ("unspecified",)
@@ -259,10 +268,12 @@ class ResponseCache:
         """Immutable private data, outside the public response-cache generations."""
         key = f"{self.namespace}:feed:{identity}"
 
-        def read():
+        def read() -> list[bytes] | None:
             with self.redis.pipeline() as pipe:
-                exists, entries = pipe.exists(key).lrange(key, start, stop).execute()
-            return entries if exists else None
+                pipe.exists(key)
+                pipe.lrange(key, start, stop)
+                exists, entries = pipe.execute()
+            return cast(list[bytes], entries) if exists else None
 
         try:
             result = self._run(read)

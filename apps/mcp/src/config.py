@@ -1,3 +1,4 @@
+from typing import Self
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -25,11 +26,11 @@ class Settings(BaseSettings):
         mode="before",
     )
     @classmethod
-    def empty_optional(cls, value):
+    def empty_optional(cls, value: object) -> object:
         return None if isinstance(value, str) and not value.strip() else value
 
     @model_validator(mode="after")
-    def validate_personal_settings(self):
+    def validate_personal_settings(self) -> Self:
         values = [
             self.user_api_url,
             self.oauth_issuer_url,

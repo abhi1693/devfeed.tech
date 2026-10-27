@@ -1,13 +1,16 @@
 """Read prepared user/article edges; never traverse the knowledge graph on a request."""
 
+from __future__ import annotations
+
 import base64
 import binascii
 import hashlib
 import json
 import logging
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Literal
+from uuid import UUID
 
 from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
 from devfeed_core.cache import CacheUnavailable
@@ -31,12 +34,14 @@ from devfeed_core.models import (
 from devfeed_core.publication import visible_article
 from devfeed_core.recommendations import has_recommendation_work
 from devfeed_core.schemas import ArticleOut, ContentType, FeedPage
-from devfeed_core.user_settings import normalize_feed_settings
+from devfeed_core.user_settings import FeedSettings, normalize_feed_settings
 from devfeed_http.agent_permissions import AgentAccessPolicy
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from devfeed_user_api.auth import User
 from devfeed_user_api.dependencies import DB
@@ -65,7 +70,7 @@ class RecommendationPage(FeedPage):
     reasons: dict[str, RecommendationReason] = Field(default_factory=dict)
 
 
-def recommendation_eligibility(user_id):
+def recommendation_eligibility(user_id: uuid.UUID) -> ColumnElement[bool]:
     return or_(
         (UserRecommendation.tag_id.is_not(None))
         & Article.tags.any(Tag.id == UserRecommendation.tag_id)
@@ -92,7 +97,14 @@ def recommendation_eligibility(user_id):
     )
 
 
-def starter_articles(session, user_id, settings, limit, content_type, source_id):
+def starter_articles(
+    session: Session,
+    user_id: uuid.UUID,
+    settings: FeedSettings,
+    limit: int,
+    content_type: ContentType | None,
+    source_id: uuid.UUID | None,
+) -> tuple[list[Article], Literal["following", "latest"]]:
     """A bounded first page from direct follows; never compute the recommendation graph here."""
     topic_follow = select(UserTopic.topic_id).where(UserTopic.user_id == user_id)
     source_follow = select(UserSource.source_id).where(UserSource.user_id == user_id)
@@ -127,7 +139,7 @@ def starter_articles(session, user_id, settings, limit, content_type, source_id)
     return list(session.scalars(statement)), "latest"
 
 
-def decode_position(cursor, user_id, scope):
+def decode_position(cursor: str, user_id: uuid.UUID, scope: str) -> tuple[UUID, int]:
     try:
         owner, generation, position, signature = json.loads(
             base64.b64decode(cursor, altchars=b"-_", validate=True)
@@ -161,7 +173,7 @@ def feed(
     sort: Literal["recommended", "newest", "most_liked"] = "recommended",
     content_type: ContentType | None = None,
     source_id: uuid.UUID | None = None,
-):
+) -> RecommendationPage:
     user_id = uuid.UUID(user.user_id)
     # One shared snapshot prevents a refresh replacing ranks between state and article reads.
     # This is a brief read transaction; it does not block refreshes or user mutations.
@@ -371,7 +383,9 @@ def feed(
     return result
 
 
-def record_activity(session, user_id, last_seen, now):
+def record_activity(
+    session: Session, user_id: uuid.UUID, last_seen: datetime | None, now: datetime
+) -> None:
     """Throttle durable activity writes; finish the read snapshot before any write."""
     if last_seen is not None and last_seen >= now - timedelta(minutes=15):
         return

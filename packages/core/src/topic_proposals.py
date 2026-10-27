@@ -1,5 +1,7 @@
 """Imports and evidence can propose taxonomy changes; only a review applies them."""
 
+from __future__ import annotations
+
 import csv
 import hashlib
 import io
@@ -7,7 +9,7 @@ import json
 import uuid
 from collections import defaultdict
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Self
 
 from pydantic import Field, ValidationError, model_validator
 from sqlalchemy import select
@@ -16,7 +18,7 @@ from sqlalchemy.orm import Session
 from devfeed_core.analysis import snapshot_hash
 from devfeed_core.article_topic_policy import proposal_allowed
 from devfeed_core.config import get_settings
-from devfeed_core.json_types import JsonValue
+from devfeed_core.json_types import JsonRecord, JsonValue
 from devfeed_core.models import (
     Article,
     ArticleTag,
@@ -75,7 +77,7 @@ class TopicReview(InputModel):
     expected_input_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
     @model_validator(mode="after")
-    def approval_requires_reviewed_fields(self):
+    def approval_requires_reviewed_fields(self) -> Self:
         if self.decision == "approved" and self.topic is None:
             raise ValueError("Approval requires the reviewed topic fields")
         if self.decision == "rejected" and self.topic is not None:
@@ -146,7 +148,7 @@ def topic_draft(topic: Topic) -> TopicDraft:
     )
 
 
-def snapshot(topic: Topic) -> dict:
+def snapshot(topic: Topic) -> JsonRecord:
     return {
         "id": str(topic.id),
         "status": topic.status,
@@ -158,7 +160,9 @@ def catalogs(session: Session) -> dict[str, Topic]:
     return {t.slug: t for t in session.scalars(select(Topic).order_by(Topic.slug))}
 
 
-def proposal_view(proposal: TopicProposal, analysis=None) -> TopicProposalOut:
+def proposal_view(
+    proposal: TopicProposal, analysis: TopicAnalysisJob | None = None
+) -> TopicProposalOut:
     return TopicProposalOut(
         **{
             name: getattr(proposal, name)
@@ -181,13 +185,13 @@ def proposal_view(proposal: TopicProposal, analysis=None) -> TopicProposalOut:
     )
 
 
-def parse_import(body: TopicImport) -> list[dict]:
+def parse_import(body: TopicImport) -> list[JsonRecord]:
     if len(body.content.encode("utf-8")) > MAX_IMPORT_BYTES:
         raise ValueError("Topic imports are limited to 256 KiB")
     content = body.content.lstrip("\ufeff")
     if body.format == "json":
 
-        def unique_keys(pairs):
+        def unique_keys(pairs: list[tuple[str, JsonRecord]]) -> JsonRecord:
             result = {}
             for key, value in pairs:
                 if key in result:
@@ -392,9 +396,9 @@ def review_proposal(
         proposal.topic_id = topic.id
         proposal.applied = snapshot(topic)
     elif proposal.action == "create" and proposal.topic_id:
-        topic = session.get(Topic, proposal.topic_id)
-        if topic and topic.status == "proposed":
-            topic.status = "rejected"
+        rejected_topic = session.get(Topic, proposal.topic_id)
+        if rejected_topic and rejected_topic.status == "proposed":
+            rejected_topic.status = "rejected"
     proposal.status = body.decision
     proposal.reviewed_at = utcnow()
     proposal.reviewed_by = actor

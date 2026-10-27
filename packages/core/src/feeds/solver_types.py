@@ -1,5 +1,7 @@
 """Provider-neutral contract for external challenge solvers."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
@@ -34,7 +36,7 @@ class SolverUnavailable(FeedError):
             "coordination",
         ] = "unspecified",
         http_status: int | None = None,
-    ):
+    ) -> None:
         super().__init__(
             "Solver service unavailable",
             reason="solver_unavailable",

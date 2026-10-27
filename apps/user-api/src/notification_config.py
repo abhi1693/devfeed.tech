@@ -1,5 +1,7 @@
 """User inbox credentials are independent of admin identity and management keys."""
 
+from __future__ import annotations
+
 from functools import lru_cache
 
 from devfeed_core.notification_config import ChimelySettings
@@ -10,7 +12,7 @@ class Settings(ChimelySettings):
     chimely_user_hmac_secret: SecretStr | None = None
 
     @model_validator(mode="after")
-    def validate_inbox(self):
+    def validate_inbox(self) -> Settings:
         if (
             self.notifications_enabled
             and self.chimely_user_environment
@@ -24,5 +26,5 @@ class Settings(ChimelySettings):
 
 
 @lru_cache
-def get_settings():
+def get_settings() -> Settings:
     return Settings()

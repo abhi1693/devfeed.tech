@@ -1,16 +1,25 @@
 """Shared visibility-safe reads of persisted daily Must Reads."""
 
+from __future__ import annotations
+
 import uuid
 
 from sqlalchemy import select
-from sqlalchemy.orm import raiseload
+from sqlalchemy.orm import Session, raiseload
 
 from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
-from devfeed_core.models import Article, UserReadingEvent
+from devfeed_core.models import Article, UserMustRead, UserReadingEvent
 from devfeed_core.publication import visible_article
+from devfeed_core.user_settings import FeedSettings
 
 
-def read_snapshot(session, snapshot, settings, *, include_details=True):
+def read_snapshot(
+    session: Session,
+    snapshot: UserMustRead | None,
+    settings: FeedSettings,
+    *,
+    include_details: bool = True,
+) -> tuple[list[Article], dict[str, str], list[uuid.UUID]]:
     """Read a snapshot without creating picks or claiming their presentation."""
     if snapshot is None:
         return [], {}, []

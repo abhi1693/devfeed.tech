@@ -1,6 +1,7 @@
 """Independently deployable admin API; public traffic never loads this service."""
 
 import logging
+from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
 
 from devfeed_core.client_lifecycle import close_shared_clients
@@ -50,12 +51,12 @@ from devfeed_admin_api.dependencies import database_session, get_redis
 logger = logging.getLogger(__name__)
 
 
-def close_clients():
+def close_clients() -> None:
     close_shared_clients(get_redis)
 
 
 @asynccontextmanager
-async def admin_resources(app):
+async def admin_resources(app: FastAPI) -> AsyncIterator[None]:
     async with AsyncExitStack() as stack:
         stack.push_async_callback(app.state.analytics.close)
         stack.push_async_callback(app.state.codex.close)

@@ -1,6 +1,10 @@
 """Explicit article-topic repairs without replacing unrelated classifications."""
 
+from __future__ import annotations
+
 import uuid
+from collections.abc import Sequence
+from typing import Self
 
 from pydantic import Field, model_validator
 from sqlalchemy import select
@@ -9,12 +13,14 @@ from sqlalchemy.orm import Session
 
 from devfeed_core.analysis import (
     Classifications,
+    SourceSnapshot,
     TopicSelection,
     snapshot_hash,
     source_snapshot,
     validate_evidence,
 )
 from devfeed_core.editorial import EditorialDecision, decide_article
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import (
     Article,
     ArticleContent,
@@ -41,7 +47,7 @@ class TopicCorrectionIntent(InputModel):
     restore_publication: bool = False
 
     @model_validator(mode="after")
-    def unique_topics(self):
+    def unique_topics(self) -> Self:
         for identifiers in (self.remove_topic_ids, [item.topic_id for item in self.topics]):
             if len(identifiers) != len(set(identifiers)):
                 raise ValueError("Each topic can be selected only once")
@@ -53,14 +59,16 @@ class ArticleTopicCorrection(TopicCorrectionIntent):
     expected_state_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
-def _assignment(link):
+def _assignment(link: ArticleTopic) -> JsonRecord:
     return {
         field: str(link.topic_id) if field == "topic_id" else getattr(link, field)
         for field in ("topic_id", "role", "relevance", "evidence", "origin")
     }
 
 
-def _state(session, article, body):
+def _state(
+    session: Session, article: Article, body: TopicCorrectionIntent
+) -> tuple[JsonRecord, Sequence[ArticleTopic], SourceSnapshot]:
     links = session.scalars(
         select(ArticleTopic)
         .where(ArticleTopic.article_id == article.id)
@@ -130,7 +138,7 @@ def _state(session, article, body):
     return state, links, source
 
 
-def _article(session, identifier, *, apply):
+def _article(session: Session, identifier: uuid.UUID, *, apply: bool) -> Article:
     statement = (
         select(Article).where(Article.id == identifier).execution_options(populate_existing=True)
     )
@@ -144,7 +152,13 @@ def _article(session, identifier, *, apply):
     return article
 
 
-def _changes(session, body, article, links, source):
+def _changes(
+    session: Session,
+    body: TopicCorrectionIntent,
+    article: Article,
+    links: Sequence[ArticleTopic],
+    source: SourceSnapshot,
+) -> list[ArticleTopic]:
     if body.restore_publication and article.publication_status != "published":
         raise OperationConflict("Only a previously published article can be republished")
     by_id = {link.topic_id: link for link in links}
@@ -184,7 +198,7 @@ def _changes(session, body, article, links, source):
     return removed
 
 
-def preview_article_topic_correction(session: Session, body: TopicCorrectionIntent) -> dict:
+def preview_article_topic_correction(session: Session, body: TopicCorrectionIntent) -> JsonRecord:
     """Return a reviewable plan; callers can enforce a read-only transaction."""
     article = _article(session, body.article_id, apply=False)
     state, links, source = _state(session, article, body)
@@ -207,7 +221,7 @@ def preview_article_topic_correction(session: Session, body: TopicCorrectionInte
     }
 
 
-def apply_article_topic_correction(session: Session, body: ArticleTopicCorrection) -> dict:
+def apply_article_topic_correction(session: Session, body: ArticleTopicCorrection) -> JsonRecord:
     """Apply an exact reviewed plan once, retaining manual links, tags and prose."""
     article = _article(session, body.article_id, apply=True)
     state, links, source = _state(session, article, body)

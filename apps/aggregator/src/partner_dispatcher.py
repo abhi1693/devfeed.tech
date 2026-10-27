@@ -2,7 +2,10 @@
 
 import logging
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
+
+from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_aggregator.partner_sync_tasks import dispatch_partner_pipeline
 from devfeed_aggregator.partner_tasks import dispatch_partner_evaluations
@@ -11,10 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def partner_dispatcher(factory, *, interval=1.0):
+def partner_dispatcher(factory: sessionmaker[Session], *, interval: float = 1.0) -> Iterator[None]:
     stop = threading.Event()
 
-    def run():
+    def run() -> None:
         dispatches = (
             ("pipeline", lambda: dispatch_partner_pipeline(factory, schedule=False)),
             ("evaluation", lambda: dispatch_partner_evaluations(factory)),

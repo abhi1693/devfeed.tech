@@ -11,11 +11,12 @@ import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
 from logging import Logger
-from typing import Any
 from urllib.parse import urlencode
 
+from devfeed_core.json_types import JsonRecord
 from fastapi import Request, Response
 from fastapi.responses import RedirectResponse
+from redis import Redis
 from redis.exceptions import RedisError
 
 from devfeed_http import oidc
@@ -27,7 +28,14 @@ class ExpiredRetry(oidc.OIDCError):
     """No usable recovery context remains; start a new sign-in."""
 
 
-def save(redis, *, key, browser: str, policy: str, destination: object = None) -> str:
+def save(
+    redis: Redis,
+    *,
+    key: Callable[[str, str], str],
+    browser: str,
+    policy: str,
+    destination: object = None,
+) -> str:
     if not oidc.TOKEN.fullmatch(browser):
         raise ExpiredRetry()
     token = secrets.token_urlsafe(32)
@@ -39,7 +47,9 @@ def save(redis, *, key, browser: str, policy: str, destination: object = None) -
     return token
 
 
-def consume(redis, *, key, token: str, browser: str, policy: str) -> dict:
+def consume(
+    redis: Redis, *, key: Callable[[str, str], str], token: str, browser: str, policy: str
+) -> JsonRecord:
     if not oidc.TOKEN.fullmatch(token) or not oidc.TOKEN.fullmatch(browser):
         raise ExpiredRetry()
     retry_key = key("retry", token)
@@ -78,9 +88,9 @@ class Recovery:
     policy: str
     key: Callable[[str, str], str]
     cookie: Callable[[Response, str, str, int], None]
-    redis: Callable[[], Any]
+    redis: Callable[[], Redis]
 
-    def consume(self, request: Request, token: str | None) -> dict | None:
+    def consume(self, request: Request, token: str | None) -> JsonRecord | None:
         if token is None:
             return None
         if len(request.query_params.getlist("retry")) != 1:
@@ -103,7 +113,7 @@ class Recovery:
             headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
         )
 
-    def _save(self, redis, destination: object) -> str | None:
+    def _save(self, redis: Redis, destination: object) -> str | None:
         try:
             return save(
                 redis,
@@ -129,7 +139,7 @@ class Recovery:
         self,
         error: Exception,
         *,
-        redis,
+        redis: Redis | None,
         logger: Logger,
         event: str,
         bound_flow: bool,
@@ -149,7 +159,11 @@ class Recovery:
             event,
             extra={"error_type": type(error).__name__, "reason": reason, "reference": reference},
         )
-        token = self._save(redis, destination) if bound_flow and retry_allowed else None
+        token = (
+            self._save(redis, destination)
+            if bound_flow and retry_allowed and redis is not None
+            else None
+        )
         response = self.response(reason, reference=reference, retry=token)
         if bound_flow:
             self.cookie(response, "session", "", 0)

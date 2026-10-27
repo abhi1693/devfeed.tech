@@ -3,11 +3,12 @@
 from devfeed_core.feeds.fetcher import FeedError, fetch_page
 from devfeed_core.partner_product_logos import product_icon_urls
 
+from devfeed_aggregator.image_storage_base import StoredImage
 from devfeed_aggregator.logo_storage import LogoOriginalStore
 
 
 class ProductLogoOriginalStore(LogoOriginalStore):
-    def store(self, source: str) -> dict:
+    def store(self, source: str) -> StoredImage:
         page = fetch_page(source)
         if page.status != 200 or not page.body:
             raise FeedError("Product site unavailable", reason="invalid_product_logo")

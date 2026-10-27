@@ -1,8 +1,9 @@
 """Shared input validation and record representations for the API and CLI."""
 
 import uuid
+from collections.abc import Iterable
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     MISSING,
@@ -17,7 +18,7 @@ from pydantic import (
 )
 
 from devfeed_core.config import get_settings
-from devfeed_core.json_types import JsonValue
+from devfeed_core.json_types import JsonRecord, JsonValue
 from devfeed_core.models import Article
 from devfeed_core.partner_link_rel import LinkRel, default_link_rel, sponsored_article_link_rel
 from devfeed_core.source_types import SourceType
@@ -95,7 +96,7 @@ class SourceSubmitter(InputModel):
 
     @field_validator("profile_url")
     @classmethod
-    def public_profile(cls, value):
+    def public_profile(cls, value: str | None) -> str | None:
         return validate_public_url(value) if value is not None else None
 
 
@@ -113,17 +114,17 @@ class SourceProfileInput(InputModel):
 
     @field_validator("language", mode="before")
     @classmethod
-    def normalize_language(cls, value):
+    def normalize_language(cls, value: object) -> object:
         return value.strip().lower() if isinstance(value, str) else value
 
     @field_validator("website_url", "logo_url", "image_url")
     @classmethod
-    def public_metadata_url(cls, value):
+    def public_metadata_url(cls, value: str | None) -> str | None:
         return validate_public_url(value) if value is not None else None
 
     @field_validator("description")
     @classmethod
-    def clean_description(cls, value):
+    def clean_description(cls, value: str | None) -> str | None:
         from devfeed_core.feeds.parser import plain_text
 
         if value is None:
@@ -144,7 +145,7 @@ class SourceSubmission(SourceProfileInput):
 
     @field_validator("name", mode="before")
     @classmethod
-    def empty_name_is_missing(cls, value):
+    def empty_name_is_missing(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():
             return None
         return value
@@ -165,7 +166,7 @@ class SourceCreate(SourceProfileInput):
     )
 
     @model_validator(mode="after")
-    def require_location(self):
+    def require_location(self) -> Self:
         if not self.feed_url and not self.website_url:
             raise ValueError("Provide an RSS / Atom URL or publisher website")
         return self
@@ -183,7 +184,7 @@ class SourcePatch(SourceProfileInput):
 
     @field_validator("name", "enabled", "poll_interval_seconds", "polling_mode")
     @classmethod
-    def reject_null(cls, value):
+    def reject_null(cls, value: object) -> object:
         if value is None:
             raise ValueError("Omit a field to leave it unchanged; null is not supported")
         return value
@@ -223,7 +224,7 @@ class SourceRef(ORMModel):
 
     @model_validator(mode="before")
     @classmethod
-    def managed_branding(cls, value):
+    def managed_branding(cls, value: object) -> object:
         from devfeed_core.logos import logo_url, logo_variants
         from devfeed_core.models import Source
 
@@ -256,7 +257,7 @@ class ImageJobOut(ORMModel):
     topic_id: uuid.UUID | None = None
     source_id: uuid.UUID | None = None
     operation: str | None = None
-    storage: dict | None = None
+    storage: JsonRecord | None = None
     status: str
     attempts: int
     created_at: datetime
@@ -337,7 +338,7 @@ class TagPatch(InputModel):
 
     @field_validator("name", "slug", "aliases", "auto_link_topic", mode="before")
     @classmethod
-    def reject_null(cls, value):
+    def reject_null(cls, value: object) -> object:
         if value is None:
             raise ValueError("Only topic_id can be null; omit other fields to leave them unchanged")
         return value
@@ -433,7 +434,7 @@ class ArticleOut(ORMModel):
     @classmethod
     def from_article(
         cls, article: Article, *, public: bool = True, sponsor_link_rel: list[LinkRel] | None = None
-    ):
+    ) -> Self:
         values = {
             key: getattr(article, key)
             for key in cls.model_fields
@@ -496,7 +497,7 @@ class ArticleOut(ORMModel):
         return cls.model_validate(values)
 
     @classmethod
-    def from_articles(cls, articles, *, public: bool = True):
+    def from_articles(cls, articles: Iterable[Article], *, public: bool = True) -> list[Self]:
         """Serialize a page with one shared live sponsorship-policy lookup."""
         from sqlalchemy.orm import object_session
 

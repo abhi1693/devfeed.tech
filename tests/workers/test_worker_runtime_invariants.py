@@ -17,6 +17,52 @@ from devfeed_core.models import IngestionJob, Source, TopicAnalysisJob, TopicPro
 from devfeed_core.schemas import SourceType
 
 
+def test_missing_feed_url_keeps_ingestion_retry_and_releases_lease(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now, token = utcnow(), uuid.uuid4()
+    job = IngestionJob(
+        id=uuid.uuid4(),
+        source_id=uuid.uuid4(),
+        status="running",
+        attempts=1,
+        lease_token=token,
+        lease_until=now + timedelta(minutes=5),
+    )
+    source = Source(
+        id=job.source_id,
+        enabled=True,
+        approval_status="approved",
+        poll_interval_seconds=3600,
+        consecutive_failures=0,
+    )
+    session = Mock()
+    session.scalar.return_value = source
+
+    @contextmanager
+    def transaction():
+        yield session
+
+    transport = Mock()
+    monkeypatch.setattr(tasks, "owned_job", Mock(return_value=job))
+    monkeypatch.setattr(tasks, "fetch_feed", transport)
+    tasks._ingest_claimed(
+        SimpleNamespace(begin=transaction),
+        job.id,
+        token,
+        None,
+        None,
+        None,
+        time.perf_counter(),
+        SourceType.PUBLISHER,
+    )
+
+    transport.assert_not_called()
+    assert job.status == "queued" and job.available_at > now
+    assert job.error == source.last_error == "Ingestion error: TypeError"
+    assert job.lease_token is job.lease_until is None
+
+
 @pytest.mark.parametrize("attempts", [1, 3])
 @pytest.mark.parametrize("lost_lease", [False, True])
 def test_missing_ingestion_source_uses_runtime_failure_path(monkeypatch, attempts, lost_lease):

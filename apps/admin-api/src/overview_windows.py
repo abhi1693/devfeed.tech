@@ -15,7 +15,7 @@ class ReportWindow:
     start: date | None
     end: date | None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if (self.start is None) != (self.end is None):
             raise ValueError("Both report dates are required")
         if (

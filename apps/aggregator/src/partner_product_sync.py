@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from collections.abc import Callable
 
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, start_job
@@ -9,13 +10,21 @@ from devfeed_core.models import PartnerConnection, PartnerPipelineJob, PartnerPr
 from devfeed_core.partner_catalog import lock_catalog, record_verified_redirect, upsert_listing
 from devfeed_core.partner_connectors import ConnectorClient, ProductCandidate, connector_snapshot
 from devfeed_core.partner_credentials import connection_credential
-from devfeed_core.research_evidence import fetched_page
+from devfeed_core.partner_tools import ProductInput
+from devfeed_core.research_evidence import FetchedPage, fetched_page
 from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
 
 logger = logging.getLogger(__name__)
 
 
-def process_product_sync(identifier, factory, *, product_reader=None, page_fetcher=None):
+def process_product_sync(
+    identifier: uuid.UUID,
+    factory: sessionmaker[Session],
+    *,
+    product_reader: Callable[[str, ProductCandidate], ProductInput] | None = None,
+    page_fetcher: Callable[[str, float], FetchedPage] | None = None,
+) -> None:
     from devfeed_aggregator.partner_sync_tasks import job_fields, pending_redirect_proofs, runnable
 
     with factory.begin() as session:
@@ -44,6 +53,7 @@ def process_product_sync(identifier, factory, *, product_reader=None, page_fetch
             return
         token = start_job(job, utcnow(), 120)
         payload, provider = job.payload, job.provider
+        assert provider is not None  # A sync job belongs to its validated connection.
         revision, parent_id = connection.sync_revision, parent.id
         generation = uuid.UUID(parent.payload["generation"])
         connector = parent.payload.get("connector") or connector_snapshot(connection)
@@ -91,8 +101,10 @@ def process_product_sync(identifier, factory, *, product_reader=None, page_fetch
             job.product_id = product.id
             job.status, job.error, job.finished_at = "succeeded", None, utcnow()
             clear_lease(job)
-            product_id = str(product.id)
-        logger.info("partner_product_sync_completed", extra={**fields, "product_id": product_id})
+            completed_product_id = str(product.id)
+        logger.info(
+            "partner_product_sync_completed", extra={**fields, "product_id": completed_product_id}
+        )
         return
     except FeedError as exc:
         error = "Product API could not be read" + (f" (HTTP {exc.status})" if exc.status else "")

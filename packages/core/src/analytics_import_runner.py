@@ -1,16 +1,23 @@
 """Automatically freeze, import and retire the finite legacy analytics schema."""
 
+from __future__ import annotations
+
 import asyncio
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import UTC, datetime
 from enum import Enum
 
 import psycopg
+from psycopg import AsyncConnection
+from psycopg.abc import Params, QueryNoTemplate
 from psycopg.rows import dict_row
 
+from devfeed_core.analytics import AnalyticsClient, SqlRecord
 from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
 from devfeed_core.analytics_cutover import AnalyticsCutoverBusy, LegacyAnalyticsCutover
 from devfeed_core.analytics_import import IMPORT_ID, HistoricalAnalyticsImport
+from devfeed_core.config import Settings
 
 # TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Remove this runner with the one-time
 # source import after every supported deployment has completed it.
@@ -27,7 +34,9 @@ class UnsafeImportCutover(RuntimeError):
     """The retained analytical sources do not have complete write guards."""
 
 
-def postgres_connections(database_url, *, connect_timeout=5):
+def postgres_connections(
+    database_url: str, *, connect_timeout: int = 5
+) -> Callable[[], AbstractAsyncContextManager[AsyncConnection[SqlRecord]]]:
     """Return independent async connections for the import lock and source reads."""
     if not isinstance(database_url, str) or not database_url:
         raise ValueError("An import database URL is required")
@@ -36,7 +45,7 @@ def postgres_connections(database_url, *, connect_timeout=5):
     dsn = database_url.replace("postgresql+psycopg://", "postgresql://", 1)
 
     @asynccontextmanager
-    async def connect():
+    async def connect() -> AsyncIterator[AsyncConnection[SqlRecord]]:
         async with await psycopg.AsyncConnection.connect(
             dsn, autocommit=True, row_factory=dict_row, connect_timeout=connect_timeout
         ) as connection:
@@ -45,7 +54,11 @@ def postgres_connections(database_url, *, connect_timeout=5):
     return connect
 
 
-async def _scalar(connection, statement, parameters=None):
+async def _scalar(
+    connection: AsyncConnection[SqlRecord],
+    statement: QueryNoTemplate,
+    parameters: Params | None = None,
+) -> object:
     row = await (await connection.execute(statement, parameters)).fetchone()
     if row is None:
         raise RuntimeError("Historical import coordination failed")
@@ -62,14 +75,14 @@ class AnalyticsImportRunner:
 
     def __init__(
         self,
-        client,
-        connect,
+        client: AnalyticsClient,
+        connect: Callable[[], AbstractAsyncContextManager[AsyncConnection[SqlRecord]]],
         *,
-        page_size=1000,
-        timeout=60,
-        settings=None,
-        cutover=None,
-    ):
+        page_size: int = 1000,
+        timeout: int = 60,
+        settings: Settings | None = None,
+        cutover: LegacyAnalyticsCutover | None = None,
+    ) -> None:
         if not callable(connect):
             raise ValueError("Source connections are required")
         if type(page_size) is not int or not 1 <= page_size <= 1000:
@@ -82,9 +95,11 @@ class AnalyticsImportRunner:
         self.timeout = timeout
         self.settings = settings
         self.cutover = cutover or LegacyAnalyticsCutover()
-        self._importer = None
+        self._importer: HistoricalAnalyticsImport | None = None
 
-    async def _get_importer(self, connection):
+    async def _get_importer(
+        self, connection: AsyncConnection[SqlRecord]
+    ) -> HistoricalAnalyticsImport:
         opens = ArticleOpenAnalytics(self.client)
         cutover, _ = await opens._cutover()
         if self._importer is not None:
@@ -112,7 +127,7 @@ class AnalyticsImportRunner:
         self._importer = importer
         return importer
 
-    async def once(self):
+    async def once(self) -> ImportStep:
         """Return BUSY, PROGRESSED or COMPLETE without waiting for another runner."""
         async with asyncio.timeout(self.timeout):
             async with self.connect() as lock_connection, lock_connection.transaction():
@@ -135,7 +150,7 @@ class AnalyticsImportRunner:
                         await self.cutover.cleanup(source_connection)
                 return ImportStep.PROGRESSED if more else ImportStep.COMPLETE
 
-    async def prepare(self):
+    async def prepare(self) -> datetime:
         """Fix the reader boundary before new producers start, without scanning history."""
         async with asyncio.timeout(self.timeout):
             async with self.connect() as lock_connection, lock_connection.transaction():

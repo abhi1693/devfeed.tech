@@ -5,7 +5,33 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self
 
 if TYPE_CHECKING:
+    from botocore.exceptions import ClientError
+
     from devfeed_core.config import Settings
+
+
+from types import TracebackType
+from typing import Protocol, TypedDict
+
+
+class ObjectStream(Protocol):
+    def read(self, amount: int) -> bytes: ...
+    def close(self) -> None: ...
+
+
+class ObjectResponse(TypedDict):
+    ContentLength: int
+    Body: ObjectStream
+
+
+class StorageClient(Protocol):
+    def head_object(self, *, Bucket: str, Key: str) -> object: ...
+    def get_object(self, *, Bucket: str, Key: str) -> ObjectResponse: ...
+    def put_object(
+        self, *, Bucket: str, Key: str, Body: bytes, ContentType: str, CacheControl: str
+    ) -> object: ...
+    def delete_object(self, *, Bucket: str, Key: str) -> object: ...
+    def close(self) -> None: ...
 
 
 class R2ConfigurationError(ValueError):
@@ -13,7 +39,7 @@ class R2ConfigurationError(ValueError):
 
 
 class R2Storage:
-    def __init__(self, bucket: str, *, client):
+    def __init__(self, bucket: str, *, client: StorageClient) -> None:
         self.bucket = bucket
         self._client = client
         self._closed = False
@@ -66,7 +92,7 @@ class R2Storage:
         return cls(settings.image_storage_bucket, client=client)
 
     @staticmethod
-    def _missing(error) -> bool:
+    def _missing(error: ClientError) -> bool:
         code = error.response.get("Error", {}).get("Code")
         return code in {"NoSuchKey", "404", "NotFound"} or (
             not code and error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404
@@ -104,7 +130,7 @@ class R2Storage:
         finally:
             stream.close()
 
-    def put(self, key: str, body: bytes, *, content_type: str, cache_control: str):
+    def put(self, key: str, body: bytes, *, content_type: str, cache_control: str) -> None:
         self._client.put_object(
             Bucket=self.bucket,
             Key=key,
@@ -113,10 +139,10 @@ class R2Storage:
             CacheControl=cache_control,
         )
 
-    def delete(self, key: str):
+    def delete(self, key: str) -> None:
         self._client.delete_object(Bucket=self.bucket, Key=key)
 
-    def close(self):
+    def close(self) -> None:
         if not self._closed:
             self._closed = True
             self._client.close()
@@ -124,5 +150,10 @@ class R2Storage:
     def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, exception_type, exception, traceback):
+    def __exit__(
+        self,
+        exception_type: type[BaseException] | None,
+        exception: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         self.close()

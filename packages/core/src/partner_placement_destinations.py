@@ -1,11 +1,20 @@
 """Shared destination policy for batch preflight and locked placement issuance."""
 
+from __future__ import annotations
+
+import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import func, select, tuple_
+from sqlalchemy.engine import Row
+from sqlalchemy.orm import Session
+from sqlalchemy.sql import ColumnElement, Select
 
 from devfeed_core.models import (
+    PartnerAccount,
+    PartnerAsset,
     PartnerConnection,
     PartnerListing,
     PartnerManualProduct,
@@ -14,11 +23,16 @@ from devfeed_core.models import (
 from devfeed_core.partner_connection_logos import PlacementPlatform, connection_platform
 from devfeed_core.urls import validate_public_url
 
+type DestinationRow = (
+    tuple[PartnerAsset, PartnerAccount, PartnerProduct, *tuple[object, ...]]
+    | Row[PartnerAsset, PartnerAccount, PartnerProduct, *tuple[object, ...]]
+)
+
 LISTING_LIMIT = 20
 LISTING_ORDER = (PartnerListing.provider, PartnerListing.external_id, PartnerListing.id)
 
 
-def owned_listings(*conditions):
+def owned_listings(*conditions: ColumnElement[bool]) -> Select[PartnerListing]:
     return (
         select(PartnerListing)
         .join(PartnerConnection)
@@ -32,7 +46,7 @@ def owned_listings(*conditions):
     )
 
 
-def manual_destinations(*conditions):
+def manual_destinations(*conditions: ColumnElement[bool]) -> Select[str]:
     return (
         select(PartnerProduct.product_url)
         .join(PartnerManualProduct, PartnerManualProduct.product_id == PartnerProduct.id)
@@ -44,7 +58,9 @@ def manual_destinations(*conditions):
     )
 
 
-def account_listings(account_id, product_id, *, lock=False):
+def account_listings(
+    account_id: uuid.UUID, product_id: uuid.UUID, *, lock: bool = False
+) -> Select[PartnerListing]:
     query = (
         owned_listings(
             PartnerListing.product_id == product_id,
@@ -67,13 +83,15 @@ class AccountProductCreative:
     platform: PlacementPlatform | None = None
     attribution: str | None = None
 
-    def destination(self, account, product):
+    def destination(self, account: PartnerAccount, product: PartnerProduct) -> str | None:
         if account.outbound_destination == "listing_url":
             return self.listing_url
         return devfeed_outbound_url(product.product_url)
 
 
-def account_product_creative(session, account, product, *, lock=False):
+def account_product_creative(
+    session: Session, account: PartnerAccount, product: PartnerProduct, *, lock: bool = False
+) -> AccountProductCreative | None:
     """Keep advertiser copy, attribution and destination on the same owned source.
 
     Canonical facts qualify relevance; an advertiser's live import supplies its
@@ -127,8 +145,10 @@ def account_product_creative(session, account, product, *, lock=False):
     )
 
 
-def devfeed_outbound_url(destination):
+def devfeed_outbound_url(destination: str | None) -> str | None:
     """HTTPS destination with DevFeed source, preserving other parameters and fragments."""
+    if destination is None:
+        return None
     try:
         fragment = urlsplit(destination).fragment
         destination = validate_public_url(destination)
@@ -150,17 +170,17 @@ def devfeed_outbound_url(destination):
 class PlacementDestinations:
     """Reject unavailable destinations in bounded batches without attribution locks."""
 
-    def __init__(self, session):
+    def __init__(self, session: Session) -> None:
         self.session = session
-        self._unavailable = set()
+        self._unavailable: set[tuple[uuid.UUID, uuid.UUID]] = set()
 
-    def unavailable(self, account_id, product_id):
+    def unavailable(self, account_id: uuid.UUID, product_id: uuid.UUID) -> bool:
         return (account_id, product_id) in self._unavailable
 
-    def reject(self, account_id, product_id):
+    def reject(self, account_id: uuid.UUID, product_id: uuid.UUID) -> None:
         self._unavailable.add((account_id, product_id))
 
-    def eligible_rows(self, rows):
+    def eligible_rows[R: DestinationRow](self, rows: Sequence[R]) -> list[R]:
         available, listings = set(), set()
         for asset, account, product, *_ in rows:
             if asset.ad_format == "sponsored_content":
@@ -182,7 +202,9 @@ class PlacementDestinations:
             if row[0].ad_format == "sponsored_content" or (row[1].id, row[2].id) in available
         ]
 
-    def _available_listings(self, pairs):
+    def _available_listings(
+        self, pairs: set[tuple[uuid.UUID, uuid.UUID]]
+    ) -> set[tuple[uuid.UUID, uuid.UUID]]:
         # Limit each exact account/product pair before URL validation, just as
         # the final locked resolver does. Scalar columns cannot seed stale ORM
         # instances that would mask a later listing or connection edit.

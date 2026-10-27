@@ -58,7 +58,9 @@ def public_diagnostic(error: Exception, fallback: str) -> str:
 class ConnectorPreviewService:
     """Read one page and at most three products without persisting import state."""
 
-    def __init__(self, provider: str, config: ConnectorConfig, *, credential: str | None = None):
+    def __init__(
+        self, provider: str, config: ConnectorConfig, *, credential: str | None = None
+    ) -> None:
         self.client = ConnectorClient(
             provider,
             config.model_copy(update={"timeout_seconds": min(config.timeout_seconds, 5)}),
@@ -108,7 +110,7 @@ class ConnectorPreviewService:
                 ),
             ) from None
 
-    def _log_failure(self, event, error):
+    def _log_failure(self, event: str, error: Exception) -> None:
         logger.info(
             event,
             extra={"provider": self.client.provider, "error_type": type(error).__name__},

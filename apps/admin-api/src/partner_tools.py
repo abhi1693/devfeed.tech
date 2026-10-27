@@ -1,10 +1,15 @@
 """Import connections and direct partner inventory, private to administrators."""
 
+from __future__ import annotations
+
 import logging
 import uuid
-from typing import Annotated, Literal
+from collections.abc import Sequence
+from datetime import datetime
+from typing import Annotated, Literal, TypedDict, Unpack
 
 from devfeed_core.job_lifecycle import fail_or_retry
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import (
     PartnerAccount,
     PartnerConnection,
@@ -54,6 +59,7 @@ from devfeed_core.partner_providers import PARTNER_PRESETS, PartnerProviderOut
 from devfeed_core.partner_tools import (
     EvaluationOut,
     ProductOut,
+    ProductViewData,
     manual_product_views,
     product_view,
     snapshot_current,
@@ -62,15 +68,36 @@ from devfeed_core.text_search import text_search
 from devfeed_http.body_limits import BodyLimitedRoute
 from devfeed_http.image_uploads import MAX_REQUEST_BYTES, limit_image_upload
 from devfeed_http.operation_policies import GatewayPolicy
-from devfeed_http.pagination import Listing, Page, paginate, record
+from devfeed_http.pagination import Listing, Page, PageData, paginate, record
 from devfeed_http.partner_connection_logos import ConnectionLogoEdit
 from devfeed_http.partner_connector_previews import ConnectorPreviewService
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pydantic import SecretStr
 from sqlalchemy import String, cast, exists, or_, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
 
-from devfeed_admin_api.auth import Admin, actor, require_admin
+from devfeed_admin_api.auth import Admin, AdminIdentity, actor, require_admin
 from devfeed_admin_api.dependencies import DB, get_redis
+
+
+class LogoValues(TypedDict, total=False):
+    source_url: str | None
+    file: UploadFile
+
+
+class EvaluationData(TypedDict):
+    id: uuid.UUID
+    product_id: uuid.UUID
+    status: str
+    created_at: datetime
+    finished_at: datetime | None
+    error: str | None
+    snapshot: JsonRecord
+    reviews: list[JsonRecord]
+    result: JsonRecord | None
+    current: bool
+
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +114,7 @@ router = APIRouter(
     response_model=Page[ConnectionOut],
     operation_id="admin_partner_connections_list",
 )
-def connections(query: Listing, session: DB):
+def connections(query: Listing, session: DB) -> PageData[ConnectionOut]:
     statement = select(PartnerConnection).where(PartnerConnection.archived_at.is_(None))
     if query.q:
         statement = statement.where(
@@ -100,8 +127,7 @@ def connections(query: Listing, session: DB):
         {"provider": PartnerConnection.provider, "name": PartnerConnection.name},
         default="provider",
     )
-    result["items"] = connection_views(session, result["items"])
-    return result
+    return {**result, "items": connection_views(session, result["items"])}
 
 
 @router.get(
@@ -109,7 +135,7 @@ def connections(query: Listing, session: DB):
     response_model=ConnectionOut,
     operation_id="admin_partner_connection_get",
 )
-def connection(provider: str, session: DB):
+def connection(provider: str, session: DB) -> ConnectionOut:
     value = session.get(PartnerConnection, provider)
     if value is None or value.archived_at is not None:
         raise HTTPException(404, "Import connection not found")
@@ -121,7 +147,7 @@ def connection(provider: str, session: DB):
     response_model=list[PartnerProviderOut],
     operation_id="admin_partner_providers_list",
 )
-def providers():
+def providers() -> list[PartnerProviderOut]:
     available = credential_storage_available()
     return [
         preset.model_copy(update={"credentials_available": available})
@@ -134,7 +160,7 @@ def providers():
     response_model=ConnectorPreviewOut,
     operation_id="admin_partner_connector_preview",
 )
-def preview_connector(body: ConnectorPreview, session: DB, admin: Admin):
+def preview_connector(body: ConnectorPreview, session: DB, admin: Admin) -> ConnectorPreviewOut:
     return preview_context(body, session).products()
 
 
@@ -143,15 +169,15 @@ def preview_connector(body: ConnectorPreview, session: DB, admin: Admin):
     response_model=ConnectorResponseOut,
     operation_id="admin_partner_connector_response",
 )
-def connector_response(body: ConnectorPreview, session: DB, admin: Admin):
+def connector_response(body: ConnectorPreview, session: DB, admin: Admin) -> ConnectorResponseOut:
     return preview_context(body, session).response()
 
 
-def safe_credential_error(exc):
+def safe_credential_error(exc: CredentialUnavailable) -> HTTPException:
     return HTTPException(503 if not credential_storage_available() else 422, str(exc))
 
 
-def preview_context(body, session):
+def preview_context(body: ConnectorPreview, session: Session) -> ConnectorPreviewService:
     connection = (
         current_connection(session, body.provider, body.expected_revision)
         if body.expected_revision is not None
@@ -174,7 +200,14 @@ def preview_context(body, session):
     return ConnectorPreviewService(body.provider, body.connector, credential=credential)
 
 
-def apply_connection_credential(connection, config, credential, *, required, verify=False):
+def apply_connection_credential(
+    connection: PartnerConnection,
+    config: ConnectorConfig,
+    credential: SecretStr | None,
+    *,
+    required: bool,
+    verify: bool = False,
+) -> bool:
     """Retain unchanged ciphertext; rebind only with an explicit replacement."""
     if config.auth.mode == "none":
         if credential is not None:
@@ -195,7 +228,9 @@ def apply_connection_credential(connection, config, credential, *, required, ver
     return False
 
 
-def log_connection(event, connection, admin, affected_jobs):
+def log_connection(
+    event: str, connection: PartnerConnection, admin: AdminIdentity, affected_jobs: Sequence[str]
+) -> None:
     logger.info(
         event,
         extra={
@@ -219,8 +254,8 @@ def log_connection(event, connection, admin, affected_jobs):
     status_code=201,
     operation_id="admin_partner_connection_create",
 )
-def create_connection(body: ConnectionCreate, session: DB, admin: Admin):
-    def validate_creation():
+def create_connection(body: ConnectionCreate, session: DB, admin: Admin) -> ConnectionOut:
+    def validate_creation() -> None:
         if body.connector is None and body.provider not in CONNECTOR_PRESETS:
             raise HTTPException(422, "Provide an API connector definition")
         if body.name is None and body.provider not in PARTNER_PRESETS:
@@ -265,7 +300,9 @@ def create_connection(body: ConnectionCreate, session: DB, admin: Admin):
     return connection_view(session, connection)
 
 
-def current_connection(session, provider, expected_revision, *, lock=False):
+def current_connection(
+    session: Session, provider: str, expected_revision: int, *, lock: bool = False
+) -> PartnerConnection:
     statement = select(PartnerConnection).where(
         PartnerConnection.provider == provider, PartnerConnection.archived_at.is_(None)
     )
@@ -284,8 +321,10 @@ def current_connection(session, provider, expected_revision, *, lock=False):
     response_model=ConnectionOut,
     operation_id="admin_partner_connection_update",
 )
-def update_connection(provider: str, body: ConnectionSettings, session: DB, admin: Admin):
-    def authorize():
+def update_connection(
+    provider: str, body: ConnectionSettings, session: DB, admin: Admin
+) -> ConnectionOut:
+    def authorize() -> PartnerConnection:
         return current_connection(session, provider, body.expected_revision)
 
     connection = authorize()
@@ -350,8 +389,14 @@ def update_connection(provider: str, body: ConnectionSettings, session: DB, admi
     return connection_view(session, connection)
 
 
-def save_connection_logo(provider, expected_revision, session, admin, **values):
-    def authorize():
+def save_connection_logo(
+    provider: str,
+    expected_revision: int,
+    session: Session,
+    admin: AdminIdentity,
+    **values: Unpack[LogoValues],
+) -> ConnectionOut:
+    def authorize() -> PartnerConnection:
         return current_connection(session, provider, expected_revision)
 
     connection = authorize()
@@ -393,7 +438,7 @@ def upload_connection_logo(
     file: Annotated[UploadFile, File(description="JPEG, PNG or WebP, up to 5 MB")],
     session: DB,
     admin: Admin,
-):
+) -> ConnectionOut:
     return save_connection_logo(provider, expected_revision, session, admin, file=file)
 
 
@@ -405,7 +450,7 @@ def upload_connection_logo(
 )
 def update_connection_logo(
     provider: ProviderSlug, body: ConnectionLogoUpdate, session: DB, admin: Admin
-):
+) -> ConnectionOut:
     return save_connection_logo(
         provider, body.expected_revision, session, admin, source_url=body.logo_url
     )
@@ -416,7 +461,9 @@ def update_connection_logo(
     response_model=ConnectionOut,
     operation_id="admin_partner_connection_action",
 )
-def connection_action(provider: str, body: ConnectionAction, session: DB, admin: Admin):
+def connection_action(
+    provider: str, body: ConnectionAction, session: DB, admin: Admin
+) -> ConnectionOut:
     lock_catalog(session)
     if not session.get(PartnerConnection, provider):
         if provider not in PARTNER_PRESETS:
@@ -468,7 +515,7 @@ def connection_action(provider: str, body: ConnectionAction, session: DB, admin:
     response_model=Page[PartnerJobOut],
     operation_id="admin_partner_connection_jobs",
 )
-def connection_jobs(provider: str, session: DB, query: Listing):
+def connection_jobs(provider: str, session: DB, query: Listing) -> PageData[PartnerPipelineJob]:
     connection = session.get(PartnerConnection, provider)
     if connection is None or connection.archived_at is not None:
         raise HTTPException(404, "Import connection not found")
@@ -516,7 +563,7 @@ def listing(
     provider: str | None = None,
     product_id: uuid.UUID | None = None,
     status: Literal["pending", "approved", "rejected", "paused", "withdrawn"] | None = None,
-):
+) -> PageData[ProductViewData]:
     statement = select(PartnerProduct).where(PartnerProduct.merged_into_id.is_(None), has_sources())
     if provider is not None:
         statement = statement.where(
@@ -551,7 +598,9 @@ def listing(
 @router.post(
     "/{product_id}/actions", response_model=ProductOut, operation_id="admin_partner_product_action"
 )
-def product_action(product_id: uuid.UUID, body: ProductAction, session: DB, admin: Admin):
+def product_action(
+    product_id: uuid.UUID, body: ProductAction, session: DB, admin: Admin
+) -> ProductViewData:
     lock_catalog(session)
     product = record(session, PartnerProduct, product_id)
     if product.merged_into_id or not session.scalar(
@@ -580,13 +629,14 @@ def product_action(product_id: uuid.UUID, body: ProductAction, session: DB, admi
         fail_or_retry(job, "Product action superseded this check", utcnow(), retryable=False)
     for evaluation in evaluations:
         fail_or_retry(evaluation, "Product action superseded this check", utcnow(), retryable=False)
-    product = session.scalar(
+    locked_product = session.scalar(
         select(PartnerProduct)
         .where(PartnerProduct.id == product_id)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    assert product is not None
+    assert locked_product is not None
+    product = locked_product
     if product.revision != body.expected_revision:
         raise HTTPException(409, "Product changed; refresh and try again")
     if product.status == "withdrawn" and body.action == "retry":
@@ -619,21 +669,16 @@ def product_action(product_id: uuid.UUID, body: ProductAction, session: DB, admi
     )
 
 
-def evaluation_view(session, job):
+def evaluation_view(session: Session, job: PartnerEvaluation) -> EvaluationData:
     return {
-        **{
-            key: getattr(job, key)
-            for key in (
-                "id",
-                "product_id",
-                "status",
-                "created_at",
-                "finished_at",
-                "error",
-                "snapshot",
-                "reviews",
-            )
-        },
+        "id": job.id,
+        "product_id": job.product_id,
+        "status": job.status,
+        "created_at": job.created_at,
+        "finished_at": job.finished_at,
+        "error": job.error,
+        "snapshot": job.snapshot,
+        "reviews": job.reviews,
         "result": job.result or None,
         "current": snapshot_current(session, job),
     }
@@ -644,7 +689,7 @@ def evaluation_view(session, job):
     response_model=list[EvaluationOut],
     operation_id="admin_partner_tools_evaluations",
 )
-def evaluations(product_id: uuid.UUID, session: DB):
+def evaluations(product_id: uuid.UUID, session: DB) -> list[EvaluationData]:
     product = record(session, PartnerProduct, product_id)
     if product.merged_into_id or not session.scalar(
         select(PartnerProduct.id).where(PartnerProduct.id == product.id, has_sources())

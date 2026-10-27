@@ -1,14 +1,17 @@
 """Browser consent and account-owned OAuth grants for the personal MCP resource."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import re
 import secrets
 import time
 import uuid
-from typing import Literal
+from typing import Literal, TypedDict, cast
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import UserAccount
 from devfeed_http.agent_permissions import AgentAccessPolicy
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -30,15 +33,15 @@ def key(kind: str, value: str) -> str:
     return f"devfeed:mcp:{kind}:{hashlib.sha256(value.encode()).hexdigest()}"
 
 
-def record(kind: str, value: str):
+def record(kind: str, value: str) -> JsonRecord | None:
     try:
         raw = get_redis().get(key(kind, value))
-        return json.loads(raw) if raw else None
+        return cast(JsonRecord, json.loads(raw)) if raw else None
     except RedisError as exc:
         raise HTTPException(503, "Agent connections temporarily unavailable") from exc
 
 
-def browser_user(request: Request):
+def browser_user(request: Request) -> UserIdentity:
     if request.headers.get("authorization"):
         raise HTTPException(401, "Browser sign-in required")
     return require_user(request)
@@ -114,21 +117,49 @@ class Connection(BaseModel):
     absolute_expires_at: int
 
 
+class RequestDetailsData(TypedDict):
+    client_name: str
+    scopes: list[str]
+    resource: str
+    redirect_uri: str
+
+
+class AuthorizationData(TypedDict):
+    redirect_url: str
+
+
+class ConnectionData(TypedDict):
+    id: str
+    client_name: str
+    scopes: list[str]
+    expires_at: int
+    absolute_expires_at: int
+
+
+class ConnectionsData(TypedDict):
+    items: list[ConnectionData]
+
+
 class ConnectionsPage(BaseModel):
     items: list[Connection]
 
 
 @router.get("/requests/{request_id}", response_model=RequestDetails)
-def pending(request_id: str, request: Request):
+def pending(request_id: str, request: Request) -> RequestDetailsData:
     browser_user(request)
     value = record("pending", request_id) if TOKEN.fullmatch(request_id) else None
     if not value:
         raise HTTPException(404, "Authorization request expired")
-    return {name: value[name] for name in ("client_name", "scopes", "resource", "redirect_uri")}
+    return {
+        "client_name": value["client_name"],
+        "scopes": value["scopes"],
+        "resource": value["resource"],
+        "redirect_uri": value["redirect_uri"],
+    }
 
 
 @router.post("/requests/{request_id}", response_model=AuthorizationRedirect)
-def approve(request_id: str, payload: Consent, request: Request):
+def approve(request_id: str, payload: Consent, request: Request) -> AuthorizationData:
     user = browser_user(request)
     if not TOKEN.fullmatch(request_id):
         raise HTTPException(404, "Authorization request expired")
@@ -212,23 +243,25 @@ def approve(request_id: str, payload: Consent, request: Request):
 
 
 @router.get("/connections", response_model=ConnectionsPage)
-def connections(request: Request):
+def connections(request: Request) -> ConnectionsData:
     user = browser_user(request)
     redis = get_redis()
     index = key("connections", user.user_id)
     redis.zremrangebyscore(index, "-inf", int(time.time()))
-    items = []
-    for item in redis.zrange(index, 0, 19):
+    items: list[ConnectionData] = []
+    # Redis returns unscored members here; the SDK overload includes scored tuples.
+    for item in cast(list[bytes | str], redis.zrange(index, 0, 19)):
         grant_id = item.decode() if isinstance(item, bytes) else item
         grant = record("grant", grant_id)
         if grant and grant["identity"]["user_id"] == user.user_id:
+            expires_at: int = grant["expires_at"]
             items.append(
                 dict(
                     id=grant_id,
                     client_name=grant["client_name"],
                     scopes=grant["scopes"],
                     expires_at=grant["expires_at"],
-                    absolute_expires_at=grant.get("absolute_expires_at", grant["expires_at"]),
+                    absolute_expires_at=grant.get("absolute_expires_at", expires_at),
                 )
             )
         else:
@@ -237,7 +270,7 @@ def connections(request: Request):
 
 
 @router.delete("/connections/{grant_id}", status_code=204, response_class=Response)
-def disconnect(grant_id: str, request: Request):
+def disconnect(grant_id: str, request: Request) -> None:
     user = browser_user(request)
     grant = record("grant", grant_id) if TOKEN.fullmatch(grant_id) else None
     if grant and grant["identity"]["user_id"] != user.user_id:

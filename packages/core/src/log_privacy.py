@@ -1,7 +1,11 @@
 """Remove authentication material without hiding ordinary operational context."""
 
+from __future__ import annotations
+
 import re
 from urllib.parse import quote, unquote
+
+from devfeed_core.json_types import JsonValue
 
 REDACTED = "[REDACTED]"
 # These names are credentials even outside a URL. Avoid ambiguous fields such as
@@ -83,7 +87,7 @@ def redact_auth_text(value: str, depth: int = 0) -> str:
     return _PARAMETER.sub(parameter, value)
 
 
-def redact_authentication(value, depth: int = 0):
+def redact_authentication(value: JsonValue, depth: int = 0) -> JsonValue:
     """Protect structured fields and URL-bearing messages at the output boundary."""
     if isinstance(value, str):
         return redact_auth_text(value)
@@ -97,7 +101,7 @@ def redact_authentication(value, depth: int = 0):
         if (
             isinstance(value.get("key"), str)
             and "value" in value
-            and _credential_field(value["key"])
+            and _credential_field(str(value["key"]))
         ):
             output["value"] = (
                 {"stringValue": REDACTED} if isinstance(value["value"], dict) else REDACTED

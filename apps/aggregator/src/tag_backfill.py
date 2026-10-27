@@ -4,6 +4,7 @@ from collections import defaultdict
 from uuid import UUID
 
 from devfeed_core.db import session_factory
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import Article, ArticleOrigin, Source
 from devfeed_core.source_tags import attach_source_tags, resolve_source_tags, source_tag_names
 from sqlalchemy import func, select
@@ -15,7 +16,7 @@ def backfill_tags(
     after: UUID | None = None,
     source_id: UUID | None = None,
     dry_run: bool = False,
-) -> dict:
+) -> JsonRecord:
     if not 1 <= limit <= 500:
         raise ValueError("Limit must be between 1 and 500")
     statement = (

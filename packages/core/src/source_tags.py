@@ -1,14 +1,17 @@
 """Import explicit feed labels independently of inferred article classifications."""
 
+from __future__ import annotations
+
 import hashlib
 import re
 import unicodedata
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from types import MappingProxyType
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session, lazyload
 
 from devfeed_core.feeds.parser import plain_text
@@ -43,10 +46,13 @@ def source_tag_slug(name: str) -> str:
 
 # A single immutable projection, keyed by the transactional catalog revision.
 # Do not retain ORM objects, sessions, or prior catalog generations.
-_identity_snapshot: tuple | None = None
+type SourceTagIndex = tuple[Mapping[str, uuid.UUID], Mapping[str, uuid.UUID]]
+_identity_snapshot: tuple[tuple[Engine | Connection, uuid.UUID | None], *SourceTagIndex] | None = (
+    None
+)
 
 
-def _source_tag_index(session):
+def _source_tag_index(session: Session) -> SourceTagIndex:
     global _identity_snapshot
     session.flush()
     revision_query = select(CatalogRevision.revision).where(CatalogRevision.name == "tags")

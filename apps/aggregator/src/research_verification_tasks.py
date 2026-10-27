@@ -17,7 +17,9 @@ from devfeed_core.inference_usage import inference_context
 from devfeed_core.job_lifecycle import finish_job, start_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import owned_job
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import (
+    Base,
     ResearchVerificationJob,
     Topic,
     TopicAnalysisJob,
@@ -58,15 +60,17 @@ from devfeed_aggregator.codex_client import AnalysisError, CodexClient
 logger = logging.getLogger(__name__)
 
 
-def _locked(session, model, identifier):
-    return session.scalar(select(model).where(model.id == identifier).with_for_update())
+def _locked[T: Base](session: Session, model: type[T], identifier: uuid.UUID) -> T | None:
+    return session.scalar(select(model).where(model.__table__.c.id == identifier).with_for_update())
 
 
 class VerificationClient(Protocol):
     token_limit: int | None
     search_limit: int | None
 
-    def complete(self, prompt: str, schema: dict, *, allow_web_search: bool = False) -> dict: ...
+    def complete(
+        self, prompt: str, schema: JsonRecord, *, allow_web_search: bool = False
+    ) -> JsonRecord: ...
 
 
 @dataclass(frozen=True)
@@ -75,11 +79,11 @@ class VerificationContext:
     token: uuid.UUID
     attempt: int
     citations: list[tuple[str, str]]
-    proposals: list[dict]
-    metadata: dict | None
-    verification: dict
-    semantic: dict
-    topic_semantic: dict
+    proposals: list[JsonRecord]
+    metadata: JsonRecord | None
+    verification: JsonRecord
+    semantic: JsonRecord
+    topic_semantic: JsonRecord
 
 
 @dataclass
@@ -90,9 +94,9 @@ class ModelAttempt:
 
 @dataclass(frozen=True)
 class VerificationOutcome:
-    verification: dict
-    semantic: dict
-    topic_semantic: dict
+    verification: JsonRecord
+    semantic: JsonRecord
+    topic_semantic: JsonRecord
     reason: str | None
     retry_after: int
     citations_retried: int
@@ -106,9 +110,9 @@ class ResearchVerificationService:
         settings: Settings,
         factory: sessionmaker[Session],
         client_factory: Callable[[Settings], VerificationClient],
-        citation_checker: Callable[[list[tuple[str, str]]], dict],
+        citation_checker: Callable[[list[tuple[str, str]]], JsonRecord],
         clock: Callable[[], datetime],
-    ):
+    ) -> None:
         self.settings = settings
         self.factory = factory
         self.client_factory = client_factory
@@ -166,6 +170,7 @@ class ResearchVerificationService:
                 task.dispatched_at = None
                 return None
             job = _locked(session, TopicAnalysisJob, identifier)
+            assert job is not None  # The locked verification task retains this required FK.
             if job.proposal_id:
                 proposal = session.get(TopicProposal, job.proposal_id)
                 if proposal is not None and not proposal_allowed(proposal):
@@ -209,6 +214,7 @@ class ResearchVerificationService:
                 ]
                 citations = [(item["evidence_url"], item["evidence_quote"]) for item in proposals]
             else:
+                assert job.proposal_id is not None  # Metadata verification targets a proposal.
                 proposal = _locked(session, TopicProposal, job.proposal_id)
                 citations = (
                     [(item["url"], item["quote"]) for item in job.result.get("sources", [])]
@@ -216,6 +222,7 @@ class ResearchVerificationService:
                     else []
                 )
                 if citations:
+                    assert proposal is not None
                     metadata = topic_verification.verification_input(proposal)
                     if job.input_snapshot.get("branding"):
                         metadata["branding"] = True
@@ -338,7 +345,7 @@ class ResearchVerificationService:
         )
 
     def _verify_relationships(
-        self, to_review: list[dict], semantic_checks: dict, attempt: ModelAttempt
+        self, to_review: list[JsonRecord], semantic_checks: JsonRecord, attempt: ModelAttempt
     ) -> str | None:
         with inference_context(operation="relationship_verification"):
             client = attempt.client = self.client_factory(self.settings)
@@ -364,8 +371,8 @@ class ResearchVerificationService:
         return None
 
     def _verify_topic(
-        self, metadata: dict, topic_semantic: dict, attempt: ModelAttempt
-    ) -> tuple[dict, bool, str | None]:
+        self, metadata: JsonRecord, topic_semantic: JsonRecord, attempt: ModelAttempt
+    ) -> tuple[JsonRecord, bool, str | None]:
         topic_checked, semantic_error = False, None
         if not topic_semantic or read_topic_verdict(topic_semantic).uncertain:
             client = attempt.client = self.client_factory(self.settings)
@@ -404,6 +411,7 @@ class ResearchVerificationService:
             if task is None:
                 return
             job = _locked(session, TopicAnalysisJob, identifier)
+            assert job is not None  # The locked verification task retains this required FK.
             lock_topics(session)
             job.result = {
                 **job.result,

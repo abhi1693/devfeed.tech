@@ -5,33 +5,83 @@ bodies, credentials, article contents, or exception messages. RQ starts this
 runtime *after* fork and bounds shutdown before the work horse calls os._exit.
 """
 
+from __future__ import annotations
+
 import inspect
 import logging
 import os
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import contextmanager
 from functools import wraps
+from typing import Protocol, TypedDict, cast
 
 from opentelemetry import metrics, trace
+from opentelemetry.context import Context
 from opentelemetry.sdk.metrics import Counter, MeterProvider
+from opentelemetry.sdk.metrics.export import MetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+from opentelemetry.util.types import AttributeValue
 
 from devfeed_core.config import Settings, get_settings
 from devfeed_core.metrics import DURATION_BUCKETS, MetricServer
 from devfeed_core.version import __version__
 
+
+class Instruments(TypedDict):
+    polling_interval: metrics.Histogram
+    polling_new_entries: metrics.Counter
+    polling_unchanged: metrics.Counter
+    polling_queue_delay: metrics.Histogram
+    polling_discovery_delay: metrics.Histogram
+    worker_active: Gauge
+    executions: metrics.Counter
+    execution_duration: metrics.Histogram
+    cycles: metrics.Counter
+    cycle_duration: metrics.Histogram
+    last_success: Gauge
+    analytics_oldest: Gauge
+    search_documents: metrics.Counter
+    search_outbox: Gauge
+    search_oldest: Gauge
+    dependency: metrics.Histogram
+    database: metrics.Histogram
+    cache: metrics.Counter
+    cache_invalidations: metrics.Counter
+    cache_invalidation_causes: metrics.Counter
+    db_wait: metrics.Histogram
+    db_connections: metrics.UpDownCounter
+    admission_route_active: metrics.UpDownCounter
+    admission_duration: metrics.Histogram
+    rejections: metrics.Counter
+    admitted: metrics.UpDownCounter
+    limit: Gauge
+
+
+class Profiler(Protocol):
+    def shutdown(self) -> None: ...
+
+
+class Gauge(Protocol):
+    def set(
+        self,
+        amount: float,
+        attributes: Mapping[str, AttributeValue] | None = None,
+        context: Context | None = None,
+    ) -> None: ...
+
+
 logger = logging.getLogger(__name__)
-_runtime: "Runtime | None" = None
+_runtime: Runtime | None = None
 _propagator = TraceContextTextMapPropagator()  # Never propagate arbitrary baggage.
 
 
-def current() -> "Runtime | None":
+def current() -> Runtime | None:
     return _runtime if _runtime and _runtime.pid == os.getpid() else None
 
 
@@ -51,7 +101,7 @@ def inject_context() -> dict[str, str]:
     return carrier
 
 
-def extract_context(carrier):
+def extract_context(carrier: object) -> Context:
     # Only traceparent is accepted. Tracestate/baggage may carry user identifiers.
     parent = carrier.get("traceparent", "") if isinstance(carrier, dict) else ""
     return _propagator.extract(
@@ -59,8 +109,8 @@ def extract_context(carrier):
     )
 
 
-def bounded_shutdown(callback, timeout: float = 2) -> None:
-    def run():
+def bounded_shutdown(callback: Callable[[], object], timeout: float = 2) -> None:
+    def run() -> None:
         try:
             callback()
         except Exception:
@@ -74,15 +124,15 @@ def bounded_shutdown(callback, timeout: float = 2) -> None:
 
 
 class Runtime:
-    def __init__(self, service: str, settings: Settings):
+    def __init__(self, service: str, settings: Settings) -> None:
         self.pid = os.getpid()
         self.service = service
         self.settings = settings
         self.metric_server = MetricServer()
         self.provider: TracerProvider | None = None
         self.meter_provider: MeterProvider | None = None
-        self.instruments: dict = create_instruments(metrics.NoOpMeter("devfeed"))
-        self.profiler = None
+        self.instruments: Instruments = create_instruments(metrics.NoOpMeter("devfeed"))
+        self.profiler: Profiler | None = None
 
     def resource_attributes(self) -> dict[str, str]:
         return {
@@ -148,7 +198,13 @@ class Runtime:
             except Exception:
                 logger.warning("profiling_initialization_failed")
 
-    def start_metrics(self, readers=None, *, serve_metrics=True, export_otlp=True) -> None:
+    def start_metrics(
+        self,
+        readers: list[MetricReader] | None = None,
+        *,
+        serve_metrics: bool = True,
+        export_otlp: bool = True,
+    ) -> None:
         """One owned metric pipeline; readers can be supplied by regression tests."""
         try:
             if readers is None:
@@ -218,7 +274,7 @@ class Runtime:
 
 
 def start_runtime(
-    service: str, *, serve_metrics=True, profiling=True, tracing=True
+    service: str, *, serve_metrics: bool = True, profiling: bool = True, tracing: bool = True
 ) -> Runtime | None:
     global _runtime
     if os.getenv("OTEL_SDK_DISABLED", "").lower() == "true":
@@ -243,7 +299,13 @@ def stop_runtime(runtime: Runtime | None) -> None:
 
 
 @contextmanager
-def span(name: str, *, attributes=None, context=None, kind=trace.SpanKind.INTERNAL) -> Iterator:
+def span(
+    name: str,
+    *,
+    attributes: Mapping[str, AttributeValue] | None = None,
+    context: Context | None = None,
+    kind: trace.SpanKind = trace.SpanKind.INTERNAL,
+) -> Iterator[trace.Span]:
     runtime = current()
     tracer = (
         runtime.provider.get_tracer("devfeed")
@@ -267,7 +329,7 @@ def span(name: str, *, attributes=None, context=None, kind=trace.SpanKind.INTERN
 
 
 @contextmanager
-def background_cycle(name: str) -> Iterator:
+def background_cycle(name: str) -> Iterator[None]:
     started = time.monotonic()
     result = "error"
     try:
@@ -284,7 +346,7 @@ def background_cycle(name: str) -> Iterator:
 
 
 @contextmanager
-def dependency_call(dependency: str, operation: str) -> Iterator:
+def dependency_call(dependency: str, operation: str) -> Iterator[None]:
     started = time.monotonic()
     result = "error"
     try:
@@ -303,21 +365,23 @@ def dependency_call(dependency: str, operation: str) -> Iterator:
             )
 
 
-def observed_dependency(dependency: str, operation: str):
+def observed_dependency[**P, R](
+    dependency: str, operation: str
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Names come from source constants; never derive labels from URLs or inputs."""
 
-    def decorate(function):
+    def decorate(function: Callable[P, R]) -> Callable[P, R]:
         if inspect.iscoroutinefunction(function):
 
             @wraps(function)
-            async def asynchronous(*args, **kwargs):
+            async def asynchronous(*args: P.args, **kwargs: P.kwargs) -> object:
                 with dependency_call(dependency, operation):
-                    return await function(*args, **kwargs)
+                    return await cast(Awaitable[object], function(*args, **kwargs))
 
-            return asynchronous
+            return cast(Callable[P, R], asynchronous)
 
         @wraps(function)
-        def synchronous(*args, **kwargs):
+        def synchronous(*args: P.args, **kwargs: P.kwargs) -> R:
             with dependency_call(dependency, operation):
                 return function(*args, **kwargs)
 
@@ -326,7 +390,7 @@ def observed_dependency(dependency: str, operation: str):
     return decorate
 
 
-def create_instruments(meter):
+def create_instruments(meter: metrics.Meter) -> Instruments:
     return {
         "polling_interval": meter.create_histogram(
             "devfeed.source.poll_interval",
