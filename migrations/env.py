@@ -11,6 +11,34 @@ configure_logging("migration", settings.log_level, settings.log_format)
 logger = logging.getLogger("devfeed_core.migrations")
 
 
+def prepare_online_upgrade(migration_fn):
+    """Prepare large indexes before any transactional upgrade step runs."""
+
+    def migrations(revisions, migration_context):
+        steps = tuple(migration_fn(revisions, migration_context))
+        if revisions:
+            for step in steps:
+                info = step.info
+                if info.is_upgrade and not info.is_stamp and "0040" in info.up_revision_ids:
+                    # The existing Alembic transaction has only read its version.
+                    # A separate connection leaves that version and old writers
+                    # available throughout the concurrent historical table scans.
+                    with (
+                        get_engine()
+                        .connect()
+                        .execution_options(isolation_level="AUTOCOMMIT") as connection
+                    ):
+                        revision = next(
+                            revision
+                            for revision in info.up_revisions
+                            if revision.revision == "0040"
+                        )
+                        revision.module.prepare_active_indexes(connection)
+        return steps
+
+    return migrations
+
+
 def run_migration_context():
     if context.is_offline_mode():
         context.configure(
@@ -24,6 +52,12 @@ def run_migration_context():
     else:
         with get_engine().connect() as connection:
             context.configure(connection=connection, target_metadata=Base.metadata)
+            migration_fn = context.get_context().opts["fn"]
+            context.configure(
+                connection=connection,
+                target_metadata=Base.metadata,
+                fn=prepare_online_upgrade(migration_fn),
+            )
             with context.begin_transaction():
                 context.run_migrations()
 

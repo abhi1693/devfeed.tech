@@ -474,6 +474,16 @@ def test_initial_import_delivers_live_facts_and_heartbeats_without_publishing_pa
     service.rollups.refresh_one.side_effect = AssertionError("Partial history was rebuilt")
     service.rollups.compact_one.side_effect = AssertionError("Partial history was compacted")
     service._refresh_gauges = AsyncMock(side_effect=AssertionError("Initial gauges published"))
+
+    async def publish_current_cards(*_args, **_kwargs):
+        assert [p for q, p in connection.calls if q.startswith("DELETE")] == [([31],)]
+        assert connection.active == 0
+        service.cards.bootstrapping = False
+        await service.client.insert("analytics_card_status", [dict(ready=1)])
+        return True
+
+    service.cards.bootstrapping = True
+    service.cards.once.side_effect = publish_current_cards
     monkeypatch.setattr(
         worker.psycopg, "AsyncConnection", NS(connect=AsyncMock(return_value=connection))
     )
@@ -491,11 +501,19 @@ def test_initial_import_delivers_live_facts_and_heartbeats_without_publishing_pa
     service.rollups.compact_one.assert_not_awaited()
     service._refresh_gauges.assert_not_awaited()
     service.gauges.bootstrap_complete.assert_not_awaited()
+    service.cards.ingest.assert_awaited_once_with(
+        connection, events, 42, fence=service._check_lease
+    )
+    service.cards.once.assert_awaited_once_with(
+        connection, 42, fence=service._check_lease, renew=service._lease
+    )
     assert [p for q, p in connection.calls if q.startswith("DELETE")] == [([31],)]
     assert service.client.inserts[0] == ("analytics_fact_events", facts)
+    assert service.client.inserts[1] == ("analytics_card_status", [dict(ready=1)])
     assert service.client.inserts[-1][0] == "analytics_pipeline_status"
     assert service.client.inserts[-1][1][0]["ready"] == 0
-    assert service._lease.await_count == 4 and service.bootstrapping
+    assert service._lease.await_count == 5 and service.bootstrapping
+    assert not service.cards.bootstrapping
     assert any(
         q.startswith("UPDATE analytics_pipeline_state SET last_success")
         and "lease_token=NULL,lease_until=NULL" in q
@@ -581,7 +599,10 @@ def test_completed_raw_import_requires_rollup_and_gauge_barriers_across_failure_
 @pytest.mark.parametrize(
     "busy", [None, "upgrade", "backfill", "events", "rollup", "gauges", "cards", "compact"]
 )
-def test_export_cycle_orders_handoffs_reuses_original_capture_and_releases_lease(monkeypatch, busy):
+@pytest.mark.parametrize("historical_ready", [False, True])
+def test_export_cycle_orders_handoffs_reuses_original_capture_and_releases_lease(
+    monkeypatch, busy, historical_ready
+):
     connection = Connection()
     service = exporter(connection)
     trace = []
@@ -594,7 +615,7 @@ def test_export_cycle_orders_handoffs_reuses_original_capture_and_releases_lease
         return perform
 
     service._enable_capture = AsyncMock()
-    service._raw_backfill_complete = AsyncMock(return_value=True)
+    service._raw_backfill_complete = AsyncMock(return_value=historical_ready)
     leases = [
         dict(
             capture_started_at=NOW,
@@ -618,8 +639,17 @@ def test_export_cycle_orders_handoffs_reuses_original_capture_and_releases_lease
     )
     marker = Mock()
     monkeypatch.setattr(worker, "write_runtime_marker", marker)
-    assert run(service.once()) is (busy is not None)
-    assert trace == ["upgrade", "backfill", "events", "rollup", "gauges", "cards", "compact"]
+    expected_busy = busy in {"upgrade", "backfill", "events", "cards"} or (
+        historical_ready and busy is not None
+    )
+    assert run(service.once()) is expected_busy
+    expected = ["upgrade", "backfill", "events"]
+    if historical_ready:
+        expected += ["rollup", "gauges"]
+    expected += ["cards"]
+    if historical_ready:
+        expected += ["compact"]
+    assert trace == expected
     assert service.capture_started_at == NOW - timedelta(days=60)
     assert service._backfill_one.call_args.args[1] == 2
     assert service._export_events.call_args.args[1] == 3
@@ -632,11 +662,12 @@ def test_export_cycle_orders_handoffs_reuses_original_capture_and_releases_lease
 
 
 @pytest.mark.parametrize("lost", range(5))
-def test_export_cycle_stops_after_missing_or_expired_renewal(monkeypatch, lost):
+@pytest.mark.parametrize("historical_ready", [False, True])
+def test_export_cycle_stops_after_missing_or_expired_renewal(monkeypatch, lost, historical_ready):
     connection = Connection()
     service = exporter(connection)
     service._enable_capture = AsyncMock()
-    service._raw_backfill_complete = AsyncMock(return_value=True)
+    service._raw_backfill_complete = AsyncMock(return_value=historical_ready)
     lease = dict(capture_started_at=NOW, native_capture_started_at=None, lease_generation=2)
     service._lease = AsyncMock(side_effect=[lease] * lost + [None])
     service._backfill_one = AsyncMock(return_value=False)

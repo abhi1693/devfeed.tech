@@ -8,9 +8,13 @@ from datetime import UTC, datetime, timedelta
 
 import psycopg
 import pytest
+from devfeed_admin_api.analytics_runtime import AnalyticsRuntime
+from devfeed_admin_api.overview_windows import recent_window
 from devfeed_core.analytics import AnalyticsClient
 from devfeed_core.analytics_cards import CardPublisher
-from devfeed_core.models import Article, ArticleOrigin, Source
+from devfeed_core.analytics_worker import AnalyticsExporter
+from devfeed_core.models import Article, ArticleOrigin, InferenceCall, Source
+from fastapi import HTTPException
 from psycopg.rows import dict_row
 from sqlalchemy import text
 
@@ -102,6 +106,112 @@ async def native_publisher():
                         publisher.close()
         finally:
             await admin.execute(f"DROP DATABASE `{name}` SYNC")
+
+
+def test_exporter_serves_current_boards_and_live_updates_during_historical_backfill(database):
+    now = datetime.now(UTC)
+    article_id = uuid.uuid4()
+    with database.begin() as session:
+        session.add(
+            Article(
+                id=article_id,
+                title="Current article before",
+                canonical_url="https://example.invalid/current",
+                url_hash="1" * 64,
+                discovered_at=now,
+                published_to_feed_at=now,
+                publication_status="published",
+                review_status="approved",
+            )
+        )
+        session.add_all(
+            InferenceCall(
+                id=uuid.UUID(int=number),
+                started_at=now - timedelta(days=30),
+                operation="article_analysis",
+                request_hash="historical",
+                status="succeeded",
+                tokens={"inputTokens": 5},
+                web_searches=0,
+                duration_ms=1,
+            )
+            for number in range(1, 1001)
+        )
+
+    async def verify():
+        async with native_publisher() as (_, client, connection, _, _):
+            await client.initialize()
+            configured = client.settings.model_copy(
+                update={"analytics_backfill_batch_size": 1, "cache_enabled": False}
+            )
+            exporter = AnalyticsExporter(client, configured)
+            runtime = AnalyticsRuntime(configured, client=client)
+            await connection.execute(
+                "UPDATE analytics_pipeline_state SET enabled=false,lease_token=NULL,"
+                "lease_until=NULL WHERE singleton"
+            )
+
+            async def history_is_incomplete():
+                state = await (
+                    await connection.execute(
+                        "SELECT native_bootstrap_complete,card_bootstrap_complete,"
+                        "EXISTS(SELECT 1 FROM analytics_bootstrap_cursors "
+                        "WHERE source_table='inference_calls' AND NOT complete) AS pending "
+                        "FROM analytics_pipeline_state WHERE singleton"
+                    )
+                ).fetchone()
+                assert state["pending"] and not state["native_bootstrap_complete"]
+                assert (await client.status())["ready"] == 0
+                return state
+
+            async def board():
+                return await runtime.article_board(
+                    q=None, source_id=None, needs_attention=False, limit=20
+                )
+
+            try:
+                for _ in range(60):
+                    await exporter.once()
+                    if (await history_is_incomplete())["card_bootstrap_complete"]:
+                        break
+                else:
+                    pytest.fail("Current-card coverage waited for historical import")
+
+                initial = await board()
+                assert initial.counts["published"] == 1
+                current = next(item for column in initial.columns for item in column.items)
+                assert current.id == article_id and current.title == "Current article before"
+                assert initial.snapshot is not None
+                assert not exporter.cards.bootstrapping and exporter.bootstrapping
+                with pytest.raises(HTTPException) as preparing:
+                    await runtime.section("inference", recent_window(30, now))
+                assert preparing.value.status_code == 503
+                assert preparing.value.detail["code"] == "analytics_preparing"
+
+                with database.begin() as session:
+                    session.execute(
+                        text("UPDATE articles SET title='Current article after' WHERE id=:id"),
+                        {"id": article_id},
+                    )
+                for _ in range(20):
+                    await exporter.once()
+                    await history_is_incomplete()
+                    updated = await board()
+                    current = next(item for column in updated.columns for item in column.items)
+                    if current.title == "Current article after":
+                        break
+                else:
+                    pytest.fail("Live current-card invalidations waited for historical import")
+                assert updated.counts["published"] == 1
+                assert not await (
+                    await connection.execute("SELECT 1 FROM analytics_ingest_events LIMIT 1")
+                ).fetchone()
+                assert await client.query("SELECT * FROM analytics_bucket_manifest FINAL") == []
+            finally:
+                exporter.close()
+                await runtime.close()
+
+    asyncio.run(verify())
 
 
 def test_native_current_cards_bootstrap_fanout_noop_delete_and_reset(database):

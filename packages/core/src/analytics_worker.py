@@ -376,9 +376,13 @@ class AnalyticsExporter:
                 break
         return refreshed
 
-    async def _publish_views(self, connection, generation):
-        published = await self.rollups.refresh_one(connection, generation, fence=self._check_lease)
-        gauges = await self._refresh_gauges(connection)
+    async def _publish_views(self, connection, generation, *, historical_ready):
+        published = gauges = compacted = False
+        if historical_ready:
+            published = await self.rollups.refresh_one(
+                connection, generation, fence=self._check_lease
+            )
+            gauges = await self._refresh_gauges(connection)
         lease = await self._renew_lease(connection)
         cards = await self.cards.once(
             connection,
@@ -387,9 +391,10 @@ class AnalyticsExporter:
             renew=self._lease,
         )
         lease = await self._renew_lease(connection)
-        compacted = await self.rollups.compact_one(
-            connection, fence=self._check_lease, renew=self._lease
-        )
+        if historical_ready:
+            compacted = await self.rollups.compact_one(
+                connection, fence=self._check_lease, renew=self._lease
+            )
         return lease, published or gauges or cards or compacted
 
     async def once(self):
@@ -421,15 +426,13 @@ class AnalyticsExporter:
             lease = await self._renew_lease(connection)
             generation = lease["lease_generation"]
             count = await self._export_events(connection, generation)
-            # Initial reports cannot be ready before every raw source and legacy
-            # import is durable. Retain dirty cohorts while importing, rather
-            # than rebuilding partial history after each bounded source page.
+            # Historical summaries wait for complete durable raw coverage.
+            # Current cards have independent bounded coverage and must advance
+            # while history imports so operator boards can become available.
             raw_complete = await self._raw_backfill_complete(connection)
-            refreshed = False
-            if raw_complete:
-                lease, refreshed = await self._publish_views(connection, generation)
-            else:
-                lease = await self._renew_lease(connection)
+            lease, refreshed = await self._publish_views(
+                connection, generation, historical_ready=raw_complete
+            )
             await self._publish_status(connection, lease, observed_at)
             async with connection.transaction():
                 await self._check_lease(connection)

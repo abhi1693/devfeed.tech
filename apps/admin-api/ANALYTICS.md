@@ -29,6 +29,16 @@ gauges, and cold ClickHouse archives retain their history. Current-card bootstra
 has separate policy and coverage state; adding a card dependency does not reset
 historical source cursors or replay the historical population.
 
+Starting the native exporter automatically imports retained analytical history;
+there is no manual backfill command or synchronous deployment-time data copy.
+Each cycle shares work between a bounded cold-archive import page, a PostgreSQL
+history page, live event delivery, and current-card coverage. The default history
+page is 1,000 rows, with a 100 ms pause between bootstrap cycles. Checkpoints
+advance only after durable ClickHouse acknowledgement, so restarts resume without
+discarding captured writes. This covers retained supported source records and
+closed daily aggregates; previously pruned or never-recorded events cannot be
+reconstructed.
+
 ## Current operator cards
 
 Five kinds—articles, sources, discovery candidates, topic proposals, and
@@ -68,6 +78,10 @@ coverage waits for all five backfills, initial fanout, and a fixed initial-dirty
 barrier. Later writes add lag without starving first readiness. Only complete
 coverage switches the serving policy. Truncation resets current card coverage
 without resetting historical export or deleting archived facts.
+Current-card work continues during the historical import, so boards become
+available after their own coverage completes. Historical charts keep returning
+the retryable preparing response until raw history, initial summaries, and gauge
+coverage are complete; partial history is never presented as a complete report.
 
 ## Reports and freshness
 
@@ -143,6 +157,17 @@ five disposable derived tables and native PostgreSQL control state, and record
 business identity/count checks. Preserve the persistent PostgreSQL and ClickHouse
 volumes and all analytical facts, manifests, and cold archives.
 
+Use the online `devfeed db upgrade` command for this cutover. When upgrading an
+existing schema across `0040`, Alembic first builds the eight active-job indexes
+concurrently on a separate connection, before changing the visible schema
+revision. Existing application pods can continue reading and writing while this
+preparation runs. The caller's statement and lock timeouts still apply, parallel
+index workers are disabled, and a failed preparation leaves the previous schema
+revision intact. Retrying reuses completed indexes and rebuilds matching invalid
+indexes left by an interrupted attempt. A conflicting index definition requires
+explicit repair. The remaining schema changes commit together; do not add the
+historical import to the migration hook or application readiness checks.
+
 Migration `0042` removes the old projection/report triggers and functions,
 renames the queue to `analytics_ingest_events`, preserves pending IDs, their
 sequence and format-1/2 contents, then makes new captures format 3. The rename
@@ -152,9 +177,12 @@ facts. It creates only current-card controls and removes the five derived tables
 `pipeline_projections`, `read_model_events`, `read_model_states`,
 `report_snapshots`, and `report_refreshes`.
 
-Start only the native exporter and compatible APIs after the migration. Wait for
-both historical readiness and current policy coverage, then verify board counts,
-search, transitions, action guards, report freshness, and source-write cost.
+Deploy persistent ClickHouse with its profiles and credentials, the native
+exporter, and compatible APIs through Fleet. An application image update alone
+does not create these workloads. Public API readiness checks PostgreSQL schema
+and Redis, and does not wait for ClickHouse history to finish. Verify current
+board coverage and live updates during import, then historical readiness, report
+totals, transitions, action guards, freshness, and source-write cost after import.
 Retire the old projector deployments from the final Fleet manifests. The native
 image smoke gate checks the adapted exporter command, both readiness contracts,
 retained business records, and real fresh/stale health probes.
