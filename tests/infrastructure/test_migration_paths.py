@@ -240,6 +240,68 @@ def _upgrade(route="alembic"):
         command.upgrade(_configuration(), "head")
 
 
+@pytest.mark.integration
+def test_report_revision_bridge_preserves_legacy_data_until_final_cleanup(
+    integration_environment, monkeypatch
+):
+    with database_at_revision(monkeypatch, "0037") as database:
+        _write_history(database)
+        expected = _history(database)
+        with database.begin() as session:
+            session.execute(
+                text(
+                    'INSERT INTO report_snapshots("group",days,payload,'
+                    "generated_at,policy_version) "
+                    "VALUES('publishing',30,'{\"fixture\": true}'::jsonb,clock_timestamp(),'old')"
+                )
+            )
+            session.execute(
+                text("INSERT INTO report_refreshes(\"group\",days) VALUES('publishing',30)")
+            )
+        with database() as session:
+            before = {
+                name: session.execute(text(f"SELECT to_jsonb(t) FROM {name} t")).scalar_one()
+                for name in ("report_snapshots", "report_refreshes")
+            }
+
+        command.upgrade(_configuration(), "0041")
+        with database() as session:
+            assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0041"
+            for name, row in before.items():
+                actual = session.execute(text(f"SELECT to_jsonb(t) FROM {name} t")).scalar_one()
+                assert actual == row
+                assert "window_key" not in row
+        assert _history(database) == expected
+
+        _upgrade()
+        with database() as session:
+            revision = session.scalar(text("SELECT version_num FROM alembic_version"))
+            assert revision == SCHEMA_REVISION
+            for name in ("report_snapshots", "report_refreshes"):
+                assert session.scalar(text("SELECT to_regclass(:name)"), {"name": name}) is None
+        assert _history(database) == expected
+
+
+@pytest.mark.integration
+def test_report_revision_bridge_does_not_block_existing_report_readers(
+    integration_environment, monkeypatch
+):
+    with database_at_revision(monkeypatch, "0040"):
+        engine = get_engine()
+        with engine.connect() as reader, ThreadPoolExecutor(max_workers=1) as executor:
+            transaction = reader.begin()
+            reader.execute(text("SELECT count(*) FROM report_snapshots"))
+            future = executor.submit(command.upgrade, _configuration(), "0041")
+            try:
+                # A real reader holds ACCESS SHARE until rollback. The former
+                # report rewrite required ACCESS EXCLUSIVE and could not finish.
+                future.result(timeout=10)
+            finally:
+                transaction.rollback()
+        with engine.connect() as connection:
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0041"
+
+
 def _wait_for_index_writer_phase(engine, future):
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:

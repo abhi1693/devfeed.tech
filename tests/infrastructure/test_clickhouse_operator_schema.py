@@ -137,7 +137,7 @@ def test_upgrade_keeps_source_history_pending_capture_and_native_cursors(pre_ope
         assert state.native_bootstrap_complete and state.native_import_complete
         assert state.native_bootstrap_barrier and not state.card_bootstrap_barrier
         assert not state.card_bootstrap_complete
-        assert state.lease_token is None and state.lease_until is None
+        assert state.native_lease_token is None and state.lease_until is None
         assert (
             session.scalar(
                 text(

@@ -36,7 +36,8 @@ ROOT = REPO_ROOT
 
 def test_partnership_revision_follows_master_schema():
     scripts = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0042"]
+    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0043"]
+    assert scripts.get_revision("0043").down_revision == "0042"
     assert scripts.get_revision("0042").down_revision == "0041"
     assert scripts.get_revision("0041").down_revision == "0040"
     assert scripts.get_revision("0040").down_revision == "0039"
@@ -58,6 +59,7 @@ def test_partnership_revision_follows_master_schema():
     assert scripts.get_revision("0024").down_revision == "0023"
     assert scripts.get_revision("0023").down_revision == "0022"
     assert [revision.revision for revision in scripts.walk_revisions("0022", "head")] == [
+        "0043",
         "0042",
         "0041",
         "0040",

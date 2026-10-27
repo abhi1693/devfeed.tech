@@ -115,6 +115,7 @@ is not required for removal.
   `analytics_v1_attempt_evidence` retain migration evidence. Deleting the importer
   does not authorize deleting these tables; apply a separate verified retention
   decision after parity and recovery requirements are met.
-- Existing Alembic migrations and migration regression fixtures describe supported
-  database upgrades. Keep migration `0042` immutable; constrain or remove obsolete
-  control state in a subsequent migration rather than rewriting upgrade history.
+- Migrations `0038` through `0043` are undeployed branch work. They can be rewritten
+  together when the replacement capture path is ready; production upgrades must
+  start from `0037` and preserve its historical data. Local seeded databases that
+  already ran these revisions need a non-destructive transition.
