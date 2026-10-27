@@ -115,7 +115,7 @@ def report(runs, base_sha, head_sha):
         "",
         f"Base `{base_sha}` → PR `{head_sha}`",
         "",
-        "Three independent GitHub-hosted ARM64 runners, each measuring base and PR "
+        "Three independent native ARM64 hosts, each measuring base and PR "
         "sequentially with alternating order and isolated resources for every sample. "
         "16 users, completed bootstrap and 15 seconds of warmup before each full 60-second "
         "measurement, fixed journey seed 294, 1,000 synthetic articles, cache off, "

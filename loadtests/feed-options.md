@@ -10,20 +10,10 @@ same public source hydration. No new index or migration adds ingestion work.
 
 ## Reproduce
 
-Use an otherwise idle native ARM64 host and native PostgreSQL 17. The PR's
-`Feed options scale comparison` workflow owns a disposable PostgreSQL 17.11 service
-and publishes the full matrix as an artifact and job summary. Local x86 runs are
-diagnostic evidence and cannot establish ARM64 performance.
-The disposable CI database uses trust authentication on a port published only to
-the runner's loopback address; no database password is stored in the workflow.
-
-The workflow also updates the existing PR results comment with before/after tables and
-signed percentage improvements: positive means less time or work, negative means
-more. Slower medians remain visible alongside paired measurements, and the full
-scenario table is expandable. Comments identify the measured commits and run;
-partial or unavailable results are labelled explicitly. Older runs cannot replace
-newer results. It reuses the oldest marked report from the PR author or
-`github-actions[bot]`, preserving its URL and leaving unrelated comments alone.
+This is an optional local comparison. Its automated workflow and PR comments
+have been retired. Use an otherwise idle native ARM64 host and native PostgreSQL
+17; local x86 runs are diagnostic evidence and cannot establish ARM64 performance.
+The harness writes its reports locally under `reports/`.
 
 Create a new disposable database named **exactly**
 `feed_options_benchmark_test`, exposed on `127.0.0.1`. The harness refuses a

@@ -24,23 +24,26 @@ The backend unit gate requires Python lint/types/version checks, the combined
 unit report, and isolated Locust histogram contracts. The frontend unit gate
 requires reader, admin, partner, and extension checks. Partner portal browser
 tests run separately after frontend units, alongside the reader and admin browser
-suites. Property, mutation, and browser-budget checks also follow frontend units.
+suites. Property and mutation checks also follow frontend units.
 
 Backend integration includes database tests, migration upgrades, API contracts,
-fuzzing, recovery, and PR performance comparisons. Coverage-producing jobs feed
+fuzzing, and recovery. Coverage-producing jobs feed
 Sonar as their reports become available. The validation gate requires both
 integration lanes, cross-stack checks, security, and the applicable Sonar result.
 Only then can image builds begin. Tag builds use the same validation gate before
 publishing release images; other events verify images without publishing.
 
+Performance comparisons and browser-budget reports are optional local tools;
+they do not run automatically or gate pull requests. CI retains unit tests for
+the profiling and report tools, including the Locust histogram contracts.
+
 ## Worker pools
 
-| Work                         |                 Partitions | Maximum simultaneous workers |
-| ---------------------------- | -------------------------: | ---------------------------: |
-| Backend unit tests           |                   4 shards |                            4 |
-| Backend database integration |                   6 shards |                            4 |
-| Reader browser parity        |                 6 surfaces |                            3 |
-| PR performance               | 3 independent runner pairs |                            2 |
+| Work                         | Partitions | Maximum simultaneous workers |
+| ---------------------------- | ---------: | ---------------------------: |
+| Backend unit tests           |   4 shards |                            4 |
+| Backend database integration |   6 shards |                            4 |
+| Reader browser parity        | 6 surfaces |                            3 |
 
 These limits apply per matrix. They do not impose an account-wide concurrency
 limit. The shared image workflow owns its build matrix; staging it after
@@ -79,7 +82,7 @@ explain them, but cannot promote partial results to success. Image jobs explicit
 require an uncancelled workflow and successful direct prerequisites. This lets
 them follow a successful validation gate when an inapplicable ancestor was
 intentionally skipped, while still blocking failed, cancelled, skipped, or missing
-prerequisites. Existing event rules determine which API, performance, quality, and
+prerequisites. Existing event rules determine which API, quality, and
 release jobs apply to PRs, merge groups, master pushes, tags, schedules, and manual
 runs.
 

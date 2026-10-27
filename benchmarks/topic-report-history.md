@@ -45,9 +45,9 @@ the 30- and 90-day report boundaries. The first 6,000 runs cover the
 recent 90 days; further runs add older unrelated history. Proposal review dates
 vary independently, exercising whole-workflow accounting beyond the report window.
 
-The ARM64 workflow runs 100,000 and 300,000 article fixtures, with respectively
+The retired ARM64 workflow measured 100,000 and 300,000 article fixtures, with respectively
 6,000 and 18,000 decision runs and 500,000 and 1,500,000 inference ledger rows.
-It saves complete `EXPLAIN (ANALYZE, BUFFERS, WAL, FORMAT JSON)` plans, report wall
+It saved complete `EXPLAIN (ANALYZE, BUFFERS, WAL, FORMAT JSON)` plans, report wall
 time, application process CPU, shared buffers and temporary blocks as artifacts.
 Four concurrent workers run 90-day report pairs alongside 200 article insert and decision
 correction transactions, rotating through one- to five-call workflows. Both

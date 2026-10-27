@@ -1,4 +1,10 @@
-# Scheduler clock maintenance
+# Historical PostgreSQL scheduler clock maintenance
+
+**Superseded by the ClickHouse reporting architecture.** The PostgreSQL scheduler
+profiler and its performance workflow have been retired. These notes describe the
+earlier implementation and measurements. Use the
+[native analytics guide](../apps/admin-api/ANALYTICS.md#disposable-profiling) for
+current reporting profiles.
 
 Issue [#294](https://github.com/abhi1693/devfeed.tech/issues/294) concerns recurring
 article automation checks that change only `automation_next_check_at`. Previously
@@ -26,10 +32,10 @@ input, catalog, result and usage documents. Unchanged prerequisite reconciliatio
 reuses its facts. Missing prerequisites and changed image-storage requirements
 still pass through the durable job request and recovery paths.
 
-## Reproduce the comparison
+## Earlier comparison method
 
-The `Scheduler recheck scale` workflow runs on native `ubuntu-24.04-arm` with a
-pinned PostgreSQL 17.11 image. It runs the same measurement harness against the PR
+The retired `Scheduler recheck scale` workflow ran on native `ubuntu-24.04-arm` with a
+pinned PostgreSQL 17.11 image. It ran the same measurement harness against the PR
 base and candidate, at 100,000 and 150,000 articles. Each application uses its own
 locked environment. The base seeds the disposable historical corpus; the candidate
 reuses that corpus after removing only the harness's measured ingested articles
@@ -38,38 +44,18 @@ batches refresh setup-time clocks so a large fixture cannot acquire an already-e
 lease; measured ticks start from completed warmup. The base always runs first;
 corpus identity and article count are checked before reuse.
 
-Each run publishes one persistent PR comment covering both dataset sizes. Tables
-show before, after, signed absolute delta and percentage improvement: a positive
-improvement means less time or work, while a negative value exposes a regression.
-The report includes SQL, buffer, temporary-write and WAL counters as well as
-clock-only events and card hydration. Failed, incomplete or mismatched
-measurements are labeled unavailable rather than reported as a speedup. Reruns
-update the original author or bot comment in place, preserving its URL; source
-SHAs and artifact links identify the measurement. The comment job reads artifacts as data without checking out or executing PR code.
+The reports included SQL, buffer, temporary-write and WAL counters as well as
+clock-only events and card hydration, with signed before/after deltas. Failed,
+incomplete or mismatched measurements were labeled unavailable rather than
+reported as a speedup.
 
-For a local run, set explicitly local `DEVFEED_TEST_DATABASE_URL` and
-`DEVFEED_TEST_REDIS_URL`. The database name must end in `_test`; Redis must use
-database 15. PostgreSQL needs `shared_preload_libraries=pg_stat_statements`,
-`pg_stat_statements.track=all` and `track_io_timing=on`.
-The profiling role needs permission to create the extension and run `CHECKPOINT`
-on this disposable instance. The harness disables
-checkout `.env` loading and refuses routing overrides. **`--seed` replaces the
-configured disposable database contents.** Keep integration tests on a separate
-database because their fixtures truncate tables.
-
-```bash
-uv sync --all-packages --locked
-uv run --locked --no-sync python scripts/profile_scheduler_rechecks.py \
-  --seed --scale 0.6666666666666666 --ticks 5 --batch 50 \
-  --ingest-per-tick 10 --history-bytes 8192 --label candidate --assert-bounded \
-  --output /tmp/scheduler-rechecks-100k.json
-```
-
-Use `--scale 1` for 150,000 articles. To compare another checkout, copy this script
-into that checkout's `scripts/` directory and run it with that checkout's locked
-dependencies. Seed the base with `--seed --label baseline`, omitting
-`--assert-bounded`; then run the candidate with `--reuse-fixture` instead of
-`--seed`. Reuse refuses an unrecognized corpus or a different article count.
+The retired profiler used explicitly local `DEVFEED_TEST_DATABASE_URL` and
+`DEVFEED_TEST_REDIS_URL`, a database ending in `_test`, and Redis database 15.
+The disposable PostgreSQL instance enabled `shared_preload_libraries=pg_stat_statements`,
+`pg_stat_statements.track=all` and `track_io_timing=on`. Its profiling role could
+create the extension and run `CHECKPOINT`. Fixture seeding replaced only that
+dedicated database's contents; the base and candidate reused an identified corpus
+with the same article count.
 
 The fixture includes historical jobs, reviews, taxonomy links and 8 KiB retained
 evidence. Unrelated saved cards are seeded to establish realistic table/index

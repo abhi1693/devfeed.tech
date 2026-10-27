@@ -21,8 +21,8 @@ cryptographic randomness would add no protection to this workload simulation.
 
 `loadtests/compare.py --output` intentionally selects a local artifact directory
 for reading samples and writing comparison reports. It is an operator-only CLI,
-not a sandboxed service, and accepts absolute paths. Its `GITHUB_STEP_SUMMARY`
-destination is supplied by the invoking CI job. Do not pass model-generated or
+not a sandboxed service, and accepts absolute paths. If `GITHUB_STEP_SUMMARY` is
+set, it also appends the report to that caller-supplied path. Do not pass model-generated or
 untrusted remote-request paths to either interface. This differs from the disposable
 runner's resource-creation and `reports/` boundary described below.
 
@@ -160,50 +160,64 @@ controlled protocol requires a local load generator. An optional `--phase-file`
 must name a different, regular file beside the explicit `--final-json` report;
 phase writes use secure temporary siblings and atomic replacement.
 
-## Pull request regression reports
+## Optional revision comparisons
 
-The `PR performance` check runs **only on pull requests**. Pushes to master,
-release tags, scheduled builds, manual builds and merge-group builds do not run
-Locust. Successful application tests unlock performance jobs and image builds in
-parallel. Failed or cancelled application tests skip both. Security checks run
-independently; `CI required` still requires tests, security, images and the PR
-performance comparison to pass.
+Performance comparisons are optional local tools. Automated performance jobs,
+browser-budget reports and their PR comments have been retired; they are not
+part of `CI required`. CI retains correctness tests for the harness and reports,
+including the Locust histogram contracts.
 
-The PR report leads with the verdict and a compact p95 table, with both absolute
+The comparison report leads with the verdict and a compact p95 table, with both absolute
 and percentage changes. Expand the secondary metrics for separate p50/p99 columns
 and throughput, individual-run health, and interpretation details.
 
-CI checks out the event's exact base and head commits into separate directories
-and installs each revision's own locked application dependencies. The candidate's
+Prepare separate checkouts at the exact base and candidate commits, and install
+each revision's own locked application dependencies. The candidate also needs the
+optional `loadtest` dependency group. The candidate's
 Locust harness drives both versions, including bases that predate this harness.
 Each gets a new database, seed dataset, Redis, PgBouncer and API process.
 The runner explicitly enables `TCP_NODELAY` on the loopback listener inherited by
 Uvicorn for both revisions. This prevents event-loop differences in inherited-socket
 defaults from adding Nagle/delayed-ACK latency to reused HTTP connections.
 
-Three matrix jobs run in parallel, **each on a fresh GitHub-hosted ARM64 runner**. Each job measures
-base and head sequentially, alternating which revision runs first. This produces six
-isolated samples, three per revision, while keeping each base/head pair on the same
-host. The harness cleans up each sample's resources before the next sample starts.
+Run one pair from the candidate checkout, supplying both checkout paths:
+
+```sh
+uv run --locked --group loadtest python scripts/ci/api-performance-pair.py \
+  --candidate-root /path/to/candidate --base-root /path/to/baseline \
+  --repeat 0 --output reports/performance
+```
+
+The pair measures base and candidate sequentially and preserves both outcomes.
+The harness cleans up each sample's resources before the next sample starts.
 All samples use the same profile:
 16 users, completed bootstrap, 15 seconds of warmup, a full 60-second measurement,
 journey seed 294, 1,000 articles, cache disabled, five server slots. The measurement
 barrier excludes warmup requests already in flight and resets per-user journey
 state so unequal warmup throughput cannot change the measured starting point.
 
-A bot updates one PR comment with commit SHAs, per-endpoint median p50/p95/p99,
-request rates and the verdict. The same report is in the check's job summary;
-HTML, CSV, final JSON, phase records, runtime diagnostics, metadata and logs for
-all six runs are downloadable from its artifact link. Fork and Dependabot PRs receive check summaries and artifacts
-without a write-token comment. Benchmark execution has read-only permissions;
-the separate comment job only reads artifacts and never executes candidate code.
+The strict comparator needs three independent native ARM64 hosts. Run one pair
+per host with `--repeat 0`, `1` and `2`, using a distinct, truthful `RUNNER_NAME`
+for each host. The repeat index alternates execution order. Collect the resulting
+six `base-0` through `head-2` directories together under `reports/performance`,
+then generate the local comparison:
+
+```sh
+uv run --locked --group loadtest python loadtests/compare.py \
+  --base-sha <base-sha> --head-sha <candidate-sha> --output reports/performance
+```
+
+Each sample retains HTML, CSV, final JSON, phase records, runtime diagnostics,
+metadata and logs. The comparator writes `comparison.json` and `summary.md`;
+publishing those reports for review is a manual step. A single pair remains useful
+for diagnostics but cannot satisfy the three-host comparison protocol.
 
 Latency histograms use fixed one-millisecond bins for both revisions. Locust's
 default ten-millisecond bins above 100 ms can turn an actual 89 → 106 ms change
 into 89 → 110 ms, incorrectly crossing the 20 ms regression limit. Its default
 100 ms bins above one second can also hide a 2,010 ms smoke-budget violation as
-2,000 ms. The performance job checks both cases against real Locust statistics
-before measuring. Each final JSON records `response_time_bucket_ms: 1`; the
+2,000 ms. The retained histogram contract tests check both cases against real Locust
+statistics. Each final JSON records `response_time_bucket_ms: 1`; the
 comparison rejects missing or incompatible precision instead of mixing reports.
 
 - **REGRESSED:** a route's median p95 rises by more than 20% **and** 20 ms,
@@ -213,25 +227,25 @@ comparison rejects missing or incompatible precision instead of mixing reports.
 - **NO MATERIAL CHANGE:** complete, successful traffic without a material change.
 - **INCONCLUSIVE:** successful runs have a p95 range exceeding both 35% of the
   median and 20 ms, or a material median change lacks two confirming pairs.
-  The check is green, with the uncertainty retained in the
+  The comparator returns success, with the uncertainty retained in the
   report; it does not claim an improvement.
 - **ERROR:** baseline execution failed or reports are missing, invalid or
   mismatched. This is a failed test/report pipeline, not uncertain latency.
 
-Only **REGRESSED** and **ERROR** comparisons fail the PR gate.
-**INCONCLUSIVE**, **IMPROVED** and **NO MATERIAL CHANGE** pass. Every route needs
+Only **REGRESSED** and **ERROR** comparisons return a nonzero exit status.
+**INCONCLUSIVE**, **IMPROVED** and **NO MATERIAL CHANGE** return success. Every route needs
 at least 20 samples in each run; normal absolute smoke gates still apply. These
 are initial regression thresholds, not production SLOs or a statistical claim
 of significance. Review workload/threshold changes as carefully as application
 changes, since the harness comes from the candidate. An incompatible baseline
 schema or failed baseline connection checks are reported as errors, not skipped.
 
-A separate read-only comparison job collects all six artifacts and verifies their
-commit SHAs and workload metadata before comparing. Missing, malformed or mismatched
-artifacts are errors, never silently omitted. Completed warmup and measurement
+The comparator reads all six samples and verifies their commit SHAs and workload
+metadata before comparing. Missing, malformed or mismatched samples are errors,
+never silently omitted. Completed warmup and measurement
 windows, protocol version, seed and readiness counts must also match; older or
-partially completed measurement protocols are rejected. Matrix fail-fast is disabled
-so one failed sample does not discard the other evidence. Runner identity,
+partially completed measurement protocols are rejected. The pair runner attempts
+both revisions even when one fails, preserving the evidence. Host identity,
 architecture, logical CPU count, and timezone-aware start time must validate each
 pair and its alternating execution order; the three pairs must use distinct runners.
 Missing or mismatched provenance fails the comparison. The report retains all
@@ -243,7 +257,7 @@ eliminate, changes in host load over time or order effects.
 
 Throughput is descriptive because users include think time. This profile does
 not test cache behavior or maximum capacity. Compare cached workloads and run
-longer soaks separately before drawing broader conclusions. Shared CI benchmark
+longer soaks separately before drawing broader conclusions. Shared-host benchmark
 numbers are not hardware-independent performance claims.
 
 Correlate the test interval with HTTP admission rejections, connection acquisition
