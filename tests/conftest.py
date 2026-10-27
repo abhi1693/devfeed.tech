@@ -173,7 +173,7 @@ def database(integration_environment, monkeypatch, rss_bytes):
         connection.execute(
             text(
                 "UPDATE analytics_pipeline_state SET enabled = false, capture_started_at = NULL, "
-                "last_success_at = NULL, lease_token = NULL, lease_until = NULL, "
+                "last_success_at = NULL, native_lease_token = NULL, lease_until = NULL, "
                 "native_import_complete=false,native_capture_started_at=NULL, "
                 "reader_coverage_start=NULL,native_bootstrap_barrier=false, "
                 "native_bootstrap_complete=false,card_target_policy=NULL,card_serving_policy=NULL,"
@@ -197,6 +197,9 @@ def database(integration_environment, monkeypatch, rss_bytes):
         )
         names = ", ".join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
         connection.execute(text(f"TRUNCATE TABLE {names} CASCADE"))
+        connection.execute(
+            text("INSERT INTO analytics_card_timer_bootstrap(singleton) VALUES(true)")
+        )
         # Migration 0037 creates durable cadence rows. Restore their initial
         # state after truncation, as a newly provisioned database would have.
         connection.execute(

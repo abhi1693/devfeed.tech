@@ -25,6 +25,7 @@ from unittest.mock import patch
 from alembic import command
 from alembic.config import Config
 from devfeed_core import job_retention
+from devfeed_core.analytics_schema import BACKFILL_TABLES
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Article,
@@ -135,6 +136,29 @@ def seed(engine, articles, payload_bytes, *, retained_success=True):
         )
         names = ", ".join('"' + name.replace('"', '""') + '"' for name in tables)
         connection.execute(text(f"TRUNCATE {names} CASCADE"))
+        # The full reset also empties migration-owned coordination tables.
+        # Restore their initial rows so capture and publication can start again.
+        for statement in (
+            "INSERT INTO analytics_pipeline_state(singleton) VALUES(true)",
+            "INSERT INTO analytics_gauge_bootstrap(singleton) VALUES(true)",
+            "INSERT INTO analytics_card_timer_bootstrap(singleton) VALUES(true)",
+        ):
+            connection.execute(text(statement))
+        connection.execute(
+            text(
+                "INSERT INTO analytics_gauge_refreshes(domain,shard) "
+                "VALUES('queues',0),('feed',0),('sources',0),('topics',0)"
+            )
+        )
+        # TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Remove these initial cursors
+        # when the supported upgrade floor no longer needs historical backfill.
+        connection.execute(
+            text(
+                "INSERT INTO analytics_bootstrap_cursors(source_table) "
+                "SELECT unnest(CAST(:sources AS text[]))"
+            ),
+            {"sources": list(BACKFILL_TABLES)},
+        )
         success_indexes(connection, retained_success)
         reset_maintenance(connection)
         connection.execute(

@@ -15,6 +15,11 @@
                 <max_memory_usage_for_user><readonly /></max_memory_usage_for_user>
             </constraints>
         </default>
+        <devfeed_reader>
+            <profile>default</profile>
+            <!-- readonly=2 permits bounded per-query settings while prohibiting writes. -->
+            <readonly>2</readonly>
+        </devfeed_reader>
         <devfeed_ingest>
             <max_threads from_env="DEVFEED_CLICKHOUSE_MAX_THREADS" />
             <max_execution_time from_env="DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS" />
@@ -31,13 +36,28 @@
         </devfeed_ingest>
     </profiles>
     <users>
-        <!-- Configuration users retain schema/read/write access; this account cannot manage users. -->
+        <devfeed_reader>
+            <password from_env="DEVFEED_CLICKHOUSE_READER_PASSWORD" />
+            <networks><ip>::/0</ip></networks>
+            <profile>devfeed_reader</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <query from_env="DEVFEED_CLICKHOUSE_READER_GRANT" />
+            </grants>
+        </devfeed_reader>
+        <!-- The exporter can maintain analytics schema and data, but not manage users. -->
         <devfeed_ingest>
             <password from_env="DEVFEED_CLICKHOUSE_INGEST_PASSWORD" />
             <networks><ip>::/0</ip></networks>
             <profile>devfeed_ingest</profile>
             <quota>default</quota>
             <access_management>0</access_management>
+            <grants>
+                <query from_env="DEVFEED_CLICKHOUSE_INGEST_GRANT" />
+                <!-- Compaction must observe completion before acknowledging its mutation. -->
+                <mutation_status>GRANT SELECT ON system.mutations</mutation_status>
+            </grants>
         </devfeed_ingest>
     </users>
 </clickhouse>

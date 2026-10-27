@@ -1152,6 +1152,348 @@ def test_sparse_bucket_batches_publish_complete_generations_and_bound_bootstrap_
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    "table,domain", [("publishing_hourly", "publishing"), ("source_daily", "sources")]
+)
+def test_rollup_pruning_survives_handoff_lost_ack_and_hot_month(
+    database, monkeypatch, table, domain
+):
+    from devfeed_core import analytics_rollups as rollups
+
+    settings = _settings()
+    tick = [100.0]
+    monkeypatch.setattr(rollups, "time", SimpleNamespace(monotonic=lambda: tick[0]))
+    first = utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    second, unmanifested = first + timedelta(days=1), first + timedelta(days=2)
+    month = first.year * 100 + first.month
+    old_owner, new_owner = uuid.uuid4(), uuid.uuid4()
+    daily = domain == "sources"
+    column = "bucket_day" if daily else "bucket_hour"
+    source = uuid.uuid4()
+
+    async def verify():
+        name = f"devfeed_compaction_{uuid.uuid4().hex}_test"
+        async with AnalyticsClient(settings) as admin:
+            await admin.execute(f"CREATE DATABASE `{name}`")
+            try:
+                async with AnalyticsClient(
+                    settings.model_copy(update={"clickhouse_database": name})
+                ) as client:
+                    await client.initialize()
+                    client.insert_settings = {"async_insert_busy_timeout_ms": 1}
+
+                    async def insert(bucket, generation, count):
+                        if daily:
+                            statement = (
+                                f"INSERT INTO analytics_{table} SELECT {{bucket:Date}},"
+                                "{generation:UInt64},{source:UUID},{count:UInt64}"
+                            )
+                        else:
+                            statement = (
+                                f"INSERT INTO analytics_{table} SELECT {{bucket:DateTime('UTC')}},"
+                                "{generation:UInt64},{count:UInt64},toUInt64(0),"
+                                "quantilesTDigestState(0.5,0.95)(toFloat64(1))"
+                            )
+                        value = bucket.date() if daily else bucket.strftime("%Y-%m-%d %H:%M:%S")
+                        await client.execute(
+                            statement,
+                            dict(bucket=value, generation=generation, source=source, count=count),
+                        )
+
+                    async def manifest(bucket, generation):
+                        await client.insert(
+                            "analytics_bucket_manifest",
+                            [
+                                dict(
+                                    domain=domain,
+                                    bucket=bucket,
+                                    generation=generation,
+                                    updated_at=utcnow(),
+                                    lag_seconds=0,
+                                )
+                            ],
+                        )
+
+                    async def rows(bucket):
+                        bucket_type = "Date" if daily else "DateTime('UTC')"
+                        return await client.query(
+                            f"SELECT generation,sum(published) AS count FROM analytics_{table} "
+                            f"WHERE {column}={{bucket:{bucket_type}}} GROUP BY generation "
+                            "ORDER BY generation",
+                            {
+                                "bucket": bucket.date()
+                                if daily
+                                else bucket.strftime("%Y-%m-%d %H:%M:%S")
+                            },
+                        )
+
+                    async def visible():
+                        match = "toDate(m.bucket)" if daily else "m.bucket"
+                        return (
+                            await client.query(
+                                f"SELECT sum(r.published) AS count FROM analytics_{table} r "
+                                "INNER JOIN (SELECT bucket,generation FROM "
+                                "analytics_bucket_manifest "
+                                "FINAL WHERE domain={domain:String}) m "
+                                f"ON r.{column}={match} AND r.generation=m.generation",
+                                {"domain": domain},
+                            )
+                        )[0]["count"]
+
+                    async def settled(marker):
+                        for _ in range(200):
+                            mutations = await client.query(
+                                "SELECT is_done FROM system.mutations "
+                                "WHERE database=currentDatabase() "
+                                "AND table={table:String} AND position(command,{marker:String})>0",
+                                {"table": "analytics_" + table, "marker": marker},
+                            )
+                            if mutations and all(row["is_done"] for row in mutations):
+                                return len(mutations)
+                            await asyncio.sleep(0.05)
+                        pytest.fail("ClickHouse mutation did not complete")
+
+                    for bucket, generation, count in [
+                        (first, 9, 9),
+                        (first, 10, 10),
+                        (second, 9, 19),
+                        (unmanifested, 9, 29),
+                    ]:
+                        await insert(bucket, generation, count)
+                    await manifest(first, 10)
+                    await manifest(second, 10)  # New generation has no rows.
+                    assert await visible() == 10
+
+                    async with (
+                        await psycopg.AsyncConnection.connect(
+                            postgres_dsn(settings), autocommit=True, row_factory=dict_row
+                        ) as connection,
+                        await psycopg.AsyncConnection.connect(
+                            postgres_dsn(settings), autocommit=True, row_factory=dict_row
+                        ) as contender,
+                    ):
+                        await connection.execute(
+                            "UPDATE analytics_pipeline_state SET enabled=true,"
+                            "native_lease_token=%s,"
+                            "lease_until=clock_timestamp()+interval '5 minutes' WHERE singleton",
+                            (old_owner,),
+                        )
+                        await connection.execute(
+                            "INSERT INTO analytics_rollup_compaction(table_name,month,publishes) "
+                            "VALUES(%s,%s,18) ON CONFLICT(table_name,month) DO UPDATE SET "
+                            "publishes=18,last_prune_token=NULL",
+                            (table, month),
+                        )
+
+                        async def fenced(conn, owner):
+                            row = await (
+                                await conn.execute(
+                                    "SELECT 1 FROM analytics_pipeline_state WHERE singleton "
+                                    "AND native_lease_token=%s "
+                                    "AND lease_until>clock_timestamp() FOR UPDATE",
+                                    (owner,),
+                                )
+                            ).fetchone()
+                            if row is None:
+                                raise RuntimeError("old owner superseded")
+
+                        async def renew(conn, owner):
+                            return await (
+                                await conn.execute(
+                                    "UPDATE analytics_pipeline_state SET "
+                                    "lease_until=clock_timestamp()+interval '5 minutes' "
+                                    "WHERE singleton AND native_lease_token=%s "
+                                    "RETURNING lease_generation",
+                                    (owner,),
+                                )
+                            ).fetchone()
+
+                        old = RollupPublisher(client)
+                        old._next_orphan_check = float("inf")
+
+                        async def old_fence(conn):
+                            await fenced(conn, old_owner)
+
+                        async def old_renew(conn):
+                            return await renew(conn, old_owner)
+
+                        assert not await old.compact_one(
+                            connection, fence=old_fence, renew=old_renew
+                        )
+                        plan = old._compactions[table]
+                        tick[0] = plan.ready_at - 0.01
+                        assert not await old.compact_one(
+                            connection, fence=old_fence, renew=old_renew
+                        )
+                        assert await rows(first) == [
+                            dict(generation=9, count=9),
+                            dict(generation=10, count=10),
+                        ]
+
+                        execute = client.execute
+
+                        async def handoff(statement, parameters=None):
+                            if statement.startswith(f"ALTER TABLE analytics_{table} DELETE"):
+                                # The old fence succeeded; replace its lease before
+                                # its paused ClickHouse command reaches the server.
+                                await contender.execute(
+                                    "UPDATE analytics_pipeline_state SET native_lease_token=%s "
+                                    "WHERE singleton",
+                                    (new_owner,),
+                                )
+                                await contender.execute(
+                                    "UPDATE analytics_rollup_compaction SET publishes=publishes+4 "
+                                    "WHERE table_name=%s AND month=%s",
+                                    (table, month),
+                                )
+                                await insert(first, 11, 42)
+                                await manifest(first, 11)
+                                assert await visible() == 42
+                            return await execute(statement, parameters)
+
+                        client.execute = handoff
+                        tick[0] = plan.ready_at
+                        assert await old.compact_one(connection, fence=old_fence, renew=old_renew)
+                        client.execute = execute
+                        assert await settled(plan.marker) == 1
+                        tick[0] += rollups.COMPACTION_POLL_SECONDS
+                        with pytest.raises(RuntimeError, match="superseded"):
+                            await old.compact_one(connection, fence=old_fence, renew=old_renew)
+                        assert await visible() == 42
+                        assert await rows(first) == [
+                            dict(generation=10, count=10),
+                            dict(generation=11, count=42),
+                        ]
+                        assert await rows(second) == []  # Empty manifest safely removes old rows.
+                        assert await rows(unmanifested) == [dict(generation=9, count=29)]
+                        await insert(first, 8, 8)  # A late stale write stays invisible.
+                        assert await visible() == 42
+
+                        current = RollupPublisher(client)
+                        current._next_orphan_check = float("inf")
+
+                        async def new_fence(conn):
+                            await fenced(conn, new_owner)
+
+                        async def new_renew(conn):
+                            return await renew(conn, new_owner)
+
+                        assert not await current.compact_one(
+                            connection, fence=new_fence, renew=new_renew
+                        )
+                        active = current._compactions[table]
+                        assert active.publishes == 22
+                        # A hot month advances after capture but must still be pruned.
+                        await insert(first, 12, 84)
+                        await manifest(first, 12)
+                        await contender.execute(
+                            "UPDATE analytics_rollup_compaction SET publishes=publishes+4 "
+                            "WHERE table_name=%s AND month=%s",
+                            (table, month),
+                        )
+                        tick[0] = active.ready_at
+                        assert await current.compact_one(
+                            connection, fence=new_fence, renew=new_renew
+                        )
+                        assert await settled(active.marker) == 1
+                        tick[0] += rollups.COMPACTION_POLL_SECONDS
+                        assert await current.compact_one(
+                            connection, fence=new_fence, renew=new_renew
+                        )
+                        assert await visible() == 84
+                        assert await rows(first) == [
+                            dict(generation=11, count=42),
+                            dict(generation=12, count=84),
+                        ]
+                        state = await (
+                            await connection.execute(
+                                "SELECT publishes,last_prune_token FROM "
+                                "analytics_rollup_compaction "
+                                "WHERE table_name=%s AND month=%s",
+                                (table, month),
+                            )
+                        ).fetchone()
+                        assert state == dict(publishes=4, last_prune_token=active.marker)
+
+                        # A stale plan cannot subtract again after a newer plan ACK.
+                        await contender.execute(
+                            "UPDATE analytics_pipeline_state SET native_lease_token=%s "
+                            "WHERE singleton",
+                            (old_owner,),
+                        )
+                        await contender.execute(
+                            "UPDATE analytics_rollup_compaction SET publishes=publishes+16 "
+                            "WHERE table_name=%s AND month=%s",
+                            (table, month),
+                        )
+                        tick[0] += rollups.COMPACTION_POLL_SECONDS
+                        assert await old.compact_one(connection, fence=old_fence, renew=old_renew)
+                        state = await (
+                            await connection.execute(
+                                "SELECT publishes,last_prune_token FROM "
+                                "analytics_rollup_compaction "
+                                "WHERE table_name=%s AND month=%s",
+                                (table, month),
+                            )
+                        ).fetchone()
+                        assert state == dict(publishes=20, last_prune_token=active.marker)
+
+                        # After an accepted mutation loses its response, restart
+                        # rediscovers the same completed operation before ACK.
+                        await contender.execute(
+                            "UPDATE analytics_pipeline_state SET native_lease_token=%s "
+                            "WHERE singleton",
+                            (new_owner,),
+                        )
+                        retrying = RollupPublisher(client)
+                        retrying._next_orphan_check = float("inf")
+                        assert not await retrying.compact_one(
+                            connection, fence=new_fence, renew=new_renew
+                        )
+                        retry = retrying._compactions[table]
+
+                        async def lost_response(statement, parameters=None):
+                            result = await execute(statement, parameters)
+                            if statement.startswith(f"ALTER TABLE analytics_{table} DELETE"):
+                                raise AnalyticsUnavailable("lost response")
+                            return result
+
+                        client.execute = lost_response
+                        tick[0] = retry.ready_at
+                        assert not await retrying.compact_one(
+                            connection, fence=new_fence, renew=new_renew
+                        )
+                        client.execute = execute
+                        assert await settled(retry.marker) == 1
+                        restarted = RollupPublisher(client)
+                        restarted._next_orphan_check = float("inf")
+                        assert not await restarted.compact_one(
+                            connection, fence=new_fence, renew=new_renew
+                        )
+                        recovered = restarted._compactions[table]
+                        assert recovered.marker == retry.marker
+                        tick[0] = recovered.ready_at
+                        assert await restarted.compact_one(
+                            connection, fence=new_fence, renew=new_renew
+                        )
+                        assert await settled(retry.marker) == 1
+                        state = await (
+                            await connection.execute(
+                                "SELECT publishes,last_prune_token FROM "
+                                "analytics_rollup_compaction "
+                                "WHERE table_name=%s AND month=%s",
+                                (table, month),
+                            )
+                        ).fetchone()
+                        assert state == dict(publishes=0, last_prune_token=retry.marker)
+                        assert await visible() == 84
+            finally:
+                await admin.execute(f"DROP DATABASE `{name}` SYNC")
+
+    asyncio.run(verify())
+
+
+@pytest.mark.integration
 def test_sorted_fact_merges_preserve_late_retractions_and_all_rollups_across_95_days():
     """Engine merging must match argMaxMerge before any mutable payload is filtered."""
     settings = _settings()

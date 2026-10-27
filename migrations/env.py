@@ -19,21 +19,24 @@ def prepare_online_upgrade(migration_fn):
         if revisions:
             for step in steps:
                 info = step.info
-                if info.is_upgrade and not info.is_stamp and "0040" in info.up_revision_ids:
+                if not info.is_upgrade or info.is_stamp:
+                    continue
+                for revision in info.up_revisions:
+                    preparer = {
+                        "0040": "prepare_active_indexes",
+                        "0043": "prepare_refresh_index",
+                    }.get(revision.revision)
+                    if preparer is None:
+                        continue
                     # The existing Alembic transaction has only read its version.
-                    # A separate connection leaves that version and old writers
-                    # available throughout the concurrent historical table scans.
+                    # A separate connection keeps old pods and writers available
+                    # while existing large tables receive concurrent indexes.
                     with (
                         get_engine()
                         .connect()
                         .execution_options(isolation_level="AUTOCOMMIT") as connection
                     ):
-                        revision = next(
-                            revision
-                            for revision in info.up_revisions
-                            if revision.revision == "0040"
-                        )
-                        revision.module.prepare_active_indexes(connection)
+                        getattr(revision.module, preparer)(connection)
         return steps
 
     return migrations

@@ -32,6 +32,7 @@ spec.loader.exec_module(check_compose)
         {
             "DEVFEED_CLICKHOUSE_PASSWORD": "inherited-private-analytics-secret",
             "DEVFEED_CLICKHOUSE_INGEST_PASSWORD": "inherited-private-exporter-secret",
+            "DEVFEED_CLICKHOUSE_READER_PASSWORD": "inherited-private-reader-secret",
             "CLICKHOUSE_PASSWORD": "inherited-private-service-secret",
         },
         {"DEVFEED_CH_UI_SECRET_KEY": "inherited-private-ui-secret"},
@@ -71,6 +72,20 @@ def test_compose_render_preserves_exact_fractional_cpu_budget(monkeypatch, limit
     assert (services["analytics-exporter"]["cpus"] == Decimal("0.5")) is compliant
 
 
+@pytest.mark.parametrize(
+    "key", ["DEVFEED_CLICKHOUSE_READER_PASSWORD", "DEVFEED_CLICKHOUSE_INGEST_PASSWORD"]
+)
+def test_compose_requires_private_role_passwords(key):
+    with pytest.raises(RuntimeError, match="Compose fixture failed to render"):
+        check_compose.render(
+            {
+                "POSTGRES_PASSWORD": "fixture-postgres-password",
+                "DEVFEED_CLICKHOUSE_PASSWORD": "fixture-operator-password",
+                key: "",
+            }
+        )
+
+
 @pytest.mark.parametrize("build", [False, True], ids=["registry", "local-build"])
 def test_private_mcp_routing_is_confined_to_reader(build):
     check_compose.check_private_mcp_routing(
@@ -86,6 +101,8 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
         "POSTGRES_PASSWORD": "fixture-postgres-password",
         "DEVFEED_CLICKHOUSE_PASSWORD": "fixture-separate-analytics-password",
         "DEVFEED_CLICKHOUSE_INGEST_PASSWORD": "fixture-separate-exporter-password",
+        "DEVFEED_CLICKHOUSE_READER_PASSWORD": "fixture-separate-reader-password",
+        "DEVFEED_CLICKHOUSE_DATABASE": "analytics_test",
         "DEVFEED_CLICKHOUSE_CPUS": "1.5",
         "DEVFEED_CLICKHOUSE_MEMORY_LIMIT": "3g",
         "DEVFEED_CLICKHOUSE_MAX_THREADS": "1",
@@ -109,7 +126,7 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
             credential = (
                 "DEVFEED_CLICKHOUSE_INGEST_PASSWORD"
                 if name == "analytics-exporter"
-                else "DEVFEED_CLICKHOUSE_PASSWORD"
+                else "DEVFEED_CLICKHOUSE_READER_PASSWORD"
             )
             assert environment["DEVFEED_CLICKHOUSE_PASSWORD"] == options[credential]
             assert environment["DEVFEED_CLICKHOUSE_MAX_THREADS"] == "1"
@@ -122,6 +139,18 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
     ]
     assert services["analytics-exporter"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == (
         "devfeed_ingest"
+    )
+    assert services["admin-api"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed_reader"
+    assert (
+        clickhouse["environment"]["DEVFEED_CLICKHOUSE_READER_PASSWORD"]
+        == (options["DEVFEED_CLICKHOUSE_READER_PASSWORD"])
+    )
+    assert clickhouse["environment"]["DEVFEED_CLICKHOUSE_READER_GRANT"] == (
+        "GRANT SELECT ON analytics_test.*"
+    )
+    assert clickhouse["environment"]["DEVFEED_CLICKHOUSE_INGEST_GRANT"] == (
+        "GRANT SELECT, INSERT, CREATE TABLE, CREATE VIEW, DROP TABLE, DROP VIEW, "
+        "ALTER TABLE, SYSTEM MERGES ON analytics_test.*"
     )
     assert (
         clickhouse["environment"]["DEVFEED_CLICKHOUSE_INGEST_PASSWORD"]
@@ -149,6 +178,17 @@ def test_server_profiles_reserve_capacity_for_exporter_across_reader_replicas():
     users = ET.parse(REPO_ROOT / "infra/clickhouse/users.xml").getroot()
     assert users.findtext("users/devfeed_ingest/profile") == "devfeed_ingest"
     assert users.findtext("users/devfeed_ingest/access_management") == "0"
+    assert users.find("users/devfeed_ingest/grants/query").get("from_env") == (
+        "DEVFEED_CLICKHOUSE_INGEST_GRANT"
+    )
+    assert users.findtext("users/devfeed_ingest/grants/mutation_status") == (
+        "GRANT SELECT ON system.mutations"
+    )
+    assert users.findtext("users/devfeed_reader/profile") == "devfeed_reader"
+    assert users.findtext("profiles/devfeed_reader/readonly") == "2"
+    assert users.find("users/devfeed_reader/grants/query").get("from_env") == (
+        "DEVFEED_CLICKHOUSE_READER_GRANT"
+    )
     for profile, role in (("default", "READER"), ("devfeed_ingest", "INGEST")):
         root = users.find(f"profiles/{profile}")
         assert root is not None

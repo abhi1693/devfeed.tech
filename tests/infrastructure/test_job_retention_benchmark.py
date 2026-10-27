@@ -16,6 +16,92 @@ from tests.support.paths import REPO_ROOT
 
 
 @pytest.mark.integration
+def test_seed_restores_analytics_controls_and_retention_capture_after_reseeding(database):
+    from datetime import timedelta
+
+    from devfeed_core.analytics_schema import BACKFILL_TABLES
+    from devfeed_core.db import get_engine
+    from devfeed_core.engagement import prune_article_opens
+    from devfeed_core.models import Article, ArticleOpen, utcnow
+    from sqlalchemy import func, select
+
+    for iteration in range(2):
+        job_retention_benchmark.seed(get_engine(), articles=2, payload_bytes=8)
+        with database.begin() as session:
+            state = session.execute(
+                text(
+                    "SELECT enabled,capture_started_at,last_success_at,native_lease_token,"
+                    "native_import_complete,native_bootstrap_complete,card_bootstrap_complete "
+                    "FROM analytics_pipeline_state"
+                )
+            ).one()
+            assert state == (False, None, None, None, False, False, False)
+            assert session.scalar(text("SELECT started FROM analytics_gauge_bootstrap")) is False
+            timer = session.execute(
+                text(
+                    "SELECT policy,epoch,kind_index,shard,cursor,complete,cleanup_pending "
+                    "FROM analytics_card_timer_bootstrap"
+                )
+            ).one()
+            assert timer == (None, 0, 0, None, None, False, False)
+            assert set(
+                session.execute(text("SELECT domain,shard FROM analytics_gauge_refreshes"))
+            ) == {
+                ("queues", 0),
+                ("feed", 0),
+                ("sources", 0),
+                ("topics", 0),
+            }
+            cursors = session.execute(
+                text("SELECT source_table,complete FROM analytics_bootstrap_cursors")
+            ).all()
+            assert {row.source_table for row in cursors} == set(BACKFILL_TABLES)
+            assert all(not row.complete for row in cursors)
+            article = session.scalar(select(Article.id).limit(1))
+            session.add(
+                ArticleOpen(
+                    article_id=article,
+                    viewer_key="retention-fixture",
+                    opened_hour=utcnow() - timedelta(days=31),
+                )
+            )
+
+        # Retention remains fail-closed until capture is enabled; then the
+        # deleted source row is retained in the durable native ingest queue.
+        prune_article_opens(database)
+        with database.begin() as session:
+            assert session.scalar(select(func.count()).select_from(ArticleOpen)) == 1
+            session.execute(text("UPDATE analytics_pipeline_state SET enabled=true"))
+        prune_article_opens(database)
+        with database.begin() as session:
+            assert session.scalar(select(func.count()).select_from(ArticleOpen)) == 0
+            captured = session.execute(
+                text(
+                    "SELECT operation,record,before_record FROM analytics_ingest_events "
+                    "WHERE source_table='article_opens'"
+                )
+            ).one()
+            assert captured.operation == "I"
+            assert captured.record["viewer_key"] == "retention-fixture"
+            assert captured.before_record is None
+            if iteration == 0:
+                session.execute(
+                    text("UPDATE analytics_pipeline_state SET native_bootstrap_complete=true")
+                )
+                session.execute(text("UPDATE analytics_gauge_bootstrap SET started=true"))
+                session.execute(
+                    text(
+                        "UPDATE analytics_card_timer_bootstrap SET "
+                        "policy='stale',epoch=9,kind_index=3,complete=true,cleanup_pending=true"
+                    )
+                )
+                session.execute(text("UPDATE analytics_bootstrap_cursors SET complete=true"))
+                session.execute(
+                    text("INSERT INTO analytics_gauge_refreshes(domain,shard) VALUES('feed',100)")
+                )
+
+
+@pytest.mark.integration
 def test_benchmark_runs_both_histories_to_convergence_with_real_plans_and_ingestion(
     database, monkeypatch, tmp_path
 ):

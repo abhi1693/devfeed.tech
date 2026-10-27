@@ -2487,6 +2487,56 @@ for _target in (TopicAnalysisJob.topic_id, TopicAnalysisJob.proposal_id):
 _CARD_KINDS = "'article','source','candidate','topic-proposal','relationship-proposal'"
 
 
+class AnalyticsCardTimer(Base):
+    """One lease-fenced deadline per current analytical card."""
+
+    __tablename__ = "analytics_card_timers"
+    __table_args__ = (
+        CheckConstraint(f"kind IN ({_CARD_KINDS})", name="ck_analytics_card_timers_kind"),
+        Index(
+            "ix_analytics_card_timers_due",
+            "policy",
+            "epoch",
+            "available_at",
+            "kind",
+            "entity_id",
+            postgresql_where=text("available_at IS NOT NULL"),
+        ),
+        Index("ix_analytics_card_timers_epoch", "policy", "epoch", "kind", "entity_id"),
+        Index(
+            "ix_analytics_card_timers_tombstone",
+            "policy",
+            "epoch",
+            "kind",
+            "entity_id",
+            postgresql_where=text("available_at IS NULL"),
+        ),
+    )
+
+    policy: Mapped[str] = mapped_column(Text, primary_key=True)
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    entity_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    epoch: Mapped[int] = mapped_column(BigInteger)
+    generation: Mapped[int] = mapped_column(BigInteger)
+    available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AnalyticsCardTimerBootstrap(Base):
+    """Checkpoint the finite adoption of existing ClickHouse card deadlines."""
+
+    __tablename__ = "analytics_card_timer_bootstrap"
+    __table_args__ = (CheckConstraint("singleton", name="ck_analytics_card_timer_singleton"),)
+
+    singleton: Mapped[bool] = mapped_column(Boolean, primary_key=True, server_default="true")
+    policy: Mapped[str | None] = mapped_column(Text)
+    epoch: Mapped[int] = mapped_column(BigInteger, server_default="0")
+    kind_index: Mapped[int] = mapped_column(Integer, server_default="0")
+    shard: Mapped[int | None] = mapped_column(Integer)
+    cursor: Mapped[uuid.UUID | None] = mapped_column()
+    complete: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    cleanup_pending: Mapped[bool] = mapped_column(Boolean, server_default="false")
+
+
 class AnalyticsCardRefresh(Base):
     """Coalesced native current-card invalidations owned by the analytics lease."""
 
@@ -2494,6 +2544,13 @@ class AnalyticsCardRefresh(Base):
     __table_args__ = (
         CheckConstraint(f"kind IN ({_CARD_KINDS})", name="ck_analytics_card_refresh_kind"),
         Index("ix_analytics_card_refresh_due", "available_at", "kind", "entity_id"),
+        Index(
+            "ix_analytics_card_refresh_initial_due",
+            "available_at",
+            "kind",
+            "entity_id",
+            postgresql_where=text("initial_pending"),
+        ),
     )
 
     kind: Mapped[str] = mapped_column(Text, primary_key=True)

@@ -89,7 +89,11 @@ async def fence(connection):
 class Client:
     def __init__(self, connection):
         self.connection = connection
-        self.settings = SimpleNamespace(analytics_rollup_interval_seconds=30)
+        self.settings = SimpleNamespace(
+            analytics_rollup_interval_seconds=30,
+            clickhouse_timeout_seconds=30,
+            clickhouse_max_execution_seconds=20,
+        )
         self.tables = {}
         self.records = {}
         self.writes = []

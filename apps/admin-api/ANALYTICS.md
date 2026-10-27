@@ -42,12 +42,14 @@ reconstructed.
 ## Current operator cards
 
 Five kinds—articles, sources, discovery candidates, topic proposals, and
-relationship proposals—use 256 stable UUID shards each. PostgreSQL keeps only
-three small native control tables:
+relationship proposals—use 256 stable UUID shards each. PostgreSQL keeps
+native control tables for incremental work:
 
 - `analytics_card_refresh` coalesces exact dirty identities.
 - `analytics_card_backfills` checkpoints initial coverage for the five kinds.
 - `analytics_card_fanout` checkpoints source/catalog invalidation passes.
+- `analytics_card_timers` indexes future job transitions by deadline.
+- `analytics_card_timer_bootstrap` checkpoints timer adoption and cleanup.
 
 Builders hydrate at most 200 combined identities before evaluating lifecycle
 rules. Each publication batches up to eight shards of the same kind into one
@@ -58,6 +60,19 @@ repeatedly rewinding a running scan. Timed job availability transitions enqueue
 bounded due-card work. Article scheduler-clock changes create no capture event or
 card rebuild; returned article IDs receive their current display clock in one
 bounded authoritative query.
+
+Queued job deadlines are recorded in an indexed PostgreSQL timer queue alongside
+the fenced card-refresh acknowledgement. Due timers enqueue at most 200 card
+identities per cycle; job changes recalculate their deadlines through normal
+capture. Policy resets use a new timer epoch and retire obsolete entries in
+bounded batches. Existing native-card installations seed this queue from the
+current ClickHouse cards in restartable, lease-fenced keyset pages, while a
+temporary due scan covers unseeded cards. Fresh policy coverage builds the timer
+queue directly. The temporary scan and seed checkpoint are removed only after
+the [backfill retirement gates](ANALYTICS_BACKFILL_RETIREMENT.md) are met.
+Seed pages target one physical card shard at a time; ClickHouse granules and
+parts determine actual rows read, while the page size bounds returned identities.
+The temporary due scan can still read the remaining unseeded card population.
 
 `analytics_card_canonical` retains the latest durable card and tombstone for each
 policy/kind/shard/entity. It has no TTL. Full immutable shard generations are
@@ -157,6 +172,13 @@ five disposable derived tables and native PostgreSQL control state, and record
 business identity/count checks. Preserve the persistent PostgreSQL and ClickHouse
 volumes and all analytical facts, manifests, and cold archives.
 
+Before upgrading an existing native exporter through `0043`, stop the old
+exporter and wait for its already-issued ClickHouse commands to finish. The
+migration renames and clears its PostgreSQL lease, fencing subsequent old-worker
+claims and acknowledgements. A ClickHouse partition replacement already issued
+after an earlier lease check can still finish, so lease fencing alone does not
+replace draining those commands before the migration.
+
 Use the online `devfeed db upgrade` command for this cutover. When upgrading an
 existing schema across `0040`, Alembic first builds the eight active-job indexes
 concurrently on a separate connection, before changing the visible schema
@@ -165,7 +187,11 @@ preparation runs. The caller's statement and lock timeouts still apply, parallel
 index workers are disabled, and a failed preparation leaves the previous schema
 revision intact. Retrying reuses completed indexes and rebuilds matching invalid
 indexes left by an interrupted attempt. A conflicting index definition requires
-explicit repair. The remaining schema changes commit together; do not add the
+explicit repair. Migration `0043` similarly prepares the partial initial-card
+refresh index concurrently before its transaction; a missing or conflicting index
+at cutover fails the upgrade rather than locking an existing queue. Card refresh
+selects a bounded FIFO candidate window, prioritizes initial coverage, and publishes
+at most eight shards and 200 cards per batch. The remaining schema changes commit together; do not add the
 historical import to the migration hook or application readiness checks.
 
 Migration `0042` removes the old projection/report triggers and functions,
@@ -189,8 +215,18 @@ retained business records, and real fresh/stale health probes.
 
 The migration rejects downgrade. Reverting application code cannot recreate
 compatible derived state or reverse the capture protocol. Use a planned forward
-repair or coordinated backup restore. Local validation does not imply a
-production rollout.
+repair or coordinated backup restore. Generation-bounded pruning assumes manifest
+generations never move backwards. Before restoring an older ClickHouse snapshot,
+quiesce old exporters and ensure previously issued ClickHouse mutations cannot
+continue against the restored dataset.
+
+**Production release blocker:** Losing the ClickHouse database or restoring an
+older snapshot while retaining PostgreSQL can leave analytics marked ready while
+acknowledged and pruned facts are missing. A continuity protocol and coordinated
+backup and restore have not yet been validated. Production rollout requires tested
+protection against this failure and coherent backups; the quiescence prerequisite
+above alone does not establish a safe recovery procedure. Local validation does not
+imply a production rollout.
 
 ## Disposable profiling
 

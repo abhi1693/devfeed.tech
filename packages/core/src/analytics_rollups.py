@@ -1,11 +1,13 @@
 """Rebuild only dirty fact cohorts and atomically publish chart generations."""
 
+import hashlib
+import logging
 import re
 import time
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.analytics_facts import PAYLOAD_NAMES, dirty_buckets
 
 BUCKET = "{bucket:DateTime64(6, 'UTC')}"
@@ -59,6 +61,26 @@ COMPACTION_DOMAINS = {rollup.table: domain for domain, rollup in ROLLUPS.items()
 STAGING_PATTERN = "^analytics_compact_(" + "|".join(COMPACTION_DOMAINS) + ")_[0-9a-f]{32}$"
 ORPHAN_CHECK_SECONDS = 300
 ORPHAN_MIN_AGE_SECONDS = 600
+COMPACTION_POLL_SECONDS = 30
+COMPACTION_GRACE_MARGIN_SECONDS = 5
+COMPACTION_WARNING_SECONDS = 300
+MAX_MONTH_BUCKETS = 31 * 24
+logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class _Compaction:
+    table: str
+    month: int
+    publishes: int
+    domain: str
+    bounds: tuple[tuple[str, int], ...]
+    previous_token: str | None
+    marker: str
+    ready_at: float
+    next_check: float
+    submitted_at: float | None = None
+    next_warning: float = 0
 
 
 def canonical_sql(domain, *, daily=False, batch=False):
@@ -108,8 +130,26 @@ class RollupPublisher:
         self.client = client
         self.interval = client.settings.analytics_rollup_interval_seconds
         self._next_orphan_check = 0.0
+        self._next_compaction_check = 0.0
+        self._compactions: dict[str, _Compaction] = {}
+        self._compaction_blocked: dict[tuple[str, int], float] = {}
+        self._compaction_turn = 0
+        self._compaction_grace = (
+            max(
+                # Reader clients can independently use the configured maximum
+                # 300-second timeout, including admission and connection.
+                300,
+                client.settings.clickhouse_timeout_seconds,
+                client.settings.clickhouse_max_execution_seconds,
+            )
+            + COMPACTION_GRACE_MARGIN_SECONDS
+        )
 
     async def _cleanup_one(self, connection, *, fence, renew):
+        # TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Retire this old staging-table
+        # cleanup after every supported installation has quiesced old exporters
+        # and removed their orphaned analytics_compact_* tables. Keep the native
+        # generation-bounded pruning below.
         now = time.monotonic()
         if now < self._next_orphan_check:
             return False
@@ -235,51 +275,207 @@ class RollupPublisher:
 
     async def compact_one(self, connection, *, fence, renew):
         cleaned = await self._cleanup_one(connection, fence=fence, renew=renew)
+        now = time.monotonic()
+        due = sorted(
+            (plan for plan in self._compactions.values() if plan.next_check <= now),
+            key=lambda plan: (plan.next_check, plan.table),
+        )
+        if due:
+            return await self._advance_compaction(connection, due[0], now, fence, renew) or cleaned
+        if len(self._compactions) >= len(COMPACTION_DOMAINS) or now < self._next_compaction_check:
+            return cleaned
+        try:
+            plan = await self._prepare_compaction(connection, now)
+        except (AnalyticsUnavailable, ValueError, KeyError) as error:
+            logger.warning("analytics_compaction_prepare_failed: %s", error)
+            self._next_compaction_check = now + COMPACTION_POLL_SECONDS
+            return cleaned
+        if plan is not None:
+            self._compactions[plan.table] = plan
+        return cleaned
+
+    async def _prepare_compaction(self, connection, now):
+        self._compaction_blocked = {
+            key: until for key, until in self._compaction_blocked.items() if until > now
+        }
+        excluded = list(self._compactions)
+        blocked = list(self._compaction_blocked)
+        tables = list(COMPACTION_DOMAINS)
         async with connection.transaction():
             row = await (
                 await connection.execute(
-                    "SELECT table_name,month,publishes FROM analytics_rollup_compaction "
-                    "WHERE publishes>=16 ORDER BY publishes DESC,table_name,month LIMIT 1"
+                    "SELECT table_name,month,publishes,last_prune_token "
+                    "FROM analytics_rollup_compaction "
+                    "WHERE publishes>=16 AND NOT (table_name=ANY(%s::text[])) "
+                    "AND NOT EXISTS(SELECT 1 FROM unnest(%s::text[],%s::integer[]) "
+                    "AS b(table_name,month) WHERE "
+                    "b.table_name=analytics_rollup_compaction.table_name "
+                    "AND b.month=analytics_rollup_compaction.month) "
+                    "ORDER BY mod(array_position(%s::text[],table_name)-1-%s+%s,%s),"
+                    "publishes DESC,table_name,month LIMIT 1",
+                    (
+                        excluded,
+                        [item[0] for item in blocked],
+                        [item[1] for item in blocked],
+                        tables,
+                        self._compaction_turn,
+                        len(tables),
+                        len(tables),
+                    ),
                 )
             ).fetchone()
         if row is None:
-            return cleaned
-        domain = COMPACTION_DOMAINS[row["table_name"]]
-        target = "analytics_" + row["table_name"]
-        staging = "analytics_compact_" + row["table_name"] + "_" + uuid.uuid4().hex
-        bucket = "toDate(m.bucket)" if domain in {"sources", "topics"} else "m.bucket"
-        field = "bucket_day" if domain in {"sources", "topics"} else "bucket_hour"
-        params = {"month": row["month"], "domain": domain}
+            self._next_compaction_check = now + COMPACTION_POLL_SECONDS
+            return None
+        table = row["table_name"]
+        self._compaction_turn = (tables.index(table) + 1) % len(tables)
+        # Failures to read this month's manifest do not starve other months.
+        key = (table, int(row["month"]))
+        self._compaction_blocked[key] = now + COMPACTION_POLL_SECONDS
+        bounds = await self._compaction_bounds(row)
+        if not bounds:
+            # An absent manifest cannot authorize deleting data or acknowledging
+            # maintenance work. Retry slowly while other exporter work continues.
+            logger.warning(
+                "analytics_compaction_manifest_missing: %s %s", row["table_name"], row["month"]
+            )
+            return None
+        self._compaction_blocked.pop(key)
+        domain = COMPACTION_DOMAINS[table]
+        previous = row["last_prune_token"]
+        identity = repr((row["table_name"], row["month"], row["publishes"], bounds, previous))
+        marker = "devfeed_prune_" + hashlib.sha256(identity.encode()).hexdigest()
+        ready_at = now + self._compaction_grace
+        return _Compaction(
+            row["table_name"],
+            row["month"],
+            row["publishes"],
+            domain,
+            bounds,
+            previous,
+            marker,
+            ready_at,
+            ready_at,
+        )
 
-        async def owned_command(statement):
-            # A successfully renewed lease outlives both the client total deadline
-            # and server execution cap. On connection loss an old statement ends
-            # before another owner becomes eligible to replace the partition.
-            if await renew(connection) is None:
-                raise RuntimeError("Analytics compactor lease was superseded")
-            async with connection.transaction():
-                await fence(connection)
-            await self.client.execute(statement, params)
+    async def _compaction_bounds(self, row):
+        table = row["table_name"]
+        domain = COMPACTION_DOMAINS[table]
+        year, month = divmod(int(row["month"]), 100)
+        start = datetime(year, month, 1, tzinfo=UTC)
+        end = datetime(year + (month == 12), 1 if month == 12 else month + 1, 1, tzinfo=UTC)
+        rows = await self.client.query(
+            "SELECT bucket,generation FROM analytics_bucket_manifest FINAL "
+            "PREWHERE domain={domain:String} AND bucket>={start:DateTime('UTC')} "
+            "AND bucket<{end:DateTime('UTC')} ORDER BY bucket LIMIT 745",
+            {
+                "domain": domain,
+                "start": start.strftime("%Y-%m-%d %H:%M:%S"),
+                "end": end.strftime("%Y-%m-%d %H:%M:%S"),
+            },
+        )
+        if len(rows) > MAX_MONTH_BUCKETS:
+            raise ValueError("Too many rollup buckets in one month")
+        bounds = []
+        for item in rows:
+            value = item["bucket"]
+            value = (
+                datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if isinstance(value, str)
+                else value
+            )
+            value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+            generation = int(item["generation"])
+            if not (start <= value < end and 0 <= generation < 2**64):
+                raise ValueError("Invalid rollup bucket or generation")
+            if (
+                value.minute
+                or value.second
+                or value.microsecond
+                or (domain in {"sources", "topics"} and value.hour)
+            ):
+                raise ValueError("Invalid rollup bucket alignment")
+            bounds.append((value.strftime("%Y-%m-%d %H:%M:%S"), generation))
+        if len({bucket for bucket, _ in bounds}) != len(bounds):
+            raise ValueError("Duplicate rollup bucket manifests")
+        return tuple(bounds)
 
+    @staticmethod
+    def _compaction_sql(plan):
+        daily = plan.domain in {"sources", "topics"}
+        field = "bucket_day" if daily else "bucket_hour"
+        buckets = [
+            f"toDate('{bucket[:10]}')" if daily else f"toDateTime('{bucket}','UTC')"
+            for bucket, _ in plan.bounds
+        ]
+        generations = [f"toUInt64({generation})" for _, generation in plan.bounds]
+        # Constant transform lookup avoids checking up to 744 OR branches for
+        # every row. Unknown buckets map to zero and are therefore retained.
+        return (
+            f"ALTER TABLE analytics_{plan.table} DELETE WHERE toYYYYMM({field})={{month:UInt32}} "
+            f"AND generation<transform({field},["
+            + ",".join(buckets)
+            + "],["
+            + ",".join(generations)
+            + "],toUInt64(0)) AND {marker:String}!=''"
+        )
+
+    async def _mutation_state(self, plan):
+        rows = await self.client.query(
+            "SELECT position(command,{marker:String})>0 AS ours,is_done,"
+            "left(latest_fail_reason,512) AS latest_fail_reason FROM system.mutations "
+            "WHERE database=currentDatabase() AND table={table:String} "
+            "AND (is_done=0 OR position(command,{marker:String})>0) "
+            "ORDER BY is_done,create_time DESC LIMIT 128",
+            {"table": "analytics_" + plan.table, "marker": plan.marker},
+        )
+        pending = [row for row in rows if not row["is_done"]]
+        complete = any(row["is_done"] and row["ours"] for row in rows)
+        return pending, complete
+
+    async def _advance_compaction(self, connection, plan, now, fence, renew):
+        plan.next_check = now + COMPACTION_POLL_SECONDS
         try:
-            await owned_command(f"CREATE TABLE {staging} AS {target}")
-            await owned_command(
-                f"INSERT INTO {staging} SELECT r.* FROM {target} r INNER JOIN "
-                "(SELECT bucket,generation FROM analytics_bucket_manifest FINAL "
-                "WHERE domain={domain:String} AND toYYYYMM(bucket)={month:UInt32}) m "
-                f"ON r.{field}={bucket} AND r.generation=m.generation "
-                f"WHERE toYYYYMM(r.{field})={{month:UInt32}}"
+            pending, complete = await self._mutation_state(plan)
+        except AnalyticsUnavailable as error:
+            logger.warning("analytics_compaction_poll_failed: %s", error)
+            return False
+        if pending:
+            failed = next(
+                (item["latest_fail_reason"] for item in pending if item["latest_fail_reason"]), None
             )
-            await owned_command(
-                f"ALTER TABLE {target} REPLACE PARTITION {{month:UInt32}} FROM {staging}"
+            if failed and now >= plan.next_warning:
+                logger.warning("analytics_compaction_mutation_waiting: %s", failed)
+                plan.next_warning = now + COMPACTION_WARNING_SECONDS
+            return False
+        if complete:
+            await self._ack_compaction(connection, plan, fence)
+            self._compactions.pop(plan.table, None)
+            return True
+        if plan.submitted_at is not None and now - plan.submitted_at < self._compaction_grace:
+            return False
+        if await renew(connection) is None:
+            raise RuntimeError("Analytics compactor lease was superseded")
+        async with connection.transaction():
+            await fence(connection)
+        plan.submitted_at = now
+        try:
+            await self.client.execute(
+                self._compaction_sql(plan), {"month": plan.month, "marker": plan.marker}
             )
-        finally:
-            await self.client.execute(f"DROP TABLE IF EXISTS {staging}")
+        except AnalyticsUnavailable as error:
+            # The server may have accepted the mutation before the response was
+            # lost. Keep the marker and poll before ever retrying the request.
+            logger.warning("analytics_compaction_submit_uncertain: %s", error)
+            return False
+        return True
+
+    async def _ack_compaction(self, connection, plan, fence):
         async with connection.transaction():
             await fence(connection)
             await connection.execute(
-                "UPDATE analytics_rollup_compaction SET publishes=publishes-%s "
-                "WHERE table_name=%s AND month=%s",
-                (row["publishes"], row["table_name"], row["month"]),
+                "UPDATE analytics_rollup_compaction SET publishes=greatest(publishes-%s,0), "
+                "last_prune_token=%s WHERE table_name=%s AND month=%s "
+                "AND last_prune_token IS NOT DISTINCT FROM %s",
+                (plan.publishes, plan.marker, plan.table, plan.month, plan.previous_token),
             )
-        return True

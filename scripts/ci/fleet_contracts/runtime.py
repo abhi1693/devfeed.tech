@@ -61,7 +61,7 @@ def metadata_setup():
             """CREATE TABLE analytics_pipeline_state (
                 singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
                 enabled boolean NOT NULL DEFAULT false, capture_started_at timestamptz,
-                last_success_at timestamptz, lease_token uuid, lease_until timestamptz,
+                last_success_at timestamptz, native_lease_token uuid, lease_until timestamptz,
                 lease_generation bigint NOT NULL DEFAULT 0,
                 native_import_complete boolean NOT NULL DEFAULT false,
                 native_capture_started_at timestamptz, reader_coverage_start date,
@@ -97,7 +97,7 @@ def metadata_setup():
             "ON analytics_fact_refresh(domain,available_at,requested_at,bucket)",
             """CREATE TABLE analytics_rollup_compaction (
                 table_name text NOT NULL, month integer NOT NULL,
-                publishes integer NOT NULL DEFAULT 0,
+                publishes integer NOT NULL DEFAULT 0, last_prune_token text,
                 PRIMARY KEY(table_name,month))""",
             """CREATE TABLE analytics_upgrade_checkpoint (
                 name text PRIMARY KEY, cursor jsonb, complete boolean NOT NULL DEFAULT false)""",
@@ -115,6 +115,7 @@ def metadata_setup():
                 singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
                 started boolean NOT NULL DEFAULT false)""",
             "INSERT INTO analytics_gauge_bootstrap(singleton) VALUES(true)",
+            "INSERT INTO analytics_card_timer_bootstrap(singleton) VALUES(true)",
             "INSERT INTO analytics_gauge_refreshes(domain,shard) "
             "VALUES('queues',0),('feed',0),('sources',0),('topics',0)",
         )

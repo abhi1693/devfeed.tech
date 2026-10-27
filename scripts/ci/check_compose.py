@@ -13,6 +13,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def render(values: dict[str, str], *, build: bool = False) -> dict:
     # Never read the developer's .env or inherited application credentials.
+    values = {
+        "DEVFEED_CLICKHOUSE_READER_PASSWORD": "fixture-only-reader-password",
+        "DEVFEED_CLICKHOUSE_INGEST_PASSWORD": "fixture-only-ingest-password",
+        **values,
+    }
     environment = {
         key: value
         for key, value in os.environ.items()
@@ -280,6 +285,10 @@ def check() -> None:
     assert clickhouse["environment"]["DEVFEED_CLICKHOUSE_SERVER_MAX_INSERTS"] == "2"
     assert services["analytics-exporter"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == (
         "devfeed_ingest"
+    )
+    assert services["admin-api"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed_reader"
+    assert services["admin-api"]["environment"]["DEVFEED_CLICKHOUSE_PASSWORD"] == (
+        "fixture-only-reader-password"
     )
     assert services["analytics-exporter"]["cpus"] == Decimal("0.5")
     assert int(services["analytics-exporter"]["mem_limit"]) == 512 * 1024**2

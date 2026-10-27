@@ -15,10 +15,12 @@ application process's request semaphore and timeout.
 | Exporter container        | 0.5 CPU, 512 MiB                       |
 
 The official image's configured `DEVFEED_CLICKHOUSE_USERNAME` retains its existing
-administration permissions, including CH-UI access. Its `default` profile limits
-all sessions for that account together. The exporter uses a separate private
-`devfeed_ingest` account and profile, with schema, materialized-view, read and write
-permissions. It cannot manage users. Two busy reader sessions therefore leave a
+administration permissions, including CH-UI access. The admin API uses the separate
+`devfeed_reader` account, restricted to SELECT on the configured analytics database.
+The exporter uses a separate private
+`devfeed_ingest` account and profile, scoped to analytics database schema maintenance,
+materialized views, reads and writes, plus access to `system.mutations` to track
+compaction completion. It cannot manage users. Two busy reader sessions therefore leave a
 SELECT slot for exporter metadata or rollup work and two independent INSERT
 slots. Reader and exporter memory budgets leave server headroom for merges,
 caches, and system tables. Admission limits reject excess queries; the durable
@@ -26,12 +28,22 @@ exporter retries without acknowledging uncommitted batches.
 The authenticated healthcheck uses the exporter account so reader saturation
 cannot consume its allowance.
 
-`DEVFEED_CLICKHOUSE_INGEST_PASSWORD` supplies the exporter credential. An empty
-value falls back to the existing ClickHouse password. Set a separate generated
-value before starting the exporter, retain it with your private `.env`, and never
-commit it. The configuration user reads this value at startup; changing the value
-requires recreating ClickHouse and the exporter together. Existing data volumes
-and the administration account remain in place.
+Set `DEVFEED_CLICKHOUSE_READER_PASSWORD` to a generated secret distinct from the
+operator, exporter and PostgreSQL passwords in the private Compose `.env` before
+upgrading or starting the stack. This is required for existing installations too;
+replace the example placeholder. Recreate ClickHouse and admin-api together after
+changing it. The reader profile allows bounded per-query settings but rejects writes,
+schema changes and user management. The configured database name must be a valid
+unquoted ClickHouse identifier, as required by the application settings.
+For an admin API run outside Compose, set its `DEVFEED_CLICKHOUSE_USERNAME` to
+`devfeed_reader` and its `DEVFEED_CLICKHOUSE_PASSWORD` to the reader secret;
+configure the exporter separately with the ingest identity and secret.
+
+Set `DEVFEED_CLICKHOUSE_INGEST_PASSWORD` to another distinct generated secret in
+the private Compose `.env`; this is also required for existing installations.
+The configuration user reads it at startup; changing it requires recreating
+ClickHouse and the exporter together. Existing data volumes and the operator
+account remain in place. Never commit these secrets.
 
 The shared budgets use the `DEVFEED_CLICKHOUSE_{READER,INGEST,SERVER}_*` settings in
 `compose.env.example`. The application query limits use

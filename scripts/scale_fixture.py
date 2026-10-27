@@ -797,7 +797,7 @@ def publish_analytics(factory, *, reset=False):
             session.execute(
                 text(
                     "UPDATE analytics_pipeline_state SET enabled=false, capture_started_at=NULL, "
-                    "last_success_at=NULL, lease_token=NULL, lease_until=NULL, "
+                    "last_success_at=NULL, native_lease_token=NULL, lease_until=NULL, "
                     "native_import_complete=false,native_capture_started_at=NULL, "
                     "reader_coverage_start=NULL,native_bootstrap_barrier=false, "
                     "native_bootstrap_complete=false,card_target_policy=NULL, "

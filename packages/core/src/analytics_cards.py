@@ -26,15 +26,41 @@ from devfeed_core.catalog_cache import reuse_snapshots
 from devfeed_core.config import get_settings
 
 KINDS = tuple(CARD_BACKFILL_TABLES)
+TIMER_KINDS = ("article", "source", "candidate")
 SHARDS = 256
 BUILD_BATCH_SIZE = 200
 # Publish several dirty shards together without hydrating more source rows or
 # allowing a population-sized INSERT SELECT. Each batch uses one serving insert
 # and one manifest insert rather than separate writes for every dirty shard.
 PUBLISH_SHARD_BATCH_SIZE = 8
+REFRESH_CANDIDATE_LIMIT = BUILD_BATCH_SIZE * PUBLISH_SHARD_BATCH_SIZE
 SCAN_BATCH_SIZE = 1000
 QUEUE_HIGH_WATERMARK = 2000
 ZERO_UUID = uuid.UUID(int=0)
+TIMER_DUE_SQL = (
+    "SELECT kind,entity_id,generation FROM analytics_card_timers "
+    "WHERE policy=%s AND epoch=%s AND available_at<=statement_timestamp() "
+    "ORDER BY available_at,kind,entity_id LIMIT %s"
+)
+REFRESH_DUE_SQL = (
+    "WITH initial AS MATERIALIZED (SELECT kind,entity_id,generation,initial_pending,available_at "
+    "FROM analytics_card_refresh WHERE initial_pending AND available_at<=statement_timestamp() "
+    "ORDER BY available_at,kind,entity_id LIMIT %s), "
+    "ordinary AS MATERIALIZED (SELECT kind,entity_id,generation,initial_pending,available_at "
+    "FROM analytics_card_refresh WHERE NOT initial_pending "
+    "AND available_at<=statement_timestamp() AND (SELECT count(*) FROM initial)<%s "
+    "ORDER BY available_at,kind,entity_id LIMIT %s), "
+    "candidates AS MATERIALIZED (SELECT *,get_byte(uuid_send(entity_id),0) AS shard FROM "
+    "(SELECT * FROM initial UNION ALL SELECT * FROM ordinary) AS pending "
+    "ORDER BY initial_pending DESC,available_at,kind,entity_id LIMIT %s), "
+    "oldest AS (SELECT kind FROM candidates ORDER BY initial_pending DESC,available_at,"
+    "kind,entity_id LIMIT 1), shards AS (SELECT shard,bool_or(initial_pending) AS initial,"
+    "min(available_at) AS available FROM candidates WHERE kind=(SELECT kind FROM oldest) "
+    "GROUP BY shard ORDER BY initial DESC,available,shard LIMIT %s) "
+    "SELECT r.kind,r.entity_id,r.generation FROM candidates r JOIN shards s ON r.shard=s.shard "
+    "WHERE r.kind=(SELECT kind FROM oldest) ORDER BY r.initial_pending DESC,s.initial DESC,"
+    "s.available,s.shard,r.entity_id LIMIT %s"
+)
 COLUMNS = (
     ("policy", "String"),
     ("kind", "LowCardinality(String)"),
@@ -379,6 +405,11 @@ class CardPublisher:
             await connection.execute("DELETE FROM analytics_card_fanout")
             await connection.execute("DELETE FROM analytics_card_backfills")
             await connection.execute(
+                "UPDATE analytics_card_timer_bootstrap SET policy=%s,epoch=%s,kind_index=0,"
+                "shard=NULL,cursor=NULL,complete=true,cleanup_pending=true WHERE singleton",
+                (policy, generation),
+            )
+            await connection.execute(
                 "INSERT INTO analytics_card_backfills(kind) SELECT unnest(%s::text[])",
                 (list(KINDS),),
             )
@@ -604,21 +635,8 @@ class CardPublisher:
         async with connection.transaction():
             row = await (
                 await connection.execute(
-                    "WITH oldest AS (SELECT kind,get_byte(uuid_send(entity_id),0) AS shard "
-                    "FROM analytics_card_refresh WHERE available_at<=clock_timestamp() "
-                    "ORDER BY initial_pending DESC,available_at,kind,entity_id LIMIT 1), "
-                    "shards AS (SELECT get_byte(uuid_send(entity_id),0) AS shard,"
-                    "bool_or(initial_pending) AS initial,min(available_at) AS available "
-                    "FROM analytics_card_refresh WHERE available_at<=clock_timestamp() "
-                    "AND kind=(SELECT kind FROM oldest) GROUP BY shard "
-                    "ORDER BY initial DESC,available,shard LIMIT %s) "
-                    "SELECT r.kind,r.entity_id,r.generation FROM analytics_card_refresh AS r "
-                    "JOIN shards AS s ON get_byte(uuid_send(r.entity_id),0)=s.shard "
-                    "WHERE r.available_at<=clock_timestamp() AND r.kind=(SELECT kind FROM oldest) "
-                    "ORDER BY r.initial_pending DESC,s.initial DESC,s.available,s.shard,"
-                    "r.entity_id "
-                    "LIMIT %s",
-                    (PUBLISH_SHARD_BATCH_SIZE, BUILD_BATCH_SIZE),
+                    REFRESH_DUE_SQL,
+                    (REFRESH_CANDIDATE_LIMIT,) * 4 + (PUBLISH_SHARD_BATCH_SIZE, BUILD_BATCH_SIZE),
                 )
             ).fetchall()
         if not row:
@@ -633,6 +651,10 @@ class CardPublisher:
             normalize_card(observed.get(identity(value)), policy, kind, value, generation, now)
             for value in identifiers
         ]
+        if kind not in TIMER_KINDS and any(
+            row["next_transition_at"] is not None for row in canonical
+        ):
+            raise RuntimeError(f"Analytical deadlines are not indexed for card kind {kind}")
         shards = sorted({shard_of(value) for value in identifiers})
         existing = await self.client.query(
             "SELECT entity_id,semantic_hash,version FROM analytics_card_canonical FINAL PREWHERE "
@@ -671,6 +693,9 @@ class CardPublisher:
             await self._publish_shards(connection, policy, kind, publish, generation, fence=fence)
         async with connection.transaction():
             await fence(connection)
+            if kind in TIMER_KINDS:
+                control = await self._timer_control(connection, policy)
+                await self._write_timers(connection, policy, kind, canonical, generation, control)
             await connection.execute(
                 "DELETE FROM analytics_card_refresh AS r USING "
                 "unnest(%s::uuid[],%s::bigint[]) AS done(entity_id,generation) "
@@ -683,16 +708,231 @@ class CardPublisher:
             )
         return True
 
+    async def _timer_control(self, connection, policy):
+        row = await (
+            await connection.execute(
+                "SELECT policy,epoch,kind_index,shard,cursor,complete,cleanup_pending "
+                "FROM analytics_card_timer_bootstrap WHERE singleton FOR UPDATE"
+            )
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("Analytics timer bootstrap state is missing")
+        if row["policy"] is None:
+            await connection.execute(
+                "UPDATE analytics_card_timer_bootstrap SET policy=%s WHERE singleton", (policy,)
+            )
+            row["policy"] = policy
+        if row["policy"] != policy:
+            raise RuntimeError("Analytics timer policy changed during publication")
+        return row
+
+    @staticmethod
+    async def _upsert_timers(connection, policy, kind, epoch, rows):
+        if not rows:
+            return
+        await connection.execute(
+            "INSERT INTO analytics_card_timers"
+            "(policy,kind,entity_id,epoch,generation,available_at) "
+            "SELECT %s,%s,t.entity_id,%s,t.generation,t.available_at FROM "
+            "unnest(%s::uuid[],%s::bigint[],%s::timestamptz[]) "
+            "AS t(entity_id,generation,available_at) "
+            "ON CONFLICT(policy,kind,entity_id) DO UPDATE SET "
+            "epoch=excluded.epoch,generation=excluded.generation,"
+            "available_at=excluded.available_at "
+            "WHERE (analytics_card_timers.epoch,analytics_card_timers.generation) "
+            "< (excluded.epoch,excluded.generation)",
+            (
+                policy,
+                kind,
+                epoch,
+                [identity(row["entity_id"]) for row in rows],
+                [row["generation"] for row in rows],
+                [row["available_at"] for row in rows],
+            ),
+        )
+
+    async def _write_timers(self, connection, policy, kind, canonical, generation, control):
+        rows = [
+            dict(
+                entity_id=card["entity_id"],
+                generation=generation,
+                available_at=card["next_transition_at"],
+            )
+            for card in canonical
+        ]
+        if control["complete"]:
+            empty = [identity(row["entity_id"]) for row in rows if row["available_at"] is None]
+            if empty:
+                await connection.execute(
+                    "DELETE FROM analytics_card_timers WHERE policy=%s AND kind=%s "
+                    "AND entity_id=ANY(%s::uuid[]) AND (epoch,generation)<= (%s,%s)",
+                    (policy, kind, empty, control["epoch"], generation),
+                )
+            rows = [row for row in rows if row["available_at"] is not None]
+        await self._upsert_timers(connection, policy, kind, control["epoch"], rows)
+
+    async def _timer_cleanup(self, connection, policy, control):
+        if not control["cleanup_pending"]:
+            return False
+        rows = await (
+            await connection.execute(
+                "WITH stale AS (SELECT * FROM ("
+                "(SELECT policy,kind,entity_id,epoch,generation FROM analytics_card_timers "
+                "WHERE policy=%s AND epoch=%s AND available_at IS NULL "
+                "ORDER BY kind,entity_id LIMIT %s) UNION ALL "
+                "(SELECT policy,kind,entity_id,epoch,generation FROM analytics_card_timers "
+                "WHERE (policy,epoch)<(%s,%s) "
+                "ORDER BY policy DESC,epoch DESC,kind DESC,entity_id DESC LIMIT %s) UNION ALL "
+                "(SELECT policy,kind,entity_id,epoch,generation FROM analytics_card_timers "
+                "WHERE (policy,epoch)>(%s,%s) "
+                "ORDER BY policy,epoch,kind,entity_id LIMIT %s)) candidates LIMIT %s) "
+                "DELETE FROM analytics_card_timers AS t USING stale AS s "
+                "WHERE (t.policy,t.kind,t.entity_id,t.epoch,t.generation)="
+                "(s.policy,s.kind,s.entity_id,s.epoch,s.generation) RETURNING 1",
+                (policy, control["epoch"], BUILD_BATCH_SIZE) * 3 + (BUILD_BATCH_SIZE,),
+            )
+        ).fetchall()
+        if not rows:
+            await connection.execute(
+                "UPDATE analytics_card_timer_bootstrap SET cleanup_pending=false WHERE singleton"
+            )
+        return bool(rows)
+
+    async def _timer_bootstrap_one(self, connection, generation, state, *, fence):
+        # TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Retire only the bounded seed
+        # branch and its due-scan bridge after all 0042 installations adopt it.
+        # Timer epochs and bounded cleanup above this branch remain permanent.
+        policy = state["card_target_policy"]
+        async with connection.transaction():
+            await fence(connection)
+            control = await self._timer_control(connection, policy)
+            if control["complete"]:
+                return await self._timer_cleanup(connection, policy, control)
+        kind = TIMER_KINDS[control["kind_index"]]
+        cursor = ""
+        shard = control["shard"] if control["shard"] is not None else 0
+        parameters = dict(
+            policy=policy,
+            kind=kind,
+            shard=shard,
+            limit=getattr(self.settings, "analytics_backfill_batch_size", 1000),
+        )
+        if control["cursor"] is not None:
+            cursor = " AND entity_id>{cursor:UUID}"
+            parameters["cursor"] = control["cursor"]
+        rows = await self.client.query(
+            "SELECT shard,entity_id,version,deleted,next_transition_at,version>="
+            + RESET
+            + " AS current FROM analytics_card_canonical FINAL PREWHERE "
+            "policy={policy:String} AND kind={kind:String} AND shard={shard:UInt16}"
+            + cursor
+            + " ORDER BY entity_id LIMIT {limit:UInt32} SETTINGS max_block_size=1024",
+            parameters,
+        )
+        timers = []
+        for row in rows:
+            deadline = row["next_transition_at"]
+            if row["current"] and not row["deleted"] and deadline is not None:
+                if isinstance(deadline, str):
+                    deadline = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
+                if deadline.tzinfo is None:
+                    deadline = deadline.replace(tzinfo=UTC)
+                timers.append(
+                    dict(
+                        entity_id=row["entity_id"],
+                        generation=int(row["version"]) >> 64,
+                        available_at=deadline,
+                    )
+                )
+        async with connection.transaction():
+            await fence(connection)
+            current = await self._timer_control(connection, policy)
+            if any(
+                current[key] != control[key] for key in ("epoch", "kind_index", "shard", "cursor")
+            ):
+                return False
+            await self._upsert_timers(connection, policy, kind, control["epoch"], timers)
+            if len(rows) < parameters["limit"] and shard < SHARDS - 1:
+                await connection.execute(
+                    "UPDATE analytics_card_timer_bootstrap "
+                    "SET shard=%s,cursor=NULL WHERE singleton",
+                    (shard + 1,),
+                )
+            elif len(rows) < parameters["limit"]:
+                index = control["kind_index"] + 1
+                await connection.execute(
+                    "UPDATE analytics_card_timer_bootstrap SET "
+                    "kind_index=%s,shard=NULL,cursor=NULL,"
+                    "complete=%s,cleanup_pending=%s WHERE singleton",
+                    (index, index == len(TIMER_KINDS), index == len(TIMER_KINDS)),
+                )
+            else:
+                await connection.execute(
+                    "UPDATE analytics_card_timer_bootstrap SET shard=%s,cursor=%s WHERE singleton",
+                    (shard, identity(rows[-1]["entity_id"])),
+                )
+        return True
+
     async def _timers_one(self, connection, generation, state, *, fence):
+        policy = state["card_target_policy"]
+        async with connection.transaction():
+            await fence(connection)
+            control = await self._timer_control(connection, policy)
+            rows = await (
+                await connection.execute(
+                    TIMER_DUE_SQL,
+                    (policy, control["epoch"], BUILD_BATCH_SIZE),
+                )
+            ).fetchall()
+            if rows:
+                await self._mark(
+                    connection, {(row["kind"], row["entity_id"]) for row in rows}, generation, False
+                )
+                await self._consume_timers(connection, policy, control, rows, generation)
+                return True
+            if control["complete"]:
+                return False
+        return await self._timer_bootstrap_due(connection, generation, policy, control, fence=fence)
+
+    async def _consume_timers(self, connection, policy, control, rows, generation):
+        action = (
+            "DELETE FROM analytics_card_timers AS t USING "
+            if control["complete"]
+            else "UPDATE analytics_card_timers AS t SET available_at=NULL,"
+            "generation=greatest(t.generation,%s) FROM "
+        )
+        values = (
+            [row["kind"] for row in rows],
+            [row["entity_id"] for row in rows],
+            [row["generation"] for row in rows],
+            policy,
+            control["epoch"],
+        )
+        await connection.execute(
+            action + "unnest(%s::text[],%s::uuid[],%s::bigint[]) AS d(kind,entity_id,generation) "
+            "WHERE t.policy=%s AND t.epoch=%s AND t.kind=d.kind AND t.entity_id=d.entity_id "
+            "AND t.generation=d.generation",
+            values if control["complete"] else (generation, *values),
+        )
+
+    async def _timer_bootstrap_due(self, connection, generation, policy, control, *, fence):
+        # TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Keep old due observations
+        # visible only while a pre-0043 card population is being indexed.
         rows = []
-        for kind in ("article", "source", "candidate"):
+        for index in range(control["kind_index"], len(TIMER_KINDS)):
+            kind = TIMER_KINDS[index]
+            scope = ""
+            parameters = dict(policy=policy, kind=kind, limit=BUILD_BATCH_SIZE)
+            if index == control["kind_index"] and control["shard"] is not None:
+                scope = " AND shard>={first_shard:UInt16}"
+                parameters["first_shard"] = control["shard"]
             rows = await self.client.query(
                 "SELECT kind,entity_id FROM analytics_card_canonical FINAL "
-                "PREWHERE policy={policy:String} AND kind={kind:String} "
+                "PREWHERE policy={policy:String} AND kind={kind:String}" + scope + " "
                 "WHERE deleted=0 AND next_transition_at<=now64(6) AND version>=" + RESET + " "
                 "ORDER BY next_transition_at,entity_id LIMIT {limit:UInt32} "
                 "SETTINGS max_block_size=1024",
-                dict(policy=state["card_target_policy"], kind=kind, limit=BUILD_BATCH_SIZE),
+                parameters,
             )
             if rows:
                 break
@@ -700,11 +940,24 @@ class CardPublisher:
             return False
         async with connection.transaction():
             await fence(connection)
+            control = await self._timer_control(connection, policy)
+            if control["complete"]:
+                return False
             await self._mark(
                 connection,
                 {(row["kind"], identity(row["entity_id"])) for row in rows},
                 generation,
                 False,
+            )
+            await self._upsert_timers(
+                connection,
+                policy,
+                kind,
+                control["epoch"],
+                [
+                    dict(entity_id=row["entity_id"], generation=generation, available_at=None)
+                    for row in rows
+                ],
             )
         return True
 
@@ -818,6 +1071,7 @@ class CardPublisher:
             self._backfill_one,
             self._fanout_one,
             self._timers_one,
+            self._timer_bootstrap_one,
             self._renew_one,
         )
         changed = False

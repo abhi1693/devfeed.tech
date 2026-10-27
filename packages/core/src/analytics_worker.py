@@ -110,11 +110,11 @@ class AnalyticsExporter:
         async with connection.transaction():
             row = await (
                 await connection.execute(
-                    "UPDATE analytics_pipeline_state SET lease_token = %s, "
+                    "UPDATE analytics_pipeline_state SET native_lease_token = %s, "
                     "lease_generation = nextval('analytics_export_generation'), "
                     "lease_until = clock_timestamp() + make_interval(secs => %s) "
                     "WHERE singleton AND enabled AND (lease_until IS NULL "
-                    "OR lease_until < clock_timestamp() OR lease_token = %s) "
+                    "OR lease_until < clock_timestamp() OR native_lease_token = %s) "
                     "RETURNING capture_started_at, lease_generation, native_capture_started_at",
                     (
                         self.token,
@@ -137,8 +137,8 @@ class AnalyticsExporter:
     async def _check_lease(self, connection):
         row = await (
             await connection.execute(
-                "SELECT 1 FROM analytics_pipeline_state WHERE singleton AND lease_token = %s "
-                "AND lease_until > clock_timestamp() FOR UPDATE",
+                "SELECT 1 FROM analytics_pipeline_state WHERE singleton "
+                "AND native_lease_token = %s AND lease_until > clock_timestamp() FOR UPDATE",
                 (self.token,),
             )
         ).fetchone()
@@ -438,7 +438,7 @@ class AnalyticsExporter:
                 await self._check_lease(connection)
                 await connection.execute(
                     "UPDATE analytics_pipeline_state SET last_success_at=clock_timestamp(), "
-                    "lease_token=NULL,lease_until=NULL WHERE singleton"
+                    "native_lease_token=NULL,lease_until=NULL WHERE singleton"
                 )
         write_runtime_marker(runtime_marker("analytics-worker"), str(time.time()))
         return upgrading or backfilling or count > 0 or refreshed

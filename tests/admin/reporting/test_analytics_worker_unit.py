@@ -516,7 +516,7 @@ def test_initial_import_delivers_live_facts_and_heartbeats_without_publishing_pa
     assert not service.cards.bootstrapping
     assert any(
         q.startswith("UPDATE analytics_pipeline_state SET last_success")
-        and "lease_token=NULL,lease_until=NULL" in q
+        and "native_lease_token=NULL,lease_until=NULL" in q
         for q, _ in connection.calls
     )
     marker.assert_called_once()
@@ -912,6 +912,87 @@ def test_dirty_cohorts_coalesce_without_postponing_the_first_deadline():
     assert len(connection.calls) == 1
 
 
+def compaction_fixture(monkeypatch, table="publishing_hourly"):
+    from devfeed_core import analytics_rollups as rollups
+
+    clock = [100.0]
+    monkeypatch.setattr(rollups, "time", NS(monotonic=lambda: clock[0]))
+    row = dict(table_name=table, month=202610, publishes=18, last_prune_token=None)
+    manifests = [
+        dict(bucket="2026-10-01T00:00:00Z", generation=4),
+        dict(bucket="2026-10-02T00:00:00Z", generation=6),
+    ]
+    mutations = []
+
+    def handle(query, parameters):
+        if query.startswith("SELECT table_name"):
+            blocked = set(zip(parameters[1], parameters[2], strict=True))
+            return (
+                dict(row)
+                if row["publishes"] >= 16
+                and row["table_name"] not in parameters[0]
+                and (row["table_name"], row["month"]) not in blocked
+                else None
+            )
+        if query.startswith("UPDATE analytics_rollup_compaction"):
+            count, marker, _table, _month, previous = parameters
+            if row["last_prune_token"] == previous:
+                row["publishes"] = max(row["publishes"] - count, 0)
+                row["last_prune_token"] = marker
+        return {"ok": 1}
+
+    connection = Connection(handle)
+    client = Client(connection)
+
+    async def query(statement, parameters=None):
+        assert connection.active == 0
+        if "FROM system.tables" in statement:
+            return []
+        if "FROM analytics_bucket_manifest" in statement:
+            return manifests.copy()
+        if "FROM system.mutations" in statement:
+            return [
+                {**item, "ours": parameters["marker"] in item["command"]}
+                for item in mutations
+                if item["table"] == parameters["table"]
+                and (not item["is_done"] or parameters["marker"] in item["command"])
+            ]
+        pytest.fail(f"Unexpected ClickHouse query: {statement}")
+
+    async def execute(statement, parameters=None):
+        assert connection.active == 0
+        mutations.append(
+            dict(
+                table=statement.split()[2],
+                command=parameters["marker"],
+                is_done=0,
+                latest_fail_reason="",
+            )
+        )
+
+    client.query = AsyncMock(side_effect=query)
+    client.execute = AsyncMock(side_effect=execute)
+    publisher = rollups.RollupPublisher(client)
+    publisher._next_orphan_check = float("inf")
+    return NS(
+        clock=clock,
+        row=row,
+        manifests=manifests,
+        mutations=mutations,
+        connection=connection,
+        client=client,
+        publisher=publisher,
+        fence=AsyncMock(),
+        renew=AsyncMock(return_value={"lease_generation": 20}),
+    )
+
+
+def compact(fixture):
+    return run(
+        fixture.publisher.compact_one(fixture.connection, fence=fixture.fence, renew=fixture.renew)
+    )
+
+
 @pytest.mark.parametrize(
     "table",
     [
@@ -923,67 +1004,234 @@ def test_dirty_cohorts_coalesce_without_postponing_the_first_deadline():
         "topic_daily",
     ],
 )
-def test_compaction_uses_private_staging_and_fenced_atomic_partition_replacement(table):
+def test_compaction_waits_for_readers_and_only_removes_older_generations(monkeypatch, table):
+    fixture = compaction_fixture(monkeypatch, table)
+    assert not compact(fixture)
+    plan = fixture.publisher._compactions[table]
+    assert plan.ready_at == 405
+    fixture.clock[0] = plan.ready_at - 0.01
+    assert not compact(fixture)
+    fixture.client.execute.assert_not_awaited()
+    fixture.clock[0] = plan.ready_at
+    assert compact(fixture)
+    statement, parameters = fixture.client.execute.await_args.args
+    assert statement.startswith(f"ALTER TABLE analytics_{table} DELETE")
+    assert "generation<transform(" in statement and "toUInt64(0)" in statement
+    assert "toUInt64(4)" in statement and "toUInt64(6)" in statement
+    assert "REPLACE PARTITION" not in statement
+    assert parameters == {"month": 202610, "marker": plan.marker}
+    assert fixture.row["publishes"] == 18
+    fixture.clock[0] += 30
+    assert not compact(fixture)  # Accepted does not mean completed.
+    assert fixture.row["publishes"] == 18
+    fixture.mutations[0]["is_done"] = 1
+    fixture.clock[0] += 30
+    assert compact(fixture)
+    assert fixture.row["publishes"] == 0 and fixture.row["last_prune_token"] == plan.marker
+
+
+def test_compaction_preserves_new_publications_and_acknowledges_each_plan_once(monkeypatch):
+    fixture = compaction_fixture(monkeypatch)
+    assert not compact(fixture)
+    plan = fixture.publisher._compactions[fixture.row["table_name"]]
+    fixture.row["publishes"] += 4  # More work arrived during the grace period.
+    fixture.clock[0] = plan.ready_at
+    assert compact(fixture)
+    fixture.mutations[0]["is_done"] = 1
+    fixture.clock[0] += 30
+    assert compact(fixture)
+    assert fixture.row["publishes"] == 4
+    # Repeat the exact PG acknowledgement as if the commit response was lost.
+    run(fixture.publisher._ack_compaction(fixture.connection, plan, fixture.fence))
+    assert fixture.row["publishes"] == 4 and fixture.row["last_prune_token"] == plan.marker
+    # A previously prepared owner cannot subtract after a different plan won.
+    fixture.row.update(publishes=20, last_prune_token="newer-owner")
+    run(fixture.publisher._ack_compaction(fixture.connection, plan, fixture.fence))
+    assert fixture.row == dict(
+        table_name="publishing_hourly", month=202610, publishes=20, last_prune_token="newer-owner"
+    )
+
+
+def test_compaction_lost_insert_ack_polls_existing_mutation_and_recovers_on_restart(monkeypatch):
+    from devfeed_core.analytics import AnalyticsUnavailable
     from devfeed_core.analytics_rollups import RollupPublisher
 
-    row = dict(table_name=table, month=202610, publishes=18)
-    connection = Connection(lambda q, _: row if q.startswith("SELECT table_name") else {"ok": 1})
-    client = Client(connection)
-    publisher = RollupPublisher(client)
-    fence = AsyncMock()
-    renew = AsyncMock(return_value={"lease_generation": 20})
-    assert run(publisher.compact_one(connection, fence=fence, renew=renew))
-    assert renew.await_count == 3 and fence.await_count == 4
-    create, insert, replace, drop = [q for q, _ in client.commands]
-    staging = create.split()[2]
-    assert staging.startswith("analytics_compact_" + table + "_")
-    assert insert.startswith("INSERT INTO " + staging)
-    assert "analytics_bucket_manifest FINAL" in insert and "r.generation=m.generation" in insert
-    assert "REPLACE PARTITION" in replace and replace.endswith("FROM " + staging)
-    assert drop == "DROP TABLE IF EXISTS " + staging
-    assert [
-        p for q, p in connection.calls if q.startswith("UPDATE analytics_rollup_compaction")
-    ] == [(18, table, 202610)]
-    run(publisher.compact_one(connection, fence=fence, renew=renew))
-    assert client.commands[4][0].split()[2] != staging
-    assert not run(publisher.compact_one(Connection(lambda *_: None), fence=fence, renew=renew))
+    fixture = compaction_fixture(monkeypatch)
+    submit = fixture.client.execute.side_effect
+
+    async def lost_response(*args):
+        await submit(*args)
+        raise AnalyticsUnavailable("lost response")
+
+    fixture.client.execute.side_effect = lost_response
+    assert not compact(fixture)
+    original = fixture.publisher._compactions[fixture.row["table_name"]]
+    fixture.clock[0] = original.ready_at
+    assert not compact(fixture)
+    assert len(fixture.mutations) == 1
+    fixture.clock[0] += 30
+    assert not compact(fixture)  # Pending mutation is polled, not resubmitted.
+    assert fixture.client.execute.await_count == 1
+    fixture.mutations[0]["is_done"] = 1
+    fixture.publisher = RollupPublisher(fixture.client)
+    fixture.publisher._next_orphan_check = float("inf")
+    assert not compact(fixture)
+    restored = fixture.publisher._compactions[fixture.row["table_name"]]
+    assert restored.marker == original.marker and restored.ready_at > fixture.clock[0]
+    fixture.clock[0] = restored.ready_at
+    assert compact(fixture)
+    assert fixture.client.execute.await_count == 1
+    assert fixture.row["publishes"] == 0 and fixture.row["last_prune_token"] == original.marker
+
+
+def test_compaction_failed_mutation_is_reported_and_polled_without_duplicate_work(
+    monkeypatch, caplog
+):
+    fixture = compaction_fixture(monkeypatch)
+    assert not compact(fixture)
+    fixture.clock[0] = fixture.publisher._compactions[fixture.row["table_name"]].ready_at
+    assert compact(fixture)
+    fixture.mutations[0]["latest_fail_reason"] = "disk full"
+    fixture.clock[0] += 30
+    assert not compact(fixture)
+    assert "disk full" in caplog.text and fixture.row["publishes"] == 18
+    queries = fixture.client.query.await_count
+    for _ in range(100):
+        assert not compact(fixture)
+    assert fixture.client.query.await_count == queries and fixture.client.execute.await_count == 1
+    fixture.mutations[0].update(is_done=1, latest_fail_reason="")
+    fixture.clock[0] += 30
+    assert compact(fixture) and fixture.row["publishes"] == 0
+
+
+def test_failed_compaction_does_not_starve_another_rollup_table(monkeypatch, caplog):
+    fixture = compaction_fixture(monkeypatch, "inference_hourly")
+    other = dict(table_name="publishing_hourly", month=202610, publishes=20, last_prune_token=None)
+    original = fixture.connection.handler
+
+    def handle(statement, parameters):
+        if statement.startswith("SELECT table_name"):
+            return next(
+                (
+                    dict(row)
+                    for row in (fixture.row, other)
+                    if row["publishes"] >= 16 and row["table_name"] not in parameters[0]
+                ),
+                None,
+            )
+        if (
+            statement.startswith("UPDATE analytics_rollup_compaction")
+            and parameters[2] == other["table_name"]
+        ):
+            count, marker, _table, _month, previous = parameters
+            if other["last_prune_token"] == previous:
+                other["publishes"] = max(other["publishes"] - count, 0)
+                other["last_prune_token"] = marker
+            return {"ok": 1}
+        return original(statement, parameters)
+
+    fixture.connection.handler = handle
+    assert not compact(fixture) and not compact(fixture)
+    assert set(fixture.publisher._compactions) == {fixture.row["table_name"], other["table_name"]}
+    fixture.clock[0] = fixture.publisher._compactions[other["table_name"]].ready_at
+    assert compact(fixture) and compact(fixture)
+    failed, healthy = fixture.mutations
+    assert failed["table"] == "analytics_inference_hourly"
+    failed["latest_fail_reason"] = "disk full"
+    healthy["is_done"] = 1
+    fixture.clock[0] += 30
+    assert not compact(fixture) and compact(fixture)
+    assert "disk full" in caplog.text
+    assert fixture.row["publishes"] == 18 and other["publishes"] == 0
+    assert fixture.client.execute.await_count == 2
+
+
+def test_compaction_missing_manifest_retains_work_and_throttles_retries(monkeypatch, caplog):
+    fixture = compaction_fixture(monkeypatch)
+    fixture.manifests.clear()
+    assert not compact(fixture)
+    assert "analytics_compaction_manifest_missing" in caplog.text
+    queries = fixture.client.query.await_count
+    for _ in range(100):
+        assert not compact(fixture)
+    assert fixture.client.query.await_count == queries
+    assert fixture.row["publishes"] == 18 and fixture.row["last_prune_token"] is None
+    fixture.client.execute.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
-    "failure",
-    ["lease-create", "lease-insert", "lease-replace", "create", "insert", "replace", "fence"],
+    "bad",
+    [
+        [dict(bucket="2026-10-01T00:01:00Z", generation=1)],
+        [dict(bucket="2026-11-01T00:00:00Z", generation=1)],
+        [dict(bucket="2026-10-01T00:00:00Z", generation=-1)],
+        [dict(bucket="2026-10-01T00:00:00Z", generation=2**64)],
+        [dict(bucket="2026-10-01T00:00:00Z", generation=1)] * 2,
+        [dict(bucket="2026-10-01T00:00:00Z", generation=1)] * 745,
+    ],
 )
-def test_compaction_failure_cleans_only_its_own_staging_and_preserves_retry_counter(failure):
-    from devfeed_core.analytics_rollups import RollupPublisher
+def test_compaction_rejects_invalid_or_unbounded_manifests_without_ack(monkeypatch, bad, caplog):
+    fixture = compaction_fixture(monkeypatch)
+    fixture.manifests[:] = bad
+    assert not compact(fixture)
+    assert "analytics_compaction_prepare_failed" in caplog.text
+    assert fixture.row["publishes"] == 18 and fixture.row["last_prune_token"] is None
+    fixture.client.execute.assert_not_awaited()
 
-    row = dict(table_name="inference_hourly", month=202610, publishes=16)
-    connection = Connection(lambda q, _: row if q.startswith("SELECT table_name") else {"ok": 1})
-    client = Client(connection)
-    publisher = RollupPublisher(client)
-    original = client.execute
 
-    async def execute(query, parameters=None):
-        await original(query, parameters)
-        if query.startswith(
-            {"create": "CREATE", "insert": "INSERT", "replace": "ALTER"}.get(failure, "never")
+def test_missing_manifest_does_not_starve_another_month_in_same_table(monkeypatch):
+    fixture = compaction_fixture(monkeypatch)
+    other = dict(
+        table_name=fixture.row["table_name"], month=202609, publishes=17, last_prune_token=None
+    )
+    original_handler = fixture.connection.handler
+    original_query = fixture.client.query.side_effect
+
+    def handle(statement, parameters):
+        if statement.startswith("SELECT table_name"):
+            blocked = set(zip(parameters[1], parameters[2], strict=True))
+            return next(
+                (
+                    dict(row)
+                    for row in (fixture.row, other)
+                    if row["publishes"] >= 16
+                    and row["table_name"] not in parameters[0]
+                    and (row["table_name"], row["month"]) not in blocked
+                ),
+                None,
+            )
+        if (
+            statement.startswith("UPDATE analytics_rollup_compaction")
+            and parameters[3] == other["month"]
         ):
-            raise RuntimeError("storage failed")
+            count, marker, _table, _month, previous = parameters
+            if other["last_prune_token"] == previous:
+                other["publishes"] = max(other["publishes"] - count, 0)
+                other["last_prune_token"] = marker
+            return {"ok": 1}
+        return original_handler(statement, parameters)
 
-    client.execute = execute
-    values = {
-        "lease-create": [None],
-        "lease-insert": [{}, None],
-        "lease-replace": [{}, {}, None],
-    }.get(failure, [{}, {}, {}])
-    renew = AsyncMock(side_effect=values)
-    fenced = AsyncMock(side_effect=RuntimeError("superseded") if failure == "fence" else None)
-    with pytest.raises(RuntimeError):
-        run(publisher.compact_one(connection, fence=fenced, renew=renew))
-    commands = [q for q, _ in client.commands]
-    assert commands[-1].startswith("DROP TABLE IF EXISTS analytics_compact_inference_hourly_")
-    assert not any(q.startswith("UPDATE analytics_rollup_compaction") for q, _ in connection.calls)
-    if failure.startswith("lease-"):
-        assert not any("REPLACE PARTITION" in q for q in commands)
+    async def query(statement, parameters=None):
+        if "FROM analytics_bucket_manifest" in statement:
+            return (
+                []
+                if parameters["start"].startswith("2026-10")
+                else [dict(bucket="2026-09-01T00:00:00Z", generation=4)]
+            )
+        return await original_query(statement, parameters)
+
+    fixture.connection.handler = handle
+    fixture.client.query.side_effect = query
+    assert not compact(fixture)  # October has lost its manifest.
+    assert not compact(fixture)  # September still gets a bounded plan.
+    plan = fixture.publisher._compactions[other["table_name"]]
+    assert plan.month == 202609
+    fixture.clock[0] = plan.ready_at
+    assert compact(fixture)
+    fixture.mutations[0]["is_done"] = 1
+    fixture.clock[0] += 30
+    assert compact(fixture)
+    assert fixture.row["publishes"] == 18 and other["publishes"] == 0
 
 
 @pytest.mark.parametrize(

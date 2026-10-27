@@ -46,7 +46,20 @@ class Connection:
 
     async def execute(self, statement, parameters=None):
         self.calls.append((str(statement), parameters))
-        return Cursor(self.selected(str(statement), parameters))
+        result = self.selected(str(statement), parameters)
+        if result is None and "FROM analytics_card_timer_bootstrap WHERE singleton" in str(
+            statement
+        ):
+            result = dict(
+                policy="policy",
+                epoch=0,
+                kind_index=0,
+                shard=None,
+                cursor=None,
+                complete=True,
+                cleanup_pending=False,
+            )
+        return Cursor(result)
 
 
 def publisher():
@@ -75,7 +88,7 @@ def dirty_connection():
     return Connection(
         lambda statement, parameters: (
             [dict(kind="article", entity_id=ENTITY, generation=2)]
-            if statement.startswith("WITH oldest")
+            if statement.startswith("WITH initial AS MATERIALIZED")
             else None
         )
     )
@@ -195,7 +208,7 @@ def test_changed_card_is_canonical_then_snapshotted_then_manifested_before_ack()
         original_execute = connection.execute
 
         async def execute(statement, parameters=None):
-            if str(statement).startswith("DELETE"):
+            if str(statement).startswith("DELETE FROM analytics_card_refresh"):
                 order.append("ack")
             return await original_execute(statement, parameters)
 
@@ -204,7 +217,8 @@ def test_changed_card_is_canonical_then_snapshotted_then_manifested_before_ack()
         assert order == ["analytics_card_canonical", "snapshot", "analytics_card_manifest", "ack"]
         assert subject._build.call_args.args[1] == [ENTITY]
         selected = connection.calls[0]
-        assert selected[1] == (8, 200) and "get_byte(uuid_send(entity_id),0)" in selected[0]
+        assert selected[1] == (1600, 1600, 1600, 1600, 8, 200)
+        assert "get_byte(uuid_send(entity_id),0)" in selected[0]
         assert "r.generation<=done.generation" in connection.calls[-1][0]
         assert "max_block_size=1024" in client.execute.call_args.args[0]
 
@@ -242,7 +256,7 @@ def test_mixed_shards_batch_changes_and_replayed_canonical_before_one_fenced_ack
                     dict(kind="article", entity_id=ENTITY, generation=2),
                     dict(kind="article", entity_id=other, generation=7),
                 ]
-                if statement.startswith("WITH oldest")
+                if statement.startswith("WITH initial AS MATERIALIZED")
                 else None
             )
         )
@@ -270,7 +284,11 @@ def test_mixed_shards_batch_changes_and_replayed_canonical_before_one_fenced_ack
             (18, 5),
             (19, 4),
         ]
-        acknowledgements = [call for call in connection.calls if call[0].startswith("DELETE")]
+        acknowledgements = [
+            call
+            for call in connection.calls
+            if call[0].startswith("DELETE FROM analytics_card_refresh")
+        ]
         assert len(acknowledgements) == 1
         assert acknowledgements[0][1] == ([ENTITY, other], [2, 7], "article")
 
@@ -466,17 +484,282 @@ def test_backfill_coverage_freezes_initial_traffic_then_waits_only_initial_cohor
 def test_due_job_timers_enqueue_bounded_identity_work_without_clock_hydration():
     async def verify():
         subject, client = publisher()
-        connection = Connection()
-        client.query.side_effect = [[], [{"kind": "source", "entity_id": str(ENTITY)}]]
+        connection = Connection(
+            lambda statement, _parameters: (
+                [dict(kind="source", entity_id=ENTITY, generation=2)]
+                if "FROM analytics_card_timers WHERE policy=" in statement
+                else None
+            )
+        )
         subject._mark = AsyncMock()
 
         assert await subject._timers_one(connection, 3, STATE, fence=AsyncMock())
 
         assert subject._mark.call_args.args[1] == {("source", ENTITY)}
-        for call in client.query.call_args_list:
-            assert call.args[1]["limit"] == 200
-            assert "next_transition_at<=now64(6)" in call.args[0]
-            assert "next_check_at" not in call.args[0]
+        client.query.assert_not_awaited()
+        due = next(
+            call for call in connection.calls if "FROM analytics_card_timers WHERE" in call[0]
+        )
+        assert due[1] == ("policy", 0, 200) and "available_at<=statement_timestamp()" in due[0]
+        assert any(
+            call[0].startswith("DELETE FROM analytics_card_timers") for call in connection.calls
+        )
+
+    asyncio.run(verify())
+
+
+@pytest.mark.parametrize("kind", ["topic-proposal", "relationship-proposal"])
+def test_proposal_refreshes_do_not_read_or_write_timer_state(kind):
+    async def verify():
+        subject, client = publisher()
+        connection = Connection(
+            lambda statement, _parameters: (
+                [dict(kind=kind, entity_id=ENTITY, generation=2)]
+                if statement.startswith("WITH initial AS MATERIALIZED")
+                else None
+            )
+        )
+        subject._build = Mock(return_value=[observation()])
+        client.query.side_effect = [[], [{"shard": 18, "count": 1}]]
+        assert await subject._refresh_one(connection, 3, STATE, fence=AsyncMock())
+        assert not any("analytics_card_timer" in statement for statement, _ in connection.calls)
+        subject._build = Mock(return_value=[observation(next_transition_at=NOW)])
+        with pytest.raises(RuntimeError, match="deadlines are not indexed"):
+            await subject._refresh_one(connection, 4, STATE, fence=AsyncMock())
+
+    asyncio.run(verify())
+
+
+def timer_control(**updates):
+    return (
+        dict(
+            policy="policy",
+            epoch=2,
+            kind_index=0,
+            shard=None,
+            cursor=None,
+            complete=False,
+            cleanup_pending=False,
+        )
+        | updates
+    )
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_timer_publication_preserves_new_deadlines_and_clears_obsolete_ones(complete):
+    async def verify():
+        subject, _ = publisher()
+        connection = Connection()
+        other = uuid.UUID("13000000-0000-4000-8000-000000000002")
+        records = [
+            dict(entity_id=ENTITY, next_transition_at=NOW + timedelta(hours=1)),
+            dict(entity_id=other, next_transition_at=None),
+        ]
+        await subject._write_timers(
+            connection, "policy", "article", records, 7, timer_control(complete=complete)
+        )
+        inserted = next(call for call in connection.calls if call[0].startswith("INSERT INTO"))
+        assert inserted[1][3] == ([ENTITY] if complete else [ENTITY, other])
+        assert inserted[1][4] == ([7] if complete else [7, 7])
+        assert inserted[1][5] == (
+            [NOW + timedelta(hours=1)] if complete else [NOW + timedelta(hours=1), None]
+        )
+        deleted = [call for call in connection.calls if call[0].startswith("DELETE FROM")]
+        assert bool(deleted) is complete
+        if complete:
+            assert deleted[0][1] == ("policy", "article", [other], 2, 7)
+
+    asyncio.run(verify())
+
+
+def test_timer_adoption_pages_canonical_keys_and_preserves_observation_versions():
+    async def verify():
+        subject, client = publisher()
+        subject.settings.analytics_backfill_batch_size = 2
+        control = timer_control(shard=18)
+        connection = Connection(
+            lambda statement, _parameters: (
+                dict(control)
+                if "FROM analytics_card_timer_bootstrap WHERE singleton" in statement
+                else None
+            )
+        )
+        other = uuid.UUID("12000000-0000-4000-8000-000000000002")
+        client.query.return_value = [
+            dict(
+                shard=18,
+                entity_id=str(ENTITY),
+                version=str(5 << 64),
+                deleted=0,
+                next_transition_at="2026-10-27 13:00:00.000000",
+                current=1,
+            ),
+            dict(
+                shard=18,
+                entity_id=str(other),
+                version=str(6 << 64),
+                deleted=1,
+                next_transition_at=NOW.isoformat(),
+                current=1,
+            ),
+        ]
+        assert await subject._timer_bootstrap_one(connection, 8, STATE, fence=AsyncMock())
+        upsert = next(
+            call
+            for call in connection.calls
+            if call[0].startswith("INSERT INTO analytics_card_timers")
+        )
+        assert upsert[1] == ("policy", "article", 2, [ENTITY], [5], [NOW + timedelta(hours=1)])
+        assert "< (excluded.epoch,excluded.generation)" in upsert[0]
+        assert connection.calls[-1][1] == (18, other)
+        assert client.query.call_args.args[1]["limit"] == 2
+        assert client.query.call_args.args[1]["shard"] == 18
+        assert "shard={shard:UInt16}" in client.query.call_args.args[0]
+        assert "ORDER BY entity_id" in client.query.call_args.args[0]
+
+        control.update(shard=18, cursor=other)
+        client.query.return_value = []
+        assert await subject._timer_bootstrap_one(connection, 9, STATE, fence=AsyncMock())
+        assert client.query.call_args.args[1]["cursor"] == other
+        assert "entity_id>{cursor:UUID}" in client.query.call_args.args[0]
+        assert connection.calls[-1][1] == (19,)
+
+        control.update(kind_index=2, shard=255, cursor=None)
+        assert await subject._timer_bootstrap_one(connection, 10, STATE, fence=AsyncMock())
+        assert connection.calls[-1][1] == (3, True, True)
+
+    asyncio.run(verify())
+
+
+def test_timer_adoption_does_not_commit_a_page_after_epoch_changes():
+    async def verify():
+        subject, client = publisher()
+        control = timer_control()
+        connection = Connection(
+            lambda statement, _parameters: (
+                dict(control)
+                if "FROM analytics_card_timer_bootstrap WHERE singleton" in statement
+                else None
+            )
+        )
+
+        async def reset_during_read(*_args):
+            control["epoch"] += 1
+            return []
+
+        client.query.side_effect = reset_during_read
+        assert not await subject._timer_bootstrap_one(connection, 4, STATE, fence=AsyncMock())
+        assert not any("SET kind_index=" in statement for statement, _ in connection.calls)
+
+    asyncio.run(verify())
+
+
+def test_timer_adoption_bridge_and_due_pop_keep_tombstones_until_seed_completes():
+    async def verify():
+        subject, client = publisher()
+        control = timer_control()
+        connection = Connection(
+            lambda statement, _parameters: (
+                dict(control)
+                if "FROM analytics_card_timer_bootstrap WHERE singleton" in statement
+                else None
+            )
+        )
+        client.query.side_effect = [[], [{"kind": "source", "entity_id": str(ENTITY)}]]
+        subject._mark = AsyncMock()
+        assert await subject._timers_one(connection, 3, STATE, fence=AsyncMock())
+        assert subject._mark.call_args.args[1] == {("source", ENTITY)}
+        marker = next(
+            call
+            for call in connection.calls
+            if call[0].startswith("INSERT INTO analytics_card_timers")
+        )
+        assert marker[1] == ("policy", "source", 2, [ENTITY], [3], [None])
+
+        due = Connection(
+            lambda statement, _parameters: (
+                dict(control)
+                if "FROM analytics_card_timer_bootstrap WHERE singleton" in statement
+                else [dict(kind="source", entity_id=ENTITY, generation=3)]
+                if "FROM analytics_card_timers WHERE policy=" in statement
+                else None
+            )
+        )
+        client.query.reset_mock()
+        assert await subject._timers_one(due, 4, STATE, fence=AsyncMock())
+        assert any(
+            call[0].startswith("UPDATE analytics_card_timers AS t SET available_at=NULL")
+            for call in due.calls
+        )
+        client.query.assert_not_awaited()
+
+    asyncio.run(verify())
+
+
+def test_timer_adoption_bridge_scans_only_unseeded_kinds_and_shards():
+    async def verify():
+        subject, client = publisher()
+        control = timer_control(kind_index=1, shard=18)
+        client.query.return_value = []
+        assert not await subject._timer_bootstrap_due(
+            Connection(), 9, "policy", control, fence=AsyncMock()
+        )
+        calls = client.query.await_args_list
+        assert [call.args[1]["kind"] for call in calls] == ["source", "candidate"]
+        assert calls[0].args[1]["first_shard"] == 18
+        assert "shard>={first_shard:UInt16}" in calls[0].args[0]
+        assert "first_shard" not in calls[1].args[1]
+
+    asyncio.run(verify())
+
+
+def test_timer_cleanup_is_batched_and_stops_when_tombstones_are_drained():
+    async def verify():
+        subject, _ = publisher()
+        control = timer_control(complete=True, cleanup_pending=True)
+        results = iter([[{"removed": 1}], []])
+        connection = Connection(
+            lambda statement, _parameters: (
+                dict(control)
+                if "FROM analytics_card_timer_bootstrap WHERE singleton" in statement
+                else next(results)
+                if statement.startswith("WITH stale AS")
+                else None
+            )
+        )
+        assert await subject._timer_bootstrap_one(connection, 5, STATE, fence=AsyncMock())
+        assert not await subject._timer_bootstrap_one(connection, 6, STATE, fence=AsyncMock())
+        assert connection.calls[-1][0].endswith("cleanup_pending=false WHERE singleton")
+        assert all(
+            call[1][-1] == 200 for call in connection.calls if call[0].startswith("WITH stale AS")
+        )
+
+    asyncio.run(verify())
+
+
+def test_timer_control_initializes_policy_and_refuses_mismatched_or_missing_state():
+    async def verify():
+        subject, _ = publisher()
+        empty = timer_control(policy=None)
+        connection = Connection(
+            lambda statement, _parameters: (
+                dict(empty)
+                if "FROM analytics_card_timer_bootstrap WHERE singleton" in statement
+                else None
+            )
+        )
+        assert (await subject._timer_control(connection, "policy"))["policy"] == "policy"
+        assert connection.calls[-1][1] == ("policy",)
+        empty["policy"] = "previous"
+        with pytest.raises(RuntimeError, match="policy changed"):
+            await subject._timer_control(connection, "policy")
+
+        class Missing(Connection):
+            async def execute(self, _statement, _parameters=None):
+                return Cursor(None)
+
+        with pytest.raises(RuntimeError, match="state is missing"):
+            await subject._timer_control(Missing(), "policy")
 
     asyncio.run(verify())
 
@@ -867,11 +1150,10 @@ def test_idle_cycle_does_not_hydrate_sources_or_republish_but_still_observes_cov
 
         assert not await subject.once(connection, 5, fence=fence)
         assert subject._factory is None
-        assert [call.args[1]["kind"] for call in client.query.await_args_list[:-1]] == [
-            "article",
-            "source",
-            "candidate",
-        ]
+        assert all(
+            "next_transition_at<=now64(6)" not in call.args[0]
+            for call in client.query.await_args_list
+        )
         client.insert.assert_not_called()
         assert not any(
             statement.startswith(("UPDATE", "DELETE", "INSERT"))
@@ -894,18 +1176,25 @@ def test_work_classes_rotate_so_continuous_dirty_cards_cannot_starve_coverage(mo
         subject._initialized = True
         subject._state = AsyncMock(return_value=STATE)
         subject._coverage, subject._status = AsyncMock(), AsyncMock()
-        names = ("_refresh_one", "_backfill_one", "_fanout_one", "_timers_one", "_renew_one")
+        names = (
+            "_refresh_one",
+            "_backfill_one",
+            "_fanout_one",
+            "_timers_one",
+            "_timer_bootstrap_one",
+            "_renew_one",
+        )
         workers = {name: AsyncMock(return_value=True) for name in names}
         for name, worker in workers.items():
             setattr(subject, name, worker)
         connection, fence = Connection(), AsyncMock()
         renew = AsyncMock(return_value={"lease_generation": 20})
 
-        for generation in range(5):
+        for generation in range(len(names)):
             assert await subject.once(connection, generation, fence=fence, renew=renew)
             assert sum(worker.await_count for worker in workers.values()) == generation + 1
         assert all(worker.await_count == 1 for worker in workers.values())
-        assert subject._coverage.await_count == subject._status.await_count == 5
+        assert subject._coverage.await_count == subject._status.await_count == len(names)
         assert subject._turn == 0
 
     asyncio.run(verify())
