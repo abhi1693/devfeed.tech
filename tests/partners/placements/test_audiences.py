@@ -175,7 +175,11 @@ def test_account_inheritance_custom_override_and_guest_privacy(database, catalog
             "asset_id",
             "issued_at",
             "surface",
+            "impression_recorded_at",
+            "click_recorded_at",
         }
+        assert reservation.impression_recorded_at is None
+        assert reservation.click_recorded_at is None
 
 
 @pytest.mark.integration

@@ -157,15 +157,18 @@ def _parameter_rows(context):
     return output
 
 
-def _clock_only_update(operation, parameters):
-    if not operation.is_update or operation.table.name != "articles":
+def _ignored_update(operation, parameters):
+    if not operation.is_update or operation.table.name not in {"articles", "user_accounts"}:
         return False
     assignments = getattr(operation, "_values", None)
     if assignments is not None:
         fields = {getattr(column, "name", column) for column in assignments}
     else:
-        keys = {column.name for column in operation.table.primary_key}
-        fields = {name for row in parameters for name in row if name in operation.table.c} - keys
+        fields = {name for row in parameters for name in row if name in operation.table.c}
+    if operation.table.name == "user_accounts":
+        # Sign-in activity and private reader layouts do not change registered
+        # account counts or current feed inputs. Their writes need no analytics.
+        return bool(fields) and not fields.intersection(TABLES["user_accounts"].fields)
     return bool(fields) and fields <= {"automation_next_check_at", "automation_started_at"}
 
 
@@ -286,7 +289,7 @@ class ApplicationAnalyticsCapture:
         ):
             return
         values_rows = _parameter_rows(context)
-        if _clock_only_update(operation, values_rows):
+        if _ignored_update(operation, values_rows):
             return
         context._devfeed_analytics_parameters = values_rows
         captured = []

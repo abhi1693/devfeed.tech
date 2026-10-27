@@ -8,7 +8,10 @@ after the finite historical import completes.
 ## Application delivery
 
 Application sessions collect narrow changed identities and publish asynchronously
-after their business transaction commits. The publisher reads current associated
+after their business transaction commits. Typed SQLAlchemy writes use the shared
+application session; maintenance SQL must explicitly publish affected identities.
+Private layout and sign-in activity updates do not publish analytics.
+The publisher reads current associated
 inputs in bounded batches, builds sanitized observations and writes directly to
 ClickHouse. Reparenting and deletion publish both affected identities. Private
 article bodies, prompts, evidence, notes and credentials remain in PostgreSQL.

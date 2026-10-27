@@ -1332,7 +1332,7 @@ def test_automation_clock_only_updates_do_not_publish_analytics_but_mixed_edits_
 ):
     from datetime import timedelta
 
-    from devfeed_core.models import Article
+    from devfeed_core.models import Article, UserAccount
 
     emitted = []
     monkeypatch.setattr(producer, "submit", emitted.append)
@@ -1375,6 +1375,45 @@ def test_automation_clock_only_updates_do_not_publish_analytics_but_mixed_edits_
         for change in batch
     )
 
+    with database.begin() as session:
+        account = UserAccount(
+            issuer="https://producer.test/metadata",
+            subject="reader",
+            organization_id="test",
+            created_at=when,
+        )
+        session.add(account)
+        session.flush()
+        account_id = account.id
+    emitted.clear()
+    with database.begin() as session:
+        if style == "orm":
+            account = session.get(UserAccount, account_id)
+            account.feed_settings = {"view": "compact"}
+            account.last_seen_at = when + timedelta(minutes=5)
+        else:
+            session.execute(
+                update(UserAccount)
+                .where(UserAccount.id == account_id)
+                .values(feed_settings={"view": "compact"}, last_seen_at=when + timedelta(minutes=5))
+            )
+    assert emitted == []
+    with database.begin() as session:
+        if style == "orm":
+            account = session.get(UserAccount, account_id)
+            account.created_at = when - timedelta(days=1)
+        else:
+            session.execute(
+                update(UserAccount)
+                .where(UserAccount.id == account_id)
+                .values(created_at=when - timedelta(days=1))
+            )
+    changes = [
+        change for batch in emitted for change in batch if change["source_table"] == "user_accounts"
+    ]
+    assert len(changes) == 1 and str(changes[0]["identity"]["id"]) == str(account_id)
+    assert datetime.fromisoformat(changes[0]["before_record"]["created_at"]) == when
+
 
 @pytest.mark.parametrize(
     "values,expected",
@@ -1388,19 +1427,33 @@ def test_automation_clock_only_updates_do_not_publish_analytics_but_mixed_edits_
 def test_clock_update_classifier_preserves_business_mutations(values, expected):
     from devfeed_core.models import Article
 
-    assert producer._clock_only_update(update(Article).values(**values), []) is expected
+    assert producer._ignored_update(update(Article).values(**values), []) is expected
 
 
 def test_orm_clock_update_classifier_ignores_predicate_binds_and_requires_assignments():
-    from devfeed_core.models import Article, Topic
+    from devfeed_core.models import Article, Topic, UserAccount
 
     operation = update(Article)
-    assert producer._clock_only_update(
+    assert producer._ignored_update(
         operation, [{"articles_id": uuid.uuid4(), "automation_started_at": None}]
     )
-    assert not producer._clock_only_update(operation, [{"articles_id": uuid.uuid4()}])
-    assert not producer._clock_only_update(insert(Article), [])
-    assert not producer._clock_only_update(update(Topic).values(name="Changed"), [])
+    assert not producer._ignored_update(operation, [{"articles_id": uuid.uuid4()}])
+    assert not producer._ignored_update(insert(Article), [])
+    assert not producer._ignored_update(update(Topic).values(name="Changed"), [])
+
+    assert producer._ignored_update(
+        update(UserAccount).values(feed_settings={"view": "compact"}), []
+    )
+    assert producer._ignored_update(
+        update(UserAccount), [{"user_accounts_id": uuid.uuid4(), "last_seen_at": datetime.now(UTC)}]
+    )
+    assert not producer._ignored_update(
+        update(UserAccount).values(created_at=datetime.now(UTC)), []
+    )
+    assert not producer._ignored_update(
+        update(UserAccount),
+        [{"user_accounts_id": uuid.uuid4(), "id": uuid.uuid4(), "last_seen_at": datetime.now(UTC)}],
+    )
 
 
 def test_source_reads_export_only_allowlisted_fields_and_skip_recursive_capture():

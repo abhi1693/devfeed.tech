@@ -17,6 +17,12 @@ from tests.support.partner_portal import admin_portal_client as admin_portal_cli
 from tests.support.partner_portal import seed
 
 
+@pytest.fixture(autouse=True)
+def direct_partner_reporting(request):
+    if request.node.get_closest_marker("integration") is not None:
+        return request.getfixturevalue("partner_analytics")
+
+
 def test_asset_detail_requires_authentication_before_database_access():
     app = FastAPI()
     app.include_router(router)
