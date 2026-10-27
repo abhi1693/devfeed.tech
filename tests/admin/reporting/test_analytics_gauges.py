@@ -159,6 +159,20 @@ def test_dirty_keys_coalesce_and_truncation_has_a_finite_shard_space():
     assert all("LEAST" in statement and "nextval" in statement for statement, _ in connection.calls)
 
 
+@pytest.mark.parametrize("operation", ["I", "D", "T"])
+def test_every_job_lane_invalidates_queue_on_mutations(operation):
+    from devfeed_core.analytics_schema import JOB_KINDS, WATCH_FIELDS
+
+    connection = Connection()
+    asyncio.run(
+        Gauges(None, client()).mark_dirty(
+            connection, [event(table, {}, operation=operation) for table in JOB_KINDS]
+        )
+    )
+    assert connection.calls[0][1] == (["queues"], [0])
+    assert all({"status", "created_at"}.issubset(WATCH_FIELDS[table]) for table in JOB_KINDS)
+
+
 @pytest.mark.parametrize("domain", ["queues", "feed", "sources", "topics"])
 def test_complete_gauge_generation_is_published_before_revision_fenced_ack(domain):
     connection = Connection(rows=[dict(domain=domain, shard=0, revision=17)])
@@ -230,6 +244,164 @@ def _settings():
         clickhouse_username=os.environ.get("DEVFEED_TEST_CLICKHOUSE_USERNAME", "default"),
         clickhouse_password=os.environ.get("DEVFEED_TEST_CLICKHOUSE_PASSWORD", ""),
     )
+
+
+@pytest.mark.integration
+def test_queue_gauges_refresh_on_capture_retry_and_daily_renewal(database):
+    import psycopg
+    from psycopg.rows import dict_row
+
+    settings = _settings()
+    dsn = (
+        database.kw["bind"]
+        .url.render_as_string(hide_password=False)
+        .replace("postgresql+psycopg://", "postgresql://", 1)
+    )
+
+    async def run():
+        name = f"devfeed_queue_gauge_{uuid.uuid4().hex}_test"
+        async with AnalyticsClient(settings) as admin:
+            await admin.execute(f"CREATE DATABASE `{name}`")
+            try:
+                isolated = settings.model_copy(update={"clickhouse_database": name})
+                async with (
+                    AnalyticsClient(isolated) as sink,
+                    await psycopg.AsyncConnection.connect(
+                        dsn, row_factory=dict_row, autocommit=True
+                    ) as connection,
+                ):
+                    gauge = Gauges(settings, sink)
+                    await gauge.initialize()
+                    await connection.execute("UPDATE analytics_pipeline_state SET enabled=true")
+                    await connection.execute(
+                        "UPDATE analytics_gauge_refreshes SET available_at=clock_timestamp() "
+                        "+ interval '2 days' WHERE domain!='queues'"
+                    )
+                    assert await gauge.refresh_one(connection, 1)
+                    row = await (
+                        await connection.execute(
+                            "SELECT available_at-clock_timestamp() AS delay "
+                            "FROM analytics_gauge_refreshes WHERE domain='queues' AND shard=0"
+                        )
+                    ).fetchone()
+                    assert timedelta(hours=23) < row["delay"] <= timedelta(days=1)
+                    assert not await gauge.refresh_one(connection, 2)
+
+                    async def deliver():
+                        events = await (
+                            await connection.execute(
+                                "DELETE FROM analytics_ingest_events RETURNING "
+                                "id,source_table,operation,record,before_record"
+                            )
+                        ).fetchall()
+                        assert events
+                        await gauge.mark_dirty(connection, events)
+                        # Outbox replay may deliver the same invalidation again.
+                        await gauge.mark_dirty(connection, events)
+
+                    async def counts():
+                        rows = await sink.query(
+                            "SELECT g.queued,g.running,g.oldest_queued_at "
+                            "FROM analytics_queue_gauges g INNER JOIN "
+                            "(SELECT shard,generation FROM analytics_gauge_manifest FINAL "
+                            "WHERE domain='queues') m ON g.shard=m.shard "
+                            "AND g.generation=m.generation WHERE g.kind='notification'"
+                        )
+                        assert len(rows) == 1
+                        return rows[0]
+
+                    identifier = uuid.uuid4()
+                    await connection.execute(
+                        "INSERT INTO notification_deliveries "
+                        "(id,event_key,dedup_key,audience,category,payload,status,attempts,"
+                        "available_at,created_at) VALUES(%s,'proof','proof','admin','proof',"
+                        "'{}','queued',0,clock_timestamp(),clock_timestamp())",
+                        (identifier,),
+                    )
+                    await deliver()
+                    assert await gauge.refresh_one(connection, 2)
+                    current = await counts()
+                    assert (current["queued"], current["running"]) == (1, 0)
+                    assert current["oldest_queued_at"] is not None
+                    assert not await gauge.refresh_one(connection, 3)
+
+                    await connection.execute(
+                        "UPDATE notification_deliveries "
+                        "SET created_at=created_at-interval '1 hour' "
+                        "WHERE id=%s",
+                        (identifier,),
+                    )
+                    await deliver()
+                    assert await gauge.refresh_one(connection, 3)
+                    assert (await counts())["oldest_queued_at"] < current["oldest_queued_at"]
+
+                    # A new invalidation during a snapshot must survive the old
+                    # revision's acknowledgement and publish again immediately.
+                    await connection.execute(
+                        "UPDATE notification_deliveries SET status='running' WHERE id=%s",
+                        (identifier,),
+                    )
+                    await deliver()
+                    original_insert = sink.insert
+                    changed = False
+
+                    async def race(table, rows):
+                        nonlocal changed
+                        await original_insert(table, rows)
+                        if table == "analytics_queue_gauges" and not changed:
+                            changed = True
+                            await connection.execute(
+                                "UPDATE notification_deliveries SET status='queued' WHERE id=%s",
+                                (identifier,),
+                            )
+                            await deliver()
+
+                    sink.insert = race
+                    assert await gauge.refresh_one(connection, 4)
+                    sink.insert = original_insert
+                    assert (await counts())["running"] == 1
+                    assert await gauge.refresh_one(connection, 5)
+                    assert (await counts())["queued"] == 1
+
+                    await connection.execute(
+                        "DELETE FROM notification_deliveries WHERE id=%s", (identifier,)
+                    )
+                    await deliver()
+
+                    async def failed_manifest(table, rows):
+                        if table == "analytics_gauge_manifest":
+                            raise RuntimeError("injected manifest failure")
+                        await original_insert(table, rows)
+
+                    sink.insert = failed_manifest
+                    with pytest.raises(RuntimeError, match="injected manifest failure"):
+                        await gauge.refresh_one(connection, 6)
+                    sink.insert = original_insert
+                    assert await gauge.refresh_one(connection, 7)
+                    assert (await counts())["queued"] == 0
+                    assert not await gauge.refresh_one(connection, 8)
+
+                    await connection.execute("TRUNCATE notification_deliveries")
+                    await deliver()
+                    assert await gauge.refresh_one(connection, 8)
+                    await connection.execute(
+                        "UPDATE analytics_gauge_refreshes SET available_at=clock_timestamp() "
+                        "WHERE domain='queues'"
+                    )
+                    assert await gauge.refresh_one(connection, 9)
+                    assert (await counts())["queued"] == 0
+                    assert not await gauge.refresh_one(connection, 10)
+                    row = await (
+                        await connection.execute(
+                            "SELECT available_at-clock_timestamp() AS delay "
+                            "FROM analytics_gauge_refreshes WHERE domain='queues' AND shard=0"
+                        )
+                    ).fetchone()
+                    assert timedelta(hours=23) < row["delay"] <= timedelta(days=1)
+            finally:
+                await admin.execute(f"DROP DATABASE `{name}` SYNC")
+
+    asyncio.run(run())
 
 
 @pytest.mark.integration
@@ -511,7 +683,7 @@ def test_queue_counts_read_only_indexed_active_work_and_preserve_empty_lanes():
     ]
     connection = Connection(rows=rows)
     actual, transition = asyncio.run(Gauges(None, client())._queues(connection))
-    assert actual == rows and transition > datetime.now(UTC)
+    assert actual == rows and transition is None
     statement, params = connection.calls[0]
     assert statement.count("WHERE status IN ('queued','running')") == len(JOB_KINDS)
     assert params == tuple(JOB_KINDS.values())

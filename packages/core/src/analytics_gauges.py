@@ -449,7 +449,9 @@ class Gauges:
                 sql.SQL(" UNION ALL ").join(queries), tuple(JOB_KINDS.values())
             )
         ).fetchall()
-        return rows, datetime.now(UTC) + timedelta(seconds=15)
+        # Job changes invalidate this gauge through capture. The values do not
+        # change with time; the existing daily renewal keeps snapshots within TTL.
+        return rows, None
 
     async def refresh_one(self, connection, generation):
         rows = await (
