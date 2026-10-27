@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 
 import pytest
 from devfeed_core.analytics import AnalyticsClient
-from devfeed_core.analytics_backfill import BACKFILL_DDL
 from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.config import get_settings
 
@@ -103,8 +102,7 @@ def partner_analytics(monkeypatch):
     fixture = PartnerAnalyticsFixture(configured)
 
     async def initialize(store, client):
-        await store.initialize()
-        await client.execute(BACKFILL_DDL)
+        await client.initialize()
         await client.insert(
             "analytics_backfill_progress",
             [

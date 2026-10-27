@@ -271,6 +271,7 @@ def test_real_runner_resumes_cutover_and_rejects_partial_loss(database):
                     settings.model_copy(update={"clickhouse_database": target})
                 ) as client:
                     client.insert_settings = {"async_insert_busy_timeout_ms": 1}
+                    await client.initialize()
                     connect = runner.postgres_connections(settings.database_url)
                     first = runner.AnalyticsImportRunner(client, connect, page_size=2)
                     dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://", 1)

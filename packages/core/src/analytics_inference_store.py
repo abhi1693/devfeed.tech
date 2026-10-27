@@ -11,17 +11,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 MAX_BATCH_SIZE = 1000
-INFERENCE_EVENTS_DDL = """CREATE TABLE IF NOT EXISTS analytics_inference_events (
-    id UUID, started_at DateTime64(6, 'UTC'), revision UInt8,
-    task LowCardinality(String), model LowCardinality(String), effort LowCardinality(String),
-    model_is_null UInt8, model_is_empty UInt8, effort_is_null UInt8, effort_is_empty UInt8,
-    reason Nullable(String),
-    status LowCardinality(String), input_tokens UInt64, cached_input_tokens UInt64,
-    reported_cached_input_tokens UInt64, cache_write_input_tokens UInt64, has_input_tokens UInt8,
-    output_tokens UInt64, reasoning_tokens UInt64, web_searches UInt64,
-    duration_ms UInt64, has_duration UInt8
-) ENGINE = ReplacingMergeTree(revision)
-PARTITION BY toYYYYMM(started_at) ORDER BY (started_at, id)"""
 
 _BUCKETS = {
     "hour": "toStartOfHour(started_at)",
@@ -115,9 +104,6 @@ class InferenceStore:
 
     def __init__(self, client):
         self.client = client
-
-    async def initialize(self):
-        await self.client.execute(INFERENCE_EVENTS_DDL)
 
     async def write(self, records):
         """Write one bounded batch; the caller retries with the same IDs and start times.

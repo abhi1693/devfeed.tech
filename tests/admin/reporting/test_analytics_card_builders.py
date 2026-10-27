@@ -527,7 +527,7 @@ def test_direct_card_owners_include_both_association_images_without_unknown_popu
     }
 
 
-def test_direct_publication_initializes_only_canonical_and_batches_on_a_worker(monkeypatch):
+def test_direct_card_schema_is_canonical_and_publication_batches_on_a_worker(monkeypatch):
     import asyncio
     import threading
     from unittest.mock import AsyncMock
@@ -536,8 +536,18 @@ def test_direct_publication_initializes_only_canonical_and_batches_on_a_worker(m
 
     async def run():
         client = SimpleNamespace(execute=AsyncMock(), insert=AsyncMock())
-        await direct.initialize_cards(client)
-        ddl = client.execute.call_args.args[0]
+        from importlib.resources import files
+
+        schema = (
+            files("devfeed_core.clickhouse_migrations")
+            .joinpath("0002_initial_analytics.sql")
+            .read_text()
+        )
+        ddl = next(
+            statement
+            for statement in schema.split("-- statement")
+            if "CREATE TABLE IF NOT EXISTS analytics_card_canonical" in statement
+        )
         assert "ReplacingMergeTree(version)" in ddl and "TTL" not in ddl
         assert "analytics_card_canonical" in ddl and "manifest" not in ddl
         loop_thread = threading.get_ident()

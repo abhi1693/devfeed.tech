@@ -9,10 +9,12 @@ establish ARM64 release-image readiness.
 `commands.json` records the supported DevFeed Fleet commands and probes, based on the
 home-lab checkout at revision `76bd4d280e00031e31b05f7c2b3e7fa15b1135c2`.
 The recorded per-file SHA-256 values identify the prepared baseline inputs. The
-native exporter and preparation commands adapt that baseline to the current
-ClickHouse architecture: one exporter owns historical facts, gauges, and current
-operator cards, using `DEVFEED_DATABASE_URL` for independent short-lived source
-connections. No saved-report or pipeline projection worker remains. Coordinate
+schema preparation and finite import commands adapt that baseline to the current
+ClickHouse architecture. The migration hook runs `devfeed db upgrade` followed by
+`devfeed analytics upgrade` with schema-owner ClickHouse credentials before new
+application processes start. The finite importer uses `DEVFEED_DATABASE_URL` for
+independent short-lived source connections; application processes publish live
+observations directly. Coordinate
 these adapted commands with the final Fleet manifests before deployment; the
 provenance hashes do not claim byte identity for subsequently adapted commands.
 The consumer wrapper is the byte-identical `infra/chimely/consumer.py` from this
@@ -35,7 +37,7 @@ labels that setup as metadata-only: it is not evidence that Alembic ran there.
 
 The backend image executes native preparation, checks historical readiness and
 current card policy coverage in ClickHouse, validates retained source records,
-and starts the sole analytics exporter. Its real health probe must accept a fresh
+and starts the finite analytics importer. Its real health probe must accept a fresh
 heartbeat and reject a stale one. The backend starts every configured worker
 queue/group, verifies actual RQ registration and heartbeats, runs the scheduler
 and its successful-cycle probe, and runs search setup plus the indexer against

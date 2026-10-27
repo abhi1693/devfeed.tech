@@ -169,22 +169,10 @@ class AnalyticsClient:
             ) from error
 
     async def initialize(self):
-        from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
-        from devfeed_core.analytics_direct_cards import initialize_cards
-        from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
-        from devfeed_core.analytics_inference_store import InferenceStore
-        from devfeed_core.analytics_overview_direct import DirectOverviewAnalytics
-        from devfeed_core.analytics_status import AnalyticsStatus
+        """Apply the packaged, versioned schema during explicit initialization."""
+        from devfeed_core.analytics_migrations import ClickHouseMigrationRunner
 
-        for store in (
-            ArticleOpenAnalytics(self),
-            DirectEngagementAnalytics(self),
-            InferenceStore(self),
-            DirectOverviewAnalytics(self),
-            AnalyticsStatus(self),
-        ):
-            await store.initialize()
-        await initialize_cards(self)
+        return await ClickHouseMigrationRunner(self).upgrade()
 
     async def _insert_types(self, table: str, columns: tuple[str, ...]):
         key = (table, columns)
@@ -215,13 +203,7 @@ class AnalyticsClient:
                 "wait_for_async_insert": 1,
             }
         )
-        if table in {
-            "analytics_fact_events",
-            "analytics_audience_changes",
-            "analytics_dimension_changes",
-            "analytics_membership_changes",
-            "analytics_article_opens",
-        }:
+        if table == "analytics_article_opens":
             # Materialized states are idempotent; replay must rerun every view
             # even after an earlier partial materialized-view failure.
             settings.update(insert_deduplicate=0, async_insert_deduplicate=0)

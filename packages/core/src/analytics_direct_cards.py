@@ -12,40 +12,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from devfeed_core.analytics_card_builders import article_rows, proposal_rows, source_rows
 from devfeed_core.analytics_observation import pipeline_policy_version
 
-COLUMNS = (
-    ("policy", "String"),
-    ("kind", "LowCardinality(String)"),
-    ("shard", "UInt16"),
-    ("entity_id", "UUID"),
-    ("version", "UInt128"),
-    ("deleted", "UInt8"),
-    ("stage", "LowCardinality(String)"),
-    ("state", "LowCardinality(String)"),
-    ("source_id", "Nullable(UUID)"),
-    ("source_name", "Nullable(String)"),
-    ("source_sort", "String"),
-    ("source_ids", "Array(UUID)"),
-    ("search_text", "String"),
-    ("literal_search_text", "String"),
-    ("source_type", "LowCardinality(String)"),
-    ("created_at", "DateTime64(6,'UTC')"),
-    ("activity_at", "DateTime64(6,'UTC')"),
-    ("terminal_at", "Nullable(DateTime64(6,'UTC'))"),
-    ("has_active_work", "UInt8"),
-    ("next_transition_at", "Nullable(DateTime64(6,'UTC'))"),
-    ("evaluated_at", "DateTime64(6,'UTC')"),
-    ("catalog_sensitive", "UInt8"),
-    ("review_pending", "UInt8"),
-    ("enabled", "UInt8"),
-    ("approval_status", "LowCardinality(String)"),
-    ("consecutive_failures", "UInt32"),
-    ("blocker_codes", "Array(String)"),
-    ("title", "String"),
-    ("editorial_revision", "UInt64"),
-    ("semantic_hash", "String"),
-    ("payload", "String"),
-)
-
 
 def identity(value):
     return uuid.UUID(str(value))
@@ -130,15 +96,6 @@ ROUTES = {
     "topic_analysis_jobs": (("proposal_id", "topic-proposal"),),
     "topic_decision_runs": (("proposal_id", "topic-proposal"),),
 }
-
-
-async def initialize_cards(client):
-    fields = ",".join(name + " " + kind for name, kind in COLUMNS)
-    await client.execute(
-        "CREATE TABLE IF NOT EXISTS analytics_card_canonical ("
-        + fields
-        + ") ENGINE=ReplacingMergeTree(version) ORDER BY(policy,kind,shard,entity_id)"
-    )
 
 
 def card_identities(changes):

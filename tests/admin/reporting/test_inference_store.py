@@ -273,7 +273,7 @@ def test_quota_reads_fail_closed_on_ambiguous_or_malformed_accounting(operation,
     asyncio.run(run())
 
 
-def test_exact_invocation_lookup_and_schema_initialization_are_bounded():
+def test_exact_invocation_lookup_uses_only_the_requested_identity():
     class Storage(Client):
         async def execute(self, statement):
             self.schema = statement
@@ -281,8 +281,7 @@ def test_exact_invocation_lookup_and_schema_initialization_are_bounded():
     async def run():
         client = Storage()
         store = InferenceStore(client)
-        await store.initialize()
-        assert "analytics_inference_events" in client.schema
+        assert not hasattr(client, "schema")
         item = invocation()
         assert await store.exists(item["id"], item["started_at"])
         assert client.queries[-1][1] == dict(id=str(item["id"]), started=item["started_at"])

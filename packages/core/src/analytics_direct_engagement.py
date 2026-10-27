@@ -18,12 +18,6 @@ KINDS = frozenset(
     {"partner_import", "partner_baseline", "partner_event", "search_baseline", "search_event"}
 )
 
-DDL = """CREATE TABLE IF NOT EXISTS {table} (
-    kind LowCardinality(String), owner String, identity String, day Int32,
-    revision UInt64, impressions UInt64, clicks UInt64, searches UInt64,
-    first_seen DateTime64(6, 'UTC'), last_seen DateTime64(6, 'UTC')
-) ENGINE=ReplacingMergeTree(revision) ORDER BY (kind,owner,identity)"""
-
 
 def _uuid(value):
     try:
@@ -96,10 +90,6 @@ class DirectEngagementAnalytics:
 
     def __init__(self, client):
         self.client = client
-
-    async def initialize(self):
-        await self.client.execute(DDL.format(table="analytics_partner_events"))
-        await self.client.execute(DDL.format(table="analytics_search_events"))
 
     async def _insert(self, rows):
         if not isinstance(rows, (list, tuple)) or len(rows) > MAX_BATCH:

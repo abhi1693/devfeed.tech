@@ -797,6 +797,7 @@ async def seed_analytics(client, counts):
 def publish_analytics(factory, *, reset=False, counts=None):
     """Import business snapshots and seed only explicitly disposable ClickHouse."""
     from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
+    from devfeed_core.analytics_migrations import HISTORY_TABLE
     from devfeed_core.analytics_worker import AnalyticsImportWorker
     from devfeed_core.config import get_settings
     from pydantic import SecretStr
@@ -820,6 +821,8 @@ def publish_analytics(factory, *, reset=False, counts=None):
                     "AND engine NOT IN ('View','MaterializedView')"
                 )
                 for row in tables:
+                    if row["name"] == HISTORY_TABLE:
+                        continue
                     name = row["name"].replace("`", "``")
                     await client.execute(f"TRUNCATE TABLE `{name}`")
             worker = AnalyticsImportWorker(client, settings)

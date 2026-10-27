@@ -19,10 +19,6 @@ MAX_PAGE_SIZE = 1000
 
 # TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Remove the historical scanner and
 # checkpoint table once all supported installations have imported their data.
-BACKFILL_DDL = """CREATE TABLE IF NOT EXISTS analytics_backfill_progress (
-    import_id String, source LowCardinality(String), page UInt64,
-    cursor String, complete UInt8, boundary String
-) ENGINE=ReplacingMergeTree(page) ORDER BY (import_id,source)"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,9 +92,6 @@ class AnalyticsBackfill:
         self.import_id = import_id
         self.sources = {source.table: source for source in sources}
         self.page_size = page_size
-
-    async def initialize(self):
-        await self.client.execute(BACKFILL_DDL)
 
     async def _progress(self, name):
         rows = await self.client.query(

@@ -62,7 +62,7 @@ def native(read):
                 ) as client:
                     client.insert_settings = {"async_insert_busy_timeout_ms": 1}
                     store = InferenceStore(client)
-                    await store.initialize()
+                    await client.initialize()
                     return await read(client, store)
             finally:
                 await admin.execute(f"DROP DATABASE `{name}` SYNC")

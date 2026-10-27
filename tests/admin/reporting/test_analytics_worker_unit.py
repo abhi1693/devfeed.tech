@@ -16,8 +16,11 @@ def service(monkeypatch):
         database_connect_timeout_seconds=5,
         analytics_backfill_batch_size=100,
     )
-    client = SimpleNamespace(initialize=AsyncMock())
-    status = SimpleNamespace(initialize=AsyncMock(), read=AsyncMock(), write=AsyncMock())
+    client = SimpleNamespace(check_schema=AsyncMock())
+    status = SimpleNamespace(read=AsyncMock(), write=AsyncMock())
+    monkeypatch.setattr(
+        worker, "ClickHouseMigrationRunner", lambda _: SimpleNamespace(check=client.check_schema)
+    )
     importer = SimpleNamespace(
         cutover=datetime(2026, 10, 1, tzinfo=UTC),
     )
@@ -40,7 +43,7 @@ def test_ready_restart_and_idle_cycles_never_read_postgres(service):
     asyncio.run(run())
     runner.once.assert_not_called()
     status.write.assert_not_called()
-    client.initialize.assert_awaited_once()
+    client.check_schema.assert_awaited_once()
     assert exporter.bootstrapping is False
 
 
@@ -95,15 +98,14 @@ def test_complete_step_without_import_boundary_never_publishes_ready(service):
 
 @pytest.mark.parametrize("cutover", [datetime(2026, 10, 1, tzinfo=UTC), "2026-10-01T00:00:00Z"])
 def test_direct_status_preserves_cutoff_policy_and_current_readiness(cutover):
-    from devfeed_core.analytics_status import STATUS_DDL, AnalyticsStatus
+    from devfeed_core.analytics_status import AnalyticsStatus
 
     client = SimpleNamespace(execute=AsyncMock(), insert=AsyncMock(), query=AsyncMock())
     status = AnalyticsStatus(client)
 
     async def run():
-        await status.initialize()
         await status.write(ready=False, cutover=cutover, policy="new-policy")
-        client.execute.assert_awaited_once_with(STATUS_DDL)
+        client.execute.assert_not_awaited()
         table, rows = client.insert.await_args.args
         assert table == "analytics_direct_status" and len(rows) == 1
         row = rows[0]

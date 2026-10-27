@@ -9,7 +9,6 @@ import psycopg
 from psycopg.rows import dict_row
 
 from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
-from devfeed_core.analytics_backfill import BACKFILL_DDL
 from devfeed_core.analytics_cutover import AnalyticsCutoverBusy, LegacyAnalyticsCutover
 from devfeed_core.analytics_import import IMPORT_ID, HistoricalAnalyticsImport
 
@@ -87,8 +86,6 @@ class AnalyticsImportRunner:
 
     async def _get_importer(self, connection):
         opens = ArticleOpenAnalytics(self.client)
-        if self._importer is None:
-            await opens.initialize()
         cutover, _ = await opens._cutover()
         if self._importer is not None:
             if cutover != self._importer.cutover:
@@ -98,7 +95,6 @@ class AnalyticsImportRunner:
             # Existing progress without the persisted cutover indicates a
             # partial restore or table loss; choosing a new hour would corrupt
             # lifetime totals. A fresh table with no rows is safe to initialize.
-            await self.client.execute(BACKFILL_DDL)
             rows = await self.client.query(
                 "SELECT count() AS pages FROM analytics_backfill_progress "
                 "WHERE import_id={import_id:String}",

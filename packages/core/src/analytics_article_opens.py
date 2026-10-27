@@ -23,44 +23,8 @@ MAX_ARTICLES = 100
 MAX_IMPORT_ROWS = 1000
 MAX_PAGE = 1000
 
-OPEN_DDL = """CREATE TABLE IF NOT EXISTS analytics_article_opens (
-    opened_hour DateTime64(6, 'UTC'), article_id UUID, viewer_key FixedString(64),
-    event_id UUID, historical UInt8, article_key String MATERIALIZED toString(article_id)
-) ENGINE = ReplacingMergeTree(historical) PARTITION BY toYYYYMM(opened_hour)
-ORDER BY (article_key, opened_hour, event_id)
-TTL opened_hour + INTERVAL 30 DAY DELETE SETTINGS merge_with_ttl_timeout=3600"""
-
-LIFETIME_DDL = """CREATE TABLE IF NOT EXISTS analytics_open_lifetime (
-    article_id UUID, open_state AggregateFunction(uniqExact, UUID),
-    historical_state AggregateFunction(uniqExact, UUID)
-) ENGINE=AggregatingMergeTree ORDER BY article_id"""
-
-AUDIENCE_DDL = """CREATE TABLE IF NOT EXISTS analytics_open_audience_hourly (
-    bucket_hour DateTime('UTC'), open_state AggregateFunction(uniqExact, UUID),
-    reader_state AggregateFunction(uniqCombined64, String)
-) ENGINE=AggregatingMergeTree ORDER BY bucket_hour"""
-
-LIFETIME_VIEW_DDL = """CREATE MATERIALIZED VIEW IF NOT EXISTS analytics_open_lifetime_ingest
-TO analytics_open_lifetime AS SELECT article_id,uniqExactState(event_id) AS open_state,
-uniqExactStateIf(event_id,historical=1) AS historical_state
-FROM analytics_article_opens GROUP BY article_id"""
-
-AUDIENCE_VIEW_DDL = """CREATE MATERIALIZED VIEW IF NOT EXISTS analytics_open_audience_ingest
-TO analytics_open_audience_hourly AS SELECT toDateTime(opened_hour,'UTC') AS bucket_hour,
-uniqExactState(event_id) AS open_state,uniqCombined64State(toString(viewer_key)) AS reader_state
-FROM analytics_article_opens GROUP BY bucket_hour"""
 
 _EVENT_NAMESPACE = uuid.UUID("7394f820-b9e0-4973-a423-c013c89953e6")
-
-BASELINE_DDL = """CREATE TABLE IF NOT EXISTS analytics_article_open_baseline (
-    article_id UUID, opens UInt64
-) ENGINE = ReplacingMergeTree ORDER BY article_id"""
-
-# TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Remove the import gate after all
-# supported installations have completed the one-time historical import.
-CUTOVER_DDL = """CREATE TABLE IF NOT EXISTS analytics_article_open_cutover (
-    cutover_hour DateTime64(6, 'UTC'), ready UInt8
-) ENGINE = MergeTree ORDER BY (cutover_hour, ready)"""
 
 
 def _article(value):
@@ -109,20 +73,6 @@ class ArticleOpenAnalytics:
 
     def __init__(self, client):
         self.client = client
-
-    async def initialize(self):
-        # Targets and views exist before any raw insert is accepted. Aggregate
-        # states deduplicate event IDs independently of raw Replacing merges.
-        for statement in (
-            OPEN_DDL,
-            LIFETIME_DDL,
-            AUDIENCE_DDL,
-            LIFETIME_VIEW_DDL,
-            AUDIENCE_VIEW_DDL,
-            BASELINE_DDL,
-            CUTOVER_DDL,
-        ):
-            await self.client.execute(statement)
 
     async def _cutover(self):
         rows = await self.client.query(

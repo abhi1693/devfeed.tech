@@ -18,7 +18,6 @@ from devfeed_admin_api.analytics_reports import Reports
 from devfeed_admin_api.overview_windows import recent_window
 from devfeed_core.analytics import AnalyticsClient
 from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
-from devfeed_core.analytics_backfill import BACKFILL_DDL
 from devfeed_core.analytics_inference_store import InferenceStore
 from devfeed_core.analytics_observation import pipeline_policy_version
 from devfeed_core.analytics_overview_direct import DirectOverviewAnalytics
@@ -77,13 +76,6 @@ class SnapshotConnection:
 async def prepare(client, now):
     await client.initialize()
     client.insert_settings = {"async_insert_busy_timeout_ms": 1}
-    await client.execute(BACKFILL_DDL)
-    await client.execute(
-        "CREATE TABLE IF NOT EXISTS analytics_audience_archive_daily (day Date,"
-        "opens Nullable(UInt64),readers Nullable(Float64),accounts_created Nullable(UInt64),"
-        "published Nullable(UInt64),version UInt64) "
-        "ENGINE=ReplacingMergeTree(version) ORDER BY day"
-    )
     await client.insert(
         "analytics_backfill_progress",
         [

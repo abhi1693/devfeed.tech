@@ -87,7 +87,6 @@ def test_clickhouse_counts_drive_rank_across_postgres_pages(database, integratio
     from datetime import UTC, datetime
 
     from devfeed_core.analytics import AnalyticsClient
-    from devfeed_core.analytics_backfill import BACKFILL_DDL
     from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
     from devfeed_core.config import get_settings
     from pydantic import SecretStr
@@ -121,7 +120,7 @@ def test_clickhouse_counts_drive_rank_across_postgres_pages(database, integratio
                     settings.model_copy(update={"clickhouse_database": target})
                 ) as client:
                     client.insert_settings = {"async_insert_busy_timeout_ms": 1}
-                    await client.execute(BACKFILL_DDL)
+                    await client.initialize()
                     await client.insert(
                         "analytics_backfill_progress",
                         [
@@ -135,7 +134,6 @@ def test_clickhouse_counts_drive_rank_across_postgres_pages(database, integratio
                         ],
                     )
                     store = DirectEngagementAnalytics(client)
-                    await store.initialize()
                     now = datetime(2026, 1, 1, tzinfo=UTC)
                     await store.search_events(
                         [

@@ -18,6 +18,7 @@ from devfeed_core.analytics_import_runner import (
     ImportStep,
     postgres_connections,
 )
+from devfeed_core.analytics_migrations import ClickHouseMigrationRunner
 from devfeed_core.analytics_observation import pipeline_policy_version
 from devfeed_core.analytics_status import AnalyticsStatus
 from devfeed_core.config import get_settings
@@ -52,8 +53,7 @@ class AnalyticsImportWorker:
 
     async def once(self):
         if not self._initialized:
-            await self.client.initialize()
-            await self.status.initialize()
+            await ClickHouseMigrationRunner(self.client).check()
             self._initialized = True
         if self.bootstrapping:
             if not self._started:
@@ -108,22 +108,9 @@ def _poll_delay(settings, *, busy, bootstrapping, failures):
     return max(delay, min(60, 2 ** min(failures, 6))) if failures else delay
 
 
-async def run(once=False, initialize=False):
+async def run(once=False):
     settings = get_settings()
     async with AnalyticsClient(settings) as client:
-        if initialize:
-            await client.initialize()
-            await AnalyticsStatus(client).initialize()
-            await AnalyticsImportRunner(
-                client,
-                postgres_connections(
-                    settings.database_url,
-                    connect_timeout=settings.database_connect_timeout_seconds,
-                ),
-                settings=settings,
-                page_size=settings.analytics_backfill_batch_size,
-            ).prepare()
-            return
         worker = AnalyticsImportWorker(client, settings)
         failures = 0
         stopping = asyncio.Event()
@@ -159,7 +146,6 @@ async def run(once=False, initialize=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true")
-    parser.add_argument("--initialize", action="store_true")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     if args.check:
@@ -171,7 +157,7 @@ def main():
     configure_logging("analytics-worker", settings.log_level, settings.log_format)
     telemetry = start_runtime("analytics-worker")
     try:
-        asyncio.run(run(args.once, args.initialize))
+        asyncio.run(run(args.once))
     finally:
         stop_runtime(telemetry)
 

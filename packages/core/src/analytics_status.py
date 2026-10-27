@@ -4,19 +4,11 @@ import time
 from datetime import UTC, datetime
 
 IMPORT_ID = "direct-v1"
-STATUS_DDL = """CREATE TABLE IF NOT EXISTS analytics_direct_status (
-    import_id String,version UInt64,ready UInt8,updated_at DateTime64(6,'UTC'),
-    capture_started_at DateTime64(6,'UTC'),reader_coverage_start Date,lag_seconds Float64,
-    policy String
-) ENGINE=ReplacingMergeTree(version) ORDER BY import_id"""
 
 
 class AnalyticsStatus:
     def __init__(self, client):
         self.client = client
-
-    async def initialize(self):
-        await self.client.execute(STATUS_DDL)
 
     async def write(self, *, ready, cutover, policy):
         if isinstance(cutover, str):

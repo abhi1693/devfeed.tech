@@ -152,7 +152,7 @@ def test_real_clickhouse_deduplicates_opens_across_cutover_and_import_retries():
                 ) as client:
                     client.insert_settings = {"async_insert_busy_timeout_ms": 1}
                     analytics = ArticleOpenAnalytics(client)
-                    await analytics.initialize()
+                    await client.initialize()
                     article, other = uuid.uuid4(), uuid.uuid4()
                     cutover = datetime(2026, 10, 26, 11, 30, tzinfo=UTC)
                     await analytics.record(article, "a" * 64, cutover)
@@ -263,16 +263,17 @@ def test_recent_pages_use_the_sorted_article_identity_for_keyset_paging():
 
 
 def test_raw_viewer_retention_has_idempotent_lifetime_and_reader_states():
-    from devfeed_core.analytics_article_opens import (
-        AUDIENCE_VIEW_DDL,
-        LIFETIME_VIEW_DDL,
-        OPEN_DDL,
-    )
+    from importlib.resources import files
 
-    assert "INTERVAL 30 DAY DELETE" in OPEN_DDL
-    assert "uniqExactState(event_id)" in LIFETIME_VIEW_DDL
-    assert "uniqExactStateIf(event_id,historical=1)" in LIFETIME_VIEW_DDL
-    assert "uniqCombined64State(toString(viewer_key))" in AUDIENCE_VIEW_DDL
+    schema = (
+        files("devfeed_core.clickhouse_migrations")
+        .joinpath("0002_initial_analytics.sql")
+        .read_text()
+    )
+    assert "INTERVAL 30 DAY DELETE" in schema
+    assert "uniqExactState(event_id)" in schema
+    assert "uniqExactStateIf(event_id,historical=1)" in schema
+    assert "uniqCombined64State(toString(viewer_key))" in schema
 
 
 def test_trending_passes_bounded_external_business_data_to_one_query():

@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import typer
 from alembic.util.exc import CommandError
+from devfeed_core.analytics_migrations import AnalyticsMigrationError
 from devfeed_core.analytics_producer import shutdown as drain_analytics
 from devfeed_core.cache import CacheUnavailable
 from devfeed_core.config import get_settings
@@ -158,6 +159,14 @@ def execute(args) -> int:
         logger.exception("redis_operation_failed")
         print(
             "error: Redis is unavailable. Check DEVFEED_REDIS_URL and connectivity.",
+            file=sys.stderr,
+        )
+        return 1
+    except AnalyticsMigrationError:
+        logger.warning("analytics_migration_failed")
+        print(
+            "error: ClickHouse schema migration failed. Check schema history and connectivity; "
+            "apply pending migrations with 'devfeed analytics upgrade'.",
             file=sys.stderr,
         )
         return 1

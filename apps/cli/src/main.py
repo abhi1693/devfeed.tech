@@ -7,6 +7,7 @@ from devfeed_core.version import __version__
 from devfeed_core.worker_queues import WorkerQueue
 
 from devfeed_cli import (
+    analytics_commands,
     article_commands,
     commands,
     discovery_commands,
@@ -40,6 +41,7 @@ app.add_typer(topic_commands.app, name="topics")
 app.add_typer(taxonomy_commands.tags, name="tags")
 app.add_typer(operation_commands.cache, name="cache")
 app.add_typer(operation_commands.db, name="db")
+app.add_typer(analytics_commands.app, name="analytics")
 
 
 def version_option(value: bool) -> None:

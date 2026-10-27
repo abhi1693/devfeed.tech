@@ -363,12 +363,16 @@ def test_topic_migration_round_trip_keeps_scheduler_clock_capture_and_source_his
         session.flush()
         article_id = article.id
         retained_triggers = session.execute(capture_sql).all()
-        assert retained_triggers == []
+        # Historical 0037 capture remains until the finite ClickHouse import
+        # confirms retained history. This unrelated topic migration must retain it.
+        assert {row.tgname for row in retained_triggers} == {
+            "read_model_changed",
+            "read_model_article_clock_changed",
+        }
         source_state = copy.deepcopy(session.get(TopicDecisionRun, proposal_id).state)
         expected_facts = facts(session, proposal_id)
-    # Exercise this migration in one rolled-back transaction. The newer native
-    # capture migration deliberately rejects a full database downgrade because
-    # that would discard analytical facts, so walking through head is unsafe.
+    # Exercise only the historical topic migration in one rolled-back transaction.
+    # The live import owns analytical retirement separately from schema upgrade.
     with database.kw["bind"].connect() as connection, connection.begin() as transaction:
         with Operations.context(MigrationContext.configure(connection)):
             migration.downgrade()
@@ -413,7 +417,9 @@ def test_topic_migration_round_trip_keeps_scheduler_clock_capture_and_source_his
                     )
                     == clock
                 )
-                assert connection.scalar(text("SELECT to_regclass('read_model_events')")) is None
+                assert (
+                    connection.scalar(text("SELECT to_regclass('read_model_events')")) is not None
+                )
         transaction.rollback()
 
 

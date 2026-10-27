@@ -5,7 +5,7 @@ import json
 import uuid
 from datetime import UTC, date, datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import aiohttp
 import pytest
@@ -245,27 +245,22 @@ def test_invalid_native_json_is_an_explicit_unavailable_result():
     asyncio.run(run())
 
 
-def test_initialize_creates_every_active_store_and_status_uses_direct_readiness_only():
+def test_initialize_runs_versioned_migrations_and_status_uses_direct_readiness_only(monkeypatch):
     async def run():
         native = driver()
         native.raw_query.return_value = (
             b'{"version":1,"ready":1,"updated_at":"2026-10-27T12:00:00Z"}\n'
         )
         async with analytics.AnalyticsClient(configuration(), driver=native) as client:
-            await client.initialize()
-            ddl = "\n".join(call.args[0] for call in native.command.await_args_list)
-            for target in (
-                "analytics_article_opens",
-                "analytics_open_lifetime",
-                "analytics_open_audience_hourly",
-                "analytics_inference_events",
-                "analytics_partner_events",
-                "analytics_card_canonical",
-                "analytics_pipeline_events",
-                "analytics_direct_status",
-            ):
-                assert target in ddl
-            assert "analytics_fact_events" not in ddl
+            from devfeed_core import analytics_migrations
+
+            runner = SimpleNamespace(upgrade=AsyncMock(return_value=(1, 2)))
+            constructor = Mock(return_value=runner)
+            monkeypatch.setattr(analytics_migrations, "ClickHouseMigrationRunner", constructor)
+            assert await client.initialize() == (1, 2)
+            constructor.assert_called_once_with(client)
+            runner.upgrade.assert_awaited_once()
+            native.command.assert_not_awaited()
             status = await client.status()
             assert status["generated_at"] == status["updated_at"] and status["ready"] == 1
             assert "analytics_direct_status" in native.raw_query.call_args.args[0]

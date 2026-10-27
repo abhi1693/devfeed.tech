@@ -1,111 +1,131 @@
-# ClickHouse resource budgets
+# ClickHouse schema and resource budgets
 
-Compose mounts `resources.xml` and `users.xml` read-only. These enforce limits in
-ClickHouse across all API replicas and the native exporter, in addition to each
-application process's request semaphore and timeout.
+Application analytics are stored in ClickHouse. PostgreSQL holds business data and
+transactional action validation. Application processes publish sanitized observations
+directly; the finite `analytics-importer` moves retained PostgreSQL history and
+removes the retired analytical tables. See the
+[analytics design](../../apps/admin-api/ANALYTICS.md) for delivery and recovery limits.
 
-| Budget                    | Default                                |
+## Versioned schema upgrades
+
+ClickHouse migrations are packaged with `devfeed-core` in
+[`clickhouse_migrations`](../../packages/core/src/clickhouse_migrations).
+`0001_schema_migrations.sql` creates the migration journal and
+`0002_initial_analytics.sql` creates the initial tables and ingest materialized views.
+The journal, `analytics_schema_migrations`, records the version, filename, SQL
+SHA-256 checksum and application time in ClickHouse. There is no PostgreSQL
+migration ledger for ClickHouse.
+
+Run these commands with the deployment's schema-owner ClickHouse credentials:
+
+```sh
+uv run devfeed analytics current
+uv run devfeed analytics upgrade
+uv run devfeed analytics check
+```
+
+`current` reports applied and pending versions without modifying the schema.
+`check` exits unsuccessfully if the installed history differs from this application
+or has pending migrations. `upgrade` applies pending files in order, acknowledges
+each completed file, and prepares the historical reader cutoff before application
+writers start. A transient PostgreSQL advisory lock serializes deployment upgrades;
+it stores no analytics or retry state. Historical scanning runs separately.
+
+Compose's existing `migrate` service runs `devfeed db upgrade` followed by
+`devfeed analytics upgrade` after ClickHouse is healthy. APIs and workers wait for
+that command to succeed. The recorded Fleet migration contract follows the same
+order; update the owning Fleet manifests to that contract before deployment.
+Ordinary service startup and the historical importer do not create or alter the
+ClickHouse schema. The importer checks its installed version before processing data.
+
+To change the schema, add the next contiguous numbered SQL file, such as
+`0003_add_publication_dimension.sql`. Separate statements with a standalone
+`-- statement` line. Keep shipped files unchanged: checksum mismatches, missing
+versions and unknown future versions reject the upgrade. Schema changes must be
+safe to replay after partial completion because ClickHouse DDL is not a
+transaction across the whole file. A failed file is retried on the next `upgrade`;
+its journal entry is written only after every statement succeeds. Use a new
+migration for corrections or object retirement. Keep grants in deployment-managed
+roles, outside migration SQL. Migration SQL is included in wheels and runtime
+images, so a source checkout is not required to apply an upgrade.
+
+Each statement must be self-contained: the pooled client does not guarantee that
+a preceding `SET` changes the connection used by the next statement. Put required
+settings on the statement itself. A migration that starts background mutation or
+data materialization must explicitly wait for completion before its version is
+acknowledged; use the appropriate `mutations_sync` or `alter_sync` setting and
+observable completion checks. See ClickHouse's
+[ALTER completion rules](https://clickhouse.com/docs/reference/statements/alter#synchronicity-of-alter-queries).
+Keep large historical scans and data backfills in the bounded importer, outside
+schema upgrades and readiness hooks.
+
+Back up ClickHouse, including its journal, import checkpoints and readiness state,
+before an upgrade. Restoring an older application image does not reverse schema
+changes. After the finite import removes PostgreSQL analytical history, rebuilding
+an empty ClickHouse database cannot recover that deleted history.
+
+## Credentials and admission limits
+
+Compose mounts `resources.xml` and `users.xml` read-only. Generate distinct secrets
+for each configured role in the private `.env`; never commit them. The configured
+operator account retains administration and CH-UI access. Application services use
+separate identities:
+
+| Role              | Access                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| `devfeed_ingest`  | Schema migrations, finite import and analytical data maintenance; no user management |
+| `devfeed_reader`  | Read-only analytical queries and CH-UI exploration                                   |
+| `devfeed_public`  | Public search and partner events, publication/source observations and cards          |
+| `devfeed_user`    | Reader opens, account/feed/membership observations and bounded open-total reads      |
+| `devfeed_partner` | Partner reporting reads                                                              |
+| `devfeed_admin`   | Analytical reads plus authorized publication/user/card/partner writes                |
+| `devfeed_worker`  | Inference, publication/job/user/card observations and import-boundary reads          |
+
+The exact table grants live in `compose.yaml` and `users.xml`. Application roles
+cannot run schema migrations. For independently managed ClickHouse, provision
+equivalent roles and pass each service its own normal ClickHouse credentials.
+Credential changes require recreating ClickHouse and the affected services.
+
+| Budget                    | Checked-in default                     |
 | ------------------------- | -------------------------------------- |
 | ClickHouse container      | 2 CPUs, 2 GiB                          |
 | Tracked server memory     | 1.5 GiB                                |
 | Concurrent server queries | 6 total, 3 SELECTs, 2 INSERTs          |
-| Reader account            | 2 concurrent queries, 512 MiB combined |
-| Exporter account          | 3 concurrent queries, 384 MiB combined |
-| Individual query          | 256 MiB, 2 threads, 20 seconds         |
-| Exporter container        | 0.5 CPU, 512 MiB                       |
+| Reader profile            | 2 concurrent queries, 512 MiB combined |
+| Ingestion profile         | 3 concurrent queries, 384 MiB combined |
+| Individual query          | 256 MiB, up to 2 threads, 20 seconds   |
+| Historical importer       | 0.5 CPU, 512 MiB                       |
 
-The official image's configured `DEVFEED_CLICKHOUSE_USERNAME` retains its existing
-administration permissions, including CH-UI access. The admin API uses the separate
-`devfeed_reader` account, restricted to SELECT on the configured analytics database.
-The exporter uses a separate private
-`devfeed_ingest` account and profile, scoped to analytics database schema maintenance,
-materialized views, reads and writes, plus access to `system.mutations` to track
-compaction completion. It cannot manage users. Two busy reader sessions therefore leave a
-SELECT slot for exporter metadata or rollup work and two independent INSERT
-slots. Reader and exporter memory budgets leave server headroom for merges,
-caches, and system tables. Admission limits reject excess queries; the durable
-exporter retries without acknowledging uncommitted batches.
-The authenticated healthcheck uses the exporter account so reader saturation
-cannot consume its allowance.
+Service clients use up to two query threads by default in Compose. Server constraints
+prevent clients from disabling or exceeding per-query time and memory limits.
+Keep `SERVER_MAX_SELECTS` at least `READER_MAX_QUERIES + 1`, total query capacity
+above the reader and ingestion allowances, and user memory budgets below server
+memory. Local `.env` overrides can change these defaults. The authenticated
+ClickHouse healthcheck uses the ingestion identity.
 
-Set `DEVFEED_CLICKHOUSE_READER_PASSWORD` to a generated secret distinct from the
-operator, exporter and PostgreSQL passwords in the private Compose `.env` before
-upgrading or starting the stack. This is required for existing installations too;
-replace the example placeholder. Recreate ClickHouse and admin-api together after
-changing it. The reader profile allows bounded per-query settings but rejects writes,
-schema changes and user management. The configured database name must be a valid
-unquoted ClickHouse identifier, as required by the application settings.
-For an admin API run outside Compose, set its `DEVFEED_CLICKHOUSE_USERNAME` to
-`devfeed_reader` and its `DEVFEED_CLICKHOUSE_PASSWORD` to the reader secret;
-configure the exporter separately with the ingest identity and secret.
+## Inserts and read costs
 
-Set `DEVFEED_CLICKHOUSE_INGEST_PASSWORD` to another distinct generated secret in
-the private Compose `.env`; this is also required for existing installations.
-The configuration user reads it at startup; changing it requires recreating
-ClickHouse and the exporter together. Existing data volumes and the operator
-account remain in place. Never commit these secrets.
+The application follows ClickHouse's
+[insert strategy guidance](https://clickhouse.com/docs/concepts/best-practices/selecting-an-insert-strategy)
+and [asynchronous insert guidance](https://clickhouse.com/docs/concepts/features/operations/insert/asyncinserts).
+Source publication coalesces at most 200 changed identities, and historical import
+reads at most 1,000 records per page. Native compressed inserts use
+`async_insert=1, wait_for_async_insert=1`, acknowledging a write after its buffer
+flush rather than after merely accepting it into memory. The application source
+publisher uses a 50 ms busy timeout. Matching insert shapes can share buffering;
+application batching still limits the number of small insert requests.
 
-The shared budgets use the `DEVFEED_CLICKHOUSE_{READER,INGEST,SERVER}_*` settings in
-`compose.env.example`. The application query limits use
-`DEVFEED_CLICKHOUSE_MAX_{THREADS,EXECUTION_SECONDS,MEMORY_BYTES}`. Profile constraints
-prevent a client or CH-UI session from raising those per-query limits.
-Lower bounds also reject the zero values that disable memory or time limits.
-Change the application and server values together. When scaling the reader query allowance,
-keep `SERVER_MAX_SELECTS` at least `READER_MAX_QUERIES + 1` and
-`SERVER_MAX_QUERIES` greater than the combined reader and exporter allowances.
-Keep the two user memory budgets below the server budget, and the server budget
-below the container memory limit. A separately managed ClickHouse deployment
-should provision equivalent profiles and configure each process's normal
-ClickHouse credentials for its role.
+Current cards and source observations use stable identities and increasing
+revisions; reports query their current replacing rows. Reader-open materialized
+views retain lifetime identities and hourly audience aggregate states before raw
+open rows expire after 30 days. These are ClickHouse ingest aggregates, with no
+PostgreSQL analytical triggers, refresh tables or permanent projection worker.
+Only Queue pressure polls after a successful overview load.
 
-The server uses two background merge workers and bounded mark/uncompressed
-caches. Monitor rejected queries, exporter lag, active parts, merge work, and
-`system.query_log` before raising limits. Query latency alone can hide scans whose
-CPU and read volume grow with retained history. Record `query_duration_ms`,
-`read_rows`, `read_bytes`, and `memory_usage` alongside report latency and result
-size when comparing table layouts.
-
-Initial bootstrap waits 100 ms between bounded pages and publishes up to 32 dirty
-hourly cohorts per cycle; source/topic day cohorts rebuild one at a time. After
-bootstrap completes, the exporter polls at the normal one-second cadence even
-when busy. New changes coalesce into rollups for up to 30 seconds without moving
-their original publication deadline.
-
-## Ingestion and read practices
-
-The exporter follows ClickHouse's [insert strategy guide](https://clickhouse.com/docs/concepts/best-practices/selecting-an-insert-strategy)
-and [asynchronous insert guidance](https://clickhouse.com/docs/concepts/features/operations/insert/asyncinserts):
-
-- Capture and historical backfill use 1,000 source records per page by default.
-  Native, LZ4-compressed inserts avoid repeatedly parsing JSON on the server.
-  Column types are discovered once per table/column shape; concurrent inserts
-  use independent driver contexts, as required by the [Python insertion guide](https://clickhouse.com/docs/integrations/language-clients/python/advanced-inserting).
-- Every client insert sets `async_insert=1, wait_for_async_insert=1`. The exporter
-  waits for the flush and dependent materialized views before acknowledging
-  captured IDs. It never acknowledges an in-memory buffer or drops failed work.
-  Replays rerun idempotent fact/change materialized views even after partial failure.
-- A current-card batch hydrates at most 200 identities across at most eight
-  shards of one kind. Canonical changes, complete shard snapshots, and manifests
-  each use one insert for the batch. Snapshot copying streams 1,024-row blocks
-  under the existing query memory cap. The manifest is published last under the
-  native lease; exact identity/generation acknowledgements preserve racing changes.
-- Small status/manifest writes remain separate where publication ordering requires
-  it. Async buffering combines only matching insert shapes and settings, and a
-  single publisher waiting for a flush cannot combine its next sequential insert.
-  Application batching therefore matters even with async inserts enabled.
-- Queue pressure has its own cached gauge query. Its refresh does not scan
-  historical outcomes or throughput. Historical charts share their calculations
-  and refresh only on demand; only Queue pressure polls after a successful load.
-
-Keep the existing application, account, and container budgets when adopting these
-changes in k3s. The table above describes checked-in defaults; local `.env`
-overrides can differ. Avoid increasing worker batch size or query concurrency
-without measuring the resident catalogue, insertion buffers, merges, and reads
-together. See [the scale results](../../benchmarks/clickhouse-current-serving.md).
-
-Use `system.parts` to watch active part counts and bytes per table, and compare
-`system.query_log` read rows/bytes, memory, CPU, and exceptions with exporter lag.
-`system.asynchronous_insert_log` records flush failures and flush CPU. More async
-requests alone do not prove fewer parts. Leave background merges enabled in the
-application; [routine `OPTIMIZE FINAL`](https://clickhouse.com/docs/concepts/best-practices/avoid-optimize-final)
-adds merge work and does not solve an excessive insert rate.
+Monitor `system.parts` active part counts, merge work, query rejection counts and
+`system.query_log` duration, read rows/bytes and memory alongside API latency.
+`system.asynchronous_insert_log` exposes flush failures and costs. Measure the
+catalogue, ingestion buffers, merges and concurrent reads together before raising
+batch size, concurrency or memory. Leave background merges enabled; ClickHouse's
+[OPTIMIZE FINAL guidance](https://clickhouse.com/docs/concepts/best-practices/avoid-optimize-final)
+explains why routine forced merges add work instead of correcting excessive inserts.

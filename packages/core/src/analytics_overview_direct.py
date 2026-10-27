@@ -15,16 +15,6 @@ MAX_BATCH_SIZE = 1000
 _ZERO = str(uuid.UUID(int=0))
 _NAMESPACE = uuid.UUID("f578f44d-3ce0-4b5e-a903-879be66906ad")
 
-OVERVIEW_EVENTS_DDL = """CREATE TABLE IF NOT EXISTS {table} (
-    domain LowCardinality(String), id UUID, revision UInt64, deleted UInt8,
-    occurred_at Nullable(DateTime64(6, 'UTC')), created_at Nullable(DateTime64(6, 'UTC')),
-    task LowCardinality(String), status LowCardinality(String), outcome LowCardinality(String),
-    attempt UInt32, duration_ms Nullable(UInt64), automated UInt8,
-    source_ids Array(UUID), topic_ids Array(UUID), interest_count UInt32,
-    has_generation UInt8, invalidated UInt8, has_recommendations UInt8,
-    expires_at Nullable(DateTime64(6, 'UTC')), next_refresh_at Nullable(DateTime64(6, 'UTC')),
-    name String, target_id UUID, consecutive_failures UInt32
-) ENGINE = ReplacingMergeTree(revision) ORDER BY (domain, id)"""
 
 _BUCKETS = {
     "hour": "toStartOfHour(occurred_at)",
@@ -116,10 +106,6 @@ class DirectOverviewAnalytics:
 
     def __init__(self, client):
         self.client = client
-
-    async def initialize(self):
-        for table in ("analytics_pipeline_events", "analytics_user_events"):
-            await self.client.execute(OVERVIEW_EVENTS_DDL.format(table=table))
 
     async def _write(self, rows):
         if len(rows) > MAX_BATCH_SIZE:

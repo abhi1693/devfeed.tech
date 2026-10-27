@@ -317,7 +317,7 @@ services:
     command:
       - sh
       - -ec
-      - devfeed db upgrade && exec python -m devfeed_core.analytics_worker --initialize
+      - devfeed db upgrade && exec devfeed analytics upgrade
     environment:
       <<: [*core-environment, *clickhouse-environment]
       DEVFEED_CLICKHOUSE_USERNAME: devfeed_ingest

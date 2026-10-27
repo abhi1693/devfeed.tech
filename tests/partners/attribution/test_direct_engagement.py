@@ -157,7 +157,7 @@ def test_real_clickhouse_deduplicates_receipts_and_revisions_without_private_que
                 ) as client:
                     client.insert_settings = {"async_insert_busy_timeout_ms": 1}
                     analytics = DirectEngagementAnalytics(client)
-                    await analytics.initialize()
+                    await client.initialize()
                     asset, delivery, event_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
                     day, query = date(2026, 1, 1), "c" * 64
                     total = {
@@ -240,8 +240,7 @@ def test_baselines_replacements_and_empty_authorized_scopes_are_distinct():
     async def run():
         storage = Storage()
         store = DirectEngagementAnalytics(storage)
-        await store.initialize()
-        assert len(storage.ddl) == 2
+        assert storage.ddl == []
         asset, when = uuid.uuid4(), datetime(2026, 1, 1, tzinfo=UTC)
         total = dict(
             asset_id=asset, day=when.date(), impressions=0, clicks=0, revision=1, updated_at=when

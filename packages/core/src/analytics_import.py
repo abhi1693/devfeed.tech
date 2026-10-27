@@ -30,9 +30,6 @@ OVERVIEW_SOURCES = (
     "topic_proposals",
     *JOB_TABLES,
 )
-HISTORY_ARCHIVE_DDL = """CREATE TABLE IF NOT EXISTS analytics_history_archive (
-    source_table LowCardinality(String),identity String,record String
-) ENGINE=ReplacingMergeTree ORDER BY (source_table,identity)"""
 
 
 def _date(value):
@@ -204,16 +201,7 @@ class HistoricalAnalyticsImport:
                 self.absent.append(name)
 
     async def initialize(self):
-        await self.opens.initialize()
-        await self.engagement.initialize()
-        await self.inference.initialize()
-        await self.overview.initialize()
-        from devfeed_core.analytics_direct_cards import initialize_cards
-
-        await initialize_cards(self.client)
-        await self.client.execute(HISTORY_ARCHIVE_DDL)
-        await self.importer.initialize()
-        await self.cards_importer.initialize()
+        """Prepare data checkpoints after centralized schema migration."""
         for name in self.absent:
             cursor, page, complete = await self.importer._progress(name)
             if complete:
@@ -234,12 +222,6 @@ class HistoricalAnalyticsImport:
                     }
                 ],
             )
-        await self.client.execute(
-            "CREATE TABLE IF NOT EXISTS analytics_audience_archive_daily (day Date, "
-            "opens Nullable(UInt64),readers Nullable(Float64),accounts_created Nullable(UInt64), "
-            "published Nullable(UInt64),version UInt64) "
-            "ENGINE=ReplacingMergeTree(version) ORDER BY day"
-        )
         await self.opens.begin_import(self.cutover)
 
     async def scan_one(self, connection, source):

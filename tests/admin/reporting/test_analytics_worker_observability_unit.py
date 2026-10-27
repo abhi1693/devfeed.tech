@@ -8,27 +8,25 @@ import pytest
 from devfeed_core import analytics_worker as worker
 
 
-def test_schema_only_command_does_not_start_historical_work(monkeypatch):
-    client = AsyncMock()
-    client.__aenter__.return_value = client
-    status = SimpleNamespace(initialize=AsyncMock())
-    runner = SimpleNamespace(prepare=AsyncMock())
-    exporter = Mock()
+def test_schema_must_be_upgraded_before_historical_work(monkeypatch):
+    client = object()
+    schema = SimpleNamespace(
+        check=AsyncMock(side_effect=worker.AnalyticsUnavailable("pending migration"))
+    )
+    importer = SimpleNamespace(once=AsyncMock())
     settings = SimpleNamespace(
         database_url="postgresql://fixture/devfeed_test",
         database_connect_timeout_seconds=5,
         analytics_backfill_batch_size=1000,
     )
-    monkeypatch.setattr(worker, "get_settings", lambda: settings)
-    monkeypatch.setattr(worker, "AnalyticsClient", lambda _: client)
-    monkeypatch.setattr(worker, "AnalyticsStatus", lambda _: status)
-    monkeypatch.setattr(worker, "AnalyticsImportWorker", exporter)
-    monkeypatch.setattr(worker, "AnalyticsImportRunner", lambda *_, **__: runner)
-    asyncio.run(worker.run(initialize=True))
-    client.initialize.assert_awaited_once()
-    status.initialize.assert_awaited_once()
-    runner.prepare.assert_awaited_once()
-    exporter.assert_not_called()
+    monkeypatch.setattr(worker, "ClickHouseMigrationRunner", lambda _: schema)
+    monkeypatch.setattr(worker, "pipeline_policy_version", lambda _: "current")
+    monkeypatch.setattr(worker, "AnalyticsImportRunner", lambda *_, **__: importer)
+    service = worker.AnalyticsImportWorker(client, settings)
+    with pytest.raises(worker.AnalyticsUnavailable, match="pending migration"):
+        asyncio.run(service.once())
+    schema.check.assert_awaited_once()
+    importer.once.assert_not_awaited()
 
 
 def test_service_retries_failed_pages_with_backoff_and_closes_client(monkeypatch):

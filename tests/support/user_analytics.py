@@ -31,7 +31,7 @@ def reader_analytics(client):
         ) as native:
             native.insert_settings = {"async_insert_busy_timeout_ms": 1}
             store = ArticleOpenAnalytics(native)
-            await store.initialize()
+            await native.initialize()
             when = datetime.now(UTC)
             await store.begin_import(when)
 

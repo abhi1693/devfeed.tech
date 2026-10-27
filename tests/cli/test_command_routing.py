@@ -109,6 +109,7 @@ GROUPS = {
     "tags": ["list", "add", "update"],
     "cache": ["clear"],
     "db": ["upgrade", "check", "current"],
+    "analytics": ["upgrade", "check", "current"],
     "search": ["setup", "backfill", "worker"],
 }
 

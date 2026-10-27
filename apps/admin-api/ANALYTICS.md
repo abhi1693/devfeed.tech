@@ -61,8 +61,8 @@ business facts in PostgreSQL; an analytical observation never authorizes a write
 
 ## Finite historical import
 
-`python -m devfeed_core.analytics_worker` initializes direct stores and imports
-retained history automatically. It reads at most 1,000 PostgreSQL source rows
+`python -m devfeed_core.analytics_worker` checks the installed ClickHouse schema
+and imports retained history automatically. It reads at most 1,000 PostgreSQL source rows
 or 200 current card identities per page. Source
 transactions close before ClickHouse network writes. Durable ClickHouse
 checkpoints advance only after acknowledged writes; failed pages replay safely.
@@ -93,9 +93,15 @@ profiles reserve separate capacity. Client limits must fit server profile limits
 ClickHouse database ports stay private. CH-UI publishes port 4000 on
 `DEVFEED_CH_UI_BIND_IP`; set `DEVFEED_CH_UI_URL` to its browser origin for LAN use.
 
-Prepare ClickHouse and apply schema `0038` before starting new application
-producers. The migration container initializes ClickHouse schemas and fixes the reader cutoff under the import
-advisory lock with ingestion credentials and waits for ClickHouse health; it never scans history. Then deploy
+Prepare ClickHouse and apply PostgreSQL schema `0038` and versioned ClickHouse
+migrations before starting new application producers. The migration container runs
+`devfeed db upgrade` followed by `devfeed analytics upgrade` with schema-owner
+credentials after ClickHouse becomes healthy. The latter applies the packaged SQL
+history and fixes the reader cutoff under the import advisory lock; it never scans
+history. Applied versions and SQL checksums live in
+`analytics_schema_migrations` in ClickHouse. Ordinary application processes do not
+create or alter tables. See the [schema upgrade guide](../../infra/clickhouse/README.md).
+Then deploy
 the new applications, drain old application/worker processes and start the
 historical importer. New application
 requests and direct writes remain available during import; analytical readiness

@@ -4,8 +4,6 @@ import uuid
 from contextlib import asynccontextmanager
 
 from devfeed_core.analytics import AnalyticsClient
-from devfeed_core.analytics_backfill import BACKFILL_DDL
-from devfeed_core.analytics_inference_store import InferenceStore
 
 from tests.support.analytics import settings
 
@@ -21,8 +19,7 @@ async def inference_client():
                 configured.model_copy(update={"clickhouse_database": database})
             ) as client:
                 client.insert_settings = {"async_insert_busy_timeout_ms": 1}
-                await InferenceStore(client).initialize()
-                await client.execute(BACKFILL_DDL)
+                await client.initialize()
                 await client.insert(
                     "analytics_backfill_progress",
                     [

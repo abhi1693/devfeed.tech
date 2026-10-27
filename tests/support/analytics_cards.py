@@ -8,7 +8,7 @@ import pytest
 from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
 from devfeed_core.analytics import AnalyticsClient
 from devfeed_core.analytics_card_builders import article_rows, proposal_rows, source_rows
-from devfeed_core.analytics_direct_cards import initialize_cards, normalize_card
+from devfeed_core.analytics_direct_cards import normalize_card
 from devfeed_core.analytics_observation import pipeline_policy_version
 from devfeed_core.analytics_status import AnalyticsStatus
 from devfeed_core.config import get_settings
@@ -90,10 +90,9 @@ class CardPublication:
         async def publish():
             async with AnalyticsClient(self.settings) as client:
                 client.insert_settings = {"async_insert_busy_timeout_ms": 1}
-                await initialize_cards(client)
+                await client.initialize()
                 await client.insert("analytics_card_canonical", rows)
                 status = AnalyticsStatus(client)
-                await status.initialize()
                 await status.write(ready=True, cutover=now, policy=policy)
 
         asyncio.run(publish())

@@ -197,8 +197,6 @@ def historical_import():
 
     client = SimpleNamespace(execute=AsyncMock(), insert=AsyncMock(), query=AsyncMock())
     importer = HistoricalAnalyticsImport(client, cutover=datetime(2026, 10, 1, tzinfo=UTC))
-    for store in (importer.opens, importer.engagement, importer.inference, importer.overview):
-        store.initialize = AsyncMock()
     importer.opens.begin_import = AsyncMock()
     importer.opens.mark_ready = AsyncMock()
     return importer

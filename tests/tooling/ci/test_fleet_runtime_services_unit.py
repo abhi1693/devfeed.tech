@@ -16,6 +16,35 @@ smoke_module = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(smoke_module)
 
 
+@pytest.mark.parametrize("postgres_code,analytics_code", [(0, 0), (1, None), (0, 1)])
+def test_migration_hook_orders_both_schemas_and_propagates_failure(
+    monkeypatch, postgres_code, analytics_code
+):
+    from devfeed_cli import main
+    from devfeed_core import db
+    from sqlalchemy import event
+
+    calls = []
+    engine = object()
+    monkeypatch.setattr(db, "get_engine", lambda: engine)
+    listener = Mock()
+    monkeypatch.setattr(event, "listen", listener)
+
+    def run(arguments):
+        calls.append(arguments)
+        return postgres_code if arguments == ["db", "upgrade"] else analytics_code
+
+    monkeypatch.setattr(main, "run", run)
+    command = smoke_module.CONTRACTS["migrate"]["command"][-1]
+    with pytest.raises(SystemExit) as caught:
+        exec(compile(command, "fleet-migration-fixture", "exec"), {})
+    assert caught.value.code == (postgres_code or analytics_code)
+    assert calls == (
+        [["db", "upgrade"]] if postgres_code else [["db", "upgrade"], ["analytics", "upgrade"]]
+    )
+    assert listener.call_args.args[:2] == (engine, "connect")
+
+
 def test_required_clickhouse_is_private_authenticated_bounded_and_owned(monkeypatch):
     command = Mock()
     monkeypatch.setattr(smoke_module, "command", command)

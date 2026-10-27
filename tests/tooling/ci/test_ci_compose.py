@@ -164,6 +164,11 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
         "-m",
         "devfeed_core.analytics_worker",
     ]
+    assert services["migrate"]["command"] == [
+        "sh",
+        "-ec",
+        "devfeed db upgrade && exec devfeed analytics upgrade",
+    ]
     assert services["analytics-importer"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == (
         "devfeed_ingest"
     )

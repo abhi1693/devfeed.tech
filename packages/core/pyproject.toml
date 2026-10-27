@@ -36,9 +36,12 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.package-dir]
 devfeed_core = "src"
 
+[tool.setuptools.package-data]
+devfeed_core = ["py.typed", "clickhouse_migrations/*.sql"]
+
 [tool.uv]
 cache-keys = [
-  { file = "pyproject.toml" }, { file = "src/**/*.py" },
+  { file = "pyproject.toml" }, { file = "src/**/*.py" }, { file = "src/**/*.sql" },
   { file = "src/py.typed" }, { dir = "build" },
 ]
 

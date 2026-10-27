@@ -66,6 +66,10 @@ def test_analysis_backfill_force_is_independent_of_dispatch(monkeypatch, capsys,
         ["scheduler"],
         ["topics", "update"],
         ["db", "upgrade"],
+        ["analytics"],
+        ["analytics", "upgrade"],
+        ["analytics", "current"],
+        ["analytics", "check"],
         ["articles", "detect-languages"],
         ["articles", "backfill-tags"],
         ["articles", "classify"],
@@ -93,6 +97,69 @@ def test_commands_require_explicit_connection_urls(monkeypatch, tmp_path, capsys
     error = capsys.readouterr().err
     assert "database_url" in error and "redis_url" in error
     assert "Traceback" not in error
+
+
+@pytest.mark.parametrize("action", ["upgrade", "current", "check"])
+def test_analytics_migrations_report_versions_and_scope_connections(action, monkeypatch, capsys):
+    from devfeed_cli import analytics_commands
+    from devfeed_core.analytics_migrations import MigrationStatus
+
+    calls = []
+    status = MigrationStatus(1, 2, (2,))
+
+    async def upgrade(settings):
+        assert settings is get_settings()
+        calls.append("upgrade")
+        return status
+
+    class Client:
+        def __init__(self, settings):
+            assert settings is get_settings()
+
+        async def __aenter__(self):
+            calls.append("open")
+            return self
+
+        async def __aexit__(self, *args):
+            calls.append("close")
+
+    class Runner:
+        def __init__(self, client):
+            assert isinstance(client, Client)
+
+        async def current(self):
+            calls.append("current")
+            return status
+
+        async def check(self):
+            calls.append("check")
+            return status
+
+    monkeypatch.setattr(analytics_commands, "upgrade_analytics", upgrade)
+    monkeypatch.setattr(analytics_commands, "AnalyticsClient", Client)
+    monkeypatch.setattr(analytics_commands, "ClickHouseMigrationRunner", Runner)
+    assert run(["analytics", action]) == 0
+    assert calls == (["upgrade"] if action == "upgrade" else ["open", action, "close"])
+    assert json.loads(capsys.readouterr().out) == {
+        "current_version": 1,
+        "latest_version": 2,
+        "pending_versions": [2],
+    }
+
+
+def test_analytics_migration_failure_is_actionable_and_nonzero(monkeypatch, capsys):
+    from devfeed_cli import analytics_commands
+    from devfeed_core.analytics_migrations import AnalyticsMigrationError
+
+    async def fail(settings):
+        raise AnalyticsMigrationError("synthetic confidential diagnostic")
+
+    monkeypatch.setattr(analytics_commands, "upgrade_analytics", fail)
+    assert run(["analytics", "upgrade"]) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "devfeed analytics upgrade" in output.err
+    assert "confidential" not in output.err
 
 
 def test_article_topic_accept_command_has_been_removed(capsys):

@@ -107,7 +107,7 @@ def test_direct_charts_handle_reparent_retry_and_feed_expiration():
                 ) as client:
                     client.insert_settings = {"async_insert_busy_timeout_ms": 1}
                     store = DirectOverviewAnalytics(client)
-                    await store.initialize()
+                    await client.initialize()
                     start = datetime(2026, 1, 1, tzinfo=UTC)
                     end = start + timedelta(days=2)
                     a, b, source, topic, job, user = [uuid.uuid4() for _ in range(6)]
@@ -218,7 +218,6 @@ def test_direct_charts_handle_reparent_retry_and_feed_expiration():
                     from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
 
                     opens = ArticleOpenAnalytics(client)
-                    await opens.initialize()
                     await opens.record(a, "a" * 64, start + timedelta(hours=2))
                     await opens.record(a, "a" * 64, start + timedelta(hours=2))
                     await opens.record(b, "a" * 64, start + timedelta(hours=2))
@@ -272,13 +271,6 @@ def test_direct_charts_handle_reparent_retry_and_feed_expiration():
                     from devfeed_admin_api.analytics_reports import Reports
                     from devfeed_admin_api.overview_windows import ReportWindow
 
-                    await client.execute(
-                        "CREATE TABLE analytics_audience_archive_daily (day Date,"
-                        "opens Nullable(UInt64),readers Nullable(Float64),\n"
-                        "accounts_created Nullable(UInt64),"
-                        "published Nullable(UInt64),version UInt64) "
-                        "ENGINE=ReplacingMergeTree(version) ORDER BY day"
-                    )
                     report = Reports(
                         client,
                         ReportWindow(start.date(), end.date()),
@@ -390,10 +382,10 @@ async def _verify_current_cards(client, now, article_id, source_id):
     from types import SimpleNamespace
 
     from devfeed_admin_api.analytics_current import CurrentCards
-    from devfeed_core.analytics_direct_cards import initialize_cards, normalize_card
+    from devfeed_core.analytics_direct_cards import normalize_card
     from devfeed_core.analytics_observation import pipeline_policy_version
 
-    await initialize_cards(client)
+    await client.initialize()
     policy = pipeline_policy_version(client.settings)
     article_payload = {
         "id": str(article_id),
@@ -880,8 +872,7 @@ def test_direct_query_boundaries_reject_arbitrary_granularity_and_dimension():
         )
         store = DirectOverviewAnalytics(client)
         start, end = datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC)
-        await store.initialize()
-        assert client.execute.await_count == 2
+        client.execute.assert_not_awaited()
         for method in ("audience", "publication_report", "publication_overview", "throughput"):
             with pytest.raises(ValueError):
                 await getattr(store, method)(start, end, granularity="day);DROP TABLE x")
