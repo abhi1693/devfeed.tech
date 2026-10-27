@@ -1769,18 +1769,24 @@ test(
   },
 );
 
-test("reading streak panel survives ordinary account resume", { timeout: 90000 }, async (t) => {
-  const { browser, origin, readingFixture, mustReadsFixture } = await createReaderFixture(t);
-  await withReaderPage(browser, async (page, context) => {
-    await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
-    await page.clock.setFixedTime(new Date(`${readingFixture.week().today}T23:59:30Z`));
-    await page.goto(`${origin}/latest`);
-    await checkReadingStreak(page, artifactPath("reading-streak-resume/web"), {
-      fixture: readingFixture,
-      mustReads: mustReadsFixture,
-    });
-  });
-});
+for (const resumeOrder of ["profile-first", "history-first"])
+  test(
+    `reading streak panel survives ordinary account resume (${resumeOrder})`,
+    { timeout: 90000 },
+    async (t) => {
+      const { browser, origin, readingFixture, mustReadsFixture } = await createReaderFixture(t);
+      await withReaderPage(browser, async (page, context) => {
+        await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+        await page.clock.setFixedTime(new Date(`${readingFixture.week().today}T23:59:30Z`));
+        await page.goto(`${origin}/latest`);
+        await checkReadingStreak(page, artifactPath(`reading-streak-resume/web-${resumeOrder}`), {
+          fixture: readingFixture,
+          mustReads: mustReadsFixture,
+          resumeOrder,
+        });
+      });
+    },
+  );
 
 test("tab resume retains paginated feeds and reading position", { timeout: 180000 }, async (t) => {
   const { browser, origin, previewRequests } = await createReaderFixture(t, {

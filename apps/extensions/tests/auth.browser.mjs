@@ -1096,18 +1096,25 @@ test("authenticated navigation works in the built reader extension", { timeout: 
   }),
 );
 
-test("reading streak achievements work in the built reader extension", { timeout: 180000 }, (t) =>
-  withAuthenticatedReader(t, async ({ page, readingFixture, mustReadsFixture, signIn }) => {
-    mustReadsFixture.presented = true;
-    await page.clock.setFixedTime(new Date(`${readingFixture.week().today}T23:59:30Z`));
-    await signIn();
-    await checkReadingStreak(
-      page,
-      path.resolve(import.meta.dirname, `../../../reports/reading-streak/${browser}`),
-      { fixture: readingFixture, mustReads: mustReadsFixture },
-    );
-  }),
-);
+for (const resumeOrder of ["profile-first", "history-first"])
+  test(
+    `reading streak achievements work in the built reader extension (${resumeOrder})`,
+    { timeout: 180000 },
+    (t) =>
+      withAuthenticatedReader(t, async ({ page, readingFixture, mustReadsFixture, signIn }) => {
+        mustReadsFixture.presented = true;
+        await page.clock.setFixedTime(new Date(`${readingFixture.week().today}T23:59:30Z`));
+        await signIn();
+        await checkReadingStreak(
+          page,
+          path.resolve(
+            import.meta.dirname,
+            `../../../reports/reading-streak/${browser}-${resumeOrder}`,
+          ),
+          { fixture: readingFixture, mustReads: mustReadsFixture, resumeOrder },
+        );
+      }),
+  );
 
 test("must reads work in the built reader extension", { timeout: 180000 }, (t) =>
   withAuthenticatedReader(t, async ({ page, mustReadsFixture, signIn }) => {

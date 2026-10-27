@@ -52,24 +52,101 @@ export function readingStreakFixture() {
 async function checkWeek(panel, fixture) {
   const week = panel.getByRole("region", { name: "Your week", exact: true });
   const expected = fixture.week();
-  await week.locator(`time[datetime="${expected.today}"]`).waitFor();
-  const days = week.getByRole("listitem");
-  assert.equal(await days.count(), 7, "The week includes exactly seven real calendar days");
+  const observation = await panel.page().waitForFunction(
+    ({ region, today }) => {
+      if (!region.querySelector(`time[datetime="${today}"]`)) return null;
+      return [...region.querySelectorAll("li")].map((item) => ({
+        date: item.querySelector("time")?.dateTime,
+        state: item.getAttribute("data-state"),
+        label: item.getAttribute("aria-label"),
+      }));
+    },
+    { region: await week.elementHandle(), today: expected.today },
+  );
+  const days = await observation.jsonValue();
+  await observation.dispose();
+  assert.equal(days.length, 7, "The week includes exactly seven real calendar days");
   assert.deepEqual(
-    await days.locator("time").evaluateAll((nodes) => nodes.map((node) => node.dateTime)),
+    days.map((day) => day.date),
     expected.days.map((day) => day.date),
     "Weekly tiles retain the API's chronological UTC dates",
   );
   for (const [index, day] of expected.days.entries()) {
-    const item = days.nth(index);
+    const item = days[index];
     assert.equal(
-      await item.getAttribute("data-state"),
+      item.state,
       day.article_count > 0 ? "read" : day.date === expected.today ? "pending" : "missed",
       `The state of ${day.date} comes from its recorded reading count`,
     );
-    const label = await item.getAttribute("aria-label");
+    const label = item.label;
     assert.ok(label, "Weekly states have an accessible date and reading count");
     assert.match(label, new RegExp(`\\b${day.article_count} articles? opened`));
+  }
+}
+
+async function resumeReadingStreak(page, panel, trigger, fixture, order) {
+  const gates = Object.fromEntries(
+    ["profile", "reading-week"].map((endpoint) => {
+      const gate = Promise.withResolvers();
+      return [endpoint, { ...gate, pattern: `**/user/settings/${endpoint}` }];
+    }),
+  );
+  for (const gate of Object.values(gates)) {
+    gate.handler = async (route) => {
+      await gate.promise;
+      await route.fallback();
+    };
+    if (order) await page.route(gate.pattern, gate.handler);
+  }
+  try {
+    const previousDay = fixture.today;
+    const resumeTime = await page.evaluate(() => Date.now() + 120_000);
+    await page.clock.setFixedTime(resumeTime);
+    fixture.today = new Date(resumeTime).toISOString().slice(0, 10);
+    const responses = Object.fromEntries(
+      ["auth/me", "settings/profile", "settings/reading-week"].map((endpoint) => [
+        endpoint,
+        page.waitForResponse((value) =>
+          new URL(value.url()).pathname.endsWith(`/user/${endpoint}`),
+        ),
+      ]),
+    );
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    if (order) {
+      assert.notEqual(
+        fixture.today,
+        previousDay,
+        "Response ordering is exercised across UTC midnight",
+      );
+      await page.waitForFunction(
+        (node) => node.getAttribute("data-read-today") === "false",
+        await trigger.elementHandle(),
+      );
+      const first = order === "profile-first" ? "profile" : "reading-week";
+      gates[first].resolve();
+      assert.equal((await responses[`settings/${first}`]).status(), 200);
+      if (first === "reading-week") await checkWeek(panel, fixture);
+      else
+        await page.waitForFunction(
+          (node) => node.getAttribute("data-read-today") === "true",
+          await trigger.elementHandle(),
+        );
+      for (const gate of Object.values(gates)) gate.resolve();
+    }
+    for (const response of await Promise.all(Object.values(responses)))
+      assert.equal(response.status(), 200);
+    await page.waitForFunction(
+      (node) => node.getAttribute("data-read-today") === "true",
+      await trigger.elementHandle(),
+    );
+  } finally {
+    for (const gate of Object.values(gates)) {
+      gate.resolve();
+      if (order) await page.unroute(gate.pattern, gate.handler);
+    }
   }
 }
 
@@ -100,7 +177,11 @@ async function closeWithEscape(page, panel, trigger) {
   }
 }
 
-export async function checkReadingStreak(page, screenshot, { fixture, mustReads } = {}) {
+export async function checkReadingStreak(
+  page,
+  screenshot,
+  { fixture, mustReads, resumeOrder } = {},
+) {
   await page.bringToFront();
   assert.ok(fixture, "Reading streak checks require recorded weekly fixture data");
   // Long journeys and the resume check can cross UTC midnight in the browser.
@@ -131,21 +212,7 @@ export async function checkReadingStreak(page, screenshot, { fixture, mustReads 
       1,
     );
     const retainedPanel = await panel.elementHandle();
-    const resumeTime = await page.evaluate(() => Date.now() + 120_000);
-    await page.clock.setFixedTime(resumeTime);
-    fixture.today = new Date(resumeTime).toISOString().slice(0, 10);
-    const resumeAuth = page.waitForResponse((value) =>
-      new URL(value.url()).pathname.endsWith("/user/auth/me"),
-    );
-    const resumeHistory = page.waitForResponse((value) =>
-      new URL(value.url()).pathname.endsWith("/user/settings/reading-week"),
-    );
-    await page.evaluate(() => {
-      window.dispatchEvent(new Event("focus"));
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
-    assert.equal((await resumeAuth).status(), 200);
-    assert.equal((await resumeHistory).status(), 200);
+    await resumeReadingStreak(page, panel, trigger, fixture, resumeOrder);
     await checkWeek(panel, fixture);
     assert.equal(
       await retainedPanel.evaluate((node) => node.isConnected),
