@@ -8,6 +8,7 @@ import hashlib
 import json
 import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -222,10 +223,38 @@ def suggestion(**changes):
     )
 
 
-def test_search_moderation_list_exposes_aggregate_facts_without_reader_identity():
+class SearchAnalyticsFake:
+    def __init__(self, _client):
+        pass
+
+    async def rank(self, _session, **_kwargs):
+        value = suggestion()
+        return [
+            {
+                "query_hash": value.query_hash,
+                "query": value.query,
+                "status": value.status,
+                "reviewed_at": value.reviewed_at,
+                "review_note": value.review_note,
+                "successful_count": 14,
+                "first_seen_at": value.first_seen_at,
+                "last_seen_at": value.last_seen_at,
+            }
+        ]
+
+    async def get(self, _digest):
+        return {
+            "successful_count": 14,
+            "first_seen_at": NOW - timedelta(days=3),
+            "last_seen_at": NOW - timedelta(minutes=1),
+        }
+
+
+def test_search_moderation_list_exposes_aggregate_facts_without_reader_identity(monkeypatch):
     current = suggestion()
+    monkeypatch.setattr(search_suggestions, "SearchSuggestionAnalytics", SearchAnalyticsFake)
     with operator_api(search_suggestions) as api:
-        api.session.scalars.return_value = [current]
+        api.app.state.analytics = SimpleNamespace(client=object())
         response = api.client.get(
             "/v1/admin/search-suggestions", params={"status": "pending", "minimum": 5, "limit": 1}
         )
@@ -249,7 +278,10 @@ def test_suggestion_review_uses_authenticated_reviewer_and_saved_response(monkey
 
     apply = Mock(side_effect=review)
     monkeypatch.setattr(search_suggestions, "review_query", apply)
+    monkeypatch.setattr(search_suggestions, "SearchSuggestionAnalytics", SearchAnalyticsFake)
     with operator_api(search_suggestions) as api:
+        api.app.state.analytics = SimpleNamespace(client=object())
+        api.session.get.return_value = current
         response = api.client.post(
             f"/v1/admin/search-suggestions/{current.query_hash}/review",
             json={"status": status, "note": "Checked aggregate query"},
@@ -277,9 +309,12 @@ def test_suggestion_review_boundary_errors_are_safe_and_do_not_commit(
     monkeypatch, error, code, detail
 ):
     monkeypatch.setattr(search_suggestions, "review_query", Mock(side_effect=error))
+    monkeypatch.setattr(search_suggestions, "SearchSuggestionAnalytics", SearchAnalyticsFake)
     with operator_api(search_suggestions) as api:
+        api.app.state.analytics = SimpleNamespace(client=object())
+        api.session.get.return_value = suggestion()
         response = api.client.post(
-            "/v1/admin/search-suggestions/missing/review", json={"status": "rejected"}
+            f"/v1/admin/search-suggestions/{'a' * 64}/review", json={"status": "rejected"}
         )
         assert response.status_code == code and response.json()["detail"] == detail
         assert "private" not in response.text

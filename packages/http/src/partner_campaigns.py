@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from devfeed_core.models import (
@@ -10,9 +11,7 @@ from devfeed_core.models import (
     PartnerAccount,
     PartnerAsset,
     PartnerCampaign,
-    PartnerDailyMetric,
     PartnerProduct,
-    PartnerTrackedDailyMetric,
     Topic,
 )
 from devfeed_core.partner_ad_formats import ad_format_allowed
@@ -24,7 +23,7 @@ from devfeed_core.partner_promotions import (
 from devfeed_core.partner_tiers import promotion_kind_allowed
 from devfeed_core.publication import visible_article
 from fastapi import HTTPException
-from sqlalchemy import func, select, union_all
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from devfeed_http.partner_portal import CampaignInput, CampaignOut
@@ -35,7 +34,7 @@ class CampaignService:
         self.session = session
         self.account = account
 
-    def page(self, *, limit: int = 100, offset: int = 0):
+    def _page(self, limit, offset):
         rows = self.session.scalars(
             select(PartnerCampaign)
             .where(PartnerCampaign.account_id == self.account.id)
@@ -43,17 +42,20 @@ class CampaignService:
             .limit(limit)
             .offset(offset)
         ).all()
-        return {
-            "items": self.reports(rows),
-            "total": self.session.scalar(
-                select(func.count())
-                .select_from(PartnerCampaign)
-                .where(PartnerCampaign.account_id == self.account.id)
-            ),
-        }
+        total = self.session.scalar(
+            select(func.count())
+            .select_from(PartnerCampaign)
+            .where(PartnerCampaign.account_id == self.account.id)
+        )
+        return rows, total
 
-    def get(self, campaign_id: uuid.UUID) -> CampaignOut:
-        return self.reports([self._find(campaign_id)])[0]
+    async def page(self, analytics, *, limit: int = 100, offset: int = 0):
+        rows, total = await asyncio.to_thread(self._page, limit, offset)
+        return {"items": await self.reports(rows, analytics), "total": total}
+
+    async def get(self, campaign_id: uuid.UUID, analytics) -> CampaignOut:
+        campaign = await asyncio.to_thread(self._find, campaign_id)
+        return (await self.reports([campaign], analytics))[0]
 
     def _find(self, campaign_id: uuid.UUID) -> PartnerCampaign:
         campaign = self.session.scalar(
@@ -162,33 +164,30 @@ class CampaignService:
             # The row lock merges concurrent sponsors without losing disclosure.
             article.sponsor_names = sorted(set(article.sponsor_names or []) | {self.account.name})
 
-    def reports(self, rows) -> list[CampaignOut]:
+    def _assets(self, campaign_ids):
+        return self.session.execute(
+            select(PartnerAsset.id, PartnerAsset.campaign_id).where(
+                PartnerAsset.campaign_id.in_(campaign_ids)
+            )
+        ).all()
+
+    async def reports(self, rows, analytics) -> list[CampaignOut]:
         if not rows:
             return []
-        campaign_ids = [row.id for row in rows]
-        metric_rows = union_all(
-            *[
-                select(
-                    PartnerAsset.campaign_id.label("campaign_id"), model.impressions, model.clicks
-                )
-                .join(PartnerAsset, model.asset_id == PartnerAsset.id)
-                .where(PartnerAsset.campaign_id.in_(campaign_ids))
-                for model in (PartnerDailyMetric, PartnerTrackedDailyMetric)
-            ]
-        ).subquery()
-        measured = {
-            campaign_id: (int(impressions or 0), int(clicks or 0))
-            for campaign_id, impressions, clicks in self.session.execute(
-                select(
-                    metric_rows.c.campaign_id,
-                    func.sum(metric_rows.c.impressions),
-                    func.sum(metric_rows.c.clicks),
-                ).group_by(metric_rows.c.campaign_id)
-            )
-        }
+        assets = await asyncio.to_thread(self._assets, [row.id for row in rows])
+        owners = {str(asset_id): campaign_id for asset_id, campaign_id in assets}
+        measured = {row.id: [0, 0] for row in rows}
+        ids = list(owners)
+        for position in range(0, len(ids), 1000):
+            for metric in await analytics.partner_summary(ids[position : position + 1000]):
+                if metric["owner"] not in owners:
+                    raise ValueError("Unauthorized partner metrics identity")
+                counts = measured[owners[metric["owner"]]]
+                counts[0] += int(metric["impressions"])
+                counts[1] += int(metric["clicks"])
         result = []
         for row in rows:
-            impressions, clicks = measured.get(row.id, (0, 0))
+            impressions, clicks = measured[row.id]
             result.append(
                 CampaignOut.model_validate(row).model_copy(
                     update={

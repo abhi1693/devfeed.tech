@@ -1,6 +1,7 @@
 """Bounded, analysis-only app-server adapter. Never starts a server or logs prompts."""
 
 import asyncio
+import inspect
 import json
 import secrets
 import time
@@ -10,6 +11,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from devfeed_core.ai_capacity import CAPACITY_ERRORS
+from devfeed_core.analytics import AnalyticsClient
 from devfeed_core.config import Settings
 from devfeed_core.inference_errors import AnalysisError as AnalysisError
 from devfeed_core.inference_usage import call_id, context, record_call, request_hash
@@ -39,6 +41,13 @@ RESEARCH_INSTRUCTIONS = (
 )
 
 
+async def _invoke(function, *args, **kwargs):
+    """Support async production dependencies and synchronous test adapters."""
+    if inspect.iscoroutinefunction(function):
+        return await function(*args, **kwargs)
+    return await asyncio.to_thread(function, *args, **kwargs)
+
+
 def turn_error(error: dict | None) -> str:
     info = (error or {}).get("codexErrorInfo")
     if isinstance(info, str) and info.casefold() == "serveroverloaded":
@@ -60,7 +69,7 @@ class CodexClient:
     def __init__(self, settings: Settings, *, connector=None, usage_recorder=None):
         self.settings = settings
         self.connector = connector
-        self.usage_recorder = usage_recorder or record_call
+        self.usage_recorder = usage_recorder
         metadata = context()
         self.operation = metadata.get("operation", "unspecified")
         self.job_id = metadata.get("job_id")
@@ -191,33 +200,45 @@ class CodexClient:
             "web_searches": 0,
             "duration_ms": 0,
         }
-        if self.settings.ai_bounded_topics_enabled and self.operation in {
-            "relationship_research",
-            "relationship_verification",
-        }:
-            from devfeed_core.topic_decision_budget import admit_relationship_call
+        async with AnalyticsClient(self.settings) as analytics:
+            if self.settings.ai_bounded_topics_enabled and self.operation in {
+                "relationship_research",
+                "relationship_verification",
+            }:
+                from devfeed_core.topic_decision_budget import admit_relationship_call
 
-            if not await asyncio.to_thread(admit_relationship_call, dict(values)):
-                raise AnalysisError("relationship_budget_deferred")
+                admitted = await _invoke(
+                    admit_relationship_call, dict(values), settings=self.settings, client=analytics
+                )
+                if not admitted:
+                    raise AnalysisError("relationship_budget_deferred")
+            else:
+                await self._record_usage(dict(values), analytics)
+            status = "failed"
+            try:
+                result = await self._complete_async(
+                    prompt, schema, allow_web_search=allow_web_search
+                )
+                status = "returned"
+                return result
+            finally:
+                values.update(
+                    finished_at=utcnow(),
+                    reasoning_effort=self.reasoning_effort
+                    if isinstance(self.reasoning_effort, str)
+                    else None,
+                    status=status,
+                    tokens=dict(self.usage),
+                    web_searches=self.web_search_count,
+                    duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
+                )
+                await self._record_usage(values, analytics)
+
+    async def _record_usage(self, values, client):
+        if self.usage_recorder is None:
+            await record_call(values, client=client)
         else:
-            await asyncio.to_thread(self.usage_recorder, dict(values))
-        status = "failed"
-        try:
-            result = await self._complete_async(prompt, schema, allow_web_search=allow_web_search)
-            status = "returned"
-            return result
-        finally:
-            values.update(
-                finished_at=utcnow(),
-                reasoning_effort=self.reasoning_effort
-                if isinstance(self.reasoning_effort, str)
-                else None,
-                status=status,
-                tokens=dict(self.usage),
-                web_searches=self.web_search_count,
-                duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
-            )
-            await asyncio.to_thread(self.usage_recorder, values)
+            await _invoke(self.usage_recorder, values)
 
     async def _complete_async(
         self, prompt: str, schema: dict, *, allow_web_search: bool = False

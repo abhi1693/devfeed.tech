@@ -102,6 +102,11 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
         "DEVFEED_CLICKHOUSE_PASSWORD": "fixture-separate-analytics-password",
         "DEVFEED_CLICKHOUSE_INGEST_PASSWORD": "fixture-separate-exporter-password",
         "DEVFEED_CLICKHOUSE_READER_PASSWORD": "fixture-separate-reader-password",
+        "DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD": "fixture-separate-public-password",
+        "DEVFEED_CLICKHOUSE_USER_PASSWORD": "fixture-separate-user-password",
+        "DEVFEED_CLICKHOUSE_PARTNER_PASSWORD": "fixture-separate-partner-password",
+        "DEVFEED_CLICKHOUSE_ADMIN_PASSWORD": "fixture-separate-admin-password",
+        "DEVFEED_CLICKHOUSE_WORKER_PASSWORD": "fixture-separate-worker-password",
         "DEVFEED_CLICKHOUSE_DATABASE": "analytics_test",
         "DEVFEED_CLICKHOUSE_CPUS": "1.5",
         "DEVFEED_CLICKHOUSE_MEMORY_LIMIT": "3g",
@@ -120,15 +125,34 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
     assert "--user devfeed_ingest" in " ".join(clickhouse["healthcheck"]["test"])
     for name, service in services.items():
         environment = service.get("environment", {})
-        expected = name in {"analytics-exporter", "admin-api"}
+        expected = name in {
+            "analytics-exporter",
+            "admin-api",
+            "api",
+            "partner-api",
+            "user-api",
+            "worker",
+        }
         assert ("DEVFEED_CLICKHOUSE_PASSWORD" in environment) == expected
         if expected:
-            credential = (
-                "DEVFEED_CLICKHOUSE_INGEST_PASSWORD"
-                if name == "analytics-exporter"
-                else "DEVFEED_CLICKHOUSE_READER_PASSWORD"
-            )
+            credential = {
+                "analytics-exporter": "DEVFEED_CLICKHOUSE_INGEST_PASSWORD",
+                "admin-api": "DEVFEED_CLICKHOUSE_ADMIN_PASSWORD",
+                "api": "DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD",
+                "partner-api": "DEVFEED_CLICKHOUSE_PARTNER_PASSWORD",
+                "user-api": "DEVFEED_CLICKHOUSE_USER_PASSWORD",
+                "worker": "DEVFEED_CLICKHOUSE_WORKER_PASSWORD",
+            }[name]
             assert environment["DEVFEED_CLICKHOUSE_PASSWORD"] == options[credential]
+            role = {
+                "analytics-exporter": "devfeed_ingest",
+                "admin-api": "devfeed_admin",
+                "api": "devfeed_public",
+                "partner-api": "devfeed_partner",
+                "user-api": "devfeed_user",
+                "worker": "devfeed_worker",
+            }[name]
+            assert environment["DEVFEED_CLICKHOUSE_USERNAME"] == role
             assert environment["DEVFEED_CLICKHOUSE_MAX_THREADS"] == "1"
         if name not in {"analytics-exporter", "ch-ui"}:
             assert "clickhouse" not in service.get("depends_on", {})
@@ -140,13 +164,22 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
     assert services["analytics-exporter"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == (
         "devfeed_ingest"
     )
-    assert services["admin-api"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed_reader"
+    assert services["admin-api"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed_admin"
     assert (
         clickhouse["environment"]["DEVFEED_CLICKHOUSE_READER_PASSWORD"]
         == (options["DEVFEED_CLICKHOUSE_READER_PASSWORD"])
     )
     assert clickhouse["environment"]["DEVFEED_CLICKHOUSE_READER_GRANT"] == (
         "GRANT SELECT ON analytics_test.*"
+    )
+    assert clickhouse["environment"]["DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_PARTNER_GRANT"] == (
+        "GRANT INSERT ON analytics_test.analytics_partner_events"
+    )
+    assert clickhouse["environment"]["DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_SEARCH_GRANT"] == (
+        "GRANT SELECT, INSERT ON analytics_test.analytics_search_events"
+    )
+    assert clickhouse["environment"]["DEVFEED_CLICKHOUSE_PARTNER_EVENTS_PARTNER_GRANT"] == (
+        "GRANT SELECT ON analytics_test.analytics_partner_events"
     )
     assert clickhouse["environment"]["DEVFEED_CLICKHOUSE_INGEST_GRANT"] == (
         "GRANT SELECT, INSERT, CREATE TABLE, CREATE VIEW, DROP TABLE, DROP VIEW, "

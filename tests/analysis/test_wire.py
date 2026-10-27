@@ -275,10 +275,13 @@ def test_reanalysis_skips_only_irrelevant_fallback_churn(database, change):
 
 
 @pytest.mark.integration
-def test_per_call_ledger_is_idempotent_and_content_free(database):
+def test_per_call_ledger_is_idempotent_and_content_free(integration_environment):
+    import asyncio
+
     from devfeed_core.inference_usage import record_call
-    from devfeed_core.models import InferenceCall, utcnow
-    from sqlalchemy import select
+    from devfeed_core.models import utcnow
+
+    from tests.support.inference_analytics import inference_client
 
     row = dict(
         id=uuid.uuid4(),
@@ -292,16 +295,23 @@ def test_per_call_ledger_is_idempotent_and_content_free(database):
         reasoning_effort=None,
         request_hash="a" * 64,
         status="failed",
-        tokens={"inputTokens": 50},
+        tokens={"inputTokens": 50, "private": "secret"},
         web_searches=2,
         duration_ms=10,
+        prompt="secret prompt",
     )
-    record_call(row)
-    record_call(row)
-    with database() as session:
-        records = session.scalars(select(InferenceCall)).all()
-        assert len(records) == 1 and records[0].web_searches == 2
-        assert records[0].tokens == {"inputTokens": 50}
+
+    async def run():
+        async with inference_client() as client:
+            await record_call(row, client=client)
+            await record_call(row, client=client)
+            records = await client.query("SELECT * FROM analytics_inference_events FINAL")
+            assert len(records) == 1
+            assert records[0]["input_tokens"] == 50 and records[0]["web_searches"] == 2
+            assert records[0]["reason"] == "source_review"
+            assert "secret" not in str(records[0]) and "request_hash" not in records[0]
+
+    asyncio.run(run())
 
 
 def test_cost_report_does_not_double_count_cache_or_reasoning():
@@ -419,3 +429,47 @@ def test_primary_topic_admission_does_not_reclassify_an_unrelated_or_non_article
 
     assert preserved is evaluated and marker is None
     assert preserved.model_dump() == before
+
+
+def test_usage_report_reads_clickhouse_and_normalizes_large_numeric_fields():
+    import asyncio
+    import importlib.util
+    from datetime import UTC, datetime
+
+    spec = importlib.util.spec_from_file_location(
+        "inference_usage_report", REPO_ROOT / "scripts/inference_usage.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class Client:
+        async def query(self, statement, parameters):
+            assert "analytics_inference_events FINAL" in statement
+            assert "inference_calls" not in statement
+            assert parameters["since"] < parameters["until"]
+            return [
+                {
+                    "operation": "analysis",
+                    "model": "gpt-6-sol",
+                    "reasoning_effort": None,
+                    "reason": None,
+                    "calls": "1",
+                    "unfinished": "0",
+                    "unmetered": "0",
+                    "web_searches": "3",
+                    "inputTokens": "1000000",
+                    "cachedInputTokens": "500000",
+                    "cacheWriteInputTokens": "100000",
+                    "outputTokens": "100000",
+                    "reasoningOutputTokens": "80000",
+                }
+            ]
+
+    async def run():
+        rows = await module.usage_rows(
+            Client(), datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC)
+        )
+        assert isinstance(rows[0]["inputTokens"], int)
+        assert str(module.estimated_cost(rows[0]["model"], rows[0])) == "2.18"
+
+    asyncio.run(run())

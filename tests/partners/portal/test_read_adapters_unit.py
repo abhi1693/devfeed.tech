@@ -1,9 +1,10 @@
 """Scoped partner read adapters preserve account authority, bounded pages and public DTOs."""
 
+import asyncio
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from devfeed_admin_api import partner_accounts as accounts
@@ -67,7 +68,7 @@ def test_global_operator_catalog_reads_forward_only_the_explicit_picker_scope(mo
 
 
 @pytest.mark.parametrize("missing", [False, True])
-@pytest.mark.parametrize("read", ["articles", "audience", "creative", "destination", "dashboard"])
+@pytest.mark.parametrize("read", ["articles", "audience", "creative", "destination"])
 def test_operator_account_reads_resolve_current_account_before_using_shared_services(
     monkeypatch, missing, read
 ):
@@ -310,8 +311,12 @@ def test_campaign_page_keeps_total_and_zero_measurements_distinct_from_absent_pa
     saved = campaign(owner, created_at=NOW - timedelta(days=1))
     session.scalars.return_value.all.return_value = [] if empty else [saved]
     session.scalar.return_value = 1
-    session.execute.return_value = []
-    page = CampaignService(session, owner).page(limit=1, offset=1 if empty else 0)
+    session.execute.return_value.all.return_value = []
+    analytics = Mock()
+    analytics.partner_summary = AsyncMock(return_value=[])
+    page = asyncio.run(
+        CampaignService(session, owner).page(analytics, limit=1, offset=1 if empty else 0)
+    )
     assert page["total"] == 1
     if empty:
         assert page["items"] == []

@@ -1,13 +1,15 @@
 """Partner account management belongs exclusively to the authenticated admin API."""
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
+from devfeed_core.analytics import AnalyticsUnavailable
+from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.models import (
     PartnerAccount,
     PartnerAsset,
-    PartnerDailyMetric,
     PartnerMembership,
     UserAccount,
 )
@@ -32,6 +34,7 @@ from devfeed_http.partner_ad_images import (
     save_product_promotion_with_images,
     upload_product_ad_image,
 )
+from devfeed_http.partner_analytics_reporting import reporting_metrics, require_partner_history
 from devfeed_http.partner_campaigns import CampaignService
 from devfeed_http.partner_portal import (
     AccountInput,
@@ -61,7 +64,6 @@ from devfeed_http.partner_portal import (
     inventory_products,
     list_product_promotions,
     product_promotion,
-    reporting_dashboard,
     sponsor_articles,
     validate_product,
 )
@@ -76,7 +78,7 @@ from devfeed_http.partner_products import (
     product_detail,
     update_manual_product,
 )
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 
@@ -305,24 +307,32 @@ def audience_topics(
 
 
 @router.get("/{account_id}/dashboard", response_model=Dashboard)
-def dashboard(
+async def dashboard(
     account_id: uuid.UUID,
     session: DB,
     admin: Superuser,
+    request: Request,
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
     ad_format: AdFormat | None = None,
 ):
-    return reporting_dashboard(
-        account_id,
-        session,
-        account_access(session, admin, account_id),
-        days,
-        limit,
-        offset,
-        ad_format=ad_format,
-    )
+    account = await asyncio.to_thread(account_access, session, admin, account_id)
+    client = request.app.state.analytics.client
+    try:
+        await require_partner_history(client)
+        metrics = await reporting_metrics(
+            session,
+            select(PartnerAccount).where(PartnerAccount.id == account_id),
+            DirectEngagementAnalytics(client),
+            days,
+            limit,
+            offset,
+            ad_format=ad_format,
+        )
+    except AnalyticsUnavailable:
+        raise HTTPException(503, "Partner analytics is being prepared") from None
+    return {"account": account, **metrics}
 
 
 @router.get(
@@ -469,41 +479,66 @@ def update_asset(
     return asset
 
 
+def _prepare_metric_write(session, account_id, asset_id, superuser, day):
+    account_access(session, superuser, account_id)
+    asset_access(session, account_id, asset_id)
+    # Existing transaction advisory locks serialize replacement for one day;
+    # no analytics state is stored in PostgreSQL.
+    lock_name = f"partner-metrics:{asset_id}:{day.isoformat()}"
+    session.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(lock_name, 0))))
+    return int(session.scalar(select(func.txid_current()))), datetime.now(UTC)
+
+
 @router.put("/{account_id}/assets/{asset_id}/metrics", status_code=204, response_class=Response)
-def record_metrics(
+async def record_metrics(
     account_id: uuid.UUID,
     asset_id: uuid.UUID,
     payload: MetricInput,
     superuser: Superuser,
     session: DB,
+    request: Request,
 ):
-    account_access(session, superuser, account_id)
-    asset_access(session, account_id, asset_id)
-    # Replace the day's trusted totals atomically, so retrying an import cannot double count.
-    values = {**payload.model_dump(), "updated_at": datetime.now(UTC)}
-    session.execute(
-        insert(PartnerDailyMetric)
-        .values(asset_id=asset_id, **values)
-        .on_conflict_do_update(
-            index_elements=[PartnerDailyMetric.asset_id, PartnerDailyMetric.day], set_=values
+    try:
+        revision, observed = await asyncio.to_thread(
+            _prepare_metric_write, session, account_id, asset_id, superuser, payload.day
         )
-    )
-    session.commit()
+        await DirectEngagementAnalytics(request.app.state.analytics.client).partner_totals(
+            [
+                {
+                    "asset_id": asset_id,
+                    **payload.model_dump(),
+                    "revision": revision,
+                    "updated_at": observed,
+                }
+            ]
+        )
+    except AnalyticsUnavailable:
+        raise HTTPException(503, "Partner analytics unavailable") from None
+    finally:
+        await asyncio.to_thread(session.rollback)
     return Response(status_code=204)
 
 
 @router.get(
     "/{account_id}/campaigns", response_model=CampaignsOut, operation_id="adminPartnerCampaignsList"
 )
-def campaigns(
+async def campaigns(
     account_id: uuid.UUID,
     session: DB,
     superuser: Superuser,
+    request: Request,
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    account = account_access(session, superuser, account_id)
-    return CampaignService(session, account).page(limit=limit, offset=offset)
+    account = await asyncio.to_thread(account_access, session, superuser, account_id)
+    client = request.app.state.analytics.client
+    try:
+        await require_partner_history(client)
+        return await CampaignService(session, account).page(
+            DirectEngagementAnalytics(client), limit=limit, offset=offset
+        )
+    except AnalyticsUnavailable:
+        raise HTTPException(503, "Partner analytics is being prepared") from None
 
 
 @router.get(
@@ -511,9 +546,22 @@ def campaigns(
     response_model=CampaignOut,
     operation_id="adminPartnerCampaignGet",
 )
-def campaign(account_id: uuid.UUID, campaign_id: uuid.UUID, session: DB, superuser: Superuser):
-    account = account_access(session, superuser, account_id)
-    return CampaignService(session, account).get(campaign_id)
+async def campaign(
+    account_id: uuid.UUID,
+    campaign_id: uuid.UUID,
+    session: DB,
+    superuser: Superuser,
+    request: Request,
+):
+    account = await asyncio.to_thread(account_access, session, superuser, account_id)
+    client = request.app.state.analytics.client
+    try:
+        await require_partner_history(client)
+        return await CampaignService(session, account).get(
+            campaign_id, DirectEngagementAnalytics(client)
+        )
+    except AnalyticsUnavailable:
+        raise HTTPException(503, "Partner analytics is being prepared") from None
 
 
 @router.post(
@@ -531,23 +579,36 @@ def create_campaign(
     return campaign
 
 
+def _update_campaign(session, account_id, campaign_id, payload, superuser):
+    account = account_access(session, superuser, account_id, lock=True)
+    service = CampaignService(session, account)
+    campaign = service.save(payload, campaign_id=campaign_id)
+    session.commit()
+    return service, campaign
+
+
 @router.put(
     "/{account_id}/campaigns/{campaign_id}",
     response_model=CampaignOut,
     operation_id="adminPartnerCampaignUpdate",
 )
-def update_campaign(
+async def update_campaign(
     account_id: uuid.UUID,
     campaign_id: uuid.UUID,
     payload: CampaignInput,
     session: DB,
     superuser: Superuser,
+    request: Request,
 ):
-    account = account_access(session, superuser, account_id, lock=True)
-    service = CampaignService(session, account)
-    campaign = service.save(payload, campaign_id=campaign_id)
-    session.commit()
-    return service.reports([campaign])[0]
+    client = request.app.state.analytics.client
+    try:
+        await require_partner_history(client)
+        service, saved = await asyncio.to_thread(
+            _update_campaign, session, account_id, campaign_id, payload, superuser
+        )
+        return (await service.reports([saved], DirectEngagementAnalytics(client)))[0]
+    except AnalyticsUnavailable:
+        raise HTTPException(503, "Partner analytics is being prepared") from None
 
 
 @router.get(

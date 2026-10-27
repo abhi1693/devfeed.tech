@@ -4,9 +4,10 @@ Session results are supplied repository reads, including already aggregated metr
 These cases do not evaluate SQL ownership filters, locks, or transaction atomicity.
 """
 
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from devfeed_core.article_lifecycle import derive_publication_readiness
@@ -258,10 +259,16 @@ def test_campaign_reporting_preserves_order_and_handles_zero_or_absent_measureme
     measured = stored_campaign(account, name="Measured")
     zero = stored_campaign(account, name="Zero impressions")
     absent = stored_campaign(account, name="No measurements")
-    session.execute.return_value = [(measured.id, 400, 10), (zero.id, 0, 0)]
-
-    reports = service.reports([zero, measured, absent])
-
+    first, second = uuid.uuid4(), uuid.uuid4()
+    session.execute.return_value.all.return_value = [(first, measured.id), (second, zero.id)]
+    analytics = Mock()
+    analytics.partner_summary = AsyncMock(
+        return_value=[
+            {"owner": str(first), "impressions": 400, "clicks": 10},
+            {"owner": str(second), "impressions": 0, "clicks": 0},
+        ]
+    )
+    reports = asyncio.run(service.reports([zero, measured, absent], analytics))
     assert [(row.name, row.impressions, row.clicks, row.ctr) for row in reports] == [
         ("Zero impressions", 0, 0, None),
         ("Measured", 400, 10, 2.5),
@@ -274,24 +281,28 @@ def test_campaign_reporting_preserves_order_and_handles_zero_or_absent_measureme
 
 def test_empty_campaign_reporting_performs_no_metric_read(campaigns):
     service, session, _, _ = campaigns
-
-    assert service.reports([]) == []
-
+    analytics = Mock()
+    analytics.partner_summary = AsyncMock()
+    assert asyncio.run(service.reports([], analytics)) == []
     session.execute.assert_not_called()
+    analytics.partner_summary.assert_not_called()
 
 
 def test_campaign_get_returns_reported_account_record_or_not_found(campaigns):
     service, session, account, _ = campaigns
     campaign = stored_campaign(account)
     session.scalar.return_value = campaign
-    session.execute.return_value = [(campaign.id, 20, 1)]
-
-    report = service.get(campaign.id)
-
+    asset = uuid.uuid4()
+    session.execute.return_value.all.return_value = [(asset, campaign.id)]
+    analytics = Mock()
+    analytics.partner_summary = AsyncMock(
+        return_value=[{"owner": str(asset), "impressions": 20, "clicks": 1}]
+    )
+    report = asyncio.run(service.get(campaign.id, analytics))
     assert report.id == campaign.id and report.account_id == account.id and report.ctr == 5.0
     session.scalar.return_value = None
     with pytest.raises(HTTPException) as missing:
-        service.get(uuid.uuid4())
+        asyncio.run(service.get(uuid.uuid4(), analytics))
     assert missing.value.status_code == 404
 
 

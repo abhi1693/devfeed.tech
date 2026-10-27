@@ -17,7 +17,6 @@ from devfeed_core.topic_decisions import (
     selected_sources,
 )
 
-from tests.support import analytics as analytics_reports
 from tests.taxonomy.test_topic_analysis import pending as pending
 
 IDENTIFIER = str(uuid.uuid4())
@@ -518,9 +517,13 @@ def test_explicit_budget_grant_preserves_spend_and_audits_metadata_change(databa
 def test_relationship_budget_counts_started_calls_and_prioritizes_topics(
     database, pending, monkeypatch
 ):
+    import asyncio
+
     from devfeed_core.inference_usage import call_id
     from devfeed_core.models import TopicDecisionRun, TopicProposal
     from devfeed_core.topic_decision_budget import admit_relationship_call
+
+    from tests.support.inference_analytics import inference_client
 
     monkeypatch.setenv("DEVFEED_AI_BOUNDED_TOPICS_ENABLED", "true")
     monkeypatch.setenv("DEVFEED_RELATIONSHIP_DAILY_CALL_BUDGET", "1")
@@ -541,53 +544,68 @@ def test_relationship_budget_counts_started_calls_and_prioritizes_topics(
         web_searches=0,
         duration_ms=0,
     )
-    assert admit_relationship_call(values) is False
-    with database.begin() as session:
-        proposal = session.get(TopicProposal, uuid.UUID(pending))
-        session.add(
-            TopicDecisionRun(
-                proposal_id=proposal.id,
-                input_hash=snapshot_hash(proposal.proposed),
-                status="deferred",
-                state=initial_state(get_settings()),
+
+    async def run():
+        async with inference_client() as client:
+            assert not await admit_relationship_call(values, settings=get_settings(), client=client)
+            with database.begin() as session:
+                proposal = session.get(TopicProposal, uuid.UUID(pending))
+                session.add(
+                    TopicDecisionRun(
+                        proposal_id=proposal.id,
+                        input_hash=snapshot_hash(proposal.proposed),
+                        status="deferred",
+                        state=initial_state(get_settings()),
+                    )
+                )
+            assert await admit_relationship_call(values, settings=get_settings(), client=client)
+            assert not await admit_relationship_call(
+                {**values, "id": call_id()}, settings=get_settings(), client=client
             )
-        )
-    assert admit_relationship_call(values) is True
-    assert admit_relationship_call({**values, "id": call_id()}) is False
+
+    asyncio.run(run())
 
 
 @pytest.mark.integration
-def test_charts_include_source_relevance_and_do_not_double_count_subtokens(database):
-    from devfeed_core.models import InferenceCall
+def test_charts_include_source_relevance_and_do_not_double_count_subtokens(integration_environment):
+    import asyncio
+
+    from devfeed_core.analytics_inference_store import InferenceStore
+
+    from tests.support.inference_analytics import inference_client
 
     now = utcnow()
-    with database.begin() as session:
-        session.add(
-            InferenceCall(
-                started_at=now,
-                finished_at=now,
-                operation="source_relevance",
-                model="gpt-6-luna",
-                reasoning_effort="low",
-                request_hash="0" * 64,
-                status="returned",
-                tokens={
-                    "inputTokens": 100,
-                    "cachedInputTokens": 80,
-                    "outputTokens": 20,
-                    "reasoningOutputTokens": 10,
-                },
-                web_searches=0,
-                duration_ms=500,
-            )
-        )
-    with database() as session:
-        rows = analytics_reports.inference_rows(session, now - timedelta(days=1), now)
-    assert len(rows) == 1
-    point = rows[0]
-    assert point["operation"] == "source_relevance"
-    assert point["input_tokens"] + point["output_tokens"] == 120
-    assert point["cached_input_tokens"] == 80 and point["reasoning_tokens"] == 10
+    record = dict(
+        id=uuid.uuid4(),
+        started_at=now,
+        finished_at=now,
+        operation="source_relevance",
+        model="gpt-6-luna",
+        reasoning_effort="low",
+        status="returned",
+        tokens={
+            "inputTokens": 100,
+            "cachedInputTokens": 80,
+            "outputTokens": 20,
+            "reasoningOutputTokens": 10,
+        },
+        web_searches=0,
+        duration_ms=500,
+    )
+
+    async def run():
+        async with inference_client() as client:
+            store = InferenceStore(client)
+            await store.write([record])
+            rows = await store.aggregate(now - timedelta(days=1), now + timedelta(seconds=1))
+            points = [row for row in rows if row["dimension"] == "tasks"]
+            assert len(points) == 1 and points[0]["name"] == "source_relevance"
+            point = points[0]
+            assert int(point["input_tokens"]) + int(point["output_tokens"]) == 120
+            assert int(point["cached_input_tokens"]) == 80
+            assert int(point["reasoning_tokens"]) == 10
+
+    asyncio.run(run())
 
 
 def test_malformed_verification_retries_verifier_without_redrafting():

@@ -9,7 +9,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from devfeed_user_api import bookmarks, dependencies, engagement, oidc, open_limits
@@ -27,6 +27,28 @@ from tests.support.reader_context import stories as stories
 from tests.support.reader_context import user
 
 NOW = datetime(2026, 10, 22, 12, 34, tzinfo=UTC)
+
+
+class FakeAnalyticsClient:
+    def __init__(self):
+        self.inserts = []
+
+    async def query(self, statement, parameters=None):
+        if "analytics_article_open_cutover" in statement:
+            return [
+                {
+                    "entries": 1,
+                    "earliest": NOW.replace(minute=0).isoformat(),
+                    "latest": NOW.replace(minute=0).isoformat(),
+                    "ready": 1,
+                }
+            ]
+        if "analytics_article_open_baseline" in statement:
+            return [{"article_id": str(identity), "opens": 4} for identity in parameters["ids"]]
+        return []
+
+    async def insert(self, table, rows):
+        self.inserts.append((table, rows))
 
 
 @pytest.fixture
@@ -47,16 +69,13 @@ def api(monkeypatch):
     monkeypatch.setattr(engagement, "limit_open_requests", limits)
     monkeypatch.setattr(engagement, "record_reading_day", reading_day)
     projection = Mock(
-        return_value=[
-            engagement.EngagementOut(
-                article_id=article_id, likes=3, opens=4, liked=False, bookmarked=False
-            )
-        ]
+        return_value=[{"article_id": article_id, "likes": 3, "liked": False, "bookmarked": False}]
     )
     monkeypatch.setattr(engagement, "engagement_rows", projection)
     session = Mock(spec=Session)
     session.scalar.return_value = article_id
     app = FastAPI()
+    app.state.analytics_client = FakeAnalyticsClient()
     app.include_router(engagement.router)
     app.include_router(bookmarks.router)
     app.dependency_overrides[require_user] = lambda: user
@@ -74,6 +93,7 @@ def api(monkeypatch):
             limits=limits,
             reading_day=reading_day,
             projection=projection,
+            analytics=app.state.analytics_client,
         )
 
 
@@ -116,9 +136,7 @@ def test_new_bookmark_cannot_bypass_the_visible_article_read(api):
 @pytest.mark.parametrize("liked", [False, True])
 def test_like_commands_use_the_owned_identity_and_return_the_service_projection(api, liked):
     api.projection.return_value = [
-        engagement.EngagementOut(
-            article_id=api.article_id, likes=3, opens=4, liked=liked, bookmarked=True
-        )
+        {"article_id": api.article_id, "likes": 3, "liked": liked, "bookmarked": True}
     ]
 
     response = api.client.put(f"/v1/user/articles/{api.article_id}/like", json={"liked": liked})
@@ -182,14 +200,19 @@ def test_original_article_click_hashes_identity_and_forwards_only_new_open_inten
     identity = "user:" + str(api.owner) if signed_in else "visitor:" + visitor
     digest = hashlib.sha256(identity.encode()).hexdigest()
     api.limits.assert_called_once_with(api.article_id, digest, anonymous=not signed_in)
-    assert api.session.execute.call_count == int(recorded)
+    assert api.session.execute.call_count == 0
+    assert len(api.analytics.inserts) == 1
+    table, rows = api.analytics.inserts[0]
+    assert table == "analytics_article_opens"
+    assert rows[0]["article_id"] == str(api.article_id)
+    assert rows[0]["viewer_key"] == digest
     if signed_in:
         api.reading_day.assert_called_once_with(api.session, api.owner, api.article_id, NOW)
     else:
         api.reading_day.assert_not_called()
     assert "set-cookie" not in response.headers
     assert visitor not in response.text and str(api.owner) not in response.text
-    api.session.commit.assert_called_once()
+    assert api.session.commit.call_count == int(signed_in)
 
 
 def test_new_anonymous_click_receives_only_an_opaque_secure_visitor_cookie(api):
@@ -309,6 +332,7 @@ def test_open_budget_failures_are_actionable_without_dependency_details(monkeypa
 @contextmanager
 def read_api(viewer=None):
     app, session = FastAPI(), Mock(spec=Session)
+    app.state.analytics_client = FakeAnalyticsClient()
     app.include_router(engagement.router)
     app.dependency_overrides[engagement.optional_user] = lambda: viewer
     app.dependency_overrides[dependencies.get_session] = lambda: session
@@ -324,7 +348,6 @@ def test_engagement_projection_returns_counts_and_owned_flags_without_personal_i
     selected = {
         "article_id": identifier,
         "likes": 3,
-        "opens": 4,
         "liked": signed_in,
         "bookmarked": signed_in,
     }
@@ -332,7 +355,7 @@ def test_engagement_projection_returns_counts_and_owned_flags_without_personal_i
         api.session.execute.return_value.mappings.return_value = [selected]
         response = api.client.get("/v1/user/engagement", params={"article_id": str(identifier)})
         assert response.status_code == 200
-        assert response.json() == [{**selected, "article_id": str(identifier)}]
+        assert response.json() == [{**selected, "article_id": str(identifier), "opens": 4}]
         assert set(response.json()[0]) == set(engagement.EngagementOut.model_fields)
         api.session.execute.assert_called_once()
         api.session.commit.assert_not_called()
@@ -346,8 +369,16 @@ def test_engagement_projection_returns_counts_and_owned_flags_without_personal_i
 def test_trending_lookahead_returns_only_the_requested_page_and_stops_at_the_supported_cursor_bound(
     stories, offset, empty, next_cursor
 ):
-    with read_api() as api:
-        api.session.scalars.return_value = [] if empty else stories
+    from devfeed_core.schemas import ArticleOut, FeedPage
+
+    page = FeedPage(
+        items=[] if empty else ArticleOut.from_articles([stories[0]]),
+        next_cursor=str(offset + 1) if not empty and offset < 1_000_000 else None,
+    )
+    with (
+        read_api() as api,
+        patch.object(engagement, "trending_page", AsyncMock(return_value=page)) as ranked,
+    ):
         response = api.client.get("/v1/user/trending", params={"cursor": offset, "limit": 1})
         assert response.status_code == 200, response.text
         output = response.json()
@@ -355,5 +386,5 @@ def test_trending_lookahead_returns_only_the_requested_page_and_stops_at_the_sup
         assert output["next_cursor"] == next_cursor
         if not empty:
             assert "classification_provenance" not in output["items"][0]
-        api.session.scalars.assert_called_once()
+        ranked.assert_awaited_once()
         api.session.commit.assert_not_called()

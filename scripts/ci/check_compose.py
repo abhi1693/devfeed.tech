@@ -16,6 +16,11 @@ def render(values: dict[str, str], *, build: bool = False) -> dict:
     values = {
         "DEVFEED_CLICKHOUSE_READER_PASSWORD": "fixture-only-reader-password",
         "DEVFEED_CLICKHOUSE_INGEST_PASSWORD": "fixture-only-ingest-password",
+        "DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD": "fixture-only-public-password",
+        "DEVFEED_CLICKHOUSE_USER_PASSWORD": "fixture-only-user-password",
+        "DEVFEED_CLICKHOUSE_PARTNER_PASSWORD": "fixture-only-partner-password",
+        "DEVFEED_CLICKHOUSE_ADMIN_PASSWORD": "fixture-only-admin-password",
+        "DEVFEED_CLICKHOUSE_WORKER_PASSWORD": "fixture-only-worker-password",
         **values,
     }
     environment = {
@@ -286,15 +291,15 @@ def check() -> None:
     assert services["analytics-exporter"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == (
         "devfeed_ingest"
     )
-    assert services["admin-api"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed_reader"
+    assert services["admin-api"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed_admin"
     assert services["admin-api"]["environment"]["DEVFEED_CLICKHOUSE_PASSWORD"] == (
-        "fixture-only-reader-password"
+        "fixture-only-admin-password"
     )
     assert services["analytics-exporter"]["cpus"] == Decimal("0.5")
     assert int(services["analytics-exporter"]["mem_limit"]) == 512 * 1024**2
     for name, service in services.items():
         assert ("DEVFEED_CLICKHOUSE_PASSWORD" in service.get("environment", {})) == (
-            name in {"analytics-exporter", "admin-api"}
+            name in {"analytics-exporter", "admin-api", "api", "partner-api", "user-api", "worker"}
         ), name
     assert "clickhouse" not in services["admin-api"]["depends_on"]
     assert "clickhouse" not in services["api"]["depends_on"]

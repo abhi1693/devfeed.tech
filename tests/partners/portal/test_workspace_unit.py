@@ -3,7 +3,7 @@
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace as NS
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from devfeed_core.models import PartnerAccount, utcnow
@@ -36,6 +36,7 @@ def api(monkeypatch):
     session = Mock()
     session.scalar.return_value = 2
     app = FastAPI()
+    app.state.analytics_client = Mock()
     app.include_router(workspace.router)
     app.dependency_overrides[require_partner] = lambda: identity
     app.dependency_overrides[get_session] = lambda: session
@@ -86,13 +87,14 @@ def connection_payload(account_id):
 
 def test_workspace_report_receives_complete_identity_scope_and_validated_filters(api, monkeypatch):
     client, session, identity = api
-    reporter = Mock(return_value=report_payload())
+    reporter = AsyncMock(return_value=report_payload())
     monkeypatch.setattr(workspace, "reporting_metrics", reporter)
+    monkeypatch.setattr(workspace, "require_partner_history", AsyncMock())
     result = client.get(
         "/v1/partner/dashboard?days=7&sort=account&order=desc&limit=3&offset=2&ad_format=feed"
     )
     assert result.status_code == 200 and result.json()["account_total"] == 2
-    _, scope, days, limit, offset = reporter.call_args.args
+    _, scope, _, days, limit, offset = reporter.call_args.args
     sql = statement_sql(scope)
     assert identity.subject in sql and identity.issuer in sql and "'active'" in sql
     assert "LIMIT" not in sql and "OFFSET" not in sql

@@ -96,7 +96,7 @@ x-chimely-environment: &chimely-environment
   DEVFEED_CHIMELY_ADMIN_ENVIRONMENT:
   DEVFEED_CHIMELY_USER_ENVIRONMENT: ${DEVFEED_CHIMELY_USER_ENVIRONMENT:-devfeed-users}
 
-# Only analytical readers and the exporter receive ClickHouse credentials.
+# Analytical readers and producers receive role-scoped ClickHouse credentials.
 x-clickhouse-environment: &clickhouse-environment
   DEVFEED_CLICKHOUSE_URL: ${DEVFEED_CLICKHOUSE_URL:-http://clickhouse:8123}
   DEVFEED_CLICKHOUSE_DATABASE: ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}
@@ -108,6 +108,31 @@ x-clickhouse-environment: &clickhouse-environment
   DEVFEED_CLICKHOUSE_MAX_CONCURRENT_QUERIES: ${DEVFEED_CLICKHOUSE_MAX_CONCURRENT_QUERIES:-2}
   DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS: ${DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS:-20}
   DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES:-268435456}
+
+x-clickhouse-public: &clickhouse-public
+  <<: *clickhouse-environment
+  DEVFEED_CLICKHOUSE_USERNAME: devfeed_public
+  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD:?Set DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD in .env}
+
+x-clickhouse-user: &clickhouse-user
+  <<: *clickhouse-environment
+  DEVFEED_CLICKHOUSE_USERNAME: devfeed_user
+  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_USER_PASSWORD:?Set DEVFEED_CLICKHOUSE_USER_PASSWORD in .env}
+
+x-clickhouse-partner: &clickhouse-partner
+  <<: *clickhouse-environment
+  DEVFEED_CLICKHOUSE_USERNAME: devfeed_partner
+  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_PARTNER_PASSWORD:?Set DEVFEED_CLICKHOUSE_PARTNER_PASSWORD in .env}
+
+x-clickhouse-admin: &clickhouse-admin
+  <<: *clickhouse-environment
+  DEVFEED_CLICKHOUSE_USERNAME: devfeed_admin
+  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_ADMIN_PASSWORD:?Set DEVFEED_CLICKHOUSE_ADMIN_PASSWORD in .env}
+
+x-clickhouse-worker: &clickhouse-worker
+  <<: *clickhouse-environment
+  DEVFEED_CLICKHOUSE_USERNAME: devfeed_worker
+  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_WORKER_PASSWORD:?Set DEVFEED_CLICKHOUSE_WORKER_PASSWORD in .env}
 
 x-host-access: &host-access
   # Also support host services on Docker Engine for Linux.
@@ -184,6 +209,25 @@ services:
       DEVFEED_CLICKHOUSE_READER_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.*
       DEVFEED_CLICKHOUSE_INGEST_PASSWORD: ${DEVFEED_CLICKHOUSE_INGEST_PASSWORD:?Set a distinct DEVFEED_CLICKHOUSE_INGEST_PASSWORD in .env}
       DEVFEED_CLICKHOUSE_INGEST_GRANT: GRANT SELECT, INSERT, CREATE TABLE, CREATE VIEW, DROP TABLE, DROP VIEW, ALTER TABLE, SYSTEM MERGES ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.*
+      DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD: ${DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD:?Set DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD in .env}
+      DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_PARTNER_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_partner_events
+      DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_SEARCH_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_search_events
+      DEVFEED_CLICKHOUSE_PUBLIC_PROGRESS_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_backfill_progress
+      DEVFEED_CLICKHOUSE_USER_PASSWORD: ${DEVFEED_CLICKHOUSE_USER_PASSWORD:?Set DEVFEED_CLICKHOUSE_USER_PASSWORD in .env}
+      DEVFEED_CLICKHOUSE_USER_OPENS_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_article_opens
+      DEVFEED_CLICKHOUSE_USER_BASELINE_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_article_open_baseline
+      DEVFEED_CLICKHOUSE_USER_CUTOVER_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_article_open_cutover
+      DEVFEED_CLICKHOUSE_PARTNER_PASSWORD: ${DEVFEED_CLICKHOUSE_PARTNER_PASSWORD:?Set DEVFEED_CLICKHOUSE_PARTNER_PASSWORD in .env}
+      DEVFEED_CLICKHOUSE_PARTNER_EVENTS_PARTNER_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_partner_events
+      DEVFEED_CLICKHOUSE_PARTNER_PROGRESS_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_backfill_progress
+      DEVFEED_CLICKHOUSE_ADMIN_PASSWORD: ${DEVFEED_CLICKHOUSE_ADMIN_PASSWORD:?Set DEVFEED_CLICKHOUSE_ADMIN_PASSWORD in .env}
+      DEVFEED_CLICKHOUSE_ADMIN_ALL_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.*
+      DEVFEED_CLICKHOUSE_ADMIN_EVENTS_PARTNER_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_partner_events
+      DEVFEED_CLICKHOUSE_WORKER_PASSWORD: ${DEVFEED_CLICKHOUSE_WORKER_PASSWORD:?Set DEVFEED_CLICKHOUSE_WORKER_PASSWORD in .env}
+      DEVFEED_CLICKHOUSE_WORKER_INFERENCE_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_inference_events
+      DEVFEED_CLICKHOUSE_WORKER_OVERVIEW_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_overview_events
+      DEVFEED_CLICKHOUSE_WORKER_PUBLICATION_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_publication_events
+      DEVFEED_CLICKHOUSE_WORKER_PROGRESS_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_backfill_progress
       DEVFEED_CLICKHOUSE_MAX_THREADS: ${DEVFEED_CLICKHOUSE_MAX_THREADS:-2}
       DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS: ${DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS:-20}
       DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES:-268435456}
@@ -272,7 +316,7 @@ services:
   api:
     <<: *backend
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-public]
       DEVFEED_SEARCH_ENABLED: ${DEVFEED_SEARCH_ENABLED:-false}
       DEVFEED_SEARCH_URL: ${DEVFEED_SEARCH_URL:-http://typesense:8108}
       DEVFEED_SEARCH_QUERY_KEY: ${DEVFEED_SEARCH_QUERY_KEY:-}
@@ -382,7 +426,7 @@ services:
     scale: ${DEVFEED_WORKER_REPLICAS:-2}
     # Keep AI enabled so ingestion queues analysis, even with a dedicated consumer.
     environment:
-      <<: [*core-environment, *chimely-environment]
+      <<: [*core-environment, *chimely-environment, *clickhouse-worker]
       DEVFEED_WORKER_QUEUE: ${DEVFEED_WORKER_QUEUE:-all}
       DEVFEED_PARTNER_CREDENTIAL_KEY:
       # Only delivery workers need Chimely management API keys.
@@ -447,9 +491,7 @@ services:
       - ./infra/chimely/consumer.py:/opt/devfeed/chimely-consumer.py:ro
       - chimely-admin-credentials:/run/devfeed-chimely:ro
     environment:
-      <<: [*core-environment, *chimely-environment, *clickhouse-environment]
-      DEVFEED_CLICKHOUSE_USERNAME: devfeed_reader
-      DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_READER_PASSWORD:?Set a distinct DEVFEED_CLICKHOUSE_READER_PASSWORD in .env}
+      <<: [*core-environment, *chimely-environment, *clickhouse-admin]
       # The inbox API uses its HMAC secret, never the management API key.
       DEVFEED_CHIMELY_ADMIN_HMAC_SECRET:
       DEVFEED_PARTNER_CREDENTIAL_KEY:
@@ -488,7 +530,7 @@ services:
     depends_on: *ready
     networks: [default, data]
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-partner]
       DEVFEED_PARTNER_BASE_URL: ${DEVFEED_PARTNER_BASE_URL:-http://localhost:${DEVFEED_PARTNER_PORT:-3002}}
       DEVFEED_PARTNER_COOKIE_SECURE: ${DEVFEED_PARTNER_COOKIE_SECURE:-false}
       DEVFEED_PARTNER_CREDENTIAL_KEY:
@@ -532,7 +574,7 @@ services:
       - chimely-user-credentials:/run/devfeed-chimely:ro
     networks: [default, data]
     environment:
-      <<: *chimely-environment
+      <<: [*chimely-environment, *clickhouse-user]
       DEVFEED_NOTIFICATIONS_ENABLED:
       DEVFEED_CHIMELY_USER_HMAC_SECRET:
       # Only user inbox signing, persistence and user identity settings.
@@ -745,7 +787,7 @@ services:
     profiles: [ai]
     scale: ${DEVFEED_CODEX_CLIENT_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker]
       DEVFEED_WORKER_QUEUE: analysis
     depends_on:
       <<: *ready
@@ -760,7 +802,7 @@ services:
     <<: *dedicated-worker
     scale: ${DEVFEED_ARTICLE_ANALYSIS_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker]
       DEVFEED_WORKER_QUEUE: article-analysis
     volumes:
       - codex-socket:/run/codex:ro
@@ -769,7 +811,7 @@ services:
     <<: *dedicated-worker
     scale: ${DEVFEED_TOPIC_ANALYSIS_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker]
       DEVFEED_WORKER_QUEUE: topic-analysis
     volumes:
       - codex-socket:/run/codex:ro
@@ -778,7 +820,7 @@ services:
     <<: *dedicated-worker
     scale: ${DEVFEED_RESEARCH_VERIFICATION_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker]
       DEVFEED_WORKER_QUEUE: research-verification
     volumes:
       - codex-socket:/run/codex:ro
@@ -787,7 +829,7 @@ services:
     <<: *dedicated-worker
     scale: ${DEVFEED_SOURCE_ANALYSIS_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker]
       DEVFEED_WORKER_QUEUE: source-analysis
     volumes:
       - codex-socket:/run/codex:ro
@@ -798,13 +840,13 @@ services:
     command: [devfeed-source-discovery-worker]
     scale: ${DEVFEED_SOURCE_DISCOVERY_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker]
 
   relationships-worker:
     <<: *dedicated-worker
     scale: ${DEVFEED_RELATIONSHIPS_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker]
       DEVFEED_WORKER_QUEUE: relationships
     volumes:
       - codex-socket:/run/codex:ro
@@ -813,7 +855,7 @@ services:
     <<: *dedicated-worker
     scale: ${DEVFEED_INGESTION_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker]
       DEVFEED_WORKER_QUEUE: ingestion
       DEVFEED_PARTNER_CREDENTIAL_KEY:
 
@@ -823,13 +865,13 @@ services:
     command: [devfeed-article-enrichment-worker]
     scale: ${DEVFEED_ARTICLE_ENRICHMENT_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker]
 
   source-enrichment-worker:
     <<: *dedicated-worker
     scale: ${DEVFEED_SOURCE_ENRICHMENT_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker]
       DEVFEED_WORKER_QUEUE: source-enrichment
 
   images-worker:
@@ -839,7 +881,7 @@ services:
     profiles: [workers, images]
     scale: ${DEVFEED_IMAGES_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker]
       DEVFEED_IMAGE_STORAGE_ENDPOINT:
       DEVFEED_IMAGE_STORAGE_BUCKET:
       DEVFEED_IMAGE_STORAGE_ACCESS_KEY:
@@ -889,7 +931,7 @@ services:
     # Service-level scale survives Compose 2.38 watch rebuilds; deploy.replicas does not.
     scale: ${DEVFEED_NOTIFICATIONS_WORKER_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *chimely-environment]
+      <<: [*core-environment, *chimely-environment, *clickhouse-worker]
       DEVFEED_WORKER_QUEUE: notifications
       # Only delivery workers need Chimely management API keys.
       DEVFEED_CHIMELY_ADMIN_API_KEY:

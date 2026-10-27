@@ -1,17 +1,18 @@
 """Operator grants and scheduling respect durable spent budgets and admission results."""
 
+import asyncio
 import copy
 import hashlib
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
-from devfeed_core import db, quota_pacing, topic_decisions
+from devfeed_core import quota_pacing, topic_decisions
 from devfeed_core import topic_decision_budget as budget
 from devfeed_core.analysis import snapshot_hash
-from devfeed_core.models import InferenceCall, TopicAnalysisJob, TopicDecisionRun, TopicProposal
+from devfeed_core.models import TopicAnalysisJob, TopicDecisionRun, TopicProposal
 from devfeed_core.services import OperationConflict
 
 from tests.support.source_readiness import configuration
@@ -343,10 +344,10 @@ def test_admission_combines_reserved_oldest_work_and_demand_without_conferring_a
 
 
 @pytest.mark.parametrize(
-    "backlog,calls,allowed", [(True, 0, False), (False, 1, True), (False, 2, False)]
+    "backlog,budget_size,allowed", [(True, 2, False), (False, 2, True), (False, 0, False)]
 )
-def test_relationship_budget_reserves_for_the_topic_backlog_and_counts_running_calls(
-    monkeypatch, backlog, calls, allowed
+def test_relationship_preflight_checks_policy_without_querying_postgresql_analytics(
+    monkeypatch, backlog, budget_size, allowed
 ):
     monkeypatch.setattr(
         budget,
@@ -355,15 +356,13 @@ def test_relationship_budget_reserves_for_the_topic_backlog_and_counts_running_c
             ai_bounded_topics_enabled=True,
             ai_quota_pacing_enabled=False,
             relationship_pause_for_topic_backlog=True,
-            relationship_daily_call_budget=2,
+            relationship_daily_call_budget=budget_size,
         ),
     )
     monkeypatch.setattr(budget, "actionable_topic_backlog", lambda _: backlog)
     session = Mock()
-    session.scalar.return_value = calls
     assert budget.relationship_allowance(session) is allowed
-    if backlog:
-        session.scalar.assert_not_called()
+    session.scalar.assert_not_called()
 
 
 @pytest.mark.parametrize("paused", [False, True])
@@ -380,29 +379,46 @@ def test_quota_pacing_authority_controls_relationship_admission_without_reading_
 
 
 @pytest.mark.parametrize("allowed", [False, True])
-def test_only_admitted_relationship_calls_create_an_inference_reservation(monkeypatch, allowed):
-    session, factory = MagicMock(), MagicMock()
-    factory.begin.return_value.__enter__.return_value = session
-    monkeypatch.setattr(db, "session_factory", lambda: factory)
-    monkeypatch.setattr(budget, "relationship_allowance", lambda _: allowed)
-    values = {
-        "id": uuid.uuid4(),
-        "operation": "relationship_research",
-        "started_at": NOW,
-        "job_id": uuid.uuid4(),
-        "attempt": 1,
-        "model": "test-model",
-        "reasoning_effort": "low",
-        "request_hash": snapshot_hash({"topic": "React", "peer": "JavaScript"}),
-        "status": "running",
-        "tokens": {},
-        "web_searches": 0,
-        "duration_ms": 0,
-    }
-    assert budget.admit_relationship_call(values) is allowed
-    if allowed:
-        row = session.add.call_args.args[0]
-        assert isinstance(row, InferenceCall) and row.id == values["id"]
-        assert row.operation == values["operation"] and row.started_at == NOW
-    else:
-        session.add.assert_not_called()
+def test_only_admitted_relationship_calls_reserve_directly_in_clickhouse(monkeypatch, allowed):
+    from devfeed_core import analytics_inference_store
+
+    async def run():
+        monkeypatch.setattr(budget, "_relationship_policy_allowed", lambda: allowed)
+        admit = AsyncMock(return_value=True)
+        monkeypatch.setattr(analytics_inference_store.RelationshipQuota, "admit", admit)
+        client = AsyncMock()
+        client.query.return_value = [{"complete": 1}]
+        values = {
+            "id": uuid.uuid4(),
+            "operation": "relationship_research",
+            "started_at": NOW,
+            "model": "test-model",
+            "reasoning_effort": "low",
+            "status": "running",
+            "tokens": {},
+            "web_searches": 0,
+            "duration_ms": 0,
+        }
+        settings = configuration(ai_quota_pacing_enabled=False, relationship_daily_call_budget=2)
+        assert (
+            await budget.admit_relationship_call(values, settings=settings, client=client)
+            is allowed
+        )
+        if allowed:
+            admit.assert_awaited_once_with(values, 2)
+        else:
+            admit.assert_not_awaited()
+            client.query.assert_not_awaited()
+
+    asyncio.run(run())
+
+
+def test_relationship_admission_fails_closed_while_historical_import_is_incomplete(monkeypatch):
+    async def run():
+        monkeypatch.setattr(budget, "_relationship_policy_allowed", lambda: True)
+        client = AsyncMock()
+        client.query.return_value = []
+        settings = configuration(ai_quota_pacing_enabled=False, relationship_daily_call_budget=2)
+        assert not await budget.admit_relationship_call({}, settings=settings, client=client)
+
+    asyncio.run(run())

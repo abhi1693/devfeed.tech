@@ -1,22 +1,26 @@
 """User-wide partner views scoped in SQL to every current account membership."""
 
+import asyncio
 import uuid
 
+from devfeed_core.analytics import AnalyticsUnavailable
+from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.models import PartnerAccount, PartnerConnection
 from devfeed_core.partner_ad_formats import AdFormat
 from devfeed_core.partner_connections import ProviderSlug
 from devfeed_core.partner_credentials import credential_storage_available
 from devfeed_core.text_search import text_search
+from devfeed_http.analytics import analytics_client
 from devfeed_http.pagination import Listing, Page
+from devfeed_http.partner_analytics_reporting import reporting_metrics, require_partner_history
 from devfeed_http.partner_portal import (
     SortOrder,
     WorkspaceAssetSort,
     WorkspaceDashboard,
     WorkspaceInventoryOut,
     inventory_page,
-    reporting_metrics,
 )
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 
 from devfeed_partner_api.access import PartnerAccountAccess
@@ -52,9 +56,10 @@ class WorkspaceConnectionCreate(PartnerConnectionCreate):
 @router.get(
     "/dashboard", response_model=WorkspaceDashboard, operation_id="partnerWorkspaceDashboard"
 )
-def dashboard(
+async def dashboard(
     session: DB,
     partner: Partner,
+    request: Request,
     account_id: uuid.UUID | None = None,
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(100, ge=1, le=200),
@@ -63,13 +68,27 @@ def dashboard(
     order: SortOrder = Query("asc"),
     ad_format: AdFormat | None = None,
 ):
-    scope = PartnerAccountAccess(session, partner).query(account_id)
-    return {
-        **reporting_metrics(
-            session, scope, days, limit, offset, sort=sort, order=order, ad_format=ad_format
-        ),
-        "account_total": session.scalar(select(func.count()).select_from(scope.subquery())),
-    }
+    scope = await asyncio.to_thread(PartnerAccountAccess(session, partner).query, account_id)
+    client = analytics_client(request)
+    try:
+        await require_partner_history(client)
+        metrics = await reporting_metrics(
+            session,
+            scope,
+            DirectEngagementAnalytics(client),
+            days,
+            limit,
+            offset,
+            sort=sort,
+            order=order,
+            ad_format=ad_format,
+        )
+        account_total = await asyncio.to_thread(
+            session.scalar, select(func.count()).select_from(scope.subquery())
+        )
+    except AnalyticsUnavailable:
+        raise HTTPException(503, "Partner analytics is being prepared") from None
+    return {**metrics, "account_total": account_total}
 
 
 @router.get(

@@ -136,6 +136,11 @@ def click_api(monkeypatch):
     monkeypatch.setattr(
         search, "record_successful_query", lambda s, q: calls["aggregates"].append(q)
     )
+
+    async def record(_self, digest, **_kwargs):
+        assert digest == search.query_hash("python sql")
+
+    monkeypatch.setattr(search.SearchSuggestionAnalytics, "record", record)
     monkeypatch.setattr(search, "get_rate_limit_redis", lambda: SimpleNamespace(eval=eval_limit))
     body = {
         "query": "Python SQL",

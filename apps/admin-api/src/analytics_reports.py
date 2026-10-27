@@ -9,6 +9,9 @@ import math
 from datetime import UTC, datetime, time, timedelta
 from typing import get_args
 
+from devfeed_core.analytics import AnalyticsUnavailable
+from devfeed_core.analytics_inference_store import InferenceStore
+
 from devfeed_admin_api.overview_sections import (
     AudienceBucket,
     AudienceSection,
@@ -351,54 +354,37 @@ class Reports:
         return ProcessingSection(queues=[QueuePressure(**row) for row in rows])
 
     async def inference(self):
-        sums = ", ".join(
-            f"sum(r.{field}) AS {field}"
-            for field in (
-                "calls",
-                "unreported",
-                "input_tokens",
-                "output_tokens",
-                "cached_input_tokens",
-                "reasoning_tokens",
-            )
-        )
-        base = self.rollup("inference_hourly", "inference")
-        rows, breakdowns = await _gather(
-            self.query(f"""/* overview:inference */ SELECT {self.bucket} AS chart_bucket,
-                grouping(chart_bucket) AS total, {sums}, sum(r.failed) AS failed,
-                sum(r.web_searches) AS web_searches, {QUANTILES}(r.duration_ms_state) AS percentiles
-                FROM {base} GROUP BY chart_bucket WITH ROLLUP"""),
-            self.query(f"""/* overview:usage-breakdown */ WITH breakdown AS (
-                  SELECT multiIf(grouping(r.task)=0,'tasks',grouping(r.model)=0,
-                    'models','efforts') AS dimension,
-                    multiIf(grouping(r.task)=0,r.task,grouping(r.model)=0,
-                      r.model,r.effort) AS label,
-                    sum(r.calls) AS calls, sum(r.failed) AS failed,
-                    sum(r.unreported) AS unreported, sum(r.input_tokens) AS input_tokens,
-                    sum(r.output_tokens) AS output_tokens
-                  FROM {base} GROUP BY GROUPING SETS ((r.task),(r.model),(r.effort))
-                ), ranked AS (
-                  SELECT *, row_number() OVER(PARTITION BY dimension
-                    ORDER BY input_tokens+output_tokens DESC,label) AS rank FROM breakdown
-                ) SELECT dimension, if(rank<=8,label,'Other') AS name,
-                  sum(calls) AS calls, sum(failed) AS failed, sum(unreported) AS unreported,
-                  sum(input_tokens) AS input_tokens, sum(output_tokens) AS output_tokens
-                FROM ranked GROUP BY dimension,name
-                ORDER BY dimension,name='Other',sum(input_tokens)+sum(output_tokens) DESC,name"""),
+        ready = await self.query("""/* overview:inference-ready */ SELECT complete
+            FROM analytics_backfill_progress FINAL WHERE import_id='direct-v1'
+            AND source='inference_calls'""")
+        if len(ready) != 1 or int(ready[0].get("complete", 0)) != 1:
+            raise AnalyticsUnavailable("Inference history is still importing")
+        rows = await InferenceStore(self.client).aggregate(
+            self.start, min(self.end, self.params["observed_end"]), granularity=self.granularity
         )
         activity = self.empty_series(InferenceBucket)
         summary = InferenceSummary()
+        dimensions: dict[str, list[UsageBreakdown]] = {"tasks": [], "models": [], "efforts": []}
         for row in rows:
+            dimension = row["dimension"]
             counters = {field: row[field] for field in COUNTERS}
-            if row["total"]:
+            if dimension == "summary":
                 summary = InferenceSummary(**counters)
-            else:
+            elif dimension == "activity":
                 key = self.key(row["chart_bucket"])
                 p50, p95 = _percentiles(row)
                 activity[key] = InferenceBucket(bucket=key, p50_ms=p50, p95_ms=p95, **counters)
-        dimensions: dict[str, list[UsageBreakdown]] = {"tasks": [], "models": [], "efforts": []}
-        for row in breakdowns:
-            dimensions[row.pop("dimension")].append(UsageBreakdown(**row))
+            elif dimension in dimensions:
+                dimensions[dimension].append(
+                    UsageBreakdown(
+                        name=row["name"],
+                        calls=row["calls"],
+                        failed=row["failed"],
+                        unreported=row["unreported"],
+                        input_tokens=row["input_tokens"],
+                        output_tokens=row["output_tokens"],
+                    )
+                )
         return InferenceSection(summary=summary, activity=list(activity.values()), **dimensions)
 
     async def coverage(self):

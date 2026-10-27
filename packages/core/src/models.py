@@ -2409,6 +2409,8 @@ class PartnerPlacementDelivery(Base):
     )
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     surface: Mapped[str | None] = mapped_column(String(20))
+    impression_recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    click_recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class PartnerDailyMetric(Base):

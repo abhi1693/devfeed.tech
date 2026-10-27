@@ -34,6 +34,8 @@ class Client:
     async def query(self, sql, parameters=None):
         self.queries.append((sql, parameters))
         name = sql.split("overview:", 1)[1].split(" ", 1)[0]
+        if name == "inference-ready":
+            return deepcopy(self.results.get(name, [{"complete": 1}]))
         return deepcopy(self.results.get(name, []))
 
 
@@ -43,7 +45,8 @@ def reports(client=None, *, days=30, now=NOW, captured=CAPTURED):
 
 def inference_row(**changes):
     return {
-        "total": 0,
+        "dimension": "activity",
+        "name": "",
         "chart_bucket": BUCKET,
         "calls": 3,
         "failed": 1,
@@ -70,7 +73,10 @@ async def test_empty_sections_still_supply_their_typed_contract_and_bounded_char
     for sql, params in client.queries:
         assert "analytics_" in sql
         assert params["start"] == datetime(2026, 9, 27, tzinfo=UTC)
-        assert params["end"] == datetime(2026, 10, 27, tzinfo=UTC)
+        assert params["end"] in {
+            datetime(2026, 10, 27, tzinfo=UTC),
+            NOW.replace(minute=0) + timedelta(hours=1),
+        }
         assert "_versions" not in sql
         assert "analytics_fact" not in sql
     if section == "publishing":
@@ -318,9 +324,13 @@ async def test_inference_keeps_int128_totals_exact_and_treats_cached_reasoning_a
     }
     client = Client(
         {
-            "inference": [inference_row(), inference_row(total=1)],
-            "usage-breakdown": [
-                {**breakdown, "dimension": name} for name in ("tasks", "models", "efforts")
+            "inference": [
+                inference_row(),
+                inference_row(dimension="summary"),
+                *(
+                    inference_row(**breakdown, dimension=name)
+                    for name in ("tasks", "models", "efforts")
+                ),
             ],
         }
     )
@@ -340,8 +350,8 @@ async def test_inference_keeps_int128_totals_exact_and_treats_cached_reasoning_a
         == result.efforts[0].input_tokens
         == 2**80
     )
-    sql = next(sql for sql, _ in client.queries if "overview:usage-breakdown" in sql)
-    assert "rank<=8" in sql and "GROUPING SETS" in sql
+    sql = next(sql for sql, _ in client.queries if "overview:inference " in sql)
+    assert "rank>8" in sql and "GROUPING SETS" in sql
 
 
 @run_async
@@ -589,8 +599,14 @@ async def test_closed_and_year_windows_query_exact_bounds_with_bounded_chart_gra
     assert result.granularity == grain and len(result.data.activity) <= maximum
     assert report.buckets()[-1] < datetime.combine(window.end, datetime.min.time(), tzinfo=UTC)
     for sql, params in client.queries:
-        assert params["start"].date() == window.start and params["end"].date() == window.end
-        assert "bucket >= {start:" in sql and "bucket < least({end:" in sql
+        assert params["start"].date() == window.start
+        if "overview:inference-ready" in sql:
+            continue
+        assert params["end"] == min(
+            datetime.combine(window.end, datetime.min.time(), tzinfo=UTC),
+            NOW.replace(minute=0) + timedelta(hours=1),
+        )
+        assert "started_at >= {start:" in sql and "started_at < {end:" in sql
         assert "BETWEEN" not in sql
 
 

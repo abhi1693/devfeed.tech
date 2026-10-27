@@ -46,7 +46,71 @@
                 <query from_env="DEVFEED_CLICKHOUSE_READER_GRANT" />
             </grants>
         </devfeed_reader>
-        <!-- The exporter can maintain analytics schema and data, but not manage users. -->
+        <!-- The public service receives only its required tables. -->
+        <devfeed_public>
+            <password from_env="DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD" />
+            <networks><ip>::/0</ip></networks>
+            <profile>devfeed_ingest</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <events_partner from_env="DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_PARTNER_GRANT" />
+                <events_search from_env="DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_SEARCH_GRANT" />
+                <progress from_env="DEVFEED_CLICKHOUSE_PUBLIC_PROGRESS_GRANT" />
+            </grants>
+        </devfeed_public>
+        <!-- The user service receives only its required tables. -->
+        <devfeed_user>
+            <password from_env="DEVFEED_CLICKHOUSE_USER_PASSWORD" />
+            <networks><ip>::/0</ip></networks>
+            <profile>devfeed_ingest</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <opens from_env="DEVFEED_CLICKHOUSE_USER_OPENS_GRANT" />
+                <baseline from_env="DEVFEED_CLICKHOUSE_USER_BASELINE_GRANT" />
+                <cutover from_env="DEVFEED_CLICKHOUSE_USER_CUTOVER_GRANT" />
+            </grants>
+        </devfeed_user>
+        <!-- The partner service receives only its required tables. -->
+        <devfeed_partner>
+            <password from_env="DEVFEED_CLICKHOUSE_PARTNER_PASSWORD" />
+            <networks><ip>::/0</ip></networks>
+            <profile>devfeed_reader</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <events_partner from_env="DEVFEED_CLICKHOUSE_PARTNER_EVENTS_PARTNER_GRANT" />
+                <progress from_env="DEVFEED_CLICKHOUSE_PARTNER_PROGRESS_GRANT" />
+            </grants>
+        </devfeed_partner>
+        <!-- The admin service receives only its required tables. -->
+        <devfeed_admin>
+            <password from_env="DEVFEED_CLICKHOUSE_ADMIN_PASSWORD" />
+            <networks><ip>::/0</ip></networks>
+            <profile>devfeed_ingest</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <all from_env="DEVFEED_CLICKHOUSE_ADMIN_ALL_GRANT" />
+                <events_partner from_env="DEVFEED_CLICKHOUSE_ADMIN_EVENTS_PARTNER_GRANT" />
+            </grants>
+        </devfeed_admin>
+        <!-- The worker service receives only its required tables. -->
+        <devfeed_worker>
+            <password from_env="DEVFEED_CLICKHOUSE_WORKER_PASSWORD" />
+            <networks><ip>::/0</ip></networks>
+            <profile>devfeed_ingest</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <inference from_env="DEVFEED_CLICKHOUSE_WORKER_INFERENCE_GRANT" />
+                <overview from_env="DEVFEED_CLICKHOUSE_WORKER_OVERVIEW_GRANT" />
+                <publication from_env="DEVFEED_CLICKHOUSE_WORKER_PUBLICATION_GRANT" />
+                <progress from_env="DEVFEED_CLICKHOUSE_WORKER_PROGRESS_GRANT" />
+            </grants>
+        </devfeed_worker>
+        <!-- The importer can maintain analytics schema and data, but not manage users. -->
         <devfeed_ingest>
             <password from_env="DEVFEED_CLICKHOUSE_INGEST_PASSWORD" />
             <networks><ip>::/0</ip></networks>

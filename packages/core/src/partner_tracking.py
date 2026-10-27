@@ -1,4 +1,4 @@
-"""Anonymous, delivery-bound partner events and atomic daily counters."""
+"""Anonymous, delivery-bound partner receipt claims."""
 
 import hashlib
 import hmac
@@ -10,17 +10,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from sqlalchemy import delete, func, select, tuple_
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from devfeed_core.models import (
     PartnerAccount,
     PartnerAsset,
-    PartnerDeliveryEvent,
     PartnerPlacementDelivery,
     PartnerProduct,
-    PartnerTrackedDailyMetric,
     utcnow,
 )
 
@@ -69,6 +67,17 @@ class PartnerTrackingTokens:
         )
 
 
+@dataclass(frozen=True)
+class DeliveryClaim:
+    """An operational deduplication claim and its stable observation time."""
+
+    recorded_at: datetime
+    created: bool
+
+    def __bool__(self):
+        return self.created
+
+
 class InactivePartnerAsset(Exception):
     pass
 
@@ -80,7 +89,7 @@ class BusyPartnerAsset(SQLAlchemyError):
 def prune_partner_delivery_history(
     factory, *, now=None, batch_size=DELIVERY_HISTORY_BATCH_SIZE
 ) -> int:
-    """Prune expired receipt history in bounded batches, retaining daily reporting totals."""
+    """Prune expired operational receipt reservations in bounded batches."""
     if not 1 <= batch_size <= DELIVERY_HISTORY_BATCH_SIZE:
         raise ValueError(f"Partner delivery cleanup batch must be 1..{DELIVERY_HISTORY_BATCH_SIZE}")
     now = (now or utcnow()).astimezone(UTC)
@@ -88,28 +97,6 @@ def prune_partner_delivery_history(
     with factory.begin() as session:
         if not session.scalar(select(func.pg_try_advisory_xact_lock(832604284))):
             return 0
-        # The ledger records the receipt's UTC day, so retain two complete days
-        # plus today. Every removed receipt has long exceeded its one-hour TTL.
-        # Materialize each batch so nested-loop delete plans cannot select it repeatedly.
-        event_keys = (
-            PartnerDeliveryEvent.asset_id,
-            PartnerDeliveryEvent.delivery_id,
-            PartnerDeliveryEvent.kind,
-        )
-        expired_events = (
-            select(*event_keys)
-            .where(PartnerDeliveryEvent.day < cutoff.date())
-            .order_by(PartnerDeliveryEvent.day)
-            .limit(batch_size)
-            .with_for_update(skip_locked=True)
-            .cte("expired_partner_events")
-            .prefix_with("MATERIALIZED")
-        )
-        events = session.execute(
-            delete(PartnerDeliveryEvent)
-            .where(tuple_(*event_keys).in_(select(expired_events)))
-            .execution_options(synchronize_session=False)
-        )
         expired_reservations = (
             select(PartnerPlacementDelivery.delivery_id)
             .where(PartnerPlacementDelivery.issued_at < cutoff)
@@ -124,10 +111,10 @@ def prune_partner_delivery_history(
             .where(PartnerPlacementDelivery.delivery_id.in_(select(expired_reservations)))
             .execution_options(synchronize_session=False)
         )
-        return events.rowcount + reservations.rowcount
+        return reservations.rowcount
 
 
-def record_delivery_event(session, receipt: DeliveryReceipt, kind: EventKind) -> bool:
+def record_delivery_event(session, receipt: DeliveryReceipt, kind: EventKind) -> DeliveryClaim:
     from devfeed_core.partner_placements import automatic_asset_available, lock_attribution_row
 
     # Resolve the immutable owner first, then acquire the same nonblocking lock
@@ -163,32 +150,39 @@ def record_delivery_event(session, receipt: DeliveryReceipt, kind: EventKind) ->
             )
         ):
             raise InactivePartnerAsset
-    day = receipt.issued_at.date()
-    created = session.scalar(
-        insert(PartnerDeliveryEvent)
-        .values(asset_id=receipt.asset_id, delivery_id=receipt.delivery_id, kind=kind, day=day)
-        .on_conflict_do_nothing()
-        .returning(PartnerDeliveryEvent.delivery_id)
-    )
-    if created is None:
-        return False
-    impressions, clicks = int(kind == "impression"), int(kind == "click")
-    session.execute(
-        insert(PartnerTrackedDailyMetric)
-        .values(
-            asset_id=receipt.asset_id,
-            day=day,
-            impressions=impressions,
-            clicks=clicks,
-            updated_at=datetime.now(UTC),
+    if not asset_row.automatic:
+        # Manual placements have no issuance-time reservation; create the same
+        # short-lived operational identity used to prevent receipt replays.
+        session.execute(
+            insert(PartnerPlacementDelivery)
+            .values(
+                delivery_id=receipt.delivery_id,
+                asset_id=receipt.asset_id,
+                issued_at=receipt.issued_at,
+            )
+            .on_conflict_do_nothing()
         )
-        .on_conflict_do_update(
-            index_elements=[PartnerTrackedDailyMetric.asset_id, PartnerTrackedDailyMetric.day],
-            set_={
-                "impressions": PartnerTrackedDailyMetric.impressions + impressions,
-                "clicks": PartnerTrackedDailyMetric.clicks + clicks,
-                "updated_at": datetime.now(UTC),
-            },
-        )
+    column = (
+        PartnerPlacementDelivery.impression_recorded_at
+        if kind == "impression"
+        else PartnerPlacementDelivery.click_recorded_at
     )
-    return True
+    recorded_at = session.scalar(
+        update(PartnerPlacementDelivery)
+        .where(
+            PartnerPlacementDelivery.delivery_id == receipt.delivery_id,
+            PartnerPlacementDelivery.asset_id == receipt.asset_id,
+            column.is_(None),
+        )
+        .values({column.key: datetime.now(UTC)})
+        .returning(column)
+    )
+    if recorded_at is not None:
+        return DeliveryClaim(recorded_at, True)
+    reservation = session.get(PartnerPlacementDelivery, receipt.delivery_id)
+    if reservation is None or reservation.asset_id != receipt.asset_id:
+        raise InactivePartnerAsset
+    recorded_at = getattr(reservation, column.key)
+    if recorded_at is None:
+        raise InactivePartnerAsset
+    return DeliveryClaim(recorded_at, False)

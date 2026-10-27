@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from datetime import time as day_time
 from typing import Literal
 
+from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.config import get_settings
 from devfeed_core.partner_link_rel import LinkRel, default_link_rel
 from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
@@ -14,17 +15,19 @@ from devfeed_core.search_clicks import SearchClickTokens
 from devfeed_core.search_engine import KINDS, MAX_PAGE, PAGE_SIZE, SearchUnavailable, Typesense
 from devfeed_core.search_records import hit, public_records
 from devfeed_core.search_suggestions import (
-    approved_suggestions,
+    SearchSuggestionAnalytics,
     normalize_query,
     query_hash,
     record_successful_query,
 )
+from devfeed_http.analytics import analytics_client
 from devfeed_http.body_limits import RequestBodyPolicy
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.concurrency import run_in_threadpool
 
 from devfeed_api.cache import CachedReadRoute, CachePolicy
 from devfeed_api.dependencies import DB, get_rate_limit_redis
@@ -75,17 +78,25 @@ def click_tokens() -> SearchClickTokens | None:
         namespace="search-suggestions", revision=1, ttl="content"
     ).openapi_extra(),
 )
-def suggestions(
+async def suggestions(
     session: DB,
+    request: Request,
     q: str = Query("", max_length=200),
     limit: int = Query(5, ge=1, le=10),
 ):
     try:
-        return approved_suggestions(
-            session, q, limit=limit, minimum=get_settings().search_suggestion_min_volume
+        items = await SearchSuggestionAnalytics(analytics_client(request)).rank(
+            session,
+            prefix=q,
+            status="approved",
+            limit=limit,
+            minimum=get_settings().search_suggestion_min_volume,
         )
+        return [item["query"] for item in items]
     except ValueError:
         raise HTTPException(422, "Invalid search suggestion prefix") from None
+    except (AnalyticsUnavailable, SQLAlchemyError):
+        raise HTTPException(503, "Search suggestions are temporarily unavailable") from None
 
 
 @router.post(
@@ -94,14 +105,13 @@ def suggestions(
     response_class=Response,
     openapi_extra=RequestBodyPolicy(body_limit=4096).openapi_extra(),
 )
-def successful_click(body: SearchClick, session: DB):
+async def successful_click(body: SearchClick, session: DB, request: Request):
     headers = {"Cache-Control": "no-store"}
     try:
         query = normalize_query(body.query)
     except ValueError:
         raise HTTPException(422, "Invalid search query", headers=headers) from None
-    # Older clients may omit receipts. Keep their best-effort event compatible,
-    # but never let an unproven query create an aggregate.
+    # A valid receipt is required before an observation is recorded.
     if body.click_token is None:
         return Response(status_code=204, headers=headers)
     tokens = click_tokens()
@@ -109,7 +119,8 @@ def successful_click(body: SearchClick, session: DB):
         body.click_token, body.query, body.result_kind, body.result_id
     ):
         raise HTTPException(403, "Invalid search event", headers=headers)
-    try:
+
+    def persist_metadata():
         digest = query_hash(query)
         prefix = "devfeed:search-click:"
         retry = consume_rate_limits(
@@ -121,21 +132,21 @@ def successful_click(body: SearchClick, session: DB):
                 RateLimitBudget(f"{prefix}query:{digest}:hour", 100, 3600),
             ],
         )
-    except RedisError:
-        raise HTTPException(
-            503, "Search analytics unavailable", headers={**headers, "Retry-After": "1"}
-        ) from None
-    if retry:
-        raise HTTPException(
-            429, "Search event limit reached", headers={**headers, "Retry-After": str(retry)}
-        )
-    try:
+        if retry:
+            raise HTTPException(
+                429, "Search event limit reached", headers={**headers, "Retry-After": str(retry)}
+            )
         session.execute(select_timeout(), {"timeout": "500"})
         if body.result_id not in public_records(session, body.result_kind, [body.result_id]):
             raise HTTPException(403, "Invalid search event", headers=headers)
         record_successful_query(session, query)
         session.commit()
-    except SQLAlchemyError:
+        return digest
+
+    try:
+        digest = await run_in_threadpool(persist_metadata)
+        await SearchSuggestionAnalytics(analytics_client(request)).record(digest)
+    except (RedisError, SQLAlchemyError, AnalyticsUnavailable):
         raise HTTPException(
             503, "Search analytics unavailable", headers={**headers, "Retry-After": "1"}
         ) from None
