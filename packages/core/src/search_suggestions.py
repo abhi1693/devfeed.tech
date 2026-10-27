@@ -48,7 +48,7 @@ def record_successful_query(session, value: str) -> str:
     return digest
 
 
-def _metadata_page(session, *, cursor, prefix, status):
+def _metadata_page(factory, *, cursor, prefix, status):
     statement = (
         select(
             SearchQueryStat.query_hash,
@@ -66,11 +66,8 @@ def _metadata_page(session, *, cursor, prefix, status):
         statement = statement.where(SearchQueryStat.query.startswith(prefix, autoescape=True))
     if status is not None:
         statement = statement.where(SearchQueryStat.status == status)
-    try:
+    with factory() as session:
         return [dict(row) for row in session.execute(statement).mappings().all()]
-    finally:
-        # Close each short read before waiting for ClickHouse network I/O.
-        session.rollback()
 
 
 class SearchSuggestionAnalytics:
@@ -100,7 +97,7 @@ class SearchSuggestionAnalytics:
             ]
         )
 
-    async def rank(self, session, *, prefix=None, status=None, minimum=0, limit=100):
+    async def rank(self, factory, *, prefix=None, status=None, minimum=0, limit=100):
         if prefix is not None:
             prefix = normalize_query(prefix) if prefix.strip() else ""
             if not prefix:
@@ -112,7 +109,7 @@ class SearchSuggestionAnalytics:
         best: list[dict[str, Any]] = []
         while True:
             page = await run_in_threadpool(
-                _metadata_page, session, cursor=cursor, prefix=prefix, status=status
+                _metadata_page, factory, cursor=cursor, prefix=prefix, status=status
             )
             if not page:
                 return best

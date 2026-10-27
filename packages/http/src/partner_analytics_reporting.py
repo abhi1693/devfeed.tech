@@ -1,6 +1,5 @@
 """Partner report aggregation over ClickHouse observations and authorized catalog data."""
 
-import asyncio
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from functools import cmp_to_key
@@ -41,7 +40,7 @@ async def require_partner_history(client):
     )
 
 
-def _assets(session, accounts_query, ad_format):
+def reporting_assets(session, accounts_query, ad_format=None):
     accounts = (
         accounts_query.with_only_columns(
             PartnerAccount.id.label("account_id"), PartnerAccount.name.label("account_name")
@@ -187,8 +186,7 @@ def _order(items, sort, order):
 
 
 async def reporting_metrics(
-    session,
-    accounts_query,
+    assets,
     analytics,
     days=30,
     limit=100,
@@ -196,7 +194,6 @@ async def reporting_metrics(
     *,
     sort="name",
     order="asc",
-    ad_format=None,
 ):
     """Read bounded CH batches and sort the complete authorized account scope."""
     if sort not in {"name", "account", "impressions", "clicks", "ctr"} or order not in {
@@ -206,7 +203,6 @@ async def reporting_metrics(
         raise ValueError("Invalid partner report ordering")
     if not 1 <= days <= 365 or not 1 <= limit <= 200 or offset < 0:
         raise ValueError("Invalid partner report range")
-    assets = await asyncio.to_thread(_assets, session, accounts_query, ad_format)
     groups, by_asset = _group(assets)
     asset_format = {str(row["id"]): row["ad_format"] for row in assets}
     ids = list(by_asset)

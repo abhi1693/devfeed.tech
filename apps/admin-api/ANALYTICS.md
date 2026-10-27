@@ -1,249 +1,112 @@
 # Administration analytics
 
-Current article, source, discovery, proposal, and relationship boards read typed
-ClickHouse cards. Overview charts query compact native summaries and current
-cards through one shared API cache. PostgreSQL retains authoritative business
-records, evidence, job execution, and transactional action validation.
+Application analytics live in ClickHouse. PostgreSQL retains business records,
+job execution, private evidence and transactional action validation. There are no
+PostgreSQL analytical queues, projection tables, gauges or reporting counters
+after the finite historical import completes.
 
-## Capture and publication
+## Application delivery
 
-One `python -m devfeed_core.analytics_worker` process owns historical facts,
-current gauges, and operator cards. There are no pipeline/report projector
-processes or saved report documents in PostgreSQL.
+Application sessions collect narrow changed identities and publish asynchronously
+after their business transaction commits. The publisher reads current associated
+inputs in bounded batches, builds sanitized observations and writes directly to
+ClickHouse. Reparenting and deletion publish both affected identities. Private
+article bodies, prompts, evidence, notes and credentials remain in PostgreSQL.
 
-Source transactions append narrow before/after records to
-`analytics_ingest_events`. Native capture watches omitted card dependencies,
-including content and decision evidence, without serializing those private
-fields. Body, prompt, result, review-note, and credential content remains in
-PostgreSQL. Owner changes retain both identities so unlinking, reparenting,
-candidate promotion, and deletion invalidate every affected card.
+Completed job attempts retain distinct identities. Current publications, feed
+inputs and operator cards use replacing observations with increasing revisions;
+replaying the same observation does not increase totals. Feed deadlines and queue
+availability are evaluated when queried instead of maintaining timer queues.
 
-The exporter acknowledges exact event IDs after durable historical insertion and
-current-card invalidation. IDs are identifiers rather than commit-order cursors;
-replay and late commits cannot silently skip work. Unsupported source/format
-versions fail before acknowledgement. A shared generation-fenced native lease
-prevents an expired owner from publishing over its replacement.
+Reader opens, inference invocations, successful searches and partner delivery
+measurements use dedicated direct stores. Partner receipt timestamps are short
+lived operational replay claims, not aggregate counters. Reader raw open records
+expire after 30 days; ingest materialized aggregate states preserve lifetime totals
+and daily audience estimates.
 
-The existing typed facts, canonical aggregates, hour/day summaries, current
-gauges, and cold ClickHouse archives retain their history. Current-card bootstrap
-has separate policy and coverage state; adding a card dependency does not reset
-historical source cursors or replay the historical population.
+Writes use bounded batches and acknowledged ClickHouse asynchronous inserts.
+Application delivery keeps a bounded in-memory queue. Business commits continue
+when ClickHouse is unavailable. A process crash, full queue or failed delivery
+can lose an observation: there is no durable outbox, WAL replication,
+retry volume or periodic historical reconciliation.
 
-Starting the native exporter automatically imports retained analytical history;
-there is no manual backfill command or synchronous deployment-time data copy.
-Each cycle shares work between a bounded cold-archive import page, a PostgreSQL
-history page, live event delivery, and current-card coverage. The default history
-page is 1,000 rows, with a 100 ms pause between bootstrap cycles. Checkpoints
-advance only after durable ClickHouse acknowledgement, so restarts resume without
-discarding captured writes. This covers retained supported source records and
-closed daily aggregates; previously pruned or never-recorded events cannot be
-reconstructed.
+## Current cards and reports
 
-## Current operator cards
+Five card kinds cover articles, sources, discovery candidates, topic proposals
+and relationship proposals. Builders hydrate at most 200 identities per batch.
+`analytics_card_canonical` stores each policy/kind/shard/entity's latest card or
+tombstone. Queries filter typed fields before fetching limited page payloads;
+counts and pages read current ClickHouse observations. URI and private metadata
+hydration remains separate and bounded.
 
-Five kinds—articles, sources, discovery candidates, topic proposals, and
-relationship proposals—use 256 stable UUID shards each. PostgreSQL keeps
-native control tables for incremental work:
+The supported query API accepts allowlisted analytical query identifiers and
+validated parameters. It does not accept browser-supplied SQL. Related overview
+charts share section calculations, resolved UTC windows and cached responses.
+Each process owns one asynchronous client with bounded query admission. Expired
+cache results are discarded; query or readiness failures return the retryable
+`analytics_preparing` response. The admin retries preparing results automatically.
+Only Queue pressure continues polling after a successful response.
 
-- `analytics_card_refresh` coalesces exact dirty identities.
-- `analytics_card_backfills` checkpoints initial coverage for the five kinds.
-- `analytics_card_fanout` checkpoints source/catalog invalidation passes.
-- `analytics_card_timers` indexes future job transitions by deadline.
-- `analytics_card_timer_bootstrap` checkpoints timer adoption and cleanup.
+Overview accepts `from`/`to` date math or inclusive UTC dates. Exact resolved bounds
+identify caches and filter data before aggregation. Distinct-reader sketches and
+percentiles remain estimates; integer accounting remains exact.
 
-Builders hydrate at most 200 combined identities before evaluating lifecycle
-rules. Each publication batches up to eight shards of the same kind into one
-canonical insert, one snapshot copy, and one manifest insert. Bulk control-table
-updates retain per-identity generation checks. Source fanout uses bounded origin keysets. Catalog fanout considers
-catalog-sensitive current ClickHouse cards. Concurrent changes coalesce without
-repeatedly rewinding a running scan. Timed job availability transitions enqueue
-bounded due-card work. Article scheduler-clock changes create no capture event or
-card rebuild; returned article IDs receive their current display clock in one
-bounded authoritative query.
+`analytics_direct_status` contains historical readiness, the current card policy
+and the fixed reader cutoff. A policy change requires bounded current-card import
+before that policy is served. Operator actions always validate and lock current
+business facts in PostgreSQL; an analytical observation never authorizes a write.
 
-Queued job deadlines are recorded in an indexed PostgreSQL timer queue alongside
-the fenced card-refresh acknowledgement. Due timers enqueue at most 200 card
-identities per cycle; job changes recalculate their deadlines through normal
-capture. Policy resets use a new timer epoch and retire obsolete entries in
-bounded batches. Existing native-card installations seed this queue from the
-current ClickHouse cards in restartable, lease-fenced keyset pages, while a
-temporary due scan covers unseeded cards. Fresh policy coverage builds the timer
-queue directly. The temporary scan and seed checkpoint are removed only after
-the [backfill retirement gates](ANALYTICS_BACKFILL_RETIREMENT.md) are met.
-Seed pages target one physical card shard at a time; ClickHouse granules and
-parts determine actual rows read, while the page size bounds returned identities.
-The temporary due scan can still read the remaining unseeded card population.
+## Finite historical import
 
-`analytics_card_canonical` retains the latest durable card and tombstone for each
-policy/kind/shard/entity. It has no TTL. Full immutable shard generations are
-copied into `analytics_cards`; the exporter publishes the small
-`analytics_card_manifest` last. Semantic hashes prevent unchanged facts from
-publishing another generation. Quiet snapshots renew daily; serving snapshots
-expire after seven days without deleting canonical state or business history.
+`python -m devfeed_core.analytics_worker` initializes direct stores and imports
+retained history automatically. It reads at most 1,000 PostgreSQL source rows
+or 200 current card identities per page. Source
+transactions close before ClickHouse network writes. Durable ClickHouse
+checkpoints advance only after acknowledged writes; failed pages replay safely.
 
-Every request freezes a manifest vector. Counts, ordering, pages, and payloads
-all use that vector. Filters operate on typed columns, then fetch payloads only
-for the limited page. HTTP reads never calculate population-wide lifecycle
-state. Private source/candidate URI matching uses narrow PostgreSQL identity
-queries, and returned page URIs are hydrated separately; credentials never enter
-ClickHouse search/payload fields.
+The worker installs temporary rejection guards on old analytics relations and
+removes old calculation/capture triggers under short NOWAIT metadata locks. These
+guards stop old analytics writes while business tables remain writable. Old
+analytic endpoints can fail fast during the handoff. Outbound legacy foreign keys
+are removed so a business deletion cannot erase frozen historical rows.
 
-A changed derivation policy must finish before current cards are served. Initial
-coverage waits for all five backfills, initial fanout, and a fixed initial-dirty
-barrier. Later writes add lag without starving first readiness. Only complete
-coverage switches the serving policy. Truncation resets current card coverage
-without resetting historical export or deleting archived facts.
-Current-card work continues during the historical import, so boards become
-available after their own coverage completes. Historical charts keep returning
-the retryable preparing response until raw history, initial summaries, and gauge
-coverage are complete; partial history is never presented as a complete report.
+The import preserves retained invocations, reader totals and opens, search totals,
+partner measurements, retained processing jobs and closed daily audience
+history. It also imports current business snapshots. Current card pages have a policy-specific checkpoint so changing a
+policy does not replay immutable history.
 
-## Reports and freshness
+After all pages finish, the worker removes legacy PostgreSQL analytics tables,
+functions, sequences and search counters, then publishes readiness. Subsequent
+cycles and ready restarts perform no PostgreSQL historical polling. Marked import
+code is removed in a later release under the
+[retirement gates](ANALYTICS_BACKFILL_RETIREMENT.md).
 
-Twelve chart response contracts remain independent. Related cards share
-singleflight calculations by section, resolved UTC window, and policy. A process
-owns one asynchronous ClickHouse client with a global two-query admission limit.
-Local and Redis caches expire after 30 seconds. Expired results are discarded;
-ClickHouse failures and query-admission limits return the retryable preparing
-response. The admin automatically retries while data is being prepared. There is
-one ClickHouse serving path and no saved-report worker or stale-result fallback.
+## Compose and rollout
 
-Stage counts, windowed page keys, and typed payload hydration share one read
-implementation; each board keeps its filters, ordering, and cursor rules explicit.
-Fact normalization uses one source-to-domain registry, and rollup projections and
-compaction share their table definitions. Card observations share a bounded,
-read-only source transaction and article metadata construction. Exporter lease
-renewal and publication order remain explicit checkpoints.
+Compose runs persistent ClickHouse and the finite `analytics-importer` service.
+Their default budgets are two CPUs/2 GiB and 0.5 CPU/512 MiB respectively. Application
+writers and the importer use bounded ingestion credentials; read and ingestion
+profiles reserve separate capacity. Client limits must fit server profile limits.
+ClickHouse database ports stay private. CH-UI publishes port 4000 on
+`DEVFEED_CH_UI_BIND_IP`; set `DEVFEED_CH_UI_URL` to its browser origin for LAN use.
 
-Python CI limits permanent analytics functions to McCabe complexity 10. The marked
-one-time cutover importer is excluded until its planned retirement.
+Prepare ClickHouse and apply schema `0038` before starting new application
+producers. The migration container initializes ClickHouse schemas and fixes the reader cutoff under the import
+advisory lock with ingestion credentials and waits for ClickHouse health; it never scans history. Then deploy
+the new applications, drain old application/worker processes and start the
+historical importer. New application
+requests and direct writes remain available during import; analytical readiness
+waits for complete history. The worker proves legacy analytics are frozen; it
+cannot prove that an old pod stopped producing business changes after a source
+page was scanned. Draining old processes is therefore required for the handover.
+Do not put the full historical scan in a synchronous migration or readiness hook.
 
-Queue pressure uses a separate gauge-only calculation and cache key; polling it
-does not refresh historical processing charts. Historical throughput and outcomes
-share their two summary queries. Only Queue pressure polls after success; other
-charts retain preparing retries and explicit reload behavior.
+Back up ClickHouse together with import progress and readiness. After PostgreSQL
+history is removed, an empty ClickHouse database cannot reconstruct deleted
+history. Restoring an older ClickHouse snapshot also loses later observations
+unless those observations are available from another backup. No automatic archive
+or reconciliation service is introduced.
 
-Overview accepts Grafana-style `from`/`to` date math or inclusive UTC dates.
-Resolved bounds identify caches, so equal-length custom intervals do not replace
-each other. Summary queries filter exact bounds before grouping. Large ranges use
-bounded weekly/monthly series. Token and financial counters remain exact;
-approximate distinct-reader and percentile summaries remain labelled estimates.
-
-Current status comes from `analytics_card_status`; historical readiness comes
-from `analytics_pipeline_status`. Bootstrap readiness and ongoing freshness are
-independent. A stale/catching-up observation never authorizes an operator action:
-advance, retry, approval, and publication still lock and validate current
-PostgreSQL facts and reject changed action tokens.
-
-Preparation failures use the single `analytics_preparing` error code. Cards
-require the serving policy, exporter target, and current application policy to
-match; a previous policy is never served during a rebuild. Snapshot metadata
-describes `fresh`, `stale`, or `catching_up` current ClickHouse data. `stale` means
-the exporter is behind, not that an expired cached response was returned.
-
-## Resource isolation and Compose
-
-Compose retains one analytics exporter and one persistent ClickHouse service.
-Default service budgets are 0.5 CPU/512 MiB for the exporter and two CPUs/2 GiB for
-ClickHouse. Shared reader and ingestion profiles reserve separate concurrency and
-memory budgets across replicas. The `DEVFEED_CLICKHOUSE_*` settings must fit
-within those server constraints; client settings cannot raise profile ceilings.
-
-The exporter uses the separate `devfeed_ingest` account. Only the admin API and
-exporter receive application ClickHouse credentials. ClickHouse database ports
-remain private. CH-UI joins the private data network and publishes port 4000 on
-`DEVFEED_CH_UI_BIND_IP` (falling back to the shared bind address/all IPv4). Set
-`DEVFEED_CH_UI_URL` to the browser origin for LAN use. Its own persistent
-`ch-ui-data` volume retains sessions, saved queries, dashboards, and encryption
-state. Management UI availability does not gate applications or migrations.
-
-## Migration and rollout
-
-Temporary import and historical backfill paths are marked
-`REMOVE_AFTER_CLICKHOUSE_BACKFILL`. Remove them in a later release only after the
-[backfill retirement gates](ANALYTICS_BACKFILL_RETIREMENT.md) are met. Native
-current-card initialization and policy/reset recovery remain required.
-
-Build compatible backend/exporter and admin images before migration. Deploy the
-admin UI and API together: only the current `analytics_preparing` contract is
-supported. Stop the
-old exporter and both obsolete projectors. Before applying `0042`, back up the
-five disposable derived tables and native PostgreSQL control state, and record
-business identity/count checks. Preserve the persistent PostgreSQL and ClickHouse
-volumes and all analytical facts, manifests, and cold archives.
-
-Before upgrading an existing native exporter through `0043`, stop the old
-exporter and wait for its already-issued ClickHouse commands to finish. The
-migration renames and clears its PostgreSQL lease, fencing subsequent old-worker
-claims and acknowledgements. A ClickHouse partition replacement already issued
-after an earlier lease check can still finish, so lease fencing alone does not
-replace draining those commands before the migration.
-
-Use the online `devfeed db upgrade` command for this cutover. When upgrading an
-existing schema across `0040`, Alembic first builds the eight active-job indexes
-concurrently on a separate connection, before changing the visible schema
-revision. Existing application pods can continue reading and writing while this
-preparation runs. The caller's statement and lock timeouts still apply, parallel
-index workers are disabled, and a failed preparation leaves the previous schema
-revision intact. Retrying reuses completed indexes and rebuilds matching invalid
-indexes left by an interrupted attempt. A conflicting index definition requires
-explicit repair. Migration `0043` similarly prepares the partial initial-card
-refresh index concurrently before its transaction; a missing or conflicting index
-at cutover fails the upgrade rather than locking an existing queue. Card refresh
-selects a bounded FIFO candidate window, prioritizes initial coverage, and publishes
-at most eight shards and 200 cards per batch. The remaining schema changes commit together; do not add the
-historical import to the migration hook or application readiness checks.
-
-Migration `0042` removes the old projection/report triggers and functions,
-renames the queue to `analytics_ingest_events`, preserves pending IDs, their
-sequence and format-1/2 contents, then makes new captures format 3. The rename
-fences older exporters that cannot interpret current dependencies. It clears the
-old lease while preserving historical ready flags, source cursors, and retained
-facts. It creates only current-card controls and removes the five derived tables:
-`pipeline_projections`, `read_model_events`, `read_model_states`,
-`report_snapshots`, and `report_refreshes`.
-
-Deploy persistent ClickHouse with its profiles and credentials, the native
-exporter, and compatible APIs through Fleet. An application image update alone
-does not create these workloads. Public API readiness checks PostgreSQL schema
-and Redis, and does not wait for ClickHouse history to finish. Verify current
-board coverage and live updates during import, then historical readiness, report
-totals, transitions, action guards, freshness, and source-write cost after import.
-Retire the old projector deployments from the final Fleet manifests. The native
-image smoke gate checks the adapted exporter command, both readiness contracts,
-retained business records, and real fresh/stale health probes.
-
-The migration rejects downgrade. Reverting application code cannot recreate
-compatible derived state or reverse the capture protocol. Use a planned forward
-repair or coordinated backup restore. Generation-bounded pruning assumes manifest
-generations never move backwards. Before restoring an older ClickHouse snapshot,
-quiesce old exporters and ensure previously issued ClickHouse mutations cannot
-continue against the restored dataset.
-
-**Production release blocker:** Losing the ClickHouse database or restoring an
-older snapshot while retaining PostgreSQL can leave analytics marked ready while
-acknowledged and pruned facts are missing. A continuity protocol and coordinated
-backup and restore have not yet been validated. Production rollout requires tested
-protection against this failure and coherent backups; the quiescence prerequisite
-above alone does not establish a safe recovery procedure. Local validation does not
-imply a production rollout.
-
-## Disposable profiling
-
-`scripts/scale_fixture.py --seed` prepares explicitly local PostgreSQL/ClickHouse
-`_test` databases with deterministic business history and native export. Redis
-must be explicitly local database 15. Seeding replaces the selected fixture;
-never select the persistent interactive stack for destructive pytest fixtures.
-The former profiler's stable entity identities and production-baseline counts
-remain available in this reusable helper.
-
-`scripts/profile_analytics_reports.py` measures native report queries and optional
-ClickHouse query-log resource costs. `scripts/profile_reader_views.py` reuses the
-same business fixture helpers for reader profiling. Use unique scratch databases
-for migration/recovery tests, then validate the normal persistent seeded stack
-separately without truncating it.
-
-Historical measurements and their limitations remain in
-[the native baseline](../../benchmarks/clickhouse-native-baseline.md) and
-[the retired PostgreSQL baseline](../../benchmarks/postgresql-read-model-baseline.md).
-They do not certify the new current-card path or production ARM64 hardware.
+For local databases stamped with an earlier undeployed draft revision, follow the
+metadata-only development repair in [the migration guide](../../migrations/README.md).
+No development repair changes a production database.

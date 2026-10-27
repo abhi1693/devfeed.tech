@@ -13,7 +13,6 @@ import time
 import uuid
 from pathlib import Path
 
-from devfeed_core.analytics_capture import native_capture_statements
 from devfeed_core.db import get_engine
 from devfeed_core.models import Article, Base, UserAccount
 from devfeed_core.version import SCHEMA_REVISION
@@ -55,77 +54,6 @@ def seed():
 def metadata_setup():
     Base.metadata.create_all(get_engine())
     with get_engine().begin() as connection:
-        # This fixture tests commands independently of Alembic. The analytical
-        # exporter state is migration-owned rather than part of ORM metadata.
-        statements = (
-            """CREATE TABLE analytics_pipeline_state (
-                singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
-                enabled boolean NOT NULL DEFAULT false, capture_started_at timestamptz,
-                last_success_at timestamptz, native_lease_token uuid, lease_until timestamptz,
-                lease_generation bigint NOT NULL DEFAULT 0,
-                native_import_complete boolean NOT NULL DEFAULT false,
-                native_capture_started_at timestamptz, reader_coverage_start date,
-                native_bootstrap_barrier boolean NOT NULL DEFAULT false,
-                native_bootstrap_complete boolean NOT NULL DEFAULT false,
-                card_target_policy text, card_serving_policy text,
-                card_bootstrap_complete boolean NOT NULL DEFAULT false,
-                card_bootstrap_barrier boolean NOT NULL DEFAULT false,
-                card_catalog_revision jsonb,card_catalog_target_revision jsonb,
-                card_catalog_progress_at timestamptz)""",
-            "INSERT INTO analytics_pipeline_state(singleton) VALUES(true)",
-            "CREATE SEQUENCE analytics_export_generation AS bigint",
-            """CREATE TABLE analytics_bootstrap_cursors (
-                source_table text PRIMARY KEY, cursor jsonb,
-                complete boolean NOT NULL DEFAULT false)""",
-            """CREATE TABLE analytics_ingest_events (
-                id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                source_table text NOT NULL, operation char(1) NOT NULL,
-                record jsonb NOT NULL, before_record jsonb,
-                format_version smallint NOT NULL DEFAULT 3 CHECK(format_version IN (1,2,3)),
-                created_at timestamptz NOT NULL DEFAULT clock_timestamp())""",
-            "CREATE INDEX ix_analytics_capture_created ON analytics_ingest_events(created_at,id)",
-            """CREATE TABLE analytics_fact_refresh (
-                domain text NOT NULL, bucket timestamptz NOT NULL, generation bigint NOT NULL,
-                requested_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-                available_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-                initial_pending boolean NOT NULL DEFAULT false, PRIMARY KEY(domain,bucket))""",
-            "CREATE INDEX ix_analytics_fact_refresh_requested "
-            "ON analytics_fact_refresh(requested_at,domain,bucket)",
-            "CREATE INDEX ix_analytics_fact_refresh_due "
-            "ON analytics_fact_refresh(available_at,requested_at,domain,bucket)",
-            "CREATE INDEX ix_analytics_fact_refresh_domain_due "
-            "ON analytics_fact_refresh(domain,available_at,requested_at,bucket)",
-            """CREATE TABLE analytics_rollup_compaction (
-                table_name text NOT NULL, month integer NOT NULL,
-                publishes integer NOT NULL DEFAULT 0, last_prune_token text,
-                PRIMARY KEY(table_name,month))""",
-            """CREATE TABLE analytics_upgrade_checkpoint (
-                name text PRIMARY KEY, cursor jsonb, complete boolean NOT NULL DEFAULT false)""",
-            "CREATE SEQUENCE analytics_gauge_revision AS bigint",
-            """CREATE TABLE analytics_gauge_refreshes (
-                domain text NOT NULL CHECK(domain IN ('queues','feed','sources','topics')),
-                shard smallint NOT NULL CHECK(shard BETWEEN 0 AND 255),
-                revision bigint NOT NULL DEFAULT nextval('analytics_gauge_revision'),
-                available_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-                bootstrap_required boolean NOT NULL DEFAULT false,
-                bootstrap_generation bigint NOT NULL DEFAULT 0, PRIMARY KEY(domain,shard))""",
-            "CREATE INDEX ix_analytics_gauge_due "
-            "ON analytics_gauge_refreshes(available_at,domain,shard)",
-            """CREATE TABLE analytics_gauge_bootstrap (
-                singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
-                started boolean NOT NULL DEFAULT false)""",
-            "INSERT INTO analytics_gauge_bootstrap(singleton) VALUES(true)",
-            "INSERT INTO analytics_card_timer_bootstrap(singleton) VALUES(true)",
-            "INSERT INTO analytics_gauge_refreshes(domain,shard) "
-            "VALUES('queues',0),('feed',0),('sources',0),('topics',0)",
-        )
-        # Metadata fixtures can live beside the migrated public schema. Resolve
-        # capture functions only inside this fixture, never through its fallback.
-        schema = connection.scalar(text("SELECT current_schema()"))
-        quoted = connection.dialect.identifier_preparer.quote_schema(schema)
-        connection.execute(text(f"SET LOCAL search_path TO {quoted}"))
-        for statement in (*statements, *native_capture_statements()):
-            connection.execute(text(statement))
         connection.execute(
             text("CREATE TABLE alembic_version (version_num varchar(32) PRIMARY KEY)")
         )
@@ -133,7 +61,7 @@ def metadata_setup():
             text("INSERT INTO alembic_version VALUES (:revision)"), {"revision": SCHEMA_REVISION}
         )
     seed()
-    print("Metadata-only disposable runtime schema; this does not prove Alembic migration")
+    print("Metadata-only disposable business schema; this does not prove Alembic migration")
 
 
 def retained():
@@ -151,26 +79,19 @@ def current_cards():
 
     async def check():
         async with AnalyticsClient() as client:
-            rows = await client.query("SELECT * FROM analytics_card_status FINAL")
-            assert len(rows) == 1
-            status = rows[0]
+            status = await client.status()
             assert status["ready"] and status["policy"] == pipeline_policy_version()
-            assert status["lag_seconds"] <= 60
             rows = await client.query(
-                "SELECT payload FROM analytics_cards AS c "
-                "INNER JOIN (SELECT policy,kind,shard,generation "
-                "FROM analytics_card_manifest FINAL) AS m "
-                "ON c.policy=m.policy AND c.kind=m.kind AND c.shard=m.shard "
-                "AND c.generation=m.generation "
-                "WHERE c.policy={policy:String} AND c.kind='article' "
-                "AND c.entity_id={id:UUID}",
+                "SELECT payload FROM analytics_card_canonical FINAL "
+                "WHERE policy={policy:String} AND kind='article' "
+                "AND entity_id={id:UUID} AND NOT deleted",
                 {"policy": status["policy"], "id": str(ARTICLE)},
             )
             assert len(rows) == 1 and json.loads(rows[0]["payload"])["title"] == TITLE
 
     asyncio.run(check())
     retained()
-    print("Native exporter retained records and published current ClickHouse cards")
+    print("Direct analytics import retained records and published current ClickHouse cards")
 
 
 def heartbeat():

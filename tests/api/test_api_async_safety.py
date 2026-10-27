@@ -26,7 +26,7 @@ def api_routes(routes):
             yield from api_routes(route.original_router.routes)
 
 
-@pytest.mark.parametrize("package", SERVICES)
+@pytest.mark.parametrize("package", (*SERVICES, "devfeed_partner_api"))
 def test_async_endpoints_do_not_receive_synchronous_database_sessions(package):
     module = importlib.import_module(f"{package}.main")
     dependencies = importlib.import_module(f"{package}.dependencies")
@@ -38,7 +38,7 @@ def test_async_endpoints_do_not_receive_synchronous_database_sessions(package):
 
 
 def test_analytical_metadata_session_lifetime_stays_in_one_worker():
-    from devfeed_admin_api.dependencies import read_metadata
+    from devfeed_http.dependencies import run_database
 
     async def scenario():
         loop_thread = threading.get_ident()
@@ -65,9 +65,9 @@ def test_analytical_metadata_session_lifetime_stays_in_one_worker():
                 raise RuntimeError("metadata unavailable")
             return "page metadata"
 
-        assert await read_metadata(Session, operation, False) == "page metadata"
+        assert await run_database(Session, operation, False) == "page metadata"
         with pytest.raises(RuntimeError, match="metadata unavailable"):
-            await read_metadata(Session, operation, True)
+            await run_database(Session, operation, True)
         assert events == ["open", "query", "close"] * 2
 
     asyncio.run(scenario())

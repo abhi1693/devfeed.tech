@@ -1,14 +1,21 @@
-"""Direct ClickHouse article opens and one-time lifetime baselines.
+"""Direct opens with 30-day viewer retention and compact lifetime/audience states.
 
-The historical importer must freeze the old PostgreSQL writer, import lifetime
-counts and retained hourly identities, and publish its cutover hour before
-these reads are exposed. A historical identity wins over a live retry in the
-cutover hour, so the lifetime baseline and new events do not double count it.
+Raw viewer keys expire after thirty days. Ingest-time distinct states retain
+opaque per-event UUID fingerprints for exact lifetime deduplication and hashed
+reader sketches for historical audience counts; they contain no raw viewer
+keys. These are not a retry queue or a secondary application projection worker.
+
+The one-time importer freezes old PostgreSQL writers and imports lifetime totals
+and retained hourly identities. Lifetime counts are baseline plus the distinct
+union of live/history events minus distinct historical events, so retries and
+cutover-hour overlap never add the historical event twice.
 """
 
 import re
 import uuid
 from datetime import UTC, datetime
+
+from clickhouse_connect.driver.external import ExternalData
 
 from devfeed_core.analytics import AnalyticsUnavailable
 
@@ -18,9 +25,32 @@ MAX_PAGE = 1000
 
 OPEN_DDL = """CREATE TABLE IF NOT EXISTS analytics_article_opens (
     opened_hour DateTime64(6, 'UTC'), article_id UUID, viewer_key FixedString(64),
-    historical UInt8, article_key String MATERIALIZED toString(article_id)
+    event_id UUID, historical UInt8, article_key String MATERIALIZED toString(article_id)
 ) ENGINE = ReplacingMergeTree(historical) PARTITION BY toYYYYMM(opened_hour)
-ORDER BY (article_key, opened_hour, viewer_key)"""
+ORDER BY (article_key, opened_hour, event_id)
+TTL opened_hour + INTERVAL 30 DAY DELETE SETTINGS merge_with_ttl_timeout=3600"""
+
+LIFETIME_DDL = """CREATE TABLE IF NOT EXISTS analytics_open_lifetime (
+    article_id UUID, open_state AggregateFunction(uniqExact, UUID),
+    historical_state AggregateFunction(uniqExact, UUID)
+) ENGINE=AggregatingMergeTree ORDER BY article_id"""
+
+AUDIENCE_DDL = """CREATE TABLE IF NOT EXISTS analytics_open_audience_hourly (
+    bucket_hour DateTime('UTC'), open_state AggregateFunction(uniqExact, UUID),
+    reader_state AggregateFunction(uniqCombined64, String)
+) ENGINE=AggregatingMergeTree ORDER BY bucket_hour"""
+
+LIFETIME_VIEW_DDL = """CREATE MATERIALIZED VIEW IF NOT EXISTS analytics_open_lifetime_ingest
+TO analytics_open_lifetime AS SELECT article_id,uniqExactState(event_id) AS open_state,
+uniqExactStateIf(event_id,historical=1) AS historical_state
+FROM analytics_article_opens GROUP BY article_id"""
+
+AUDIENCE_VIEW_DDL = """CREATE MATERIALIZED VIEW IF NOT EXISTS analytics_open_audience_ingest
+TO analytics_open_audience_hourly AS SELECT toDateTime(opened_hour,'UTC') AS bucket_hour,
+uniqExactState(event_id) AS open_state,uniqCombined64State(toString(viewer_key)) AS reader_state
+FROM analytics_article_opens GROUP BY bucket_hour"""
+
+_EVENT_NAMESPACE = uuid.UUID("7394f820-b9e0-4973-a423-c013c89953e6")
 
 BASELINE_DDL = """CREATE TABLE IF NOT EXISTS analytics_article_open_baseline (
     article_id UUID, opens UInt64
@@ -58,10 +88,12 @@ def _hour(value):
 def _open(article, viewer, opened, *, historical):
     if not isinstance(viewer, str) or re.fullmatch(r"[0-9a-f]{64}", viewer) is None:
         raise ValueError("Invalid pseudonymous viewer identity")
+    identity, hour = _article(article), _hour(opened)
     return {
-        "article_id": _article(article),
+        "article_id": identity,
         "viewer_key": viewer,
-        "opened_hour": _hour(opened),
+        "opened_hour": hour,
+        "event_id": str(uuid.uuid5(_EVENT_NAMESPACE, f"{identity}:{viewer}:{hour.isoformat()}")),
         "historical": int(historical),
     }
 
@@ -79,9 +111,18 @@ class ArticleOpenAnalytics:
         self.client = client
 
     async def initialize(self):
-        await self.client.execute(OPEN_DDL)
-        await self.client.execute(BASELINE_DDL)
-        await self.client.execute(CUTOVER_DDL)
+        # Targets and views exist before any raw insert is accepted. Aggregate
+        # states deduplicate event IDs independently of raw Replacing merges.
+        for statement in (
+            OPEN_DDL,
+            LIFETIME_DDL,
+            AUDIENCE_DDL,
+            LIFETIME_VIEW_DDL,
+            AUDIENCE_VIEW_DDL,
+            BASELINE_DDL,
+            CUTOVER_DDL,
+        ):
+            await self.client.execute(statement)
 
     async def _cutover(self):
         rows = await self.client.query(
@@ -184,15 +225,17 @@ class ArticleOpenAnalytics:
         identities = _articles(article_ids)
         if not identities:
             return {}
+        _hour(cutover)
         rows = await self.client.query(
             "SELECT toString(article_id) AS article_id,sum(opens) AS opens FROM ("
             "SELECT article_id,opens FROM analytics_article_open_baseline FINAL "
             "WHERE article_id IN {ids:Array(UUID)} UNION ALL "
-            "SELECT article_id,toUInt64(countIf(historical=0)) AS opens "
-            "FROM analytics_article_opens FINAL WHERE article_key IN {ids:Array(String)} "
-            "AND opened_hour>={cutover:DateTime64(6,'UTC')} GROUP BY article_id) "
+            "SELECT article_id,toUInt64(uniqExactMerge(open_state)-"
+            "uniqExactMerge(historical_state)) AS opens "
+            "FROM analytics_open_lifetime WHERE article_id IN {ids:Array(UUID)} "
+            "GROUP BY article_id) "
             "GROUP BY article_id SETTINGS optimize_move_to_prewhere_if_final=0",
-            {"ids": identities, "cutover": _hour(cutover)},
+            {"ids": identities},
         )
         result = dict.fromkeys(identities, 0)
         for row in rows:
@@ -224,4 +267,39 @@ class ArticleOpenAnalytics:
             + " GROUP BY article_key ORDER BY article_key LIMIT {limit:UInt32} "
             "SETTINGS optimize_move_to_prewhere_if_final=0",
             parameters,
+        )
+
+    async def trending(self, since, metadata, *, limit, cursor):
+        """Rank one authoritative visibility/like snapshot in one server query.
+
+        External query data is transient and never inserted into ClickHouse.
+        PostgreSQL has already released its read transaction before this call.
+        """
+        if not isinstance(metadata, bytes) or len(metadata) > 64 * 1024**2 or len(metadata) % 32:
+            raise ValueError("Invalid trending metadata")
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("Invalid trending page size")
+        if type(cursor) is not int or not 0 <= cursor <= 1_000_000:
+            raise ValueError("Invalid trending cursor")
+        if not metadata:
+            return []
+        external = ExternalData(
+            file_name="visible_articles",
+            data=metadata,
+            fmt="RowBinary",
+            structure="article_id UUID,feed_at Int64,likes UInt64",
+        )
+        return await self.client.query(
+            "WITH recent AS (SELECT article_id,count() AS opens "
+            "FROM analytics_article_opens FINAL "
+            "WHERE opened_hour>={since:DateTime64(6,'UTC')} GROUP BY article_id) "
+            "SELECT toString(v.article_id) AS article_id,"
+            "toUInt64(ifNull(o.opens,0)+3*v.likes) AS score "
+            "FROM visible_articles AS v LEFT JOIN recent AS o USING article_id "
+            "WHERE ifNull(o.opens,0)>0 OR v.likes>0 "
+            "ORDER BY score DESC,v.feed_at DESC,toString(v.article_id) DESC "
+            "LIMIT {limit:UInt32} OFFSET {offset:UInt32} "
+            "SETTINGS optimize_move_to_prewhere_if_final=0",
+            {"since": _instant(since), "limit": limit + 1, "offset": cursor},
+            external_data=external,
         )

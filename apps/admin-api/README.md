@@ -5,9 +5,9 @@ package. Source files live directly under `src`, mapped to `devfeed_admin_api`.
 
 See [configuration, authentication, service boundaries and commands](../../docs/admin.md).
 
-Pipeline and Overview pages read [native ClickHouse analytics](ANALYTICS.md). That guide
-covers transactional capture, the analytics exporter, bounded current cards, report
-caching, freshness, and coordinated rollout.
+Pipeline and Overview pages read [direct ClickHouse analytics](ANALYTICS.md). That guide
+covers application delivery, bounded historical import, current cards, report
+caching, and coordinated rollout.
 
 The source lifecycle board is available at `GET /v1/admin/source-pipeline`;
 `GET /columns/{stage}` pages one lane with an integer `cursor`. Both accept `q`,
@@ -15,7 +15,7 @@ The source lifecycle board is available at `GET /v1/admin/source-pipeline`;
 `terminal_since` (seven days by default, at most 90 days). Pending work and active
 jobs remain visible regardless of age. Running cards come first, followed by
 oldest waiting work; terminal lanes show the latest durable activity first.
-Counts cover the entire filtered ClickHouse snapshot. The exporter loads evidence in bounded
+Counts cover the entire filtered ClickHouse snapshot. The application loads evidence in bounded
 batches; board reads do not load article bodies or job history.
 
 Cards use `source:{id}` or `candidate:{id}` keys. Linked discovery candidates appear
@@ -46,7 +46,7 @@ publication, audience, personalization, source, processing, and inference panels
 retains transactional source records and validates operator actions. Chart and board
 reads use ClickHouse with a shared request cache.
 
-The analytical exporter captures narrow committed changes and sends them asynchronously.
+The application publishes narrow observations asynchronously after business commits.
 A bounded initial backfill imports available history, including older aggregate-only reader
 metrics. Token reports retain the distinction between cumulative completed-job usage and
 individual inference invocations, including unknown and malformed telemetry.

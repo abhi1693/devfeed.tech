@@ -4,9 +4,12 @@ Scoped rows and domain services are boundaries. No database eligibility, rollbac
 concurrency, or upsert behavior is implemented by the session double.
 """
 
+import asyncio
 import uuid
+from contextlib import contextmanager
 from datetime import timedelta
-from unittest.mock import Mock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from devfeed_admin_api import partner_accounts as accounts
@@ -187,19 +190,47 @@ def test_manual_reporting_asset_requires_the_current_tier_even_for_admins(tier):
         session.commit.assert_called_once()
 
 
-def test_trusted_metric_import_requests_replacement_for_exact_asset_and_day():
+def test_trusted_metric_import_requests_replacement_for_exact_asset_and_day(monkeypatch):
     owner, value, session = account(), product(), Mock(spec=Session)
     current = asset(owner, value)
-    session.scalar.side_effect = [owner, current]
+    session.scalar.side_effect = [owner, current, 73]
     payload = MetricInput(day=NOW.date() - timedelta(days=1), impressions=200, clicks=7)
-    response = accounts.record_metrics(owner.id, current.id, payload, identity(), session)
-    requested = session.execute.call_args.args[0].compile().params
-    assert response.status_code == 204
-    assert {name: requested[name] for name in ["asset_id", "day", "impressions", "clicks"]} == {
+    client = object()
+    active = False
+
+    @contextmanager
+    def factory():
+        nonlocal active
+        active = True
+        try:
+            yield session
+        finally:
+            active = False
+
+    async def write(_rows):
+        assert not active, "PostgreSQL session held during analytics I/O"
+
+    store = SimpleNamespace(partner_totals=AsyncMock(side_effect=write))
+    construct = Mock(return_value=store)
+    monkeypatch.setattr(accounts, "DirectEngagementAnalytics", construct)
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(analytics=SimpleNamespace(client=client)))
+    )
+    response = asyncio.run(
+        accounts.record_metrics(owner.id, current.id, payload, identity(), factory, request)
+    )
+    store.partner_totals.assert_awaited_once()
+    requested = store.partner_totals.await_args.args[0]
+    assert len(requested) == 1
+    assert {name: requested[0][name] for name in ["asset_id", "day", "impressions", "clicks"]} == {
         "asset_id": current.id,
         **payload.model_dump(),
     }
-    session.commit.assert_called_once()
+    assert requested[0]["revision"] == 73
+    assert requested[0]["updated_at"].utcoffset() == timedelta(0)
+    assert response.status_code == 204
+    session.commit.assert_not_called()
+    construct.assert_called_once_with(client)
 
 
 @pytest.mark.parametrize("provider", ["missing", "archived"])

@@ -428,12 +428,12 @@ class Smoke:
         self.stop(process)
         print("PASS native Fleet search setup, real Typesense and indexer heartbeat")
 
-    def exporter(self):
+    def importer(self):
         output = self.run(CONTRACTS["backfill"]["command"])
         assert '"cutover_ready": true' in output
         self.run(["python", "/fleet/runtime.py", "current-cards"])
-        name = self.start(CONTRACTS["analytics-exporter"]["command"])
-        probe = CONTRACTS["analytics-exporter"]["probes"]["readinessProbe"]
+        name = self.start(CONTRACTS["analytics-importer"]["command"])
+        probe = CONTRACTS["analytics-importer"]["probes"]["readinessProbe"]
         self.wait_probe(name, probe)
         self.execute(name, "python", "/fleet/runtime.py", "permissions")
         # Freeze the owner so a new cycle cannot overwrite the stale test marker.
@@ -444,7 +444,7 @@ class Smoke:
         finally:
             command("docker", "kill", "--signal=CONT", name)
         self.stop(name)
-        print("PASS native Fleet exporter; fresh probe passes, stale probe fails")
+        print("PASS direct Fleet importer; fresh probe passes, stale probe fails")
 
     def frontend(self):
         name = self.start(frontend=True, env={"DEBUG": "next:start-server", "DEBUG_COLORS": "0"})
@@ -484,7 +484,7 @@ def main():
                 smoke.ca()
             smoke.schema()
             if component == "backend":
-                smoke.exporter()
+                smoke.importer()
                 smoke.workers()
                 smoke.indexer()
                 smoke.scheduler()

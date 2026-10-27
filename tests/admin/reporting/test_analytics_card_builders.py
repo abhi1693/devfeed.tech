@@ -103,7 +103,10 @@ def test_automation_clock_changes_only_displayed_schedule_not_lifecycle_or_retry
         name: facts[name] for name in ("enrichment", "analysis", "content", "discovery", "storage")
     }
     original = article_cards._card(article, readiness, jobs, taxonomy=facts["taxonomy"])
-    transition = builders._next_transition(jobs.values(), facts["now"])
+    original_row = builders._article_row(
+        article, original, "policy", facts["now"], None, jobs=jobs.values()
+    )
+    transition = original_row["next_transition_at"]
 
     article.automation_next_check_at = facts["now"] + timedelta(seconds=10)
     refreshed = builders.derive_publication_readiness(article, **facts)
@@ -115,7 +118,10 @@ def test_automation_clock_changes_only_displayed_schedule_not_lifecycle_or_retry
         exclude={"next_check_at"}
     )
     assert transition == facts["analysis"].available_at
-    assert builders._next_transition(jobs.values(), facts["now"]) == transition
+    updated_row = builders._article_row(
+        article, updated, "policy", facts["now"], None, jobs=jobs.values()
+    )
+    assert updated_row["next_transition_at"] == transition
 
 
 def test_source_export_preserves_actions_without_exporting_private_urls(monkeypatch):

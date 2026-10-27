@@ -112,3 +112,54 @@ def test_direct_observation_is_identity_free_and_carries_no_query_text():
         assert "private query" not in str(events)
 
     asyncio.run(run())
+
+
+def test_metadata_pages_create_use_and_close_the_session_before_clickhouse():
+    import threading
+    from types import SimpleNamespace
+
+    async def run():
+        loop_thread = threading.get_ident()
+        events = []
+        digest = query_hash("search")
+        record = {
+            "query_hash": digest,
+            "query": "search",
+            "status": "approved",
+            "reviewed_at": None,
+            "review_note": None,
+        }
+
+        class Session:
+            def __init__(self):
+                self.owner = threading.get_ident()
+                assert self.owner != loop_thread
+                events.append("create")
+
+            def __enter__(self):
+                assert self.owner == threading.get_ident()
+                events.append("open")
+                return self
+
+            def execute(self, _statement):
+                assert self.owner == threading.get_ident()
+                events.append("query")
+                return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [record]))
+
+            def __exit__(self, *_args):
+                assert self.owner == threading.get_ident()
+                events.append("close")
+
+        class CheckedCounts(Counts):
+            async def search_counts(self, ids):
+                assert events == ["create", "open", "query", "close"]
+                events.append("clickhouse")
+                return await super().search_counts(ids)
+
+        analytics = SearchSuggestionAnalytics(Client())
+        analytics.store = CheckedCounts({digest: 2})
+        rows = await analytics.rank(Session, prefix="search", status="approved")
+        assert rows[0]["successful_count"] == 2
+        assert events[-1] == "clickhouse"
+
+    asyncio.run(run())

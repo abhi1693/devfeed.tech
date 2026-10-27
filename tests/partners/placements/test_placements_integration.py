@@ -12,7 +12,6 @@ from devfeed_core.models import (
     PartnerArticleMatch,
     PartnerAsset,
     PartnerCampaign,
-    PartnerDeliveryEvent,
     PartnerListing,
     PartnerPlacementDelivery,
     PartnerProduct,
@@ -74,7 +73,14 @@ def test_free_and_paid_relevant_products_automatically_deliver_and_track(client,
                 == 204
             )
     with database() as session:
-        assert session.scalar(select(func.count()).select_from(PartnerDeliveryEvent)) == 2
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(PartnerPlacementDelivery)
+                .where(PartnerPlacementDelivery.impression_recorded_at.is_not(None))
+            )
+            == 2
+        )
         assert session.scalar(select(func.count()).select_from(PartnerPlacementDelivery)) == 2
     assert (
         client.post(

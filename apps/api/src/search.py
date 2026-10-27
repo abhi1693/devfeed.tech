@@ -22,15 +22,15 @@ from devfeed_core.search_suggestions import (
 )
 from devfeed_http.analytics import analytics_client
 from devfeed_http.body_limits import RequestBodyPolicy
+from devfeed_http.dependencies import run_database
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from starlette.concurrency import run_in_threadpool
 
 from devfeed_api.cache import CachedReadRoute, CachePolicy
-from devfeed_api.dependencies import DB, get_rate_limit_redis
+from devfeed_api.dependencies import DB, DBFactory, get_rate_limit_redis
 
 router = APIRouter(prefix="/v1/search", tags=["discovery"], route_class=CachedReadRoute)
 
@@ -79,14 +79,14 @@ def click_tokens() -> SearchClickTokens | None:
     ).openapi_extra(),
 )
 async def suggestions(
-    session: DB,
+    factory: DBFactory,
     request: Request,
     q: str = Query("", max_length=200),
     limit: int = Query(5, ge=1, le=10),
 ):
     try:
         items = await SearchSuggestionAnalytics(analytics_client(request)).rank(
-            session,
+            factory,
             prefix=q,
             status="approved",
             limit=limit,
@@ -105,7 +105,7 @@ async def suggestions(
     response_class=Response,
     openapi_extra=RequestBodyPolicy(body_limit=4096).openapi_extra(),
 )
-async def successful_click(body: SearchClick, session: DB, request: Request):
+async def successful_click(body: SearchClick, factory: DBFactory, request: Request):
     headers = {"Cache-Control": "no-store"}
     try:
         query = normalize_query(body.query)
@@ -120,7 +120,7 @@ async def successful_click(body: SearchClick, session: DB, request: Request):
     ):
         raise HTTPException(403, "Invalid search event", headers=headers)
 
-    def persist_metadata():
+    def persist_metadata(session):
         digest = query_hash(query)
         prefix = "devfeed:search-click:"
         retry = consume_rate_limits(
@@ -144,7 +144,7 @@ async def successful_click(body: SearchClick, session: DB, request: Request):
         return digest
 
     try:
-        digest = await run_in_threadpool(persist_metadata)
+        digest = await run_database(factory, persist_metadata)
         await SearchSuggestionAnalytics(analytics_client(request)).record(digest)
     except (RedisError, SQLAlchemyError, AnalyticsUnavailable):
         raise HTTPException(

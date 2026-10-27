@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from devfeed_core.config import get_settings
 
-PIPELINE_POLICY_VERSION = "pipeline-v2"
+PIPELINE_POLICY_VERSION = "pipeline-direct-v3"
 
 
 class AnalyticsSnapshot(BaseModel):

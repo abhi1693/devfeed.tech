@@ -4,6 +4,7 @@ import logging
 import os
 import uuid
 
+from devfeed_core.analytics_producer import shutdown as drain_analytics
 from devfeed_core.config import get_settings
 from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.job_logs import capture_runtime_logs
@@ -118,6 +119,7 @@ def run(
         )
         raise
     finally:
+        drain_analytics()
         for queue in queues:
             queue.connection.close()
         stop_runtime(telemetry)

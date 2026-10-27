@@ -1,11 +1,11 @@
 """Product repetition is unrestricted while commercial budgets and ledgers stay intact."""
 
 import pytest
-from devfeed_core.models import PartnerCampaign, PartnerTrackedDailyMetric
+from devfeed_core.models import PartnerCampaign, PartnerPlacementDelivery
 from devfeed_core.partner_placements import deliver_placements
 from devfeed_core.partner_tracking import PartnerTrackingTokens, record_delivery_event
 from devfeed_http.partner_placements import PlacementQuery
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from tests.support.partner_placements import KEY
 from tests.support.partner_placements import catalog as catalog_fixture
@@ -33,4 +33,11 @@ def test_same_reader_can_receive_product_past_twenty_appearances_until_campaign_
     with database.begin() as session:
         items = deliver_placements(session, query, KEY, user_id=catalog["user"])
         assert items and all(not item["sponsored"] for item in items)
-        assert session.scalar(select(PartnerTrackedDailyMetric.impressions)) == 25
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(PartnerPlacementDelivery)
+                .where(PartnerPlacementDelivery.impression_recorded_at.is_not(None))
+            )
+            == 25
+        )

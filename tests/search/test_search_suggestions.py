@@ -42,7 +42,9 @@ def test_successful_query_metadata_is_normalized_without_pg_analytics_count(data
         row = session.get(SearchQueryStat, first)
         assert first == second == query_hash("kubernetes networking")
         assert row.query == "kubernetes networking"
-        assert row.successful_count == 0
+        assert not {"successful_count", "first_seen_at", "last_seen_at"} & set(
+            SearchQueryStat.__table__.columns.keys()
+        )
         assert row.reviewed_by is None
 
 
@@ -57,7 +59,7 @@ def test_only_approved_queries_above_clickhouse_volume_threshold_are_suggested(d
     analytics.store = Counts({approved: 2, pending: 1})
     with database() as session:
         rows = asyncio.run(
-            analytics.rank(session, prefix="kube", status="approved", limit=5, minimum=2)
+            analytics.rank(database, prefix="kube", status="approved", limit=5, minimum=2)
         )
     assert [item["query"] for item in rows] == ["kubernetes"]
 
@@ -70,7 +72,7 @@ def test_rejected_query_remains_hidden_and_query_validation_is_bounded(database)
     analytics.store = Counts({digest: 5})
     with database() as session:
         rows = asyncio.run(
-            analytics.rank(session, prefix="unsafe", status="approved", limit=5, minimum=1)
+            analytics.rank(database, prefix="unsafe", status="approved", limit=5, minimum=1)
         )
     assert rows == []
     assert normalize_query("  Python\tAsync ") == "python async"
@@ -155,10 +157,9 @@ def test_clickhouse_counts_drive_rank_across_postgres_pages(database, integratio
                             for _ in range(3)
                         ]
                     )
-                    with database() as session:
-                        result = await SearchSuggestionAnalytics(client).rank(
-                            session, prefix="search", status="approved", limit=2, minimum=1
-                        )
+                    result = await SearchSuggestionAnalytics(client).rank(
+                        database, prefix="search", status="approved", limit=2, minimum=1
+                    )
                     assert [(row["query"], row["successful_count"]) for row in result] == [
                         ("search 0500", 4),
                         ("search 0000", 1),

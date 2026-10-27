@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from functools import lru_cache
 from typing import Annotated
 
@@ -37,3 +38,10 @@ def get_rate_limit_redis() -> Redis:
 # response transmission. Only this public API has no streaming DB consumers.
 database_session = Depends(get_session, scope="function")
 DB = Annotated[Session, database_session]
+
+
+def get_session_factory():
+    return session_factory()
+
+
+DBFactory = Annotated[Callable[[], Session], Depends(get_session_factory)]

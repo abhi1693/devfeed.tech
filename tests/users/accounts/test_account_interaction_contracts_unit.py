@@ -6,7 +6,7 @@ hourly uniqueness, counters, reading-day transactions, and Redis atomicity are n
 
 import hashlib
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -81,6 +81,9 @@ def api(monkeypatch):
     app.dependency_overrides[require_user] = lambda: user
     app.dependency_overrides[engagement.optional_user] = lambda: None
     app.dependency_overrides[dependencies.get_session] = lambda: session
+    app.dependency_overrides[dependencies.get_session_factory] = lambda: (
+        lambda: nullcontext(session)
+    )
     with TestClient(app, base_url=settings.base_url) as client:
         yield SimpleNamespace(
             owner=owner,
@@ -336,6 +339,9 @@ def read_api(viewer=None):
     app.include_router(engagement.router)
     app.dependency_overrides[engagement.optional_user] = lambda: viewer
     app.dependency_overrides[dependencies.get_session] = lambda: session
+    app.dependency_overrides[dependencies.get_session_factory] = lambda: (
+        lambda: nullcontext(session)
+    )
     with TestClient(app) as client:
         yield SimpleNamespace(client=client, session=session)
 
@@ -388,3 +394,160 @@ def test_trending_lookahead_returns_only_the_requested_page_and_stops_at_the_sup
             assert "classification_provenance" not in output["items"][0]
         ranked.assert_awaited_once()
         api.session.commit.assert_not_called()
+
+
+def test_concurrent_analytics_routes_close_each_worker_session_before_clickhouse(monkeypatch):
+    import asyncio
+    import threading
+    from contextlib import asynccontextmanager
+    from contextvars import ContextVar
+
+    import httpx
+    from devfeed_user_api import trending
+
+    scope = ContextVar("analytics_request")
+    started, release = threading.Event(), threading.Event()
+    active, phases = {}, []
+    state_lock = threading.Lock()
+    article = published_article(1)
+    viewer = user()
+    settings = Settings(_env_file=None, base_url="http://reader.test", cookie_secure=False)
+    monkeypatch.setattr(engagement, "get_settings", lambda: settings)
+
+    async def scenario():
+        loop_thread = threading.get_ident()
+
+        class WorkerSession:
+            def __init__(self):
+                self.owner, self.request = threading.get_ident(), scope.get()
+                self.closed = False
+                assert self.owner != loop_thread
+                with state_lock:
+                    active[self.request] = active.get(self.request, 0) + 1
+
+            def __enter__(self):
+                assert threading.get_ident() == self.owner
+                return self
+
+            def __exit__(self, *_args):
+                assert threading.get_ident() == self.owner
+                self.closed = True
+                with state_lock:
+                    active[self.request] -= 1
+
+            def phase(self, name):
+                assert threading.get_ident() == self.owner and not self.closed
+                started.set()
+                assert release.wait(2), "The event loop could not serve the independent probe"
+                phases.append((self.request, name))
+
+            def scalar(self, _statement):
+                self.phase("visibility")
+                return article.id
+
+            def execute(self, _statement):
+                self.phase("write")
+
+            def commit(self):
+                self.phase("commit")
+
+        class Client(FakeAnalyticsClient):
+            def __init__(self):
+                super().__init__()
+                self.slot = asyncio.Semaphore(1)
+
+            def assert_closed(self):
+                with state_lock:
+                    assert active.get(scope.get(), 0) == 0
+
+            async def query(self, statement, parameters=None, **_kwargs):
+                self.assert_closed()
+                await asyncio.sleep(0.001)
+                if "visible_articles AS v" in statement:
+                    return [{"article_id": str(article.id)}]
+                return await super().query(statement, parameters)
+
+            async def insert(self, table, rows):
+                self.assert_closed()
+                await asyncio.sleep(0.001)
+                await super().insert(table, rows)
+
+            @asynccontextmanager
+            async def external_query_slot(self):
+                async with self.slot:
+                    yield
+
+        def rows(session, identities, _viewer):
+            session.phase("engagement")
+            return [{"article_id": identities[0], "likes": 0, "liked": False, "bookmarked": False}]
+
+        def authorize(session, *_args):
+            session.phase("authorize")
+
+        def metadata(session, _since):
+            session.phase("ranking")
+            return b"x" * 32
+
+        def articles(session, _identities):
+            session.phase("articles")
+            return [article]
+
+        monkeypatch.setattr(engagement, "engagement_rows", rows)
+        monkeypatch.setattr(engagement, "_authorize_open", authorize)
+        monkeypatch.setattr(trending, "_ranking_metadata", metadata)
+        monkeypatch.setattr(trending, "_articles", articles)
+        app = FastAPI()
+        app.state.analytics_client = Client()
+        app.include_router(engagement.router)
+        app.dependency_overrides[dependencies.get_session_factory] = lambda: WorkerSession
+        app.dependency_overrides[require_user] = lambda: viewer
+        app.dependency_overrides[engagement.optional_user] = lambda: None
+
+        @app.get("/independent-probe")
+        async def probe():
+            return {"ready": True}
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url=settings.base_url
+        ) as client:
+
+            async def request(index):
+                token = scope.set(index)
+                try:
+                    path = f"/v1/user/articles/{article.id}"
+                    if index % 4 == 0:
+                        return await client.get(
+                            "/v1/user/engagement", params={"article_id": str(article.id)}
+                        )
+                    if index % 4 == 1:
+                        return await client.put(path + "/like", json={"liked": True})
+                    if index % 4 == 2:
+                        return await client.post(
+                            path + "/open", headers={"Origin": settings.base_url}
+                        )
+                    return await client.get("/v1/user/trending")
+                finally:
+                    scope.reset(token)
+
+            pending = [asyncio.create_task(request(index)) for index in range(16)]
+            try:
+                assert await asyncio.to_thread(started.wait, 1)
+                response = await asyncio.wait_for(client.get("/independent-probe"), timeout=0.25)
+                assert response.json() == {"ready": True}
+                assert any(not task.done() for task in pending)
+            finally:
+                release.set()
+            responses = await asyncio.gather(*pending)
+            assert all(response.status_code == 200 for response in responses)
+        assert len(active) == 16 and set(active.values()) == {0}
+        assert {name for _, name in phases} >= {
+            "visibility",
+            "write",
+            "commit",
+            "engagement",
+            "authorize",
+            "ranking",
+            "articles",
+        }
+
+    asyncio.run(scenario())

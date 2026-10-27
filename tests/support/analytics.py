@@ -1,25 +1,29 @@
-"""Native analytical fixtures using the caller's visible transaction snapshot.
+"""Direct ClickHouse fixtures over a caller's visible business transaction.
 
-Production delivery is exercised separately by exporter integration tests. These
-builders publish typed facts and complete compact cohorts in a unique test DB.
+Production after-commit delivery is tested separately. These fixtures publish
+sanitized current source snapshots and explicit historical observations into a
+unique disposable analytical namespace.
 """
 
 import asyncio
 import os
+import time
 import uuid
 from contextlib import contextmanager
-from datetime import UTC, timedelta
+from datetime import UTC
 from types import SimpleNamespace
 
 import pytest
 from devfeed_admin_api.analytics_reports import Reports
 from devfeed_admin_api.overview_windows import recent_window
 from devfeed_core.analytics import AnalyticsClient
-from devfeed_core.analytics_facts import dirty_buckets
-from devfeed_core.analytics_gauges import Gauges, shard
-from devfeed_core.analytics_rollups import canonical_sql, rebuild_sql
-from devfeed_core.analytics_schema import TABLES
-from devfeed_core.analytics_transform import FactTransformer
+from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
+from devfeed_core.analytics_backfill import BACKFILL_DDL
+from devfeed_core.analytics_inference_store import InferenceStore
+from devfeed_core.analytics_observation import pipeline_policy_version
+from devfeed_core.analytics_overview_direct import DirectOverviewAnalytics
+from devfeed_core.analytics_producer import SOURCES, TABLES, hydrate_changes
+from devfeed_core.analytics_status import AnalyticsStatus
 from devfeed_core.config import Settings
 from psycopg.rows import dict_row
 from sqlalchemy import text
@@ -54,7 +58,7 @@ def _session(value):
 
 
 class SnapshotConnection:
-    """Read source facts in this test's existing, potentially uncommitted transaction."""
+    """Use the test's existing transaction, including its uncommitted source rows."""
 
     def __init__(self, session):
         self.session = session
@@ -70,68 +74,61 @@ class SnapshotConnection:
         return SimpleNamespace(fetchall=fetchall)
 
 
-async def _snapshot(client, session, now):
+async def prepare(client, now):
     await client.initialize()
     client.insert_settings = {"async_insert_busy_timeout_ms": 1}
+    await client.execute(BACKFILL_DDL)
+    await client.execute(
+        "CREATE TABLE IF NOT EXISTS analytics_audience_archive_daily (day Date,"
+        "opens Nullable(UInt64),readers Nullable(Float64),accounts_created Nullable(UInt64),"
+        "published Nullable(UInt64),version UInt64) "
+        "ENGINE=ReplacingMergeTree(version) ORDER BY day"
+    )
+    await client.insert(
+        "analytics_backfill_progress",
+        [
+            {
+                "import_id": "direct-v1",
+                "source": "inference_calls",
+                "page": 1,
+                "cursor": "",
+                "complete": 1,
+                "boundary": "",
+            }
+        ],
+    )
+    await AnalyticsStatus(client).write(
+        ready=True,
+        cutover=now,
+        policy=pipeline_policy_version(client.settings),
+    )
+
+
+async def _snapshot(client, session, now, *, observations=None):
+    await prepare(client, now)
     session.flush()
-    events: list[dict] = []
-    for source, table in TABLES.items():
+    changes = []
+    for source in sorted(SOURCES):
+        table = TABLES[source]
         for record in session.scalars(text(f'SELECT {table.record_sql("r")} FROM "{source}" r')):
-            events.append(
-                dict(
-                    id=len(events) + 1,
-                    source_table=source,
-                    operation="I",
-                    record=record,
-                    before_record=None,
-                    created_at=now,
-                )
-            )
+            changes.append({"source_table": source, "record": record})
     connection = SnapshotConnection(session)
-    facts = await FactTransformer(connection).transform(events, 1)
-    await client.insert("analytics_fact_events", facts)
-    for bucket in dirty_buckets(facts, 1):
-        end = (
-            bucket["bucket"] + timedelta(days=1)
-            if bucket["domain"] in {"sources", "topics"}
-            else bucket["bucket"] + timedelta(hours=1)
-        )
-        await client.execute(rebuild_sql(bucket["domain"]), {**bucket, "end": end})
-        await client.insert(
-            "analytics_bucket_manifest", [{**bucket, "updated_at": now, "lag_seconds": 0}]
-        )
-    gauge = Gauges(settings(), client)
-    await gauge.ingest(connection, events, generation=1)
-    keys = {("feed", 0), ("sources", 0), ("topics", 0), ("queues", 0)}
-    for event in events:
-        source, record = event["source_table"], event["record"]
-        if source in {"user_accounts", "user_recommendation_states"}:
-            keys.add(("feed", shard(record.get("user_id") or record["id"])))
-        elif source in {"sources", "topics"}:
-            keys.add((source, shard(record["id"])))
-        elif source in {"user_topics", "user_interests"}:
-            keys.add(("topics", shard(record["topic_id"])))
-    for domain, number in sorted(keys):
-        if domain == "queues":
-            records, _ = await gauge._queues(connection)
-            target = "queue"
-        elif domain == "feed":
-            records, _ = await gauge._feed(number)
-            target = "feed"
-        else:
-            records, _ = await gauge._dimensions(domain, number)
-            target = "source" if domain == "sources" else "topic"
-        await client.insert(
-            f"analytics_{target}_gauges",
-            [{**record, "generation": 1, "shard": number} for record in records],
-        )
-        await client.insert(
-            "analytics_gauge_manifest",
-            [dict(domain=domain, shard=number, generation=1, updated_at=now)],
-        )
+    overview = DirectOverviewAnalytics(client)
+    revision = time.time_ns()
+    for offset in range(0, len(changes), 200):
+        hydrated = await hydrate_changes(connection, changes[offset : offset + 200])
+        await overview.publish(hydrated, revision=revision)
+    observations = observations or {}
+    for kind, store in (
+        ("inference", InferenceStore(client).write),
+        ("opens", ArticleOpenAnalytics(client).import_opens),
+    ):
+        records = observations.get(kind, [])
+        for offset in range(0, len(records), 1000):
+            await store(records[offset : offset + 1000])
 
 
-def _read(session_or_factory, now, read):
+def _read(session_or_factory, now, read, *, observations=None):
     now = now.replace(tzinfo=UTC) if now.tzinfo is None else now.astimezone(UTC)
     configured = settings()
     with _session(session_or_factory) as session:
@@ -144,7 +141,7 @@ def _read(session_or_factory, now, read):
                     async with AnalyticsClient(
                         configured.model_copy(update={"clickhouse_database": database})
                     ) as client:
-                        await _snapshot(client, session, now)
+                        await _snapshot(client, session, now, observations=observations)
                         return await read(client, now)
                 finally:
                     await admin.execute(f"DROP DATABASE `{database}` SYNC")
@@ -152,41 +149,18 @@ def _read(session_or_factory, now, read):
         return asyncio.run(run())
 
 
-def load_section(session_or_factory, section, days, now, *, window=None):
+def load_section(session_or_factory, section, days, now, *, window=None, observations=None):
     async def read(client, now):
         return await Reports(
             client, window or recent_window(days, now), now, capture_started_at=now
         ).section(section)
 
-    return _read(session_or_factory, now, read)
+    return _read(session_or_factory, now, read, observations=observations)
 
 
-def inference_rows(session_or_factory, start, end):
-    async def read(client, now):
-        lower = start.replace(tzinfo=UTC) if start.tzinfo is None else start.astimezone(UTC)
-        begin = lower.replace(minute=0, second=0, microsecond=0)
-        finish = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-        source = canonical_sql("inference")
-        return await client.query(
-            "SELECT toString(toDate(event_time)) AS date,task AS operation,model,effort,"
-            "sum(calls) AS calls,countIf(status='returned') AS returned,"
-            "sum(failed) AS failed,countIf(status='running') AS running,"
-            "sum(unreported) AS unreported,sum(input_tokens) AS input_tokens,"
-            "sum(cached_input_tokens) AS cached_input_tokens,sum(output_tokens) AS output_tokens,"
-            "sum(reasoning_tokens) AS reasoning_tokens,sum(web_searches) AS web_searches,"
-            "sum(duration_ms) AS duration_ms FROM (" + source + ") "
-            "WHERE event_time>={start:DateTime64(6,'UTC')} "
-            "AND event_time<={now:DateTime64(6,'UTC')} "
-            "GROUP BY date,operation,model,effort ORDER BY date,operation,model,effort",
-            {"start": lower, "now": now, "bucket": begin, "end": finish},
-        )
-
-    return _read(session_or_factory, end, read)
-
-
-def load_sections(session_or_factory, sections, days, now, *, window=None):
+def load_sections(session_or_factory, sections, days, now, *, window=None, observations=None):
     async def read(client, now):
         reports = Reports(client, window or recent_window(days, now), now, capture_started_at=now)
         return {name: await reports.section(name) for name in sections}
 
-    return _read(session_or_factory, now, read)
+    return _read(session_or_factory, now, read, observations=observations)

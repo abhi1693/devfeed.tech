@@ -2,15 +2,15 @@
 
 import asyncio
 import uuid
-from collections import Counter
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
 from devfeed_core.analytics import AnalyticsClient
 from devfeed_core.analytics_card_builders import article_rows, proposal_rows, source_rows
-from devfeed_core.analytics_cards import KINDS, card_initialization_sql, normalize_card
+from devfeed_core.analytics_direct_cards import initialize_cards, normalize_card
 from devfeed_core.analytics_observation import pipeline_policy_version
+from devfeed_core.analytics_status import AnalyticsStatus
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Article,
@@ -29,6 +29,7 @@ class CardPublication:
         self.database, self.http, self.settings = database, http, settings
         self.runtime = AnalyticsRuntime(settings)
         self.generation = 0
+        self.identities = set()
 
     def __call__(self, database=None, *, batch=200):
         database = database or self.database
@@ -79,49 +80,21 @@ class CardPublication:
             for row in built
         ]
 
+        current = {(row["kind"], str(row["entity_id"])) for row in rows}
+        rows.extend(
+            normalize_card(None, policy, kind, identity, self.generation, now)
+            for kind, identity in self.identities - current
+        )
+        self.identities = current
+
         async def publish():
             async with AnalyticsClient(self.settings) as client:
                 client.insert_settings = {"async_insert_busy_timeout_ms": 1}
-                for statement in card_initialization_sql():
-                    await client.execute(statement)
+                await initialize_cards(client)
                 await client.insert("analytics_card_canonical", rows)
-                await client.insert(
-                    "analytics_cards",
-                    [{**row, "generation": self.generation, "built_at": now} for row in rows],
-                )
-                counts = Counter((row["kind"], row["shard"]) for row in rows)
-                await client.insert(
-                    "analytics_card_manifest",
-                    [
-                        dict(
-                            policy=policy,
-                            kind=kind,
-                            shard=shard,
-                            generation=self.generation,
-                            updated_at=now,
-                            item_count=counts[kind, shard],
-                        )
-                        for kind in KINDS
-                        for shard in range(256)
-                    ],
-                )
-                await client.insert(
-                    "analytics_card_status",
-                    [
-                        dict(
-                            version=self.generation,
-                            policy=policy,
-                            target_policy=policy,
-                            ready=1,
-                            generated_at=now,
-                            updated_at=now,
-                            catalog_revision="[]",
-                            catalog_target_revision="[]",
-                            catalog_progress_at=None,
-                            lag_seconds=0,
-                        )
-                    ],
-                )
+                status = AnalyticsStatus(client)
+                await status.initialize()
+                await status.write(ready=True, cutover=now, policy=policy)
 
         asyncio.run(publish())
         self.runtime.cache.clear()
@@ -134,20 +107,12 @@ class CardPublication:
         async def publish():
             async with AnalyticsClient(self.settings) as client:
                 with self.database() as session:
-                    await analytics._snapshot(client, session, now)
-                await client.insert(
-                    "analytics_pipeline_status",
-                    [
-                        dict(
-                            version=self.generation,
-                            ready=1,
-                            updated_at=now,
-                            capture_started_at=now,
-                            reader_coverage_start=(now - timedelta(days=29)).date(),
-                            lag_seconds=0,
-                        )
-                    ],
-                )
+                    await analytics._snapshot(
+                        client,
+                        session,
+                        now,
+                        observations=getattr(self.database, "analytics_observations", None),
+                    )
 
         asyncio.run(publish())
         self.runtime.cache.clear()

@@ -51,7 +51,19 @@ def admin_portal_client(database):
         expires_at=2**31,
         csrf_token="test",
     )
-    app = FastAPI()
+    from contextlib import asynccontextmanager
+
+    from devfeed_admin_api.analytics_runtime import AnalyticsRuntime
+
+    @asynccontextmanager
+    async def resources(app):
+        app.state.analytics = AnalyticsRuntime()
+        try:
+            yield
+        finally:
+            await app.state.analytics.close()
+
+    app = FastAPI(lifespan=resources)
     app.include_router(router)
     app.dependency_overrides[require_admin] = lambda: identity
 

@@ -59,12 +59,12 @@ def test_required_clickhouse_is_private_authenticated_bounded_and_owned(monkeypa
 
 
 @pytest.mark.parametrize("failed", [False, True])
-def test_preparation_requires_history_and_current_cards_and_closes_exporter(monkeypatch, failed):
+def test_preparation_requires_direct_history_and_current_card_policy(monkeypatch, failed):
     import time
 
     import devfeed_core.analytics as analytics
     import devfeed_core.analytics_observation as observation
-    import devfeed_core.analytics_worker as exporter_module
+    import devfeed_core.analytics_worker as worker_module
     import devfeed_core.config as config
 
     state = SimpleNamespace(clock=0.0, cycles=0, current_policies=[])
@@ -72,7 +72,6 @@ def test_preparation_requires_history_and_current_cards_and_closes_exporter(monk
         database_url="postgresql+psycopg://worker:fixture@database.invalid/app_test",
         analytics_backfill_poll_seconds=0,
     )
-    closed = Mock()
 
     class Client:
         def __init__(self, supplied):
@@ -88,17 +87,11 @@ def test_preparation_requires_history_and_current_cards_and_closes_exporter(monk
             pass
 
         async def status(self):
-            return {"ready": True, "lag_seconds": 0}
-
-        async def query(self, sql):
-            assert sql == "SELECT * FROM analytics_card_status FINAL"
-            # A historical ready latch alone cannot complete preparation, and
-            # readiness for a prior policy cannot satisfy current coverage.
             policy = "previous" if state.cycles == 1 else "current"
             state.current_policies.append(policy)
-            return [{"ready": not failed, "policy": policy, "lag_seconds": 0}]
+            return {"ready": not failed, "policy": policy, "lag_seconds": 0}
 
-    class Exporter:
+    class ImportWorker:
         def __init__(self, client, supplied):
             assert isinstance(client, Client) and supplied is settings
 
@@ -107,11 +100,9 @@ def test_preparation_requires_history_and_current_cards_and_closes_exporter(monk
             state.clock += 30
             return False
 
-        close = closed
-
     monkeypatch.setattr(config, "get_settings", lambda: settings)
     monkeypatch.setattr(analytics, "AnalyticsClient", Client)
-    monkeypatch.setattr(exporter_module, "AnalyticsExporter", Exporter)
+    monkeypatch.setattr(worker_module, "AnalyticsImportWorker", ImportWorker)
     monkeypatch.setattr(observation, "pipeline_policy_version", lambda supplied: "current")
     monkeypatch.setattr(time, "monotonic", lambda: state.clock)
     command = smoke_module.CONTRACTS["backfill"]["command"][-1]
@@ -123,4 +114,3 @@ def test_preparation_requires_history_and_current_cards_and_closes_exporter(monk
         exec(compile(command, "fleet-preparation-fixture", "exec"), {})
         assert state.cycles == 2
     assert state.current_policies[:2] == ["previous", "current"]
-    closed.assert_called_once_with()

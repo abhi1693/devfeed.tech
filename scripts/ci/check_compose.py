@@ -288,22 +288,34 @@ def check() -> None:
     )
     assert clickhouse["environment"]["DEVFEED_CLICKHOUSE_SERVER_MAX_SELECTS"] == "3"
     assert clickhouse["environment"]["DEVFEED_CLICKHOUSE_SERVER_MAX_INSERTS"] == "2"
-    assert services["analytics-exporter"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == (
+    assert services["analytics-importer"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == (
         "devfeed_ingest"
     )
     assert services["admin-api"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed_admin"
     assert services["admin-api"]["environment"]["DEVFEED_CLICKHOUSE_PASSWORD"] == (
         "fixture-only-admin-password"
     )
-    assert services["analytics-exporter"]["cpus"] == Decimal("0.5")
-    assert int(services["analytics-exporter"]["mem_limit"]) == 512 * 1024**2
+    assert services["analytics-importer"]["cpus"] == Decimal("0.5")
+    assert int(services["analytics-importer"]["mem_limit"]) == 512 * 1024**2
     for name, service in services.items():
         assert ("DEVFEED_CLICKHOUSE_PASSWORD" in service.get("environment", {})) == (
-            name in {"analytics-exporter", "admin-api", "api", "partner-api", "user-api", "worker"}
+            name
+            in {
+                "migrate",
+                "analytics-importer",
+                "admin-api",
+                "api",
+                "partner-api",
+                "user-api",
+                "worker",
+            }
         ), name
     assert "clickhouse" not in services["admin-api"]["depends_on"]
     assert "clickhouse" not in services["api"]["depends_on"]
-    assert services["analytics-exporter"]["depends_on"]["clickhouse"]["condition"] == (
+    assert services["migrate"]["depends_on"]["clickhouse"]["condition"] == "service_healthy"
+    assert services["migrate"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed_ingest"
+    assert "--initialize" in services["migrate"]["command"][-1]
+    assert services["analytics-importer"]["depends_on"]["clickhouse"]["condition"] == (
         "service_healthy"
     )
     management = services["ch-ui"]

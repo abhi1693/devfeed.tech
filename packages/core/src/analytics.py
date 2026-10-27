@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from functools import lru_cache
 from typing import Any
@@ -11,7 +12,6 @@ import aiohttp
 import clickhouse_connect
 from clickhouse_connect.driver.exceptions import Error as ClickHouseError
 
-from devfeed_core.analytics_facts import initialization_sql
 from devfeed_core.config import Settings, get_settings
 
 
@@ -77,6 +77,7 @@ class AnalyticsClient:
     def __init__(self, settings: Settings | None = None, *, driver=None):
         self.settings = settings or get_settings()
         self._semaphore = asyncio.Semaphore(self.settings.clickhouse_max_concurrent_queries)
+        self._external_query_admission = asyncio.Semaphore(1)
         self._connect_lock = asyncio.Lock()
         self._insert_schema_lock = asyncio.Lock()
         self._insert_schemas: dict[tuple[str, tuple[str, ...]], tuple[str, ...]] = {}
@@ -135,6 +136,12 @@ class AnalyticsClient:
         except (ClickHouseError, aiohttp.ClientError, TimeoutError) as error:
             raise AnalyticsUnavailable("ClickHouse request failed") from error
 
+    @asynccontextmanager
+    async def external_query_slot(self):
+        """Bound materialized external-input snapshots across concurrent requests."""
+        async with self._external_query_admission:
+            yield
+
     async def execute(self, sql: str, parameters: dict[str, Any] | None = None):
         await self._operation(
             "command",
@@ -144,7 +151,7 @@ class AnalyticsClient:
         )
 
     async def query(
-        self, sql: str, parameters: dict[str, Any] | None = None
+        self, sql: str, parameters: dict[str, Any] | None = None, *, external_data=None
     ) -> list[dict[str, Any]]:
         response = await self._operation(
             "raw_query",
@@ -152,6 +159,7 @@ class AnalyticsClient:
             parameters={key: _parameter(value) for key, value in (parameters or {}).items()},
             fmt="JSONEachRow",
             settings=self._limits(),
+            external_data=external_data,
         )
         try:
             return [json.loads(line) for line in response.splitlines() if line]
@@ -161,14 +169,22 @@ class AnalyticsClient:
             ) from error
 
     async def initialize(self):
-        from devfeed_core.analytics_cards import card_initialization_sql
-        from devfeed_core.analytics_gauges import Gauges
+        from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
+        from devfeed_core.analytics_direct_cards import initialize_cards
+        from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
+        from devfeed_core.analytics_inference_store import InferenceStore
+        from devfeed_core.analytics_overview_direct import DirectOverviewAnalytics
+        from devfeed_core.analytics_status import AnalyticsStatus
 
-        for statement in initialization_sql():
-            await self.execute(statement)
-        await Gauges(self.settings, self).initialize()
-        for statement in card_initialization_sql():
-            await self.execute(statement)
+        for store in (
+            ArticleOpenAnalytics(self),
+            DirectEngagementAnalytics(self),
+            InferenceStore(self),
+            DirectOverviewAnalytics(self),
+            AnalyticsStatus(self),
+        ):
+            await store.initialize()
+        await initialize_cards(self)
 
     async def _insert_types(self, table: str, columns: tuple[str, ...]):
         key = (table, columns)
@@ -204,9 +220,10 @@ class AnalyticsClient:
             "analytics_audience_changes",
             "analytics_dimension_changes",
             "analytics_membership_changes",
+            "analytics_article_opens",
         }:
-            # argMax materialized states are idempotent; replay must rerun the
-            # projection even after an earlier partial materialized-view failure.
+            # Materialized states are idempotent; replay must rerun every view
+            # even after an earlier partial materialized-view failure.
             settings.update(insert_deduplicate=0, async_insert_deduplicate=0)
         try:
             # Discovery is cached by table and column shape. Each driver insert
@@ -238,12 +255,6 @@ class AnalyticsClient:
             raise AnalyticsUnavailable("ClickHouse request failed") from error
 
     async def status(self) -> dict[str, Any]:
-        rows = await self.query("SELECT * FROM analytics_pipeline_status FINAL")
-        if not rows:
-            raise AnalyticsUnavailable("Analytics initial backfill is still running")
-        status = rows[0]
-        updated_at = datetime.fromisoformat(status["updated_at"].replace("Z", "+00:00"))
-        status["lag_seconds"] = max(
-            float(status["lag_seconds"]), (datetime.now(UTC) - updated_at).total_seconds(), 0.0
-        )
-        return status
+        from devfeed_core.analytics_status import AnalyticsStatus
+
+        return await AnalyticsStatus(self).read()

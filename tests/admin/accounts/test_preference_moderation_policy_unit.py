@@ -211,10 +211,7 @@ def suggestion(**changes):
         **{
             "query_hash": query_hash("angular router"),
             "query": "angular router",
-            "successful_count": 14,
             "status": "pending",
-            "first_seen_at": NOW - timedelta(days=3),
-            "last_seen_at": NOW - timedelta(minutes=1),
             "reviewed_at": None,
             "reviewed_by": None,
             "review_note": None,
@@ -237,8 +234,8 @@ class SearchAnalyticsFake:
                 "reviewed_at": value.reviewed_at,
                 "review_note": value.review_note,
                 "successful_count": 14,
-                "first_seen_at": value.first_seen_at,
-                "last_seen_at": value.last_seen_at,
+                "first_seen_at": NOW - timedelta(days=3),
+                "last_seen_at": NOW - timedelta(minutes=1),
             }
         ]
 

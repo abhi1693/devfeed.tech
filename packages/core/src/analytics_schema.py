@@ -1,4 +1,4 @@
-"""Narrow, typed analytical facts shared by capture, backfill, and ClickHouse.
+"""Narrow source snapshots used by the application publisher and finite import.
 
 Only columns required for reporting are exported. Authentication, email addresses,
 article bodies, prompts, evidence, and arbitrary inference payloads stay in PostgreSQL.
@@ -127,7 +127,7 @@ class AnalyticsTable:
             elif name in {"usage", "tokens"} and self.name != "topic_decision_calls":
                 # The counter parser accepts at most 18 digits. A nineteenth
                 # character preserves invalid/overflow semantics while bounding
-                # malformed scalar values; objects and arrays never enter capture.
+                # malformed scalar values; objects and arrays never enter analytical observations.
                 value = (
                     "jsonb_build_object("
                     + ", ".join(
@@ -142,91 +142,19 @@ class AnalyticsTable:
 
 
 def _table(name, fields):
-    table = Base.metadata.tables[name]
-    keys = tuple(column.name for column in table.primary_key)
+    legacy_keys = {
+        "article_opens": ("article_id", "viewer_key", "opened_hour"),
+        "inference_calls": ("id",),
+        "topic_decision_calls": ("proposal_id", "ordinal"),
+    }
+    table = Base.metadata.tables.get(name)
+    keys = (
+        tuple(column.name for column in table.primary_key)
+        if table is not None
+        else legacy_keys[name]
+    )
     fields = list(dict.fromkeys((*keys, *fields)))
     return AnalyticsTable(name, tuple(fields), keys)
 
 
 TABLES = {name: _table(name, fields.split()) for name, fields in FIELDS.items()}
-
-
-# Children enrich publication facts through bounded article-ID probes. Existing
-# historical articles already include those associations during initial capture.
-# TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Retire the existing-population source
-# import with AnalyticsExporter._backfill_one after the documented release gates.
-# CARD_BACKFILL_TABLES below remains native policy/reset initialization.
-BACKFILL_TABLES = (
-    "articles",
-    "sources",
-    "topics",
-    "user_accounts",
-    "article_opens",
-    "user_topics",
-    "user_interests",
-    "user_recommendation_states",
-    "topic_proposals",
-    "topic_relation_proposals",
-    "topic_decision_runs",
-    "topic_decision_calls",
-    "inference_calls",
-    "ingestion_jobs",
-    "article_enrichment_jobs",
-    "article_image_jobs",
-    "source_enrichment_jobs",
-    "article_analysis_jobs",
-    "topic_analysis_jobs",
-    "research_verification_jobs",
-    "notification_deliveries",
-    "overview_daily",
-)
-
-# These have independent current-card cursors. Adding current dependencies must
-# never restart the completed historical source import.
-CARD_BACKFILL_TABLES = {
-    "article": "articles",
-    "source": "sources",
-    "candidate": "source_candidates",
-    "topic-proposal": "topic_proposals",
-    "relationship-proposal": "topic_relation_proposals",
-}
-
-# A current card can depend on columns deliberately absent from the exported
-# payload. PostgreSQL compares those fields in place; capture still contains only
-# TABLES' narrow allowlist, never bodies, evidence, prompts or credentials.
-CARD_SOURCES = frozenset(
-    {
-        "articles",
-        "sources",
-        "source_candidates",
-        "article_contents",
-        "article_origins",
-        "article_topics",
-        "article_reviews",
-        "source_reviews",
-        "source_discovery_jobs",
-        "article_enrichment_jobs",
-        "article_analysis_jobs",
-        "article_image_jobs",
-        "source_enrichment_jobs",
-        "ingestion_jobs",
-        "topics",
-        "topic_proposals",
-        "topic_relation_proposals",
-        "topic_analysis_jobs",
-        "research_verification_jobs",
-        "topic_decision_runs",
-        "topic_decision_calls",
-        "catalog_revisions",
-    }
-)
-WATCH_FIELDS = {
-    name: tuple(
-        column.name
-        for column in Base.metadata.tables[name].columns
-        if not (name == "articles" and column.name == "automation_next_check_at")
-    )
-    if name in CARD_SOURCES
-    else spec.fields
-    for name, spec in TABLES.items()
-}

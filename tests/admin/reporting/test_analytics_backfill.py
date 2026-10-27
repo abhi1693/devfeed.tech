@@ -163,3 +163,24 @@ def test_import_boundary_is_immutable_across_restart():
             await AnalyticsBackfill(sink, "initial", [changed]).scan_one(source, "overview_daily")
 
     asyncio.run(run())
+
+
+def test_full_source_page_bounds_hydrated_publications_and_feeds(monkeypatch):
+    """Hydration can add a second observation for every scanned business row."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from devfeed_core import analytics_producer
+    from devfeed_core.analytics_import import HistoricalAnalyticsImport
+
+    source_rows = [{"id": str(uuid.UUID(int=i))} for i in range(1, 1001)]
+    hydrated = [{"source_table": "articles", "publication": row} for row in source_rows] * 2
+    hydrate = AsyncMock(return_value=hydrated)
+    monkeypatch.setattr(analytics_producer, "hydrate_changes", hydrate)
+    importer = HistoricalAnalyticsImport.__new__(HistoricalAnalyticsImport)
+    importer._connection = object()
+    importer.overview = SimpleNamespace(publish=AsyncMock())
+    asyncio.run(importer.import_source("articles", source_rows))
+    hydrate.assert_awaited_once()
+    assert [len(call.args[0]) for call in importer.overview.publish.await_args_list] == [1000, 1000]
+    assert all(call.kwargs == {"revision": 1} for call in importer.overview.publish.await_args_list)

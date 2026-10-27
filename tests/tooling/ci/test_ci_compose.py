@@ -65,11 +65,11 @@ def test_compose_render_preserves_exact_fractional_cpu_budget(monkeypatch, limit
         check_compose.subprocess,
         "run",
         lambda *args, **kwargs: SimpleNamespace(
-            returncode=0, stdout='{"services":{"analytics-exporter":{"cpus":' + limit + "}}}"
+            returncode=0, stdout='{"services":{"analytics-importer":{"cpus":' + limit + "}}}"
         ),
     )
     services = check_compose.render({"POSTGRES_PASSWORD": "fixture-only-password"})["services"]
-    assert (services["analytics-exporter"]["cpus"] == Decimal("0.5")) is compliant
+    assert (services["analytics-importer"]["cpus"] == Decimal("0.5")) is compliant
 
 
 @pytest.mark.parametrize(
@@ -126,7 +126,8 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
     for name, service in services.items():
         environment = service.get("environment", {})
         expected = name in {
-            "analytics-exporter",
+            "migrate",
+            "analytics-importer",
             "admin-api",
             "api",
             "partner-api",
@@ -136,7 +137,8 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
         assert ("DEVFEED_CLICKHOUSE_PASSWORD" in environment) == expected
         if expected:
             credential = {
-                "analytics-exporter": "DEVFEED_CLICKHOUSE_INGEST_PASSWORD",
+                "migrate": "DEVFEED_CLICKHOUSE_INGEST_PASSWORD",
+                "analytics-importer": "DEVFEED_CLICKHOUSE_INGEST_PASSWORD",
                 "admin-api": "DEVFEED_CLICKHOUSE_ADMIN_PASSWORD",
                 "api": "DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD",
                 "partner-api": "DEVFEED_CLICKHOUSE_PARTNER_PASSWORD",
@@ -145,7 +147,8 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
             }[name]
             assert environment["DEVFEED_CLICKHOUSE_PASSWORD"] == options[credential]
             role = {
-                "analytics-exporter": "devfeed_ingest",
+                "migrate": "devfeed_ingest",
+                "analytics-importer": "devfeed_ingest",
                 "admin-api": "devfeed_admin",
                 "api": "devfeed_public",
                 "partner-api": "devfeed_partner",
@@ -154,14 +157,14 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
             }[name]
             assert environment["DEVFEED_CLICKHOUSE_USERNAME"] == role
             assert environment["DEVFEED_CLICKHOUSE_MAX_THREADS"] == "1"
-        if name not in {"analytics-exporter", "ch-ui"}:
+        if name not in {"migrate", "analytics-importer", "ch-ui"}:
             assert "clickhouse" not in service.get("depends_on", {})
-    assert services["analytics-exporter"]["command"] == [
+    assert services["analytics-importer"]["command"] == [
         "python",
         "-m",
         "devfeed_core.analytics_worker",
     ]
-    assert services["analytics-exporter"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == (
+    assert services["analytics-importer"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == (
         "devfeed_ingest"
     )
     assert services["admin-api"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed_admin"
@@ -189,12 +192,12 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
         clickhouse["environment"]["DEVFEED_CLICKHOUSE_INGEST_PASSWORD"]
         == options["DEVFEED_CLICKHOUSE_INGEST_PASSWORD"]
     )
-    assert services["analytics-exporter"]["cpus"] == 0.5
-    assert int(services["analytics-exporter"]["mem_limit"]) == 512 * 1024**2
-    assert services["analytics-exporter"]["healthcheck"]["timeout"] == "10s"
+    assert services["analytics-importer"]["cpus"] == 0.5
+    assert int(services["analytics-importer"]["mem_limit"]) == 512 * 1024**2
+    assert services["analytics-importer"]["healthcheck"]["timeout"] == "10s"
 
 
-def test_server_profiles_reserve_capacity_for_exporter_across_reader_replicas():
+def test_server_profiles_reserve_import_capacity_across_reader_replicas():
     services = check_compose.render({"POSTGRES_PASSWORD": "fixture-only-password"})["services"]
     environment = services["clickhouse"]["environment"]
     readers = int(environment["DEVFEED_CLICKHOUSE_READER_MAX_QUERIES"])
@@ -214,9 +217,7 @@ def test_server_profiles_reserve_capacity_for_exporter_across_reader_replicas():
     assert users.find("users/devfeed_ingest/grants/query").get("from_env") == (
         "DEVFEED_CLICKHOUSE_INGEST_GRANT"
     )
-    assert users.findtext("users/devfeed_ingest/grants/mutation_status") == (
-        "GRANT SELECT ON system.mutations"
-    )
+    assert users.find("users/devfeed_ingest/grants/mutation_status") is None
     assert users.findtext("users/devfeed_reader/profile") == "devfeed_reader"
     assert users.findtext("profiles/devfeed_reader/readonly") == "2"
     assert users.find("users/devfeed_reader/grants/query").get("from_env") == (

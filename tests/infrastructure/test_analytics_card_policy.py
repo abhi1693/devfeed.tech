@@ -1,8 +1,7 @@
 """Analytics identities, metadata, range bounds, and retry clocks require no database."""
 
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
+from datetime import UTC, datetime
 
 import pytest
 from devfeed_core import (
@@ -12,7 +11,6 @@ from devfeed_core import (
     managed_images,
     source_relevance,
 )
-from devfeed_core.analytics_card_builders import _next_transition
 from devfeed_core.analytics_observation import AnalyticsSnapshot, pipeline_policy_version
 from devfeed_core.config import get_settings
 from pydantic import SecretStr, ValidationError
@@ -61,7 +59,7 @@ def test_policy_identity_ignores_mapping_order_release_identity_and_worker_crede
         update={
             "codex_auth_token": SecretStr("unit-test-only-token"),
             "database_url": "postgresql+psycopg://worker:fixture@database.invalid/unit_test",
-            "analytics_batch_size": 500,
+            "analytics_backfill_batch_size": 500,
             "analytics_poll_seconds": 20,
         }
     )
@@ -93,22 +91,3 @@ def test_snapshot_metadata_round_trips_timestamps_and_nonnegative_lag(status):
 def test_snapshot_metadata_rejects_unknown_status_and_negative_lag(values):
     with pytest.raises(ValidationError):
         AnalyticsSnapshot.model_validate(values)
-
-
-def test_retry_timer_chooses_first_future_queued_job_and_ignores_unrelated_evidence():
-    now = datetime(2026, 10, 21, tzinfo=UTC)
-    expected = now + timedelta(seconds=30)
-    jobs = [
-        None,
-        SimpleNamespace(text="Private extracted content"),
-        SimpleNamespace(status=None),
-        SimpleNamespace(status="running", available_at=now + timedelta(seconds=1)),
-        SimpleNamespace(status="failed", available_at=now + timedelta(seconds=2)),
-        SimpleNamespace(status="queued", available_at=now - timedelta(seconds=1)),
-        SimpleNamespace(status="queued", available_at=now),
-        SimpleNamespace(status="queued", available_at=now + timedelta(minutes=1)),
-        SimpleNamespace(status="queued", available_at=expected),
-    ]
-    assert _next_transition(iter(jobs), now) == expected
-    assert _next_transition(jobs[:7], now) is None
-    assert _next_transition([], now) is None

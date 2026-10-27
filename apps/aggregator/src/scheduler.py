@@ -7,10 +7,10 @@ import uuid
 from contextlib import suppress
 
 from devfeed_core.analysis import fail_analysis
+from devfeed_core.analytics_producer import shutdown as drain_analytics
 from devfeed_core.automation_scheduler import schedule_automation
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
-from devfeed_core.engagement import prune_article_opens
 from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.job_dispatch import DispatchLane, dispatch_jobs, dispatch_lanes
 from devfeed_core.job_lifecycle import fail_or_retry
@@ -91,7 +91,6 @@ def _tick() -> dict[str, int]:
     factory = session_factory()
     # The exporter preserves expired opens before their transactional rows
     # are removed. Historical aggregation belongs to ClickHouse.
-    prune_article_opens(factory)
     from devfeed_core.job_retention import prune_job_payloads
 
     try:
@@ -413,6 +412,7 @@ def run() -> None:
                         health.completed()
                     stop.wait(15)
         finally:
+            drain_analytics()
             stop_runtime(telemetry)
             logger.info("scheduler_stopped")
 

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
+from dataclasses import dataclass
 
 from devfeed_core.models import (
     Article,
@@ -49,13 +49,12 @@ class CampaignService:
         )
         return rows, total
 
-    async def page(self, analytics, *, limit: int = 100, offset: int = 0):
-        rows, total = await asyncio.to_thread(self._page, limit, offset)
-        return {"items": await self.reports(rows, analytics), "total": total}
+    def page(self, *, limit: int = 100, offset: int = 0):
+        rows, total = self._page(limit, offset)
+        return self.metadata(rows, total=total)
 
-    async def get(self, campaign_id: uuid.UUID, analytics) -> CampaignOut:
-        campaign = await asyncio.to_thread(self._find, campaign_id)
-        return (await self.reports([campaign], analytics))[0]
+    def get(self, campaign_id: uuid.UUID):
+        return self.metadata([self._find(campaign_id)])
 
     def _find(self, campaign_id: uuid.UUID) -> PartnerCampaign:
         campaign = self.session.scalar(
@@ -171,25 +170,38 @@ class CampaignService:
             )
         ).all()
 
-    async def reports(self, rows, analytics) -> list[CampaignOut]:
-        if not rows:
+    def metadata(self, rows, *, total=0):
+        assets = self._assets([row.id for row in rows]) if rows else []
+        return CampaignMetadata(
+            [CampaignOut.model_validate(row) for row in rows],
+            {str(asset_id): campaign_id for asset_id, campaign_id in assets},
+            total,
+        )
+
+
+@dataclass(frozen=True)
+class CampaignMetadata:
+    rows: list[CampaignOut]
+    owners: dict[str, uuid.UUID]
+    total: int = 0
+
+    async def reports(self, analytics) -> list[CampaignOut]:
+        if not self.rows:
             return []
-        assets = await asyncio.to_thread(self._assets, [row.id for row in rows])
-        owners = {str(asset_id): campaign_id for asset_id, campaign_id in assets}
-        measured = {row.id: [0, 0] for row in rows}
-        ids = list(owners)
+        measured = {row.id: [0, 0] for row in self.rows}
+        ids = list(self.owners)
         for position in range(0, len(ids), 1000):
             for metric in await analytics.partner_summary(ids[position : position + 1000]):
-                if metric["owner"] not in owners:
+                if metric["owner"] not in self.owners:
                     raise ValueError("Unauthorized partner metrics identity")
-                counts = measured[owners[metric["owner"]]]
+                counts = measured[self.owners[metric["owner"]]]
                 counts[0] += int(metric["impressions"])
                 counts[1] += int(metric["clicks"])
         result = []
-        for row in rows:
+        for row in self.rows:
             impressions, clicks = measured[row.id]
             result.append(
-                CampaignOut.model_validate(row).model_copy(
+                row.model_copy(
                     update={
                         "impressions": impressions,
                         "clicks": clicks,

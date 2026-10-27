@@ -1,7 +1,5 @@
 """Receipt-authorized anonymous partner impression and click collection."""
 
-import asyncio
-
 from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.config import get_settings
@@ -20,13 +18,14 @@ from devfeed_core.rate_limits import (
 )
 from devfeed_http.analytics import analytics_client
 from devfeed_http.body_limits import BodyLimitedRoute, RequestBodyPolicy
+from devfeed_http.dependencies import run_database
 from devfeed_http.partner_analytics_reporting import require_partner_claims
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 
-from devfeed_api.dependencies import DB, get_rate_limit_redis
+from devfeed_api.dependencies import DBFactory, get_rate_limit_redis
 from devfeed_api.partner_callers import partner_caller_key
 
 router = APIRouter(
@@ -91,7 +90,7 @@ def _claim_event(session, receipt, kind, caller):
     response_class=Response,
     openapi_extra=RequestBodyPolicy(body_limit=2048).openapi_extra(),
 )
-async def track_event(body: PartnerEvent, request: Request, session: DB):
+async def track_event(body: PartnerEvent, request: Request, factory: DBFactory):
     headers = {"Cache-Control": "no-store"}
     key = get_settings().partner_tracking_key
     receipt = PartnerTrackingTokens(key.get_secret_value()).verify(body.receipt) if key else None
@@ -104,8 +103,8 @@ async def track_event(body: PartnerEvent, request: Request, session: DB):
         raise HTTPException(
             503, "Partner tracking unavailable", headers={**headers, "Retry-After": "1"}
         ) from None
-    claim = await asyncio.to_thread(
-        _claim_event, session, receipt, body.kind, partner_caller_key(request)
+    claim = await run_database(
+        factory, _claim_event, receipt, body.kind, partner_caller_key(request)
     )
     # TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Old receipt claims already belong
     # to the imported baseline; their temporary sentinel prevents double count.

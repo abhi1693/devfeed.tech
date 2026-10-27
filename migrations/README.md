@@ -206,22 +206,31 @@ previously redacted inputs, catalogs or specialist outputs; durable job identiti
 results, accounting and failures remain. Rolling back also restores the old retention
 policy, so keep the scheduler stopped until that cost and policy are acceptable.
 
-## ClickHouse analytics export (0038)
+## Direct ClickHouse analytics (0038)
 
-Revision `0038` adds the transactional analytical outbox, exporter checkpoints,
-backfill cursors, and narrow source capture triggers. It removes PostgreSQL's
-inference aggregate maintenance triggers. Historical reports require ClickHouse;
-there is no PostgreSQL reporting fallback or feature switch.
+Revision `0038` follows deployed revision `0037`. It adds only the impression and
+click receipt timestamps needed for delivery idempotency. It creates no analytics
+queues, leases, projections or source capture triggers in PostgreSQL.
 
-The migration installs capture without scanning source history. The asynchronous
-exporter activates capture behind a short writer barrier, then imports existing
-records in restart-safe keyset batches while exporting committed changes. It
-acknowledges exact outbox identities only after ClickHouse confirms insertion.
-Keep the exporter running during normal operation and back up ClickHouse together
-with PostgreSQL. See [the read-model rollout guide](../apps/admin-api/READ_MODELS.md).
+Prepare the ClickHouse schema before the new application accepts writes; the
+Compose migration container performs PostgreSQL upgrade and schema-only ClickHouse
+initialization. Start the new application and workers, drain old application
+processes, then start the analytics history worker. Live application commits publish directly to
+ClickHouse while the worker imports bounded historical pages. Its temporary guards
+freeze only old analytics writes; business sources stay writable. Older analytic
+endpoints fail fast during this handoff. Short NOWAIT metadata locks retry instead
+of holding application writers for the duration of history import. The worker drops
+legacy analytic tables, functions and search counters only after ClickHouse confirms
+all history and current cards. Readiness remains false until this completes. There
+is no ongoing PostgreSQL history polling after completion.
 
-Stop the new runtimes before a deliberate downgrade. Downgrade reconstructs the
-former PostgreSQL inference aggregates once and reinstalls their maintenance
-triggers; that operation locks ledger writes and can be expensive on a large
-history. Retain ClickHouse backups because older PostgreSQL detail may already
-have expired. Ordinary application startup never performs that reconstruction.
+Back up ClickHouse for historical analytics. Direct application delivery is bounded
+and best effort: a crash between a business commit and its ClickHouse insert can
+lose that observation. There is no durable PostgreSQL outbox or automatic recovery
+from complete ClickHouse data loss.
+
+The earlier undeployed `0038`–`0044` draft revisions were removed. For a disposable
+development database stamped with one of those drafts, stop its old processes and
+run `uv run alembic stamp --purge 0037` before `uv run devfeed db upgrade`. Stamping
+changes migration metadata only and retains old analytics for the automatic import.
+Do not run this development repair on a deployed database.

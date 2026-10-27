@@ -1,14 +1,14 @@
 """Track operational receipt claims without analytical counters.
 
-Revision ID: 0044
-Revises: 0043
+Revision ID: 0038
+Revises: 0037
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0044"
-down_revision = "0043"
+revision = "0038"
+down_revision = "0037"
 branch_labels = None
 depends_on = None
 

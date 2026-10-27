@@ -304,6 +304,8 @@ def test_workhorse_owns_telemetry_lifetime_and_reports_failed_execution(
 
     monkeypatch.setattr(analysis_worker, "start_runtime", start)
     monkeypatch.setattr(analysis_worker, "stop_runtime", stop)
+    drained = Mock()
+    monkeypatch.setattr(analysis_worker, "drain_analytics", drained)
     monkeypatch.setattr(analysis_worker, "span", process_span)
     monkeypatch.setattr(analysis_worker, "extract_context", lambda carrier: ("context", carrier))
     monkeypatch.setattr(
@@ -320,6 +322,7 @@ def test_workhorse_owns_telemetry_lifetime_and_reports_failed_execution(
     else:
         assert worker.perform_job(job, worker.queues[0]) is result
     start.assert_called_once_with("worker-images", serve_metrics=False)
+    drained.assert_called_once_with()
     stop.assert_called_once_with(runtime)
     assert observed["name"] == "process images"
     assert observed["context"] == ("context", {"traceparent": "parent"})

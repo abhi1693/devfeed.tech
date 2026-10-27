@@ -19,17 +19,17 @@ from devfeed_core.reading_streaks import record_reading_day
 from devfeed_core.schemas import FeedPage
 from devfeed_http.agent_permissions import AgentAccessPolicy
 from devfeed_http.analytics import analytics_client
+from devfeed_http.dependencies import run_database
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import delete, func, literal, select
 from sqlalchemy.dialects.postgresql import insert
-from starlette.concurrency import run_in_threadpool
 
 from devfeed_user_api import oidc
 from devfeed_user_api.auth import TOKEN, User, UserIdentity, require_user
 from devfeed_user_api.config import get_settings
-from devfeed_user_api.dependencies import DB
+from devfeed_user_api.dependencies import DBFactory
 from devfeed_user_api.open_limits import limit_open_requests
 from devfeed_user_api.trending import trending_page
 
@@ -120,18 +120,18 @@ def public_article(session, article_id: uuid.UUID) -> None:
 
 @router.get("/engagement", response_model=list[EngagementOut])
 async def engagement(
-    session: DB,
+    factory: DBFactory,
     viewer: Viewer,
     client: ClickHouse,
     article_id: Annotated[list[uuid.UUID], Query(min_length=1, max_length=100)],
 ):
     analytics = ArticleOpenAnalytics(client)
     cutover = await analytics.cutover()
-    rows = await run_in_threadpool(engagement_rows, session, article_id, viewer)
+    rows = await run_database(factory, engagement_rows, article_id, viewer)
     return await _with_opens(rows, analytics, cutover)
 
 
-def _write_like(article_id, payload, user, session):
+def _write_like(session, article_id, payload, user):
     public_article(session, article_id)
     values = {"article_id": article_id, "user_id": uuid.UUID(user.user_id)}
     if payload.liked:
@@ -152,11 +152,11 @@ def _write_like(article_id, payload, user, session):
     openapi_extra=AgentAccessPolicy(scope="devfeed:write").openapi_extra(),
 )
 async def like(
-    article_id: uuid.UUID, payload: LikeInput, user: User, session: DB, client: ClickHouse
+    article_id: uuid.UUID, payload: LikeInput, user: User, factory: DBFactory, client: ClickHouse
 ):
     analytics = ArticleOpenAnalytics(client)
     cutover = await analytics.cutover()
-    rows = await run_in_threadpool(_write_like, article_id, payload, user, session)
+    rows = await run_database(factory, _write_like, article_id, payload, user)
     return (await _with_opens(rows, analytics, cutover))[0]
 
 
@@ -191,7 +191,7 @@ async def opened(
     request: Request,
     response: Response,
     viewer: Viewer,
-    session: DB,
+    factory: DBFactory,
     client: ClickHouse,
 ):
     settings = get_settings()
@@ -206,16 +206,16 @@ async def opened(
     # first-party cookie. Never count prefetches or disclose individual viewers.
     identity = "user:" + viewer.user_id if viewer else "visitor:" + token
     viewer_key = hashlib.sha256(identity.encode()).hexdigest()
-    await run_in_threadpool(_authorize_open, session, article_id, viewer_key, viewer is None)
+    await run_database(factory, _authorize_open, article_id, viewer_key, viewer is None)
     analytics = ArticleOpenAnalytics(client)
     cutover = await analytics.write_cutover()
     opened_at = utcnow()
     if viewer:
-        await run_in_threadpool(_record_reading_day, session, viewer, article_id, opened_at)
+        await run_database(factory, _record_reading_day, viewer, article_id, opened_at)
     try:
         await analytics.record(article_id, viewer_key, opened_at)
         await analytics.cutover()
-        rows = await run_in_threadpool(engagement_rows, session, [article_id], viewer)
+        rows = await run_database(factory, engagement_rows, [article_id], viewer)
         result = (await _with_opens(rows, analytics, cutover))[0]
     except AnalyticsUnavailable:
         # Preserve the newly assigned anonymous identity even if the insert was
@@ -231,7 +231,7 @@ async def opened(
 
 @router.get("/trending", response_model=FeedPage)
 async def trending(
-    session: DB,
+    factory: DBFactory,
     client: ClickHouse,
     limit: int = Query(24, ge=1, le=100),
     cursor: int = Query(0, ge=0, le=1_000_000),
@@ -239,5 +239,5 @@ async def trending(
     analytics = ArticleOpenAnalytics(client)
     await analytics.cutover()
     return await trending_page(
-        session, analytics, since=utcnow() - timedelta(days=7), limit=limit, cursor=cursor
+        factory, analytics, since=utcnow() - timedelta(days=7), limit=limit, cursor=cursor
     )

@@ -8,10 +8,8 @@ from devfeed_core.models import (
     PartnerAccount,
     PartnerAsset,
     PartnerCampaign,
-    PartnerDailyMetric,
     PartnerMembership,
     PartnerProduct,
-    PartnerTrackedDailyMetric,
 )
 
 from tests.partners.attribution.test_reporting_sort import dashboard
@@ -23,7 +21,7 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def product_report(database):
+def product_report(database, partner_analytics):
     now = datetime.now(UTC)
     today = now.date()
     with database.begin() as session:
@@ -112,21 +110,22 @@ def product_report(database):
         ]
         session.add_all(assets)
         session.flush()
-        session.add_all(
+        partner_analytics.seed_many(
             [
-                PartnerDailyMetric(asset_id=assets[0].id, day=today, impressions=100, clicks=1),
-                PartnerTrackedDailyMetric(
-                    asset_id=assets[0].id, day=today, impressions=50, clicks=4
-                ),
-                PartnerDailyMetric(asset_id=assets[1].id, day=today, impressions=200, clicks=10),
-                PartnerTrackedDailyMetric(
+                dict(asset_id=assets[0].id, day=today, impressions=100, clicks=1),
+                dict(asset_id=assets[1].id, day=today, impressions=200, clicks=10),
+                dict(asset_id=assets[3].id, day=today, impressions=300, clicks=6),
+                dict(asset_id=assets[4].id, day=today, impressions=99999, clicks=9999),
+            ]
+        )
+        partner_analytics.seed_many(
+            [
+                dict(asset_id=assets[0].id, day=today, impressions=50, clicks=4),
+                dict(
                     asset_id=assets[2].id, day=today - timedelta(days=1), impressions=50, clicks=5
                 ),
-                PartnerDailyMetric(asset_id=assets[3].id, day=today, impressions=300, clicks=6),
-                PartnerDailyMetric(
-                    asset_id=assets[4].id, day=today, impressions=99999, clicks=9999
-                ),
-            ]
+            ],
+            baseline=True,
         )
         return account.id, product
 
@@ -181,7 +180,7 @@ def test_format_filter_preserves_canonical_grouping_and_ledger_breakdown(
 
 
 def test_mixed_manual_and_automatic_product_totals_are_explicitly_aggregated(
-    database, portal_client, product_report
+    database, portal_client, product_report, partner_analytics
 ):
     account, product = product_report
     with database.begin() as session:
@@ -195,13 +194,8 @@ def test_mixed_manual_and_automatic_product_totals_are_explicitly_aggregated(
         )
         session.add(manual)
         session.flush()
-        session.add(
-            PartnerDailyMetric(
-                asset_id=manual.id,
-                day=datetime.now(UTC).date(),
-                impressions=30,
-                clicks=3,
-            )
+        partner_analytics.seed(
+            asset_id=manual.id, day=datetime.now(UTC).date(), impressions=30, clicks=3
         )
     result = dashboard(portal_client[0], account)
     row = next(item for item in result["assets"] if item["product_id"] == str(product))

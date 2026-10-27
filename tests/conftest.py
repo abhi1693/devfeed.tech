@@ -154,6 +154,7 @@ def database(integration_environment, monkeypatch, rss_bytes):
     # Keep publisher preflight deterministic; tests can override individual failures.
     from devfeed_aggregator import source_tasks
     from devfeed_api.dependencies import get_redis
+    from devfeed_core import analytics_producer
     from devfeed_core.feeds import validation
     from devfeed_core.feeds.fetcher import FetchResult
 
@@ -164,42 +165,24 @@ def database(integration_environment, monkeypatch, rss_bytes):
     # Trusted submissions also queue profile jobs. Worker tests must not contact
     # live websites; profile-specific tests replace this stub with their scenario.
     monkeypatch.setattr(source_tasks, "lookup_profile", lambda *args: ({}, None))
+    # Tests opt into real ClickHouse delivery explicitly. Ordinary source tests
+    # must not start a background network publisher after each fixture commit.
+    monkeypatch.setattr(analytics_producer, "submit", lambda changes: None)
 
     get_redis.cache_clear()
     # Only the explicitly configured, name-checked test database is modified.
     with get_engine().begin() as connection:
-        # Export checkpoints are migration-owned and deliberately absent from the
-        # application ORM. Disable capture before resetting source fixtures.
-        connection.execute(
-            text(
-                "UPDATE analytics_pipeline_state SET enabled = false, capture_started_at = NULL, "
-                "last_success_at = NULL, native_lease_token = NULL, lease_until = NULL, "
-                "native_import_complete=false,native_capture_started_at=NULL, "
-                "reader_coverage_start=NULL,native_bootstrap_barrier=false, "
-                "native_bootstrap_complete=false,card_target_policy=NULL,card_serving_policy=NULL,"
-                "card_bootstrap_complete=false,card_bootstrap_barrier=false,"
-                "card_catalog_revision=NULL,card_catalog_target_revision=NULL,"
-                "card_catalog_progress_at=NULL"
-            )
+        # Direct analytics are stored in ClickHouse; source fixtures have no
+        # PostgreSQL capture queues, leases, cursors or reporting snapshots.
+        present = set(
+            connection.execute(
+                text("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+            ).scalars()
         )
-        connection.execute(
-            text(
-                "TRUNCATE analytics_ingest_events, analytics_bootstrap_cursors, "
-                "analytics_upgrade_checkpoint, analytics_fact_refresh, "
-                "analytics_rollup_compaction, "
-                "analytics_gauge_refreshes RESTART IDENTITY"
-            )
+        names = ", ".join(
+            f'"{table.name}"' for table in Base.metadata.sorted_tables if table.name in present
         )
-        connection.execute(text("UPDATE analytics_gauge_bootstrap SET started=false"))
-        connection.execute(
-            text("""INSERT INTO analytics_gauge_refreshes(domain,shard)
-                VALUES('queues',0),('feed',0),('sources',0),('topics',0)""")
-        )
-        names = ", ".join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
         connection.execute(text(f"TRUNCATE TABLE {names} CASCADE"))
-        connection.execute(
-            text("INSERT INTO analytics_card_timer_bootstrap(singleton) VALUES(true)")
-        )
         # Migration 0037 creates durable cadence rows. Restore their initial
         # state after truncation, as a newly provisioned database would have.
         connection.execute(

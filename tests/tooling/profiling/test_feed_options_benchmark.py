@@ -322,6 +322,7 @@ def test_fixture_sql_uses_bigint_sequences_and_preserves_table_cardinalities(com
 def test_measure_serializes_public_output_and_removes_sql_capture_on_failure(raises):
     engine = create_engine("sqlite://")
     with engine.connect() as connection:
+        listeners = tuple(connection.dispatch.before_cursor_execute)
 
         def route(session, **filters):
             session.connection().exec_driver_sql("SELECT ?", ("bound",))
@@ -337,7 +338,7 @@ def test_measure_serializes_public_output_and_removes_sql_capture_on_failure(rai
             assert json.loads(response) == dict(sources=[], content_types=[])
             assert statements == [("SELECT ?", ("bound",))]
             assert timing["wall_ms"] >= 0 and timing["application_cpu_ms"] >= 0
-        assert not connection.dispatch.before_cursor_execute
+        assert tuple(connection.dispatch.before_cursor_execute) == listeners
     engine.dispose()
 
 

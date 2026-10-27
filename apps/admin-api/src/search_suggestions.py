@@ -7,13 +7,13 @@ from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.models import SearchQueryStat
 from devfeed_core.schemas import DatabaseText
 from devfeed_core.search_suggestions import SearchSuggestionAnalytics, review_query
+from devfeed_http.dependencies import run_database
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
-from starlette.concurrency import run_in_threadpool
 
 from devfeed_admin_api.auth import Admin, require_admin
-from devfeed_admin_api.dependencies import DB
+from devfeed_admin_api.dependencies import DBFactory
 
 router = APIRouter(
     prefix="/v1/admin/search-suggestions",
@@ -40,7 +40,7 @@ class SearchSuggestionReview(BaseModel):
 
 @router.get("", response_model=list[SearchSuggestionOut])
 async def list_suggestions(
-    session: DB,
+    factory: DBFactory,
     request: Request,
     status: Literal["pending", "approved", "rejected"] | None = None,
     minimum: int = 0,
@@ -48,7 +48,7 @@ async def list_suggestions(
 ):
     try:
         rows = await SearchSuggestionAnalytics(request.app.state.analytics.client).rank(
-            session, status=status, minimum=minimum, limit=limit
+            factory, status=status, minimum=minimum, limit=limit
         )
         return [SearchSuggestionOut.model_validate(row) for row in rows]
     except (AnalyticsUnavailable, SQLAlchemyError):
@@ -57,9 +57,13 @@ async def list_suggestions(
 
 @router.post("/{query_hash}/review", response_model=SearchSuggestionOut)
 async def review_suggestion(
-    query_hash: str, body: SearchSuggestionReview, session: DB, admin: Admin, request: Request
+    query_hash: str,
+    body: SearchSuggestionReview,
+    factory: DBFactory,
+    admin: Admin,
+    request: Request,
 ):
-    def review():
+    def review(session):
         value = review_query(
             session, query_hash, status=body.status, reviewer=admin.subject, note=body.note
         )
@@ -75,15 +79,15 @@ async def review_suggestion(
     try:
         if len(query_hash) != 64 or any(char not in "0123456789abcdef" for char in query_hash):
             raise ValueError("Invalid query hash")
-        exists = await run_in_threadpool(session.get, SearchQueryStat, query_hash)
-        if exists is None:
+        exists = await run_database(
+            factory, lambda session: session.get(SearchQueryStat, query_hash) is not None
+        )
+        if not exists:
             raise LookupError("Search query not found")
-        # Release the source transaction before a ClickHouse request.
-        await run_in_threadpool(session.rollback)
         metrics = await SearchSuggestionAnalytics(request.app.state.analytics.client).get(
             query_hash
         )
-        metadata = await run_in_threadpool(review)
+        metadata = await run_database(factory, review)
         return SearchSuggestionOut.model_validate(metadata | metrics)
     except ValueError:
         raise HTTPException(422, "Invalid search suggestion hash") from None

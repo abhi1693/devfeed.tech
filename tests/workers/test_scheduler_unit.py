@@ -190,8 +190,6 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
     monkeypatch.setattr(scheduler, "session_factory", lambda: factory)
     monkeypatch.setattr(scheduler, "utcnow", lambda: NOW)
     monkeypatch.setattr(quota_monitor, "refresh_quota", Mock())
-    prune = Mock()
-    monkeypatch.setattr(scheduler, "prune_article_opens", prune)
     monkeypatch.setattr(
         job_retention,
         "prune_job_payloads",
@@ -267,7 +265,6 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
         heartbeat_queue.connection.set.assert_called_once_with(
             "devfeed:scheduler:heartbeat", NOW.isoformat(), ex=120
         )
-    prune.assert_called_once_with(factory)
     partner_retention.assert_called_once_with(factory)
     scheduler.dispatch_partner_pipeline.assert_called_once_with(factory, limit=5)
     scheduler.dispatch_partner_evaluations.assert_called_once_with(factory, limit=5)

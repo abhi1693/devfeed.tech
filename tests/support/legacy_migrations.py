@@ -57,14 +57,7 @@ def database_at_revision(monkeypatch, revision):
 
 
 @pytest.fixture
-def pre_native_database(integration_environment, monkeypatch):
-    """Give one native-upgrade test a database initially at revision0038."""
+def migration_database(integration_environment, monkeypatch):
+    """Own a current disposable schema for historical migration round trips."""
     with database_at_revision(monkeypatch, "0038") as database:
-        yield database
-
-
-@pytest.fixture
-def pre_operator_database(integration_environment, monkeypatch):
-    """Give one operator-state cutover test a database initially at revision0041."""
-    with database_at_revision(monkeypatch, "0041") as database:
         yield database

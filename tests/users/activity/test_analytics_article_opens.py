@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import struct
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -15,12 +16,14 @@ class RecordingClient:
     def __init__(self):
         self.inserts = []
         self.queries = []
+        self.externals = []
 
     async def insert(self, table, rows):
         self.inserts.append((table, rows))
 
-    async def query(self, statement, parameters):
+    async def query(self, statement, parameters, *, external_data=None):
         self.queries.append((statement, parameters))
+        self.externals.append(external_data)
         return []
 
 
@@ -91,7 +94,8 @@ def test_valid_open_and_import_are_bounded_and_canonical():
         assert historic == {**live, "historical": 1}
         assert client.inserts[2][1] == [{"article_id": str(article), "opens": 7}]
         assert await analytics.totals([article], cutover=stamp) == {str(article): 0}
-        assert client.queries[0][1]["cutover"] == live["opened_hour"]
+        assert "analytics_open_lifetime" in client.queries[0][0]
+        assert client.queries[0][1]["ids"] == [str(article)]
 
     asyncio.run(run())
 
@@ -176,6 +180,68 @@ def test_real_clickhouse_deduplicates_opens_across_cutover_and_import_retries():
                         cutover.replace(minute=0), after=first[0]["article_id"], limit=1
                     )
                     assert len(last) == 1 and last[0]["article_id"] != first[0]["article_id"]
+
+                    # One server-side ranking query combines authoritative
+                    # visibility and likes without a Python deep-offset heap.
+                    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+                    micros = int((cutover - epoch).total_seconds() * 1_000_000)
+                    metadata = b"".join(
+                        struct.pack("<QQqQ", item.int >> 64, item.int & (2**64 - 1), micros, likes)
+                        for item, likes in ((article, 0), (other, 1))
+                    )
+                    ranked = await analytics.trending(
+                        cutover.replace(minute=0), metadata, limit=1, cursor=0
+                    )
+                    assert [row["article_id"] for row in ranked] == [str(other), str(article)]
+                    deep = await analytics.trending(
+                        cutover.replace(minute=0), metadata, limit=1, cursor=1
+                    )
+                    assert [row["article_id"] for row in deep] == [str(article)]
+
+                    # Raw reusable viewer keys expire while idempotent exact
+                    # lifetime states and reader sketches remain queryable.
+                    retired = uuid.uuid4()
+                    old = datetime.now(UTC) - timedelta(days=40)
+                    await analytics.record(retired, "d" * 64, old)
+                    await analytics.record(retired, "d" * 64, old)
+                    await client.execute("OPTIMIZE TABLE analytics_article_opens FINAL")
+                    raw = await client.query(
+                        "SELECT count() AS n FROM analytics_article_opens "
+                        "WHERE article_id={id:UUID}",
+                        {"id": str(retired)},
+                    )
+                    assert raw == [{"n": 0}]
+                    assert await analytics.totals([retired], cutover=old) == {str(retired): 1}
+                    audience = await client.query(
+                        "SELECT uniqExactMerge(open_state) AS opens,"
+                        "uniqCombined64Merge(reader_state) AS readers "
+                        "FROM analytics_open_audience_hourly "
+                        "WHERE bucket_hour<now()-INTERVAL 30 DAY"
+                    )
+                    assert audience == [{"opens": 1, "readers": 1}]
+                    await analytics.import_totals([{"article_id": retired, "opens": 5}])
+                    await analytics.import_opens(
+                        [{"article_id": retired, "viewer_key": "d" * 64, "opened_hour": old}]
+                    )
+                    await client.execute("OPTIMIZE TABLE analytics_article_opens FINAL")
+                    assert await analytics.totals([retired], cutover=old) == {str(retired): 5}
+
+                    # A failed materialized-view insert is retried through the
+                    # raw table; replay cannot inflate either aggregate target.
+                    failed = uuid.uuid4()
+                    await client.execute(
+                        "CREATE TABLE analytics_open_failure (v UInt8) ENGINE=Null"
+                    )
+                    await client.execute(
+                        "CREATE MATERIALIZED VIEW analytics_open_failure_ingest "
+                        "TO analytics_open_failure AS SELECT toUInt8(throwIf(article_id="
+                        f"toUUID('{failed}'))) AS v FROM analytics_article_opens"
+                    )
+                    with pytest.raises(AnalyticsUnavailable):
+                        await analytics.record(failed, "e" * 64, cutover)
+                    await client.execute("DROP VIEW analytics_open_failure_ingest")
+                    await analytics.record(failed, "e" * 64, cutover)
+                    assert await analytics.totals([failed], cutover=cutover) == {str(failed): 1}
             finally:
                 await admin.execute(f"DROP DATABASE IF EXISTS `{target}`")
 
@@ -192,5 +258,36 @@ def test_recent_pages_use_the_sorted_article_identity_for_keyset_paging():
         assert "article_key>{after:String}" in statement
         assert "GROUP BY article_key ORDER BY article_key" in statement
         assert parameters["after"] == identity
+
+    asyncio.run(run())
+
+
+def test_raw_viewer_retention_has_idempotent_lifetime_and_reader_states():
+    from devfeed_core.analytics_article_opens import (
+        AUDIENCE_VIEW_DDL,
+        LIFETIME_VIEW_DDL,
+        OPEN_DDL,
+    )
+
+    assert "INTERVAL 30 DAY DELETE" in OPEN_DDL
+    assert "uniqExactState(event_id)" in LIFETIME_VIEW_DDL
+    assert "uniqExactStateIf(event_id,historical=1)" in LIFETIME_VIEW_DDL
+    assert "uniqCombined64State(toString(viewer_key))" in AUDIENCE_VIEW_DDL
+
+
+def test_trending_passes_bounded_external_business_data_to_one_query():
+    async def run():
+        client = RecordingClient()
+        analytics = ArticleOpenAnalytics(client)
+        identity = uuid.uuid4().int
+        payload = struct.pack("<QQqQ", identity >> 64, identity & (2**64 - 1), 1700000000000000, 2)
+        await analytics.trending(datetime.now(UTC), payload, limit=2, cursor=900000)
+        assert len(client.queries) == 1
+        statement, params = client.queries[0]
+        assert "OFFSET {offset:UInt32}" in statement
+        assert params["offset"] == 900000 and params["limit"] == 3
+        external = client.externals[0]
+        assert external.files[0].data == payload
+        assert "visible_articles" in statement
 
     asyncio.run(run())

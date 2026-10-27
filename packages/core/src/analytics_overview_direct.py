@@ -9,18 +9,21 @@ secondary rollup worker.
 import uuid
 from datetime import UTC, datetime
 
+from devfeed_core.analytics_schema import JOB_KINDS as _SOURCE_JOB_KINDS
+
 MAX_BATCH_SIZE = 1000
 _ZERO = str(uuid.UUID(int=0))
 _NAMESPACE = uuid.UUID("f578f44d-3ce0-4b5e-a903-879be66906ad")
 
-OVERVIEW_EVENTS_DDL = """CREATE TABLE IF NOT EXISTS analytics_overview_events (
+OVERVIEW_EVENTS_DDL = """CREATE TABLE IF NOT EXISTS {table} (
     domain LowCardinality(String), id UUID, revision UInt64, deleted UInt8,
     occurred_at Nullable(DateTime64(6, 'UTC')), created_at Nullable(DateTime64(6, 'UTC')),
     task LowCardinality(String), status LowCardinality(String), outcome LowCardinality(String),
     attempt UInt32, duration_ms Nullable(UInt64), automated UInt8,
     source_ids Array(UUID), topic_ids Array(UUID), interest_count UInt32,
     has_generation UInt8, invalidated UInt8, has_recommendations UInt8,
-    expires_at Nullable(DateTime64(6, 'UTC')), next_refresh_at Nullable(DateTime64(6, 'UTC'))
+    expires_at Nullable(DateTime64(6, 'UTC')), next_refresh_at Nullable(DateTime64(6, 'UTC')),
+    name String, target_id UUID, consecutive_failures UInt32
 ) ENGINE = ReplacingMergeTree(revision) ORDER BY (domain, id)"""
 
 _BUCKETS = {
@@ -29,17 +32,7 @@ _BUCKETS = {
     "week": "toStartOfInterval(occurred_at, INTERVAL 1 WEEK, 'UTC')",
     "month": "toDateTime(toStartOfMonth(occurred_at), 'UTC')",
 }
-_JOB_KINDS = {
-    "ingestion",
-    "article_enrichment",
-    "article_image",
-    "source_enrichment",
-    "analysis",
-    "topic_analysis",
-    "research_verification",
-    "notification",
-    "topic-decision",
-}
+_JOB_KINDS = {*_SOURCE_JOB_KINDS.values(), "topic-decision"}
 
 
 def _uuid(value):
@@ -106,6 +99,9 @@ def _base(domain, identity, revision, *, deleted=False):
         "has_recommendations": 0,
         "expires_at": None,
         "next_refresh_at": None,
+        "name": "",
+        "target_id": _ZERO,
+        "consecutive_failures": 0,
     }
 
 
@@ -122,13 +118,96 @@ class DirectOverviewAnalytics:
         self.client = client
 
     async def initialize(self):
-        await self.client.execute(OVERVIEW_EVENTS_DDL)
+        for table in ("analytics_pipeline_events", "analytics_user_events"):
+            await self.client.execute(OVERVIEW_EVENTS_DDL.format(table=table))
 
     async def _write(self, rows):
         if len(rows) > MAX_BATCH_SIZE:
             raise ValueError("Overview analytics batch is too large")
-        if rows:
-            await self.client.insert("analytics_overview_events", rows)
+        for table, domains in (
+            ("analytics_pipeline_events", {"publication", "job", "queue", "source", "topic"}),
+            ("analytics_user_events", {"account", "feed", "membership"}),
+        ):
+            selected = [row for row in rows if row["domain"] in domains]
+            if selected:
+                await self.client.insert(table, selected)
+
+    async def publish(self, changes, *, revision):
+        """Publish sanitized source snapshots after their business transaction commits.
+
+        Publication and feed snapshots are hydrated by the application publisher,
+        because their inputs span associations and operational account state.
+        A reparented identity is represented as an old-key deletion plus new-key
+        snapshot. Every retry keeps the same revision and snapshot payload.
+        """
+        groups: dict[str, list[dict]] = {
+            name: []
+            for name in (
+                "publications",
+                "jobs",
+                "decisions",
+                "feeds",
+                "accounts",
+                "sources",
+                "topics",
+                "memberships",
+            )
+        }
+        for change in self._bounded(changes):
+            self._group_change(groups, change, _uint(revision))
+        for name, records in groups.items():
+            size = MAX_BATCH_SIZE // 2 if name == "jobs" else MAX_BATCH_SIZE
+            for offset in range(0, len(records), size):
+                await getattr(self, name)(records[offset : offset + size])
+
+    @staticmethod
+    def _group_change(groups, change, revision):
+        source = change["source_table"]
+        record = change.get("record")
+        deleted = record is None or change.get("deleted", False) or change.get("operation") == "D"
+        record = record or change.get("identity") or change.get("before_record") or {}
+        if "publication" in change:
+            groups["publications"].append(change["publication"] | {"revision": revision})
+        if "feed" in change:
+            groups["feeds"].append(change["feed"] | {"revision": revision})
+        if source in _SOURCE_JOB_KINDS:
+            groups["jobs"].append(
+                {
+                    "id": record["id"],
+                    "kind": _SOURCE_JOB_KINDS[source],
+                    "revision": revision,
+                    "status": record.get("status") or "unknown",
+                    "attempt": record.get("attempts") or 0,
+                    "created_at": record.get("created_at"),
+                    "finished_at": record.get("finished_at"),
+                    "duration_ms": record.get("duration_ms"),
+                    "outcome": record.get("outcome"),
+                    "deleted": bool(deleted),
+                    "attempt_only": change.get("attempt_only", False),
+                }
+            )
+        elif source == "user_accounts":
+            groups["accounts"].append(record | {"revision": revision, "deleted": bool(deleted)})
+        elif source in {"sources", "topics"}:
+            groups[source].append(record | {"revision": revision, "deleted": bool(deleted)})
+        elif source in {"user_topics", "user_interests"}:
+            groups["memberships"].append(
+                {
+                    "user_id": record["user_id"],
+                    "topic_id": record["topic_id"],
+                    "kind": "follow" if source == "user_topics" else "inferred",
+                    "revision": revision,
+                    "deleted": bool(
+                        deleted
+                        or (source == "user_interests" and record.get("reason") != "related_topic")
+                    ),
+                }
+            )
+        elif source == "topic_proposals":
+            reviewed = record.get("status") in {"approved", "rejected"}
+            groups["decisions"].append(
+                record | {"revision": revision, "deleted": bool(deleted or not reviewed)}
+            )
 
     async def publications(self, records):
         """Write complete publication snapshots, including updated associations.
@@ -178,9 +257,18 @@ class DirectOverviewAnalytics:
                 attempt=attempt,
                 created_at=_time(record.get("created_at"), optional=True),
             )
-            rows.append(current)
-            if not deleted and state in {"succeeded", "failed"}:
-                row = _base("job", _identity("attempt", task, job_id, attempt), version)
+            if not record.get("attempt_only", False):
+                rows.append(current)
+            if (
+                not deleted
+                and state in {"succeeded", "failed"}
+                and record.get("finished_at") is not None
+            ):
+                row = _base(
+                    "job",
+                    self._attempt_identity(task, job_id, attempt, record["finished_at"]),
+                    version,
+                )
                 duration = record.get("duration_ms")
                 row.update(
                     task=task,
@@ -192,6 +280,13 @@ class DirectOverviewAnalytics:
                 )
                 rows.append(row)
         await self._write(rows)
+
+    @staticmethod
+    def _attempt_identity(task, job_id, attempt, finished_at):
+        # Completion timestamps distinguish unnumbered historical attempts
+        # from subsequent completions that also lack an attempt counter.
+        suffix = () if attempt else (_time(finished_at).isoformat(),)
+        return _identity("attempt", task, job_id, attempt, *suffix)
 
     async def decisions(self, records):
         """Record reviewed topic decisions as immutable throughput observations."""
@@ -234,6 +329,136 @@ class DirectOverviewAnalytics:
             rows.append(row)
         await self._write(rows)
 
+    async def accounts(self, records):
+        rows = []
+        for record in self._bounded(records):
+            row = _base(
+                "account", record["id"], record["revision"], deleted=record.get("deleted", False)
+            )
+            if not row["deleted"]:
+                row["occurred_at"] = _time(record["created_at"])
+            rows.append(row)
+        await self._write(rows)
+
+    async def sources(self, records):
+        await self._dimensions("source", records)
+
+    async def topics(self, records):
+        await self._dimensions("topic", records)
+
+    async def _dimensions(self, domain, records):
+        rows = []
+        for record in self._bounded(records):
+            row = _base(
+                domain, record["id"], record["revision"], deleted=record.get("deleted", False)
+            )
+            if not row["deleted"]:
+                row["name"] = _text(record.get("name") or "Unnamed", "name", max_length=200)
+                row["consecutive_failures"] = _uint(
+                    record.get("consecutive_failures") or 0, maximum=2**32 - 1
+                )
+            rows.append(row)
+        await self._write(rows)
+
+    async def memberships(self, records):
+        rows = []
+        for record in self._bounded(records):
+            kind = record["kind"]
+            if kind not in {"follow", "inferred"}:
+                raise ValueError("Invalid analytics membership kind")
+            user, topic = _uuid(record["user_id"]), _uuid(record["topic_id"])
+            row = _base(
+                "membership",
+                _identity("membership", kind, user, topic),
+                record["revision"],
+                deleted=record.get("deleted", False),
+            )
+            row.update(task=kind, target_id=topic)
+            rows.append(row)
+        await self._write(rows)
+
+    @staticmethod
+    def _bounded(records):
+        if not isinstance(records, (list, tuple)) or len(records) > MAX_BATCH_SIZE:
+            raise ValueError("Invalid overview batch")
+        return records
+
+    async def publication_days(self, start, end):
+        return await self.client.query(
+            "/* overview:publication-days */ SELECT toDate(occurred_at) AS day,\n"
+            "count() AS published "
+            "FROM (SELECT * FROM analytics_pipeline_events FINAL WHERE domain='publication') "
+            "WHERE deleted=0 AND occurred_at>={start:DateTime64(6,'UTC')} "
+            "AND occurred_at<{end:DateTime64(6,'UTC')} GROUP BY day ORDER BY day "
+            "SETTINGS optimize_move_to_prewhere_if_final=0,enable_optimize_predicate_expression=0",
+            {"start": _time(start), "end": _time(end)},
+        )
+
+    async def audience(self, start, end, *, granularity="day", daily=False):
+        bucket = "toDate({column})" if daily else _BUCKETS.get(granularity)
+        if bucket is None:
+            raise ValueError("Invalid audience granularity")
+        if not daily:
+            bucket = bucket.replace("occurred_at", "{column}")
+        alias, marker = ("day", "audience-days") if daily else ("chart_bucket", "audience")
+        open_bucket, account_bucket = (
+            bucket.format(column="bucket_hour"),
+            bucket.format(column="occurred_at"),
+        )
+        return await self.client.query(
+            f"/* overview:{marker} */ WITH opens AS (SELECT {open_bucket} AS point,"
+            "uniqExactMerge(open_state) AS opens,uniqCombined64Merge(reader_state) AS readers "
+            "FROM analytics_open_audience_hourly WHERE bucket_hour>={start:DateTime64(6,'UTC')} "
+            "AND bucket_hour<{end:DateTime64(6,'UTC')} GROUP BY point),"
+            f"accounts AS (SELECT {account_bucket} AS point,count() AS accounts "
+            "FROM (SELECT * FROM analytics_user_events FINAL WHERE domain='account') "
+            "WHERE deleted=0 AND occurred_at>={start:DateTime64(6,'UTC')} "
+            "AND occurred_at<{end:DateTime64(6,'UTC')} GROUP BY point) "
+            f"SELECT coalesce(o.point,a.point) AS {alias},coalesce(o.opens,0) AS opens,"
+            "coalesce(o.readers,0) AS estimated_readers,coalesce(a.accounts,0) AS new_accounts "
+            f"FROM opens o FULL OUTER JOIN accounts a ON o.point=a.point ORDER BY {alias} "
+            "SETTINGS optimize_move_to_prewhere_if_final=0,enable_optimize_predicate_expression=0",
+            {"start": _time(start), "end": _time(end)},
+        )
+
+    async def source_coverage(self, start, end):
+        return await self.client.query(
+            "/* overview:sources */ SELECT toString(p.source_id) AS id,"
+            "coalesce(nullIf(s.name,''),'Unknown source') AS name,p.publications,"
+            "coalesce(s.consecutive_failures,0) AS consecutive_failures,"
+            "sum(p.publications) OVER() AS total FROM ("
+            "SELECT arrayJoin(source_ids) AS source_id,count() AS publications "
+            "FROM (SELECT * FROM analytics_pipeline_events FINAL WHERE domain='publication') "
+            "WHERE deleted=0 AND occurred_at>={start:DateTime64(6,'UTC')} "
+            "AND occurred_at<{end:DateTime64(6,'UTC')} GROUP BY source_id) p "
+            "LEFT JOIN (SELECT id,name,consecutive_failures FROM analytics_pipeline_events FINAL "
+            "WHERE domain='source' AND deleted=0) s ON s.id=p.source_id "
+            "ORDER BY p.publications DESC,name,id LIMIT 10 "
+            "SETTINGS optimize_move_to_prewhere_if_final=0,enable_optimize_predicate_expression=0",
+            {"start": _time(start), "end": _time(end)},
+        )
+
+    async def topic_coverage(self, start, end):
+        return await self.client.query(
+            "/* overview:topics */ SELECT toString(m.topic_id) AS id,"
+            "coalesce(nullIf(t.name,''),'Unknown topic') AS name,m.followers,m.inferred_users,"
+            "coalesce(p.publications,0) AS publications FROM ("
+            "SELECT target_id AS topic_id,countIf(task='follow') AS followers,"
+            "countIf(task='inferred') AS inferred_users FROM analytics_user_events FINAL "
+            "WHERE domain='membership' AND deleted=0 GROUP BY target_id) m "
+            "LEFT JOIN (SELECT id,name FROM analytics_pipeline_events FINAL "
+            "WHERE domain='topic' AND deleted=0) t ON t.id=m.topic_id "
+            "LEFT JOIN (SELECT arrayJoin(topic_ids) AS topic_id,count() AS publications "
+            "FROM (SELECT * FROM analytics_pipeline_events FINAL WHERE domain='publication') "
+            "WHERE deleted=0 AND occurred_at>={start:DateTime64(6,'UTC')} "
+            "AND occurred_at<{end:DateTime64(6,'UTC')} GROUP BY topic_id) p\n"
+            "ON p.topic_id=m.topic_id "
+            "WHERE m.followers>0 OR m.inferred_users>0 "
+            "ORDER BY m.followers DESC,m.inferred_users DESC,name,id LIMIT 10 "
+            "SETTINGS optimize_move_to_prewhere_if_final=0,enable_optimize_predicate_expression=0",
+            {"start": _time(start), "end": _time(end)},
+        )
+
     async def publication_report(self, start, end, *, granularity="day"):
         bucket = _BUCKETS.get(granularity)
         if bucket is None:
@@ -243,7 +468,7 @@ class DirectOverviewAnalytics:
             "countIf(created_at IS NOT NULL AND occurred_at>=created_at) AS durations,"
             "quantilesTDigestIf(0.5,0.95)(dateDiff('millisecond',created_at,occurred_at)/1000.,"
             "created_at IS NOT NULL AND occurred_at>=created_at) AS percentiles "
-            "FROM (SELECT * FROM analytics_overview_events FINAL WHERE domain='publication') "
+            "FROM (SELECT * FROM analytics_pipeline_events FINAL WHERE domain='publication') "
             "WHERE deleted=0 AND occurred_at>={start:DateTime64(6,'UTC')} "
             "AND occurred_at<{end:DateTime64(6,'UTC')} GROUP BY bucket ORDER BY bucket "
             "SETTINGS optimize_move_to_prewhere_if_final=0,enable_optimize_predicate_expression=0",
@@ -256,11 +481,12 @@ class DirectOverviewAnalytics:
         if bucket is None:
             raise ValueError("Invalid publication granularity")
         return await self.client.query(
-            f"SELECT {bucket} AS chart_bucket,grouping(chart_bucket) AS total,"
+            f"/* overview:publishing */ SELECT {bucket} AS chart_bucket,\n"
+            "grouping(chart_bucket) AS total,"
             "count() AS published,sum(automated) AS automated,"
             "quantilesTDigestIf(0.5,0.95)(dateDiff('millisecond',created_at,occurred_at)/1000.,"
             "created_at IS NOT NULL AND occurred_at>=created_at) AS percentiles "
-            "FROM (SELECT * FROM analytics_overview_events FINAL WHERE domain='publication') "
+            "FROM (SELECT * FROM analytics_pipeline_events FINAL WHERE domain='publication') "
             "WHERE deleted=0 AND occurred_at>={start:DateTime64(6,'UTC')} "
             "AND occurred_at<{end:DateTime64(6,'UTC')} GROUP BY chart_bucket WITH ROLLUP "
             "SETTINGS optimize_move_to_prewhere_if_final=0,enable_optimize_predicate_expression=0",
@@ -273,7 +499,7 @@ class DirectOverviewAnalytics:
         column = "source_ids" if dimension == "source" else "topic_ids"
         return await self.client.query(
             "SELECT toString(target) AS id,count() AS publications "
-            "FROM (SELECT * FROM analytics_overview_events FINAL WHERE domain='publication') "
+            "FROM (SELECT * FROM analytics_pipeline_events FINAL WHERE domain='publication') "
             f"ARRAY JOIN {column} AS target "
             "WHERE deleted=0 AND occurred_at>={start:DateTime64(6,'UTC')} "
             "AND occurred_at<{end:DateTime64(6,'UTC')} GROUP BY target ORDER BY target "
@@ -286,25 +512,27 @@ class DirectOverviewAnalytics:
         if bucket is None:
             raise ValueError("Invalid throughput granularity")
         return await self.client.query(
-            f"SELECT {bucket} AS bucket,countIf(domain='publication') AS articles_published,"
+            f"/* overview:throughput */ SELECT {bucket} AS chart_bucket,\n"
+            "countIf(domain='publication') AS articles_published,"
             "countIf(domain='job' AND task='analysis' AND status='succeeded' "
             "AND outcome='applied') AS article_analyses,"
             "countIf(domain='job' AND task='topic-decision' AND status='succeeded') "
-            "AS topic_decisions FROM (SELECT * FROM analytics_overview_events FINAL "
+            "AS topic_decisions FROM (SELECT * FROM analytics_pipeline_events FINAL "
             "WHERE domain IN ('publication','job')) WHERE deleted=0 "
             "AND occurred_at>={start:DateTime64(6,'UTC')} "
-            "AND occurred_at<{end:DateTime64(6,'UTC')} GROUP BY bucket ORDER BY bucket "
+            "AND occurred_at<{end:DateTime64(6,'UTC')} GROUP BY chart_bucket ORDER BY chart_bucket "
             "SETTINGS optimize_move_to_prewhere_if_final=0,enable_optimize_predicate_expression=0",
             {"start": _time(start), "end": _time(end)},
         )
 
     async def job_outcomes(self, start, end):
         return await self.client.query(
-            "SELECT task AS kind,countIf(status='succeeded') AS completed,"
+            "/* overview:job-outcomes */ SELECT task AS kind,\n"
+            "countIf(status='succeeded') AS completed,"
             "countIf(status='failed') AS failed,countIf(duration_ms IS NOT NULL) AS durations,"
             "quantilesTDigestIf(0.5,0.95)(duration_ms/1000.,duration_ms IS NOT NULL) "
             "AS percentiles "
-            "FROM (SELECT * FROM analytics_overview_events FINAL WHERE domain='job') "
+            "FROM (SELECT * FROM analytics_pipeline_events FINAL WHERE domain='job') "
             "WHERE deleted=0 AND task!='topic-decision' "
             "AND occurred_at>={start:DateTime64(6,'UTC')} "
             "AND occurred_at<{end:DateTime64(6,'UTC')} "
@@ -315,17 +543,18 @@ class DirectOverviewAnalytics:
 
     async def queues(self):
         return await self.client.query(
-            "SELECT task AS kind,countIf(status='queued') AS queued,"
+            "/* overview:queues */ SELECT task AS kind,countIf(status='queued') AS queued,"
             "countIf(status='running') AS running,"
             "minOrNullIf(created_at,status='queued') AS oldest_queued_at "
-            "FROM (SELECT * FROM analytics_overview_events FINAL WHERE domain='queue') "
+            "FROM (SELECT * FROM analytics_pipeline_events FINAL WHERE domain='queue') "
             "WHERE deleted=0 AND status IN ('queued','running') GROUP BY task ORDER BY task "
             "SETTINGS optimize_move_to_prewhere_if_final=0,enable_optimize_predicate_expression=0"
         )
 
     async def feed_health(self, as_of):
         return await self.client.query(
-            "SELECT countIf(state='ready') AS ready,countIf(state='refreshing') AS refreshing,"
+            "/* overview:feed-health */ SELECT countIf(state='ready') AS ready,\n"
+            "countIf(state='refreshing') AS refreshing,"
             "countIf(state='expired') AS expired,countIf(state='pending') AS pending,"
             "countIf(state='not_needed') AS not_needed,"
             "countIf(interest_count>0 AND next_refresh_at<={now:DateTime64(6,'UTC')}) AS overdue,"
@@ -334,7 +563,7 @@ class DirectOverviewAnalytics:
             "FROM (SELECT *,multiIf(interest_count=0,'not_needed',has_generation=0,'pending',"
             "invalidated=1,'refreshing',isNull(expires_at) OR "
             "expires_at<={now:DateTime64(6,'UTC')},"
-            "'expired','ready') AS state FROM (SELECT * FROM analytics_overview_events FINAL "
+            "'expired','ready') AS state FROM (SELECT * FROM analytics_user_events FINAL "
             "WHERE domain='feed') WHERE deleted=0) "
             "SETTINGS optimize_move_to_prewhere_if_final=0,enable_optimize_predicate_expression=0",
             {"now": _time(as_of)},

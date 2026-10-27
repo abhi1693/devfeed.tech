@@ -6,67 +6,34 @@ from datetime import timedelta
 
 import pytest
 from devfeed_core.db import get_engine
-from devfeed_core.engagement import prune_article_opens
 from devfeed_core.models import (
-    Article,
-    ArticleEngagement,
     ArticleLike,
-    ArticleOpen,
     UserReadingDay,
     UserReadingEvent,
     utcnow,
 )
 from devfeed_user_api import engagement
 from devfeed_user_api.config import Settings
-from sqlalchemy import event, func, insert, select, text, update
+from sqlalchemy import event, func, insert, select, update
 
+from tests.support.user_analytics import direct_client as direct_client
 from tests.support.user_personalization import user_data as user_data
 
 pytestmark = pytest.mark.integration
 
 
-def test_clickhouse_retention_waits_for_capture_and_exports_expired_facts(database):
-    with database.begin() as session:
-        article = Article(
-            canonical_url="https://example.invalid/retention",
-            url_hash="retention",
-            title="Retained activity",
-        )
-        session.add(article)
-        session.flush()
-        session.add(
-            ArticleOpen(
-                article_id=article.id,
-                viewer_key="reader",
-                opened_hour=utcnow() - timedelta(days=31),
-            )
-        )
-    prune_article_opens(database)
-    with database.begin() as session:
-        assert session.scalar(select(func.count()).select_from(ArticleOpen)) == 1
-        session.execute(text("UPDATE analytics_pipeline_state SET enabled = true"))
-    prune_article_opens(database)
-    with database() as session:
-        assert session.scalar(select(func.count()).select_from(ArticleOpen)) == 0
-        operation, record, before, version = session.execute(
-            text(
-                "SELECT operation,record,before_record,format_version FROM analytics_ingest_events "
-                "WHERE source_table='article_opens'"
-            )
-        ).one()
-        assert operation == "I" and record["viewer_key"] == "reader"
-        assert before is None and version == 3
-
-
 @pytest.fixture
-def interactions(user_data, database, monkeypatch):
-    client, current, first, second, topics = user_data
-    settings = Settings(_env_file=None, base_url="http://testserver", cookie_secure=False)
-    monkeypatch.setattr(engagement, "get_settings", lambda: settings)
-    client.app.dependency_overrides[engagement.optional_user] = lambda: None
-    with database() as session:
-        ids = {row.title: row.id for row in session.execute(select(Article.title, Article.id))}
-    return client, current, first, second, ids
+def interactions(direct_client, user_data):
+    client, current, first, ids, _ = direct_client
+    return client, current, first, user_data[3], ids
+
+
+def open_rows(client, article_id):
+    return client.portal.call(
+        client.app.state.analytics_client.query,
+        "SELECT viewer_key FROM analytics_article_opens FINAL WHERE article_id={article:UUID}",
+        {"article": str(article_id)},
+    )
 
 
 def test_likes_are_idempotent_and_owned(interactions, database):
@@ -106,9 +73,9 @@ def test_anonymous_opens_deduplicate_and_retain_only_opaque_viewer_keys(interact
     assert response.headers["cache-control"] == "no-store"
     token = client.cookies.get("devfeed_user_visitor")
     assert client.post(url, headers={"Origin": "http://testserver"}).json()["opens"] == 1
-    with database() as session:
-        row = session.scalar(select(ArticleOpen).where(ArticleOpen.article_id == article_id))
-        assert len(row.viewer_key) == 64 and token not in row.viewer_key
+    rows = open_rows(client, article_id)
+    assert len(rows) == 1
+    assert len(rows[0]["viewer_key"]) == 64 and token not in rows[0]["viewer_key"]
     client.cookies.clear()
     assert client.post(url, headers={"Origin": "http://testserver"}).json()["opens"] == 2
     assert (
@@ -172,9 +139,7 @@ def test_anonymous_clicks_use_real_auth_dependency_and_preserve_abuse_limits(
         assert client.post(path, headers=headers).status_code == 200
     limited = client.post(path, headers=headers)
     assert limited.status_code == 429 and int(limited.headers["retry-after"]) > 0
-    with database() as session:
-        assert session.get(ArticleEngagement, article_id).opens == 1
-        assert session.scalar(select(func.count()).select_from(ArticleOpen)) == 1
+    assert len(open_rows(client, article_id)) == 1
 
 
 @pytest.mark.parametrize("status", [403, 503])
@@ -208,14 +173,12 @@ def test_user_opens_deduplicate_across_browsers_and_concurrent_calls(interaction
             pool.map(lambda _: client.post(url, headers={"Origin": "http://testserver"}), range(4))
         )
     assert all(response.status_code == 200 for response in responses)
+    assert len(open_rows(client, article_id)) == 1
+    assert (
+        client.get("/v1/user/engagement", params={"article_id": str(article_id)}).json()[0]["opens"]
+        == 1
+    )
     with database() as session:
-        assert (
-            session.scalar(
-                select(ArticleEngagement.opens).where(ArticleEngagement.article_id == article_id)
-            )
-            == 1
-        )
-        assert session.scalar(select(func.count()).select_from(ArticleOpen)) == 1
         assert session.scalar(select(func.count()).select_from(UserReadingEvent)) == 1
 
 
@@ -250,12 +213,12 @@ def test_bulk_engagement_is_one_query_and_trending_excludes_unpublished(
     with database.begin() as session:
         session.execute(insert(ArticleLike).values(article_id=ids["Article 000"], user_id=first))
         session.execute(insert(ArticleLike).values(article_id=ids["Article 110"], user_id=first))
-        session.execute(
-            insert(ArticleOpen).values(
-                article_id=ids["Article 001"], viewer_key="x" * 64, opened_hour=utcnow()
-            )
-        )
-        session.execute(insert(ArticleEngagement).values(article_id=ids["Article 001"], opens=1))
+    assert (
+        client.post(
+            f"/v1/user/articles/{ids['Article 001']}/open", headers={"Origin": "http://testserver"}
+        ).status_code
+        == 200
+    )
     queries = []
 
     def count(*args):
@@ -280,29 +243,6 @@ def test_bulk_engagement_is_one_query_and_trending_excludes_unpublished(
     ]
 
 
-def test_retention_prunes_in_batches_without_losing_lifetime_totals(interactions, database):
-    _, _, _, _, ids = interactions
-    article_id = ids["Article 000"]
-    with database.begin() as session:
-        session.execute(text("UPDATE analytics_pipeline_state SET enabled = true"))
-        session.execute(insert(ArticleEngagement).values(article_id=article_id, opens=3))
-        for offset in (0, 31, 32):
-            session.execute(
-                insert(ArticleOpen).values(
-                    article_id=article_id,
-                    viewer_key="x" * 64,
-                    opened_hour=utcnow() - timedelta(days=offset),
-                )
-            )
-    prune_article_opens(database, batch=1)
-    with database() as session:
-        assert session.scalar(select(func.count()).select_from(ArticleOpen)) == 2
-        assert session.get(ArticleEngagement, article_id).opens == 3
-    prune_article_opens(database, batch=100)
-    with database() as session:
-        assert session.scalar(select(func.count()).select_from(ArticleOpen)) == 1
-
-
 def test_cookie_rotation_cannot_bypass_shared_open_limit(interactions, database):
     client, _, _, _, ids = interactions
     path = f"/v1/user/articles/{ids['Article 000']}/open"
@@ -312,9 +252,13 @@ def test_cookie_rotation_cannot_bypass_shared_open_limit(interactions, database)
     client.cookies.clear()
     response = client.post(path, headers={"Origin": "http://testserver"})
     assert response.status_code == 429 and 0 < int(response.headers["retry-after"]) <= 60
-    with database() as session:
-        assert session.scalar(select(func.count()).select_from(ArticleOpen)) == 20
-        assert session.get(ArticleEngagement, ids["Article 000"]).opens == 20
+    assert len(open_rows(client, ids["Article 000"])) == 20
+    assert (
+        client.get("/v1/user/engagement", params={"article_id": str(ids["Article 000"])}).json()[0][
+            "opens"
+        ]
+        == 20
+    )
 
 
 def test_unavailable_limiter_refuses_tracking_before_article_queries(interactions, monkeypatch):

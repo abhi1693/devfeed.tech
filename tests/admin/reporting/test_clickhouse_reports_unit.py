@@ -276,7 +276,7 @@ async def test_processing_combines_useful_output_without_mixing_decision_rows_in
     assert result.outcomes[0].p95_seconds == 8
     assert result.outcomes[1].p50_seconds is None
     outcome_sql = next(sql for sql, _ in client.queries if "overview:job-outcomes" in sql)
-    assert "r.kind != 'topic-decision'" in outcome_sql
+    assert "task!='topic-decision'" in outcome_sql
 
 
 @run_async
@@ -299,7 +299,7 @@ async def test_queue_pressure_reads_only_current_gauges_without_scanning_process
     assert not result.data.outcomes and not result.data.throughput
     assert len(client.queries) == 1
     sql = client.queries[0][0]
-    assert "analytics_queue_gauges" in sql and "analytics_gauge_manifest" in sql
+    assert "analytics_pipeline_events FINAL" in sql and "domain='queue'" in sql
     assert "analytics_processing_hourly" not in sql and "analytics_publishing_hourly" not in sql
 
 

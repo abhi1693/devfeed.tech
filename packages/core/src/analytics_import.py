@@ -4,16 +4,35 @@ Old analytical writers must be drained before this importer starts. New direct
 writers use distinct live event identities. The historical importer is temporary.
 """
 
+import hashlib
+import json
 import math
 from datetime import UTC, date, datetime
+from functools import partial
 
 from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
 from devfeed_core.analytics_backfill import AnalyticsBackfill, BackfillSource
 from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.analytics_inference_store import InferenceStore
+from devfeed_core.analytics_overview_direct import DirectOverviewAnalytics
+from devfeed_core.analytics_schema import JOB_TABLES, TABLES
 from devfeed_core.partner_claim_backfill import backfill_partner_claims
 
 IMPORT_ID = "direct-v1"
+OVERVIEW_SOURCES = (
+    "articles",
+    "sources",
+    "topics",
+    "user_accounts",
+    "user_topics",
+    "user_interests",
+    "user_recommendation_states",
+    "topic_proposals",
+    *JOB_TABLES,
+)
+HISTORY_ARCHIVE_DDL = """CREATE TABLE IF NOT EXISTS analytics_history_archive (
+    source_table LowCardinality(String),identity String,record String
+) ENGINE=ReplacingMergeTree ORDER BY (source_table,identity)"""
 
 
 def _date(value):
@@ -31,19 +50,37 @@ def _time(value):
 class HistoricalAnalyticsImport:
     """Configure the bounded source pages and their direct ClickHouse writers."""
 
-    def __init__(self, client, *, cutover, page_size=1000):
+    def __init__(self, client, *, cutover, page_size=1000, settings=None):
         if (
             not isinstance(cutover, datetime)
             or cutover.tzinfo is None
             or cutover.utcoffset() is None
         ):
             raise ValueError("A fixed, timezone-aware analytics cutover is required")
+        from devfeed_core.config import get_settings
+
         self.client = client
+        self.settings = settings or get_settings()
         self._connection = None
         self.cutover = cutover.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
         self.opens = ArticleOpenAnalytics(client)
         self.engagement = DirectEngagementAnalytics(client)
         self.inference = InferenceStore(client)
+        self.overview = DirectOverviewAnalytics(client)
+        self.absent = []
+        from devfeed_core.analytics_direct_cards import CARD_SOURCES
+        from devfeed_core.analytics_observation import pipeline_policy_version
+
+        policy = pipeline_policy_version(self.settings)
+        self.cards_importer = AnalyticsBackfill(
+            client,
+            "cards-" + hashlib.sha256(policy.encode()).hexdigest()[:32],
+            [
+                BackfillSource(name, ("id",), ("id",), partial(self.import_cards, kind))
+                for name, kind in CARD_SOURCES.items()
+            ],
+            page_size=min(page_size, 200),
+        )
         self.importer = AnalyticsBackfill(
             client,
             IMPORT_ID,
@@ -112,12 +149,91 @@ class HistoricalAnalyticsImport:
             ],
             page_size=page_size,
         )
+        for name in ("topic_decision_calls", "inference_daily_usage"):
+            if name == "topic_decision_calls":
+                spec = TABLES[name]
+                fields, keys = spec.fields, spec.keys
+            else:
+                fields = (
+                    "day",
+                    "operation",
+                    "model",
+                    "model_is_null",
+                    "effort",
+                    "calls",
+                    "returned",
+                    "failed",
+                    "running",
+                    "unreported",
+                    "input_tokens",
+                    "cached_input_tokens",
+                    "output_tokens",
+                    "reasoning_tokens",
+                    "web_searches",
+                    "duration_ms",
+                )
+                keys = ("day", "operation", "model", "model_is_null", "effort")
+            self.importer.sources[name] = BackfillSource(
+                name, fields, keys, partial(self.archive_history, name, keys)
+            )
+        for name in OVERVIEW_SOURCES:
+            spec = TABLES[name]
+            self.importer.sources[name] = BackfillSource(
+                name, spec.fields, spec.keys, partial(self.import_source, name)
+            )
+
+    async def configure(self, connection):
+        """Inspect retained PostgreSQL history without depending on draft revision numbers."""
+        from devfeed_core.analytics_cutover import LEGACY_TABLES
+
+        rows = await (
+            await connection.execute(
+                "SELECT table_name,column_name FROM information_schema.columns "
+                "WHERE table_schema='public' AND table_name=ANY(%s)",
+                (list(self.importer.sources),),
+            )
+        ).fetchall()
+        columns: dict[str, set[str]] = {}
+        for row in rows:
+            name, field = tuple(row.values()) if isinstance(row, dict) else row
+            columns.setdefault(name, set()).add(field)
+        for name, source in self.importer.sources.items():
+            if not set(source.fields) <= columns.get(name, set()):
+                if name not in LEGACY_TABLES and name != "search_query_stats":
+                    raise RuntimeError(f"Historical source schema is incomplete: {name}")
+                self.absent.append(name)
 
     async def initialize(self):
         await self.opens.initialize()
         await self.engagement.initialize()
         await self.inference.initialize()
+        await self.overview.initialize()
+        from devfeed_core.analytics_direct_cards import initialize_cards
+
+        await initialize_cards(self.client)
+        await self.client.execute(HISTORY_ARCHIVE_DDL)
         await self.importer.initialize()
+        await self.cards_importer.initialize()
+        for name in self.absent:
+            cursor, page, complete = await self.importer._progress(name)
+            if complete:
+                continue
+            if page or cursor:
+                raise RuntimeError(f"Historical source disappeared before completion: {name}")
+            source = self.importer.sources[name]
+            await self.client.insert(
+                "analytics_backfill_progress",
+                [
+                    {
+                        "import_id": IMPORT_ID,
+                        "source": name,
+                        "page": 1,
+                        "cursor": "",
+                        "complete": 1,
+                        "boundary": source.before[1] if source.before else "",
+                    }
+                ],
+            )
         await self.client.execute(
             "CREATE TABLE IF NOT EXISTS analytics_audience_archive_daily (day Date, "
             "opens Nullable(UInt64),readers Nullable(Float64),accounts_created Nullable(UInt64), "
@@ -140,6 +256,9 @@ class HistoricalAnalyticsImport:
         if self._connection is None:
             raise RuntimeError("A source connection is required for historical partner claims")
         await backfill_partner_claims(self._connection, rows)
+        await self.archive_history(
+            "partner_delivery_events", ("asset_id", "delivery_id", "kind"), rows
+        )
 
     async def once(self, connection):
         """Import at most one page; a single coordinator owns each invocation."""
@@ -152,6 +271,9 @@ class HistoricalAnalyticsImport:
             "partner_daily_metrics",
             "partner_tracked_daily_metrics",
             "overview_daily",
+            "topic_decision_calls",
+            "inference_daily_usage",
+            *OVERVIEW_SOURCES,
         )
         for name in order:
             if not await self.importer.complete([name]):
@@ -160,7 +282,41 @@ class HistoricalAnalyticsImport:
                     await self.mark_ready()
                 return True
         await self.mark_ready()
+        for name in self.cards_importer.sources:
+            if not await self.cards_importer.complete([name]):
+                await self.cards_importer.scan_one(connection, name)
+                return True
         return False
+
+    async def import_cards(self, kind, rows):
+        from devfeed_core.analytics_direct_cards import publish_card_ids
+
+        await publish_card_ids(self.client, self.settings, kind, [row["id"] for row in rows], 1)
+
+    async def import_source(self, name, rows):
+        from devfeed_core.analytics_producer import hydrate_changes
+
+        if self._connection is None:
+            raise RuntimeError("A source connection is required for historical snapshots")
+        changes = [{"source_table": name, "record": row, "operation": "I"} for row in rows]
+        changes = await hydrate_changes(self._connection, changes)
+        for offset in range(0, len(changes), 1000):
+            await self.overview.publish(changes[offset : offset + 1000], revision=1)
+
+    async def archive_history(self, source, keys, rows):
+        await self.client.insert(
+            "analytics_history_archive",
+            [
+                {
+                    "source_table": source,
+                    "identity": json.dumps(
+                        [row[key] for key in keys], default=str, separators=(",", ":")
+                    ),
+                    "record": json.dumps(row, default=str, separators=(",", ":")),
+                }
+                for row in rows
+            ],
+        )
 
     async def mark_ready(self):
         """Publish open totals only after both required source imports are complete."""

@@ -182,14 +182,15 @@ def test_cap_reserves_each_delivery_once_and_retains_today_across_midnight(used,
     campaign = NS(id=uuid.uuid4(), daily_impression_limit=2)
     assert placements.campaign_capacity(session, campaign, NOW) is expected
     sql = session.scalar.call_args.args[0].compile(dialect=dialect())
-    assert sql.params["day_1"] == NOW.date()
-    assert sql.params["issued_at_1"] == NOW.replace(hour=0, minute=0) - timedelta(hours=1)
-    assert sql.params["issued_at_2"] == NOW - timedelta(hours=1)
-    # EXISTS joins the signed delivery and its asset; OR reserves an unreported view.
-    assert "EXISTS" in str(sql) and " OR " in str(sql)
-    assert "partner_delivery_events.delivery_id = partner_placement_deliveries.delivery_id" in str(
-        sql
-    )
+    values = list(sql.params.values())
+    midnight = NOW.replace(hour=0, minute=0, second=0, microsecond=0)
+    assert midnight in values and midnight + timedelta(days=1) in values
+    assert midnight - timedelta(hours=1) in values
+    assert NOW - timedelta(hours=1) in values
+    # A claimed impression counts for its issued day; a valid unreported receipt
+    # reserves capacity even when it was issued just before UTC midnight.
+    assert "impression_recorded_at IS NOT NULL" in str(sql) and " OR " in str(sql)
+    assert "partner_delivery_events" not in str(sql)
 
 
 def test_unlimited_campaign_needs_no_count_query():

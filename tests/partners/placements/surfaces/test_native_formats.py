@@ -24,7 +24,7 @@ from devfeed_core.partner_tracking import (
     PartnerTrackingTokens,
     record_delivery_event,
 )
-from devfeed_http.partner_analytics_reporting import reporting_metrics
+from devfeed_http.partner_analytics_reporting import reporting_assets, reporting_metrics
 from devfeed_http.partner_placements import PlacementQuery
 from devfeed_http.partner_portal import CampaignInput
 from pydantic import ValidationError
@@ -309,15 +309,16 @@ def test_format_reporting_filters_immutable_asset_rows(database, feed_catalog):
             async def partner_daily(self, *_args, **_kwargs):
                 return []
 
+        metadata = reporting_assets(
+            session, select(PartnerAccount).where(PartnerAccount.id == account.id), "engagement"
+        )
         report = asyncio.run(
             reporting_metrics(
-                session,
-                select(PartnerAccount).where(PartnerAccount.id == account.id),
+                metadata,
                 EmptyAnalytics(),
                 30,
                 100,
                 0,
-                ad_format="engagement",
             )
         )
         assert report["assets"]

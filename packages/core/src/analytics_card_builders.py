@@ -158,19 +158,6 @@ def minimal_terminal_article(article, policy, now, terminal_at):
     return _article_row(article, card, policy, now, terminal_at)
 
 
-def _next_transition(jobs, now):
-    return min(
-        (
-            job.available_at
-            for job in jobs
-            if job is not None
-            and getattr(job, "status", None) == "queued"
-            and job.available_at > now
-        ),
-        default=None,
-    )
-
-
 def _article_row(
     article,
     card,
@@ -206,7 +193,11 @@ def _article_row(
         activity_at=article.discovered_at,
         terminal_at=terminal_at,
         has_active_work=any(getattr(job, "status", None) in {"queued", "running"} for job in jobs),
-        next_transition_at=_next_transition(jobs, now),
+        next_transition_at=(
+            getattr(getattr(card.jobs, card.stage, None), "available_at", None)
+            if card.state == "retry_wait"
+            else None
+        ),
         evaluated_at=now,
         review_pending=int(article.review_status == "pending"),
         enabled=0,
@@ -387,7 +378,13 @@ def source_rows(factory, sources, candidates, policy, now):
                     has_active_work=any(
                         job and job.status in {"queued", "running"} for job in fact.jobs.values()
                     ),
-                    next_transition_at=_next_transition(fact.jobs.values(), now),
+                    next_transition_at=(
+                        getattr(
+                            fact.readiness.checks.get(fact.readiness.stage), "available_at", None
+                        )
+                        if card.state == "retry_wait"
+                        else None
+                    ),
                     evaluated_at=now,
                 )
             )

@@ -35,7 +35,7 @@ def test_build_then_stop_then_migrate_then_recreate_without_data_recreation(comm
     assert all("down" not in c and "--volumes" not in c for c in commands)
 
 
-def test_analytics_rebuild_starts_data_before_migration_and_recreates_exporter(
+def test_analytics_rebuild_starts_data_before_migration_and_recreates_importer(
     monkeypatch, commands
 ):
     monkeypatch.setattr(
@@ -46,9 +46,9 @@ def test_analytics_rebuild_starts_data_before_migration_and_recreates_exporter(
     dev.rebuild()
     data_start = next(command for command in commands if command[:3] == ("up", "-d", "--wait"))
     assert data_start[-3:] == ("postgres", "redis", "clickhouse")
-    assert "analytics-exporter" in commands[0]
-    assert "analytics-exporter" in next(command for command in commands if command[0] == "stop")
-    assert "analytics-exporter" in commands[-1]
+    assert "analytics-importer" in commands[0]
+    assert "analytics-importer" in next(command for command in commands if command[0] == "stop")
+    assert "analytics-importer" in commands[-1]
     assert "clickhouse" not in commands[-1]
 
 

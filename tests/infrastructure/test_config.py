@@ -99,15 +99,13 @@ def test_clickhouse_requires_a_service_origin_without_embedded_credentials(origi
         {"clickhouse_max_concurrent_queries": 0},
         {"clickhouse_max_execution_seconds": 0},
         {"clickhouse_max_memory_bytes": 0},
-        {"analytics_batch_size": 10001},
         {"analytics_backfill_batch_size": 0},
+        {"analytics_backfill_batch_size": 1001},
         {"analytics_poll_seconds": 0},
         {"analytics_backfill_poll_seconds": 0},
-        {"analytics_rollup_interval_seconds": 0},
-        {"analytics_rollup_interval_seconds": 301},
     ],
 )
-def test_clickhouse_and_exporter_budgets_reject_unbounded_configuration(values):
+def test_clickhouse_and_import_budgets_reject_unbounded_configuration(values):
     with pytest.raises(ValidationError):
         Settings(_env_file=None, database_url=DATABASE_URL, redis_url=REDIS_URL, **values)
 

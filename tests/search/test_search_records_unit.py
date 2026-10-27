@@ -167,13 +167,13 @@ def test_invalid_search_queries_never_write_aggregates(query):
     session.execute.assert_not_called()
 
 
-def test_aggregate_write_has_only_normalized_query_and_count_fields():
+def test_query_metadata_write_excludes_analytical_counts_and_identity_fields():
     session = Mock()
     digest = search_suggestions.record_successful_query(session, "  Ｐython ")
     assert digest == search_suggestions.query_hash("python")
     values = session.execute.call_args.args[0].compile().params
     assert values["query"] == "python" and values["query_hash"] == digest
-    assert values["successful_count"] is None
+    assert not {"successful_count", "first_seen_at", "last_seen_at"}.intersection(values)
     assert "DO NOTHING" in str(session.execute.call_args.args[0].compile())
     assert not {"user_id", "ip", "session_id"}.intersection(values)
 

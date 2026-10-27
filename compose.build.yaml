@@ -71,9 +71,9 @@ services:
     <<: *backend-build
     image: devfeed/scheduler:local
     develop: *backend-develop
-  analytics-exporter:
+  analytics-importer:
     <<: *backend-build
-    image: devfeed/analytics-exporter:local
+    image: devfeed/analytics-importer:local
     develop: *backend-develop
   codex-client:
     <<: *backend-build

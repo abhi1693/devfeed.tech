@@ -1,8 +1,4 @@
-"""Bounded Overview reads over published ClickHouse bucket and gauge generations.
-
-Overview never joins raw event histories. Rollup generations are published through
-small manifests after every bucket is complete; retries cannot expose partial sums.
-"""
+"""Overview queries over application-published ClickHouse observations."""
 
 import asyncio
 import math
@@ -11,6 +7,7 @@ from typing import get_args
 
 from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.analytics_inference_store import InferenceStore
+from devfeed_core.analytics_overview_direct import DirectOverviewAnalytics
 
 from devfeed_admin_api.overview_sections import (
     AudienceBucket,
@@ -38,8 +35,6 @@ from devfeed_admin_api.overview_windows import ReportWindow
 ANALYTICAL_GROUPS = frozenset(get_args(SectionName)) - {"operations"}
 START = "{start:DateTime64(6, 'UTC')}"
 END = "{end:DateTime64(6, 'UTC')}"
-OBSERVED_END = "least(" + END + ", {observed_end:DateTime64(6, 'UTC')})"
-QUANTILES = "quantilesTDigestMerge(0.5, 0.95)"
 COUNTERS = (
     "calls",
     "failed",
@@ -72,6 +67,14 @@ def _percentiles(row):
     return _number(values[0]), _number(values[1])
 
 
+class _ReportQueries:
+    def __init__(self, report):
+        self.report = report
+
+    async def query(self, statement, parameters=None):
+        return await self.report.query(statement, **(parameters or {}))
+
+
 class Reports:
     def __init__(self, client, window: ReportWindow, now, *, capture_started_at):
         if window.start is None or window.end is None:
@@ -99,17 +102,8 @@ class Reports:
         self.granularity = (
             "hour" if self.hourly else "month" if self.monthly else "week" if self.weekly else "day"
         )
-        self.bucket = self.bucket_sql("r.bucket_hour")
         self.slots = asyncio.Semaphore(2)
-
-    def bucket_sql(self, column):
-        if self.hourly:
-            return f"toStartOfHour({column})"
-        if self.monthly:
-            return f"toDateTime(toStartOfMonth(toTimeZone({column}, 'UTC')), 'UTC')"
-        if self.weekly:
-            return f"toStartOfInterval({column}, INTERVAL 1 WEEK, 'UTC')"
-        return f"toStartOfDay({column})"
+        self.direct = DirectOverviewAnalytics(_ReportQueries(self))
 
     def bucket_start(self, value):
         value = value.replace(minute=0, second=0, microsecond=0)
@@ -152,24 +146,6 @@ class Reports:
         parsed = parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
         return parsed.astimezone(UTC).isoformat()
 
-    @staticmethod
-    def rollup(name, domain, *, daily=False):
-        column = "bucket_day" if daily else "bucket_hour"
-        bucket = "toDate(m.bucket)" if daily else "m.bucket"
-        upper = END if daily else OBSERVED_END
-        return f"""analytics_{name} r INNER JOIN (
-            SELECT bucket, generation FROM analytics_bucket_manifest FINAL
-            WHERE domain = '{domain}' AND bucket >= {START} AND bucket < {upper}
-          ) m ON r.{column} = {bucket} AND r.generation = m.generation
-          WHERE r.{column} >= {"toDate(" + START + ")" if daily else START}
-            AND r.{column} < {"toDate(" + END + ")" if daily else upper}"""
-
-    @staticmethod
-    def gauge(name, domain):
-        return f"""analytics_{name} g INNER JOIN (
-            SELECT shard, generation FROM analytics_gauge_manifest FINAL WHERE domain = '{domain}'
-          ) m ON g.shard = m.shard AND g.generation = m.generation"""
-
     async def archive(self):
         # Imported aggregate-only history is kept separate from reader sketches.
         # Its counts replace a closed day, rather than being added to its events.
@@ -179,11 +155,9 @@ class Reports:
 
     async def publishing(self):
         rows, archived = await _gather(
-            self.query(f"""/* overview:publishing */ SELECT {self.bucket} AS chart_bucket,
-                grouping(chart_bucket) AS total, sum(r.published) AS published,
-                sum(r.automated) AS automated, {QUANTILES}(r.delay_seconds_state) AS percentiles
-                FROM {self.rollup("publishing_hourly", "publishing")}
-                GROUP BY chart_bucket WITH ROLLUP"""),
+            self.direct.publication_overview(
+                self.start, min(self.end, self.params["observed_end"]), granularity=self.granularity
+            ),
             self.archive(),
         )
         activity = self.empty_series(PublicationBucket)
@@ -209,10 +183,9 @@ class Reports:
         if not self.hourly:
             daily = {}
             if (self.weekly or self.monthly) and archived:
-                counts = await self.query(f"""/* overview:publication-days */
-                    SELECT toDate(r.bucket_hour) AS day, sum(r.published) AS published
-                    FROM {self.rollup("publishing_hourly", "publishing")}
-                      AND toDate(r.bucket_hour) < {{capture_day:Date}} GROUP BY day""")
+                counts = await self.direct.publication_days(
+                    self.start, min(self.end, datetime.combine(self.capture_day, time.min, UTC))
+                )
                 daily = {str(row["day"]): row["published"] for row in counts}
             for row in archived:
                 if row["published"] is not None:
@@ -240,17 +213,11 @@ class Reports:
         return PublishingSection(summary=summary, activity=list(activity.values()))
 
     async def audience(self):
-        health_sums = ", ".join(
-            "sum(g." + field + ") AS " + field for field in PersonalizationCounts.model_fields
-        )
         rows, gauges, archived = await _gather(
-            self.query(f"""/* overview:audience */ SELECT {self.bucket} AS chart_bucket,
-                sum(r.opens) AS opens, uniqCombined64Merge(r.readers_state) AS estimated_readers,
-                sum(r.accounts_created) AS new_accounts
-                FROM {self.rollup("audience_hourly", "audience")} GROUP BY chart_bucket"""),
-            self.query(f"""/* overview:feed-health */ SELECT
-                {health_sums}
-                FROM {self.gauge("feed_gauges", "feed")}"""),
+            self.direct.audience(
+                self.start, min(self.end, self.params["observed_end"]), granularity=self.granularity
+            ),
+            self.direct.feed_health(self.now),
             self.archive(),
         )
         activity = {
@@ -270,11 +237,11 @@ class Reports:
         if not self.hourly:
             daily = {}
             if (self.weekly or self.monthly) and archived:
-                counts = await self.query(f"""/* overview:audience-days */
-                    SELECT toDate(r.bucket_hour) AS day, sum(r.opens) AS opens,
-                      sum(r.accounts_created) AS new_accounts
-                    FROM {self.rollup("audience_hourly", "audience")}
-                      AND toDate(r.bucket_hour) < {{capture_day:Date}} GROUP BY day""")
+                counts = await self.direct.audience(
+                    self.start,
+                    min(self.end, datetime.combine(self.capture_day, time.min, UTC)),
+                    daily=True,
+                )
                 daily = {str(row["day"]): row for row in counts}
             for row in archived:
                 day = datetime.fromisoformat(str(row["day"])).replace(tzinfo=UTC)
@@ -308,22 +275,10 @@ class Reports:
 
     async def processing(self):
         outcomes, throughput = await _gather(
-            self.query(f"""/* overview:job-outcomes */ SELECT r.kind AS kind,
-                sum(r.completed) AS completed, sum(r.failed) AS failed,
-                {QUANTILES}(r.duration_seconds_state) AS percentiles
-                FROM {self.rollup("processing_hourly", "processing")}
-                  AND r.kind != 'topic-decision' GROUP BY r.kind ORDER BY r.kind"""),
-            self.query(f"""/* overview:throughput */ SELECT chart_bucket,
-                sum(articles_published) AS articles_published,
-                sum(article_analyses) AS article_analyses, sum(topic_decisions) AS topic_decisions
-                FROM (
-                  SELECT {self.bucket} AS chart_bucket, 0 AS articles_published,
-                    sumIf(r.useful, r.kind = 'analysis') AS article_analyses,
-                    sumIf(r.useful, r.kind = 'topic-decision') AS topic_decisions
-                  FROM {self.rollup("processing_hourly", "processing")} GROUP BY chart_bucket
-                  UNION ALL SELECT {self.bucket}, sum(r.published), 0, 0
-                  FROM {self.rollup("publishing_hourly", "publishing")} GROUP BY {self.bucket}
-                ) GROUP BY chart_bucket ORDER BY chart_bucket"""),
+            self.direct.job_outcomes(self.start, min(self.end, self.params["observed_end"])),
+            self.direct.throughput(
+                self.start, min(self.end, self.params["observed_end"]), granularity=self.granularity
+            ),
         )
         activity = self.empty_series(ThroughputBucket)
         for row in throughput:
@@ -347,10 +302,7 @@ class Reports:
         )
 
     async def queues(self):
-        rows = await self.query(f"""/* overview:queues */ SELECT g.kind AS kind,
-            sum(g.queued) AS queued, sum(g.running) AS running,
-            min(g.oldest_queued_at) AS oldest_queued_at
-            FROM {self.gauge("queue_gauges", "queues")} GROUP BY g.kind ORDER BY g.kind""")
+        rows = await self.direct.queues()
         return ProcessingSection(queues=[QueuePressure(**row) for row in rows])
 
     async def inference(self):
@@ -389,29 +341,8 @@ class Reports:
 
     async def coverage(self):
         sources, topics = await _gather(
-            self.query(f"""/* overview:sources */ SELECT toString(p.source_id) AS id,
-                coalesce(nullIf(g.name,''),'Unknown source') AS name,
-                p.publications AS publications,
-                coalesce(g.consecutive_failures,0) AS consecutive_failures,
-                sum(p.publications) OVER() AS total FROM (
-                  SELECT r.source_id AS source_id, sum(r.published) AS publications
-                  FROM {self.rollup("source_daily", "sources", daily=True)} GROUP BY r.source_id
-                ) p LEFT JOIN (SELECT g.source_id AS source_id, any(g.name) AS name,
-                    max(g.consecutive_failures) AS consecutive_failures
-                  FROM {self.gauge("source_gauges", "sources")} GROUP BY g.source_id
-                ) g ON g.source_id=p.source_id
-                ORDER BY p.publications DESC,name,id LIMIT 10"""),
-            self.query(f"""/* overview:topics */ SELECT toString(g.topic_id) AS id, g.name AS name,
-                g.followers AS followers, g.inferred_users AS inferred_users,
-                coalesce(p.publications,0) AS publications FROM (
-                  SELECT g.topic_id AS topic_id, any(g.name) AS name, sum(g.followers) AS followers,
-                    sum(g.inferred_users) AS inferred_users
-                  FROM {self.gauge("topic_gauges", "topics")} GROUP BY g.topic_id
-                ) g LEFT JOIN (
-                  SELECT r.topic_id AS topic_id, sum(r.published) AS publications
-                  FROM {self.rollup("topic_daily", "topics", daily=True)} GROUP BY r.topic_id
-                ) p ON p.topic_id=g.topic_id WHERE g.followers>0 OR g.inferred_users>0
-                ORDER BY g.followers DESC,g.inferred_users DESC,g.name,g.topic_id LIMIT 10"""),
+            self.direct.source_coverage(self.start, self.end),
+            self.direct.topic_coverage(self.start, self.end),
         )
         return CoverageSection(
             sources=[SourceCoverage(**row) for row in sources],

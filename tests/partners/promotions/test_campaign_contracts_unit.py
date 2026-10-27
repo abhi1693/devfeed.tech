@@ -268,7 +268,7 @@ def test_campaign_reporting_preserves_order_and_handles_zero_or_absent_measureme
             {"owner": str(second), "impressions": 0, "clicks": 0},
         ]
     )
-    reports = asyncio.run(service.reports([zero, measured, absent], analytics))
+    reports = asyncio.run(service.metadata([zero, measured, absent]).reports(analytics))
     assert [(row.name, row.impressions, row.clicks, row.ctr) for row in reports] == [
         ("Zero impressions", 0, 0, None),
         ("Measured", 400, 10, 2.5),
@@ -283,7 +283,7 @@ def test_empty_campaign_reporting_performs_no_metric_read(campaigns):
     service, session, _, _ = campaigns
     analytics = Mock()
     analytics.partner_summary = AsyncMock()
-    assert asyncio.run(service.reports([], analytics)) == []
+    assert asyncio.run(service.metadata([]).reports(analytics)) == []
     session.execute.assert_not_called()
     analytics.partner_summary.assert_not_called()
 
@@ -298,11 +298,11 @@ def test_campaign_get_returns_reported_account_record_or_not_found(campaigns):
     analytics.partner_summary = AsyncMock(
         return_value=[{"owner": str(asset), "impressions": 20, "clicks": 1}]
     )
-    report = asyncio.run(service.get(campaign.id, analytics))
+    report = asyncio.run(service.get(campaign.id).reports(analytics))[0]
     assert report.id == campaign.id and report.account_id == account.id and report.ctr == 5.0
     session.scalar.return_value = None
     with pytest.raises(HTTPException) as missing:
-        asyncio.run(service.get(uuid.uuid4(), analytics))
+        service.get(uuid.uuid4())
     assert missing.value.status_code == 404
 
 

@@ -16,7 +16,7 @@ class Sink:
         self.rows = []
 
     async def insert(self, table, rows):
-        assert table == "analytics_overview_events"
+        assert table in {"analytics_pipeline_events", "analytics_user_events"}
         self.rows.extend(rows)
 
 
@@ -215,6 +215,95 @@ def test_direct_charts_handle_reparent_retry_and_feed_expiration():
                     )
                     health = (await store.feed_health(start + timedelta(hours=5)))[0]
                     assert health["ready"] == 0 and health["expired"] == 1
+                    from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
+
+                    opens = ArticleOpenAnalytics(client)
+                    await opens.initialize()
+                    await opens.record(a, "a" * 64, start + timedelta(hours=2))
+                    await opens.record(a, "a" * 64, start + timedelta(hours=2))
+                    await opens.record(b, "a" * 64, start + timedelta(hours=2))
+                    await store.accounts([{"id": user, "created_at": start, "revision": 1}])
+                    audience = await store.audience(start, end)
+                    assert audience[0]["opens"] == 2
+                    assert audience[0]["estimated_readers"] == audience[0]["new_accounts"] == 1
+                    await store.sources(
+                        [
+                            {
+                                "id": source,
+                                "name": "Publisher",
+                                "consecutive_failures": 3,
+                                "revision": 1,
+                            }
+                        ]
+                    )
+                    await store.topics([{"id": topic, "name": "Python", "revision": 1}])
+                    await store.memberships(
+                        [
+                            {"user_id": user, "topic_id": topic, "kind": "follow", "revision": 1},
+                            {"user_id": user, "topic_id": topic, "kind": "inferred", "revision": 1},
+                        ]
+                    )
+                    sources = await store.source_coverage(start, end)
+                    assert (
+                        sources[0]["name"] == "Publisher"
+                        and sources[0]["consecutive_failures"] == 3
+                    )
+                    assert sources[0]["publications"] == sources[0]["total"] == 1
+                    topics = await store.topic_coverage(start, end)
+                    assert topics[0]["name"] == "Python"
+                    assert (
+                        topics[0]["followers"]
+                        == topics[0]["inferred_users"]
+                        == topics[0]["publications"]
+                        == 1
+                    )
+                    await store.memberships(
+                        [
+                            {
+                                "user_id": user,
+                                "topic_id": topic,
+                                "kind": "follow",
+                                "revision": 2,
+                                "deleted": True,
+                            }
+                        ]
+                    )
+                    assert (await store.topic_coverage(start, end))[0]["followers"] == 0
+                    from devfeed_admin_api.analytics_reports import Reports
+                    from devfeed_admin_api.overview_windows import ReportWindow
+
+                    await client.execute(
+                        "CREATE TABLE analytics_audience_archive_daily (day Date,"
+                        "opens Nullable(UInt64),readers Nullable(Float64),\n"
+                        "accounts_created Nullable(UInt64),"
+                        "published Nullable(UInt64),version UInt64) "
+                        "ENGINE=ReplacingMergeTree(version) ORDER BY day"
+                    )
+                    report = Reports(
+                        client,
+                        ReportWindow(start.date(), end.date()),
+                        start + timedelta(days=1),
+                        capture_started_at=start,
+                    )
+                    publication, audience, processing, coverage, queues = await asyncio.gather(
+                        report.publishing(),
+                        report.audience(),
+                        report.processing(),
+                        report.coverage(),
+                        report.queues(),
+                    )
+                    assert publication.summary.published == 2
+                    assert sum(point.opens or 0 for point in audience.activity) == 2
+                    assert sum(point.new_accounts for point in audience.activity) == 1
+                    assert audience.personalization.expired == 1
+                    assert sum(point.topic_decisions for point in processing.throughput) == 2
+                    assert processing.outcomes[0].failed == processing.outcomes[0].completed == 1
+                    assert coverage.source_publications_total == 1
+                    assert coverage.sources[0].name == "Publisher"
+                    assert coverage.topics[0].inferred_users == 1
+                    assert queues.queues == []
+                    await _verify_current_cards(client, start, a, source)
+                    await _verify_job_corrections(client, store, start, end)
             finally:
                 await admin.execute(f"DROP DATABASE `{target}` SYNC")
 
@@ -244,5 +333,351 @@ def test_decisions_include_rejections_and_reject_unreviewed_states():
         assert len(sink.rows) == 2
         await store.decisions([{"id": identity, "revision": 3, "deleted": True}])
         assert sink.rows[-1]["id"] == sink.rows[0]["id"] and sink.rows[-1]["deleted"] == 1
+
+    asyncio.run(run())
+
+
+def test_source_snapshots_publish_only_domain_fields_and_filter_inferred_memberships():
+    async def run():
+        sink = Sink()
+        store = DirectOverviewAnalytics(sink)
+        user, topic, source = [uuid.uuid4() for _ in range(3)]
+        at = datetime(2026, 1, 1, tzinfo=UTC)
+        await store.publish(
+            [
+                {
+                    "source_table": "user_accounts",
+                    "record": {"id": user, "created_at": at, "email": "private"},
+                },
+                {
+                    "source_table": "sources",
+                    "record": {
+                        "id": source,
+                        "name": "Publisher",
+                        "consecutive_failures": 2,
+                        "feed_url": "private",
+                    },
+                },
+                {
+                    "source_table": "topics",
+                    "record": {"id": topic, "name": "Python", "evidence": "private"},
+                },
+                {"source_table": "user_topics", "record": {"user_id": user, "topic_id": topic}},
+                {
+                    "source_table": "user_interests",
+                    "record": {"user_id": user, "topic_id": topic, "reason": "something_else"},
+                },
+            ],
+            revision=17,
+        )
+        assert "private" not in str(sink.rows)
+        assert {row["domain"] for row in sink.rows} == {"account", "source", "topic", "membership"}
+        assert all(row["revision"] == 17 for row in sink.rows)
+        members = [row for row in sink.rows if row["domain"] == "membership"]
+        assert {(row["task"], row["deleted"]) for row in members} == {
+            ("follow", 0),
+            ("inferred", 1),
+        }
+        await store.publish(
+            [{"source_table": "sources", "operation": "D", "record": {"id": source}}], revision=18
+        )
+        assert sink.rows[-1]["deleted"] == 1
+
+    asyncio.run(run())
+
+
+async def _verify_current_cards(client, now, article_id, source_id):
+    from types import SimpleNamespace
+
+    from devfeed_admin_api.analytics_current import CurrentCards
+    from devfeed_core.analytics_direct_cards import initialize_cards, normalize_card
+    from devfeed_core.analytics_observation import pipeline_policy_version
+
+    await initialize_cards(client)
+    policy = pipeline_policy_version(client.settings)
+    article_payload = {
+        "id": str(article_id),
+        "title": "Article",
+        "source_name": "Publisher",
+        "source_id": str(source_id),
+        "discovered_at": now.isoformat(),
+        "stage": "analysis",
+        "state": "blocked",
+        "blockers": [],
+        "next_check_at": None,
+        "editorial_revision": 1,
+        "jobs": {},
+    }
+    source_payload = {
+        "key": f"source:{source_id}",
+        "kind": "source",
+        "id": str(source_id),
+        "source_id": str(source_id),
+        "candidate_id": None,
+        "name": "Publisher",
+        "website_url": "https://example.invalid",
+        "feed_url": None,
+        "source_type": "publisher",
+        "approval_status": "approved",
+        "enabled": True,
+        "stage": "active",
+        "state": "complete",
+        "created_at": now.isoformat(),
+        "updated_at": now.isoformat(),
+        "snapshot": "1",
+        "can_advance": False,
+        "can_approve": False,
+        "can_ingest": True,
+        "next_action": None,
+        "advance_label": None,
+        "retry_targets": [],
+    }
+    article = {
+        "stage": "analysis",
+        "state": "blocked",
+        "title": "Article",
+        "source_id": source_id,
+        "source_ids": [source_id],
+        "source_name": "Publisher",
+        "source_sort": "publisher",
+        "created_at": now,
+        "editorial_revision": 1,
+        "blocker_codes": ["analysis_failed"],
+        "review_pending": True,
+        "payload": article_payload,
+    }
+    await client.insert(
+        "analytics_card_canonical",
+        [
+            normalize_card(article, policy, "article", article_id, 1, now),
+            normalize_card(
+                {
+                    "stage": "active",
+                    "state": "complete",
+                    "title": "Publisher",
+                    "source_type": "publisher",
+                    "enabled": True,
+                    "approval_status": "approved",
+                    "consecutive_failures": 3,
+                    "payload": source_payload,
+                },
+                policy,
+                "source",
+                source_id,
+                1,
+                now,
+            ),
+        ],
+    )
+
+    class ReadyClient:
+        settings = client.settings
+
+        async def query(self, sql, parameters=None):
+            return await client.query(sql, parameters)
+
+        async def status(self):
+            return {"version": 1, "ready": 1, "policy": policy, "updated_at": now}
+
+    cards = CurrentCards(ReadyClient(), now=now)
+    options = dict(q=None, source_id=None, needs_attention=False, limit=1)
+    board = await cards.article_board(**options)
+    assert board.counts["analysis"] == 1
+    assert board.columns[2].items[0].id == article_id
+    assert board.columns[2].items[0].editorial_revision == 1
+    beyond = await cards.article_board(**options, stage="analysis", cursor=10)
+    assert beyond.columns[0].total == 1 and beyond.columns[0].items == []
+    grouped = await cards.article_board(**options, group_by="source")
+    assert grouped.columns[2].source_groups[0].state_counts == {"blocked": 1}
+    sources = await cards.source_board(
+        SimpleNamespace(
+            terminal_since=now - timedelta(days=7),
+            limit=20,
+            q=None,
+            source_type=None,
+            needs_attention=False,
+        )
+    )
+    assert sources.counts["active"] == 1
+    assert sources.columns[6].items[0].name == "Publisher"
+    operations = await cards.operations()
+    assert operations.data.source_failures == 1
+    assert operations.data.reviews[0].count == 1
+    blocker = next(item for item in operations.data.blockers if item.code == "analysis_failed")
+    assert blocker.count == 1 and blocker.targets[0].id == article_id
+
+    # Mutable stage filters apply after replacement, so the former blocked row
+    # cannot reappear; deadline passage needs no PG timer or refresh table.
+    await client.insert(
+        "analytics_card_canonical",
+        [
+            normalize_card(
+                {
+                    **article,
+                    "state": "retry_wait",
+                    "next_transition_at": now - timedelta(seconds=1),
+                    "blocker_codes": [],
+                    "review_pending": False,
+                },
+                policy,
+                "article",
+                article_id,
+                2,
+                now,
+            )
+        ],
+    )
+    assert (await cards.article_board(**options)).columns[2].items[0].state == "waiting"
+    assert (await cards.article_board(**{**options, "needs_attention": True})).counts[
+        "analysis"
+    ] == 0
+    await client.insert(
+        "analytics_card_canonical",
+        [
+            normalize_card(None, policy, "article", article_id, 3, now),
+        ],
+    )
+    assert (await cards.article_board(**options)).counts["analysis"] == 0
+
+
+async def _verify_job_corrections(client, store, start, end):
+    job = str(uuid.uuid4())
+    await store.jobs(
+        [
+            {
+                "id": job,
+                "kind": "ingestion",
+                "status": "succeeded",
+                "revision": 1,
+                "attempt": 1,
+                "finished_at": start,
+            },
+            {
+                "id": job,
+                "kind": "ingestion",
+                "status": "failed",
+                "revision": 1,
+                "attempt": 2,
+                "finished_at": start,
+            },
+        ]
+    )
+    # A newer completed snapshot corrects the same attempt without duplication.
+    await store.jobs(
+        [
+            {
+                "id": job,
+                "kind": "ingestion",
+                "status": "succeeded",
+                "revision": 2,
+                "attempt": 2,
+                "finished_at": start,
+                "duration_ms": 124,
+            }
+        ]
+    )
+    outcomes = await store.job_outcomes(start, end)
+    ingestion = next(row for row in outcomes if row["kind"] == "ingestion")
+    assert ingestion["completed"] == 2 and ingestion["failed"] == 0
+    missing_finish = uuid.uuid4()
+    await store.jobs(
+        [
+            {
+                "id": missing_finish,
+                "kind": "source_enrichment",
+                "status": "failed",
+                "revision": 1,
+                "finished_at": None,
+            }
+        ]
+    )
+    assert all(row["kind"] != "source_enrichment" for row in await store.job_outcomes(start, end))
+    current = await client.query(
+        "SELECT status FROM analytics_pipeline_events FINAL "
+        "WHERE domain='queue' AND task='source_enrichment'"
+    )
+    assert current == [{"status": "failed"}]
+    # Completing and requeueing in one business transaction carries its saved
+    # attempt separately; replay must never restore that old state to the queue.
+    changes = [
+        {
+            "source_table": "ingestion_jobs",
+            "record": {
+                "id": job,
+                "status": "queued",
+                "attempts": 3,
+            },
+        },
+        {
+            "source_table": "ingestion_jobs",
+            "attempt_only": True,
+            "record": {
+                "id": job,
+                "status": "succeeded",
+                "attempts": 2,
+                "finished_at": start,
+            },
+        },
+    ]
+    await store.publish(changes, revision=3)
+    await store.publish(changes, revision=3)
+    queues = await store.queues()
+    assert queues == [{"kind": "ingestion", "queued": 1, "running": 0, "oldest_queued_at": None}]
+
+
+def test_saved_attempt_does_not_replace_current_requeued_job_on_replay():
+    async def run():
+        sink = Sink()
+        store = DirectOverviewAnalytics(sink)
+        job = uuid.uuid4()
+        changes = [
+            {
+                "source_table": "article_analysis_jobs",
+                "record": {
+                    "id": job,
+                    "status": "queued",
+                    "attempts": 2,
+                },
+            },
+            {
+                "source_table": "article_analysis_jobs",
+                "attempt_only": True,
+                "record": {
+                    "id": job,
+                    "status": "succeeded",
+                    "attempts": 1,
+                    "finished_at": datetime(2026, 1, 1, tzinfo=UTC),
+                    "outcome": "applied",
+                },
+            },
+        ]
+        await store.publish(changes, revision=7)
+        await store.publish(changes, revision=7)
+        queue = [row for row in sink.rows if row["domain"] == "queue"]
+        attempts = [row for row in sink.rows if row["domain"] == "job"]
+        assert len(queue) == 2 and all(row["status"] == "queued" for row in queue)
+        assert len(attempts) == 2 and attempts[0] == attempts[1]
+
+    asyncio.run(run())
+
+
+def test_completed_job_without_completion_time_keeps_only_current_snapshot():
+    async def run():
+        sink = Sink()
+        await DirectOverviewAnalytics(sink).jobs(
+            [
+                {
+                    "id": uuid.uuid4(),
+                    "kind": "analysis",
+                    "status": status,
+                    "revision": 1,
+                    "finished_at": None,
+                }
+                for status in ("succeeded", "failed")
+            ]
+        )
+        assert len(sink.rows) == 2
+        assert all(row["domain"] == "queue" for row in sink.rows)
+        assert {row["status"] for row in sink.rows} == {"succeeded", "failed"}
 
     asyncio.run(run())

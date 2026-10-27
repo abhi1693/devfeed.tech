@@ -11,7 +11,7 @@ from devfeed_api import partner_placements as placement_api
 from devfeed_api import partner_tracking as tracking_api
 from devfeed_api.main import create_app
 from devfeed_core.config import get_settings
-from devfeed_core.models import PartnerDeliveryEvent, PartnerTrackedDailyMetric
+from devfeed_core.models import PartnerPlacementDelivery
 from devfeed_core.partner_placements import deliver_placements
 from devfeed_core.partner_tracking import PartnerTrackingTokens
 from devfeed_http.partner_placements import PlacementQuery
@@ -49,17 +49,21 @@ def public_clients(database, monkeypatch):
 
         monkeypatch.setattr(module, "consume_rate_limits", observe)
     app = create_app()
-    with (
-        TestClient(app, client=("198.51.100.10", 50000)) as first,
-        TestClient(app, client=("198.51.100.20", 50001)) as second,
-    ):
-        yield SimpleNamespace(
-            first=first,
-            second=second,
-            redis=redis,
-            placement_budgets=placement_budgets,
-            tracking_budgets=tracking_budgets,
-        )
+    with TestClient(app, client=("198.51.100.10", 50000)) as first:
+        second = TestClient(app, client=("198.51.100.20", 50001))
+        # Both callers execute in the service's one event loop. Starting a
+        # second lifespan replaces and closes its shared asynchronous pools.
+        second.portal = first.portal
+        try:
+            yield SimpleNamespace(
+                first=first,
+                second=second,
+                redis=redis,
+                placement_budgets=placement_budgets,
+                tracking_budgets=tracking_budgets,
+            )
+        finally:
+            second.close()
     redis.close()
 
 
@@ -89,19 +93,13 @@ def reserve_shared_capacity(redis, token, *, remaining):
 
 def assert_measurements(database, receipt, *, impressions, clicks):
     with database() as session:
-        assert (
-            session.scalar(
-                select(func.count())
-                .select_from(PartnerDeliveryEvent)
-                .where(PartnerDeliveryEvent.asset_id == receipt.asset_id)
+        rows = session.scalars(
+            select(PartnerPlacementDelivery).where(
+                PartnerPlacementDelivery.asset_id == receipt.asset_id
             )
-            == impressions + clicks
-        )
-        metric = session.get(
-            PartnerTrackedDailyMetric, (receipt.asset_id, receipt.issued_at.date())
-        )
-        assert metric is not None
-        assert (metric.impressions, metric.clicks) == (impressions, clicks)
+        ).all()
+        assert sum(row.impression_recorded_at is not None for row in rows) == impressions
+        assert sum(row.click_recorded_at is not None for row in rows) == clicks
 
 
 def test_one_placement_caller_cannot_drain_other_callers_shared_budget(public_clients):
@@ -238,7 +236,7 @@ def test_concurrent_duplicate_impressions_preserve_a_clicks_shared_capacity(
     assert_measurements(database, receipt, impressions=1, clicks=1)
 
 
-@pytest.mark.parametrize("failure_stage", ["metric", "commit", "redis_response"])
+@pytest.mark.parametrize("failure_stage", ["claim", "commit", "redis_response"])
 def test_failed_tracking_write_can_retry_without_recharging_shared_capacity(
     database, public_clients, monkeypatch, failure_stage
 ):
@@ -247,17 +245,17 @@ def test_failed_tracking_write_can_retry_without_recharging_shared_capacity(
     receipt = reserve_shared_capacity(state.redis, token, remaining=2)
     writes = 0
 
-    def fail_after_metric_insert(
+    def fail_after_claim_update(
         _connection, _cursor, _statement, _parameters, context, _executemany
     ):
         nonlocal writes
         statement = context.compiled.statement if context.compiled else None
         if (
-            getattr(statement, "is_insert", False)
-            and statement.table.name == "partner_tracked_daily_metrics"
+            getattr(statement, "is_update", False)
+            and statement.table.name == "partner_placement_deliveries"
         ):
             writes += 1
-            raise SQLAlchemyError("Transient partner counter failure")
+            raise SQLAlchemyError("Transient partner claim failure")
 
     def fail_before_commit(_connection):
         nonlocal writes
@@ -273,8 +271,8 @@ def test_failed_tracking_write_can_retry_without_recharging_shared_capacity(
         raise RedisError("Reservation succeeded but its response was lost")
 
     engine = database.kw["bind"]
-    if failure_stage == "metric":
-        event_name, fail = "after_cursor_execute", fail_after_metric_insert
+    if failure_stage == "claim":
+        event_name, fail = "after_cursor_execute", fail_after_claim_update
     else:
         event_name, fail = "commit", fail_before_commit
     if failure_stage == "redis_response":
@@ -291,8 +289,17 @@ def test_failed_tracking_write_can_retry_without_recharging_shared_capacity(
     assert failed.status_code == 503
     assert writes == 1
     with database() as session:
-        assert session.scalar(select(func.count()).select_from(PartnerDeliveryEvent)) == 0
-        assert session.scalar(select(func.count()).select_from(PartnerTrackedDailyMetric)) == 0
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(PartnerPlacementDelivery)
+                .where(
+                    PartnerPlacementDelivery.impression_recorded_at.is_not(None)
+                    | PartnerPlacementDelivery.click_recorded_at.is_not(None)
+                )
+            )
+            == 0
+        )
     assert (
         state.first.post(EVENTS, json={"receipt": token, "kind": "impression"}).status_code == 204
     )

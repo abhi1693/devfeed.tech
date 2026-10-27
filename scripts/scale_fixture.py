@@ -19,6 +19,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 from alembic import command
@@ -193,6 +194,7 @@ def seed_rows(connection, model, count, overrides=None, *, namespace=None, where
     namespace = namespace or model.__tablename__
     columns, values = [], []
     for column in model.__table__.columns:
+        value: Any
         if column.name in overrides:
             value = literal_column(overrides[column.name], type_=column.type)
         elif column.server_default is not None or column.nullable:
@@ -545,25 +547,6 @@ def seed_fixture(engine, counts, *, history_bytes=8192):
             },
         )
         seed_rows(
-            connection,
-            models.InferenceCall,
-            counts["inference_calls"],
-            {
-                "started_at": now_sql
-                + " - (n % 120) * interval '1 day' - (n % 86400) * interval '1 second'",
-                "finished_at": now_sql,
-                "operation": "(ARRAY['article_analysis','topic_discovery',"
-                "'topic_verification','partner_qualification'])[1+n%4]",
-                "model": "(ARRAY['model-a','model-b','model-c'])[1+n%3]",
-                "reasoning_effort": "(ARRAY['low','medium','high'])[1+n%3]",
-                "request_hash": "repeat('a',64)",
-                "status": "(ARRAY['returned','failed','running'])[1+n%3]",
-                "tokens": "jsonb_build_object('inputTokens',1000+n%9000,'outputTokens',n%2500)",
-                "web_searches": "n % 4",
-                "duration_ms": "1000+n%20000",
-            },
-        )
-        seed_rows(
             connection, models.PartnerAccount, 1, {"name": "'Profile account'", "tier": "'gold'"}
         )
         seed_rows(
@@ -599,18 +582,6 @@ def seed_fixture(engine, counts, *, history_bytes=8192):
                 "status": "'active'",
             },
         )
-        for model in (models.PartnerDailyMetric, models.PartnerTrackedDailyMetric):
-            seed_rows(
-                connection,
-                model,
-                counts["partner_tracked_daily_metrics"],
-                {
-                    "asset_id": identifier("partner_assets", f"1 + (n-1) % {assets}"),
-                    "day": f"CURRENT_DATE - ((n-1)/{assets})::int",
-                    "impressions": "1000+n%10000",
-                    "clicks": "n%100",
-                },
-            )
     seed_current_articles(sessionmaker(engine, expire_on_commit=False), articles)
     with engine.begin() as connection:
         connection.execute(text("SET LOCAL statement_timeout='0'"))
@@ -701,6 +672,7 @@ def dataset_counts(factory):
                 select(func.count()).select_from(models.Base.metadata.tables[name])
             )
             for name in COUNTS
+            if name in models.Base.metadata.tables
         }
         counts["active_articles"] = session.scalar(
             select(func.count())
@@ -717,13 +689,8 @@ def dataset_resources(factory):
     with factory() as session:
         sizes = {
             name: int(session.scalar(select(func.pg_total_relation_size(name))))
-            for name in (
-                *COUNTS,
-                "analytics_ingest_events",
-                "analytics_card_refresh",
-                "analytics_card_backfills",
-                "analytics_card_fanout",
-            )
+            for name in COUNTS
+            if name in models.Base.metadata.tables
         }
         postgres = {
             "version": session.scalar(select(func.version())),
@@ -773,87 +740,117 @@ def dataset_qualification(dataset, requested_counts):
     }
 
 
-def publish_analytics(factory, *, reset=False):
-    """Prepare only explicitly disposable analytical fixtures for native queries."""
-    from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
-    from devfeed_core.analytics_worker import AnalyticsExporter
-    from devfeed_core.config import get_settings
+async def seed_analytics(client, counts):
+    """Synthetic accounting goes straight to ClickHouse, never via PostgreSQL."""
+    from datetime import timedelta
 
-    # Validate before clearing anything, including for an already configured
-    # application process. Ambient production ClickHouse settings are ignored.
+    from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
+    from devfeed_core.analytics_inference_store import InferenceStore
+
+    now = datetime.now(UTC)
+    store = InferenceStore(client)
+    for offset in range(0, counts["inference_calls"], 1000):
+        await store.write(
+            [
+                dict(
+                    id=fixture_id("inference_calls", number),
+                    started_at=now - timedelta(days=number % 120, seconds=number % 86400),
+                    status=("returned", "failed", "running")[number % 3],
+                    operation=(
+                        "article_analysis",
+                        "topic_discovery",
+                        "topic_verification",
+                        "partner_qualification",
+                    )[number % 4],
+                    model=("model-a", "model-b", "model-c")[number % 3],
+                    reasoning_effort=("low", "medium", "high")[number % 3],
+                    tokens=dict(inputTokens=1000 + number % 9000, outputTokens=number % 2500),
+                    web_searches=number % 4,
+                    duration_ms=1000 + number % 20000,
+                )
+                for number in range(offset + 1, min(offset + 1000, counts["inference_calls"]) + 1)
+            ]
+        )
+    engagement = DirectEngagementAnalytics(client)
+    for baseline in (False, True):
+        for offset in range(0, counts["partner_tracked_daily_metrics"], 1000):
+            await engagement.partner_totals(
+                [
+                    dict(
+                        asset_id=fixture_id(
+                            "partner_assets", 1 + (number - 1) % counts["partner_assets"]
+                        ),
+                        day=(now - timedelta(days=(number - 1) // counts["partner_assets"])).date(),
+                        impressions=1000 + number % 10000,
+                        clicks=number % 100,
+                        revision=1,
+                        updated_at=now,
+                    )
+                    for number in range(
+                        offset + 1, min(offset + 1000, counts["partner_tracked_daily_metrics"]) + 1
+                    )
+                ],
+                baseline=baseline,
+            )
+
+
+def publish_analytics(factory, *, reset=False, counts=None):
+    """Import business snapshots and seed only explicitly disposable ClickHouse."""
+    from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
+    from devfeed_core.analytics_worker import AnalyticsImportWorker
+    from devfeed_core.config import get_settings
+    from pydantic import SecretStr
+
     selected = analytics_environment()
     settings = get_settings().model_copy(
         update={
             "clickhouse_url": selected["DEVFEED_CLICKHOUSE_URL"],
             "clickhouse_database": selected["DEVFEED_CLICKHOUSE_DATABASE"],
             "clickhouse_username": selected["DEVFEED_CLICKHOUSE_USERNAME"],
+            "clickhouse_password": SecretStr(selected["DEVFEED_CLICKHOUSE_PASSWORD"]),
         }
     )
-    from pydantic import SecretStr
-
-    settings.clickhouse_password = SecretStr(selected["DEVFEED_CLICKHOUSE_PASSWORD"])
-    if reset:
-        with factory.begin() as session:
-            session.execute(
-                text(
-                    "UPDATE analytics_pipeline_state SET enabled=false, capture_started_at=NULL, "
-                    "last_success_at=NULL, native_lease_token=NULL, lease_until=NULL, "
-                    "native_import_complete=false,native_capture_started_at=NULL, "
-                    "reader_coverage_start=NULL,native_bootstrap_barrier=false, "
-                    "native_bootstrap_complete=false,card_target_policy=NULL, "
-                    "card_serving_policy=NULL, "
-                    "card_bootstrap_complete=false,card_bootstrap_barrier=false, "
-                    "card_catalog_revision=NULL,card_catalog_target_revision=NULL, "
-                    "card_catalog_progress_at=NULL"
-                )
-            )
-            session.execute(
-                text(
-                    "TRUNCATE analytics_bootstrap_cursors, analytics_ingest_events, "
-                    "analytics_fact_refresh, analytics_rollup_compaction, "
-                    "analytics_upgrade_checkpoint, analytics_gauge_refreshes, "
-                    "analytics_card_refresh, "
-                    "analytics_card_backfills,analytics_card_fanout RESTART IDENTITY"
-                )
-            )
-            session.execute(
-                text("UPDATE analytics_gauge_bootstrap SET started=false WHERE singleton")
-            )
-            session.execute(
-                text(
-                    "INSERT INTO analytics_gauge_refreshes(domain,shard) "
-                    "VALUES('queues',0),('feed',0),('sources',0),('topics',0)"
-                )
-            )
 
     async def publish():
         async with AnalyticsClient(settings) as client:
             await client.initialize()
             if reset:
-                # This database was explicitly validated as an owned local
-                # fixture. Clear physical data while retaining attached MVs.
                 tables = await client.query(
-                    "SELECT name FROM system.tables "
-                    "WHERE database=currentDatabase() AND engine NOT IN ('View','MaterializedView')"
+                    "SELECT name FROM system.tables WHERE database=currentDatabase() "
+                    "AND engine NOT IN ('View','MaterializedView')"
                 )
                 for row in tables:
                     name = row["name"].replace("`", "``")
                     await client.execute(f"TRUNCATE TABLE `{name}`")
-            exporter = AnalyticsExporter(client, settings)
-            try:
-                deadline = time.monotonic() + 900
-                while time.monotonic() < deadline:
-                    await exporter.once()
-                    try:
-                        state = await client.status()
-                        cards = await client.query("SELECT ready FROM analytics_card_status FINAL")
-                    except AnalyticsUnavailable:
-                        continue
-                    if state["ready"] and cards and cards[0]["ready"]:
-                        return {"history": state, "current_cards_ready": True}
-                raise RuntimeError("Disposable native backfill did not complete within 15 minutes")
-            finally:
-                exporter.close()
+            worker = AnalyticsImportWorker(client, settings)
+            deadline = time.monotonic() + 900
+            while time.monotonic() < deadline:
+                await worker.once()
+                try:
+                    state = await client.status()
+                except AnalyticsUnavailable:
+                    continue
+                if state["ready"]:
+                    if counts is not None:
+                        await seed_analytics(client, counts)
+                    inference, partner = await asyncio.gather(
+                        client.query(
+                            "SELECT count() AS count FROM analytics_inference_events FINAL"
+                        ),
+                        client.query(
+                            "SELECT countIf(kind='partner_baseline') AS count "
+                            "FROM analytics_partner_events FINAL"
+                        ),
+                    )
+                    return dict(
+                        history=state,
+                        current_cards_ready=True,
+                        counts=dict(
+                            inference_calls=inference[0]["count"],
+                            partner_tracked_daily_metrics=partner[0]["count"],
+                        ),
+                    )
+            raise RuntimeError("Disposable direct analytics import exceeded 15 minutes")
 
     return asyncio.run(publish())
 
@@ -898,11 +895,11 @@ def main():
         command.upgrade(Config(str(ROOT / "alembic.ini")), "head")
         result = {"complete": False, "requested_scale": args.scale}
         if args.seed:
-            with factory.begin() as session:
-                session.execute(text("UPDATE analytics_pipeline_state SET enabled=false"))
             result["seed"] = seed_fixture(engine, counts, history_bytes=args.history_bytes)
-        result["analytics"] = publish_analytics(factory, reset=args.seed)
-        result["dataset"] = dataset_counts(factory)
+        result["analytics"] = publish_analytics(
+            factory, reset=args.seed, counts=counts if args.seed else None
+        )
+        result["dataset"] = dataset_counts(factory) | result["analytics"]["counts"]
         result["qualification"] = dataset_qualification(result["dataset"], counts)
         result["resources"] = dataset_resources(factory)
         result["complete"] = True

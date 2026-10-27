@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from devfeed_core.ai_capacity import cooldown_remaining
+from devfeed_core.analytics_producer import shutdown as drain_analytics
 from devfeed_core.config import get_settings
 from devfeed_core.quota_pacing import pause_reason
 from devfeed_core.telemetry import current, extract_context, span, start_runtime, stop_runtime
@@ -110,6 +111,7 @@ class AnalysisAwareWorker(Worker):
                     execution_span.set_status(StatusCode.ERROR)
                 return result
         finally:
+            drain_analytics()
             stop_runtime(telemetry)
 
     def dequeue_job_and_maintain_ttl(self, timeout, max_idle_time=None):

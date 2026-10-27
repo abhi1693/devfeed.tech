@@ -212,9 +212,13 @@ services:
       DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD: ${DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD:?Set DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD in .env}
       DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_PARTNER_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_partner_events
       DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_SEARCH_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_search_events
+      DEVFEED_CLICKHOUSE_PUBLIC_PIPELINE_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_pipeline_events
+      DEVFEED_CLICKHOUSE_PUBLIC_CARDS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_card_canonical
       DEVFEED_CLICKHOUSE_PUBLIC_PROGRESS_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_backfill_progress
       DEVFEED_CLICKHOUSE_USER_PASSWORD: ${DEVFEED_CLICKHOUSE_USER_PASSWORD:?Set DEVFEED_CLICKHOUSE_USER_PASSWORD in .env}
       DEVFEED_CLICKHOUSE_USER_OPENS_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_article_opens
+      DEVFEED_CLICKHOUSE_USER_EVENTS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_user_events
+      DEVFEED_CLICKHOUSE_USER_LIFETIME_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_open_lifetime
       DEVFEED_CLICKHOUSE_USER_BASELINE_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_article_open_baseline
       DEVFEED_CLICKHOUSE_USER_CUTOVER_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_article_open_cutover
       DEVFEED_CLICKHOUSE_PARTNER_PASSWORD: ${DEVFEED_CLICKHOUSE_PARTNER_PASSWORD:?Set DEVFEED_CLICKHOUSE_PARTNER_PASSWORD in .env}
@@ -222,11 +226,15 @@ services:
       DEVFEED_CLICKHOUSE_PARTNER_PROGRESS_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_backfill_progress
       DEVFEED_CLICKHOUSE_ADMIN_PASSWORD: ${DEVFEED_CLICKHOUSE_ADMIN_PASSWORD:?Set DEVFEED_CLICKHOUSE_ADMIN_PASSWORD in .env}
       DEVFEED_CLICKHOUSE_ADMIN_ALL_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.*
+      DEVFEED_CLICKHOUSE_ADMIN_PIPELINE_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_pipeline_events
+      DEVFEED_CLICKHOUSE_ADMIN_USER_EVENTS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_user_events
+      DEVFEED_CLICKHOUSE_ADMIN_CARDS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_card_canonical
       DEVFEED_CLICKHOUSE_ADMIN_EVENTS_PARTNER_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_partner_events
       DEVFEED_CLICKHOUSE_WORKER_PASSWORD: ${DEVFEED_CLICKHOUSE_WORKER_PASSWORD:?Set DEVFEED_CLICKHOUSE_WORKER_PASSWORD in .env}
       DEVFEED_CLICKHOUSE_WORKER_INFERENCE_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_inference_events
-      DEVFEED_CLICKHOUSE_WORKER_OVERVIEW_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_overview_events
-      DEVFEED_CLICKHOUSE_WORKER_PUBLICATION_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_publication_events
+      DEVFEED_CLICKHOUSE_WORKER_PIPELINE_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_pipeline_events
+      DEVFEED_CLICKHOUSE_WORKER_USER_EVENTS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_user_events
+      DEVFEED_CLICKHOUSE_WORKER_CARDS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_card_canonical
       DEVFEED_CLICKHOUSE_WORKER_PROGRESS_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_backfill_progress
       DEVFEED_CLICKHOUSE_MAX_THREADS: ${DEVFEED_CLICKHOUSE_MAX_THREADS:-2}
       DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS: ${DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS:-20}
@@ -306,11 +314,20 @@ services:
   migrate:
     <<: *backend
     restart: "no"
-    command: [devfeed, db, upgrade]
+    command:
+      - sh
+      - -ec
+      - devfeed db upgrade && exec python -m devfeed_core.analytics_worker --initialize
+    environment:
+      <<: [*core-environment, *clickhouse-environment]
+      DEVFEED_CLICKHOUSE_USERNAME: devfeed_ingest
+      DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_INGEST_PASSWORD:?Set a distinct DEVFEED_CLICKHOUSE_INGEST_PASSWORD in .env}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
 
   api:
@@ -447,7 +464,7 @@ services:
       <<: *healthcheck
       test: [CMD, python, -c, "import os; from redis import Redis; r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert r.exists('devfeed:scheduler:heartbeat')"]
 
-  analytics-exporter:
+  analytics-importer:
     <<: *backend
     command: [python, -m, devfeed_core.analytics_worker]
     depends_on:
@@ -459,17 +476,15 @@ services:
       # Separate user budgets reserve ingestion capacity across every reader replica.
       DEVFEED_CLICKHOUSE_USERNAME: devfeed_ingest
       DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_INGEST_PASSWORD:?Set a distinct DEVFEED_CLICKHOUSE_INGEST_PASSWORD in .env}
-      DEVFEED_ANALYTICS_BATCH_SIZE: ${DEVFEED_ANALYTICS_BATCH_SIZE:-1000}
       DEVFEED_ANALYTICS_BACKFILL_BATCH_SIZE: ${DEVFEED_ANALYTICS_BACKFILL_BATCH_SIZE:-1000}
       DEVFEED_ANALYTICS_POLL_SECONDS: ${DEVFEED_ANALYTICS_POLL_SECONDS:-1}
       DEVFEED_ANALYTICS_BACKFILL_POLL_SECONDS: ${DEVFEED_ANALYTICS_BACKFILL_POLL_SECONDS:-0.1}
-      DEVFEED_ANALYTICS_ROLLUP_INTERVAL_SECONDS: ${DEVFEED_ANALYTICS_ROLLUP_INTERVAL_SECONDS:-30}
-    cpus: ${DEVFEED_ANALYTICS_EXPORTER_CPUS:-0.5}
-    mem_limit: ${DEVFEED_ANALYTICS_EXPORTER_MEMORY_LIMIT:-512m}
+    cpus: ${DEVFEED_ANALYTICS_IMPORTER_CPUS:-0.5}
+    mem_limit: ${DEVFEED_ANALYTICS_IMPORTER_MEMORY_LIMIT:-512m}
     healthcheck:
       <<: *healthcheck
       test: [CMD, python, -m, devfeed_core.analytics_worker, --check]
-      # Module startup under the exporter's half-CPU budget can exceed five seconds.
+      # Module startup under the importer's half-CPU budget can exceed five seconds.
       timeout: 10s
       start_period: 180s
 

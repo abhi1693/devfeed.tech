@@ -56,6 +56,8 @@
             <grants>
                 <events_partner from_env="DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_PARTNER_GRANT" />
                 <events_search from_env="DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_SEARCH_GRANT" />
+                <pipeline from_env="DEVFEED_CLICKHOUSE_PUBLIC_PIPELINE_GRANT" />
+                <cards from_env="DEVFEED_CLICKHOUSE_PUBLIC_CARDS_GRANT" />
                 <progress from_env="DEVFEED_CLICKHOUSE_PUBLIC_PROGRESS_GRANT" />
             </grants>
         </devfeed_public>
@@ -68,6 +70,8 @@
             <access_management>0</access_management>
             <grants>
                 <opens from_env="DEVFEED_CLICKHOUSE_USER_OPENS_GRANT" />
+                <events from_env="DEVFEED_CLICKHOUSE_USER_EVENTS_GRANT" />
+                <lifetime from_env="DEVFEED_CLICKHOUSE_USER_LIFETIME_GRANT" />
                 <baseline from_env="DEVFEED_CLICKHOUSE_USER_BASELINE_GRANT" />
                 <cutover from_env="DEVFEED_CLICKHOUSE_USER_CUTOVER_GRANT" />
             </grants>
@@ -93,6 +97,9 @@
             <access_management>0</access_management>
             <grants>
                 <all from_env="DEVFEED_CLICKHOUSE_ADMIN_ALL_GRANT" />
+                <pipeline from_env="DEVFEED_CLICKHOUSE_ADMIN_PIPELINE_GRANT" />
+                <user_events from_env="DEVFEED_CLICKHOUSE_ADMIN_USER_EVENTS_GRANT" />
+                <cards from_env="DEVFEED_CLICKHOUSE_ADMIN_CARDS_GRANT" />
                 <events_partner from_env="DEVFEED_CLICKHOUSE_ADMIN_EVENTS_PARTNER_GRANT" />
             </grants>
         </devfeed_admin>
@@ -105,8 +112,9 @@
             <access_management>0</access_management>
             <grants>
                 <inference from_env="DEVFEED_CLICKHOUSE_WORKER_INFERENCE_GRANT" />
-                <overview from_env="DEVFEED_CLICKHOUSE_WORKER_OVERVIEW_GRANT" />
-                <publication from_env="DEVFEED_CLICKHOUSE_WORKER_PUBLICATION_GRANT" />
+                <pipeline from_env="DEVFEED_CLICKHOUSE_WORKER_PIPELINE_GRANT" />
+                <user_events from_env="DEVFEED_CLICKHOUSE_WORKER_USER_EVENTS_GRANT" />
+                <cards from_env="DEVFEED_CLICKHOUSE_WORKER_CARDS_GRANT" />
                 <progress from_env="DEVFEED_CLICKHOUSE_WORKER_PROGRESS_GRANT" />
             </grants>
         </devfeed_worker>
@@ -119,8 +127,6 @@
             <access_management>0</access_management>
             <grants>
                 <query from_env="DEVFEED_CLICKHOUSE_INGEST_GRANT" />
-                <!-- Compaction must observe completion before acknowledging its mutation. -->
-                <mutation_status>GRANT SELECT ON system.mutations</mutation_status>
             </grants>
         </devfeed_ingest>
     </users>

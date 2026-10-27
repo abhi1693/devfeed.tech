@@ -27,7 +27,6 @@ from devfeed_core.models import (
     ArticleReview,
     ArticleTag,
     ArticleTopic,
-    InferenceCall,
     Source,
     Tag,
     Topic,
@@ -273,9 +272,8 @@ def profile_data(database):
                 for i in range(size)
             ],
         )
-        connection.execute(
-            insert(InferenceCall.__table__),
-            [
+        database.analytics_observations = {
+            "inference": [
                 dict(
                     id=identity("inference", i),
                     started_at=now - timedelta(days=i % 30),
@@ -296,7 +294,7 @@ def profile_data(database):
                 )
                 for i in range(size * 5)
             ],
-        )
+        }
         connection.execute(text("ANALYZE"))
     return size
 

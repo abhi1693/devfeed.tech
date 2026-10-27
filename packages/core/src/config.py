@@ -71,11 +71,9 @@ class Settings(BaseSettings):
     clickhouse_max_concurrent_queries: int = Field(default=2, ge=1, le=16)
     clickhouse_max_execution_seconds: int = Field(default=20, ge=1, le=120)
     clickhouse_max_memory_bytes: int = Field(default=268435456, ge=16777216, le=17179869184)
-    analytics_batch_size: int = Field(default=1000, ge=1, le=10000)
-    analytics_backfill_batch_size: int = Field(default=1000, ge=1, le=10000)
+    analytics_backfill_batch_size: int = Field(default=1000, ge=1, le=1000)
     analytics_poll_seconds: float = Field(default=1, ge=0.1, le=60)
     analytics_backfill_poll_seconds: float = Field(default=0.1, ge=0.1, le=60)
-    analytics_rollup_interval_seconds: int = Field(default=30, ge=1, le=300)
     redis_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     partner_credential_key: SecretStr | None = None
 

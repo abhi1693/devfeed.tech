@@ -1,4 +1,4 @@
-"""Real event deduplication, atomic counters and tenant-scoped portal reporting."""
+"""Operational receipt deduplication and direct ClickHouse tenant reporting."""
 
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -10,8 +10,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.models import (
     PartnerAccount,
     PartnerAsset,
-    PartnerDeliveryEvent,
-    PartnerTrackedDailyMetric,
+    PartnerPlacementDelivery,
 )
 from devfeed_core.partner_tracking import (
     BusyPartnerAsset,
@@ -99,8 +98,17 @@ def test_paused_delivery_is_rejected_without_measurements(client, database, monk
     event = {"kind": "impression", "receipt": PartnerTrackingTokens(KEY).issue(asset)}
     assert client.post("/v1/partner-tracking/events", json=event).status_code == 403
     with database() as session:
-        assert session.scalar(select(func.count()).select_from(PartnerDeliveryEvent)) == 0
-        assert session.scalar(select(func.count()).select_from(PartnerTrackedDailyMetric)) == 0
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(PartnerPlacementDelivery)
+                .where(
+                    PartnerPlacementDelivery.impression_recorded_at.is_not(None)
+                    | PartnerPlacementDelivery.click_recorded_at.is_not(None)
+                )
+            )
+            == 0
+        )
 
 
 def test_concurrent_duplicate_and_distinct_deliveries_increment_once(database):
@@ -115,7 +123,7 @@ def test_concurrent_duplicate_and_distinct_deliveries_increment_once(database):
         for attempt in range(20):
             try:
                 with database.begin() as session:
-                    return record_delivery_event(session, receipt, "impression")
+                    return bool(record_delivery_event(session, receipt, "impression"))
             except BusyPartnerAsset:
                 sleep(0.005 * (attempt + 1))
         raise AssertionError("Partner attribution remained busy after bounded retries")
@@ -123,12 +131,13 @@ def test_concurrent_duplicate_and_distinct_deliveries_increment_once(database):
     with ThreadPoolExecutor(max_workers=8) as executor:
         assert sum(executor.map(record, receipts)) == 9
     with database() as session:
-        metric = session.get(PartnerTrackedDailyMetric, (asset, duplicate.issued_at.date()))
-        assert metric.impressions == 9 and metric.clicks == 0
-        assert session.scalar(select(func.count()).select_from(PartnerDeliveryEvent)) == 9
+        claims = session.scalars(select(PartnerPlacementDelivery)).all()
+        assert len(claims) == 9
+        assert all(row.impression_recorded_at is not None for row in claims)
+        assert all(row.click_recorded_at is None for row in claims)
 
 
-def test_counter_failure_rolls_back_deduplication_claim(database, monkeypatch):
+def test_claim_failure_rolls_back_deduplication(database, monkeypatch):
     _, _, asset, _ = seed(database)
     signer = PartnerTrackingTokens(KEY)
     receipt = signer.verify(signer.issue(asset, delivery_id=uuid.uuid4()))
@@ -138,5 +147,6 @@ def test_counter_failure_rolls_back_deduplication_claim(database, monkeypatch):
     with database.begin() as session:
         assert record_delivery_event(session, receipt, "click")
     with database() as session:
-        metric = session.get(PartnerTrackedDailyMetric, (asset, receipt.issued_at.date()))
-        assert metric.clicks == 1 and metric.impressions == 0
+        claim = session.get(PartnerPlacementDelivery, receipt.delivery_id)
+        assert claim.click_recorded_at is not None
+        assert claim.impression_recorded_at is None

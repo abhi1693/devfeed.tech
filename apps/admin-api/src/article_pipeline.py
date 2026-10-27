@@ -95,6 +95,7 @@ from devfeed_core.models import Article
 from devfeed_core.schemas import DatabaseText
 from devfeed_core.services import OperationConflict
 from devfeed_core.text_search import normalized_text
+from devfeed_http.dependencies import run_database
 from devfeed_http.pagination import record
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import literal, select
@@ -102,7 +103,7 @@ from sqlalchemy import literal, select
 from devfeed_admin_api.analytics_current import preparing
 from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
 from devfeed_admin_api.auth import Admin, actor, require_admin
-from devfeed_admin_api.dependencies import DB, DBFactory, read_metadata
+from devfeed_admin_api.dependencies import DB, DBFactory
 
 router = APIRouter(tags=["admin-articles"], dependencies=[Depends(require_admin)])
 Analytics = Annotated[AnalyticsRuntime, Depends(get_analytics)]
@@ -148,7 +149,7 @@ async def board(
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
     group_by: Literal["source"] | None = None,
 ):
-    needle = await read_metadata(factory, _normalized_search, q)
+    needle = await run_database(factory, _normalized_search, q)
     try:
         result = await analytics.article_board(
             q=q,
@@ -160,7 +161,7 @@ async def board(
         )
     except AnalyticsUnavailable as error:
         raise preparing() from error
-    return await read_metadata(factory, _hydrate_clocks, result)
+    return await run_database(factory, _hydrate_clocks, result)
 
 
 @router.get(
@@ -180,7 +181,7 @@ async def column(
     group_by: Literal["source"] | None = None,
     source_group: uuid.UUID | Literal["unknown"] | None = None,
 ):
-    needle = await read_metadata(factory, _normalized_search, q)
+    needle = await run_database(factory, _normalized_search, q)
     try:
         result = await analytics.article_board(
             q=q,
@@ -195,7 +196,7 @@ async def column(
         )
     except AnalyticsUnavailable as error:
         raise preparing() from error
-    return (await read_metadata(factory, _hydrate_clocks, result)).columns[0]
+    return (await run_database(factory, _hydrate_clocks, result)).columns[0]
 
 
 def _detail(session, article):

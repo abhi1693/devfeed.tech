@@ -306,8 +306,9 @@ def test_admin_campaign_scope_inventory_and_automatic_attribution(admin_client, 
 
 
 @pytest.mark.integration
-def test_admin_campaign_metrics_keep_campaign_and_organic_distinct(admin_client, database):
-    from devfeed_core.models import PartnerDailyMetric, PartnerTrackedDailyMetric
+def test_admin_campaign_metrics_keep_campaign_and_organic_distinct(
+    admin_client, database, partner_analytics
+):
 
     with database() as session:
         account_id, _ = seed_catalog(session)
@@ -321,16 +322,15 @@ def test_admin_campaign_metrics_keep_campaign_and_organic_distinct(admin_client,
         sponsored = session.scalar(
             select(PartnerAsset).where(PartnerAsset.campaign_id == campaign.id)
         )
-        session.add_all(
+        partner_analytics.seed_many(
+            [dict(asset_id=sponsored.id, day=NOW.date(), impressions=10, clicks=1)]
+        )
+        partner_analytics.seed_many(
             [
-                PartnerTrackedDailyMetric(
-                    asset_id=organic.id, day=NOW.date(), impressions=999, clicks=99
-                ),
-                PartnerTrackedDailyMetric(
-                    asset_id=sponsored.id, day=NOW.date(), impressions=20, clicks=2
-                ),
-                PartnerDailyMetric(asset_id=sponsored.id, day=NOW.date(), impressions=10, clicks=1),
-            ]
+                dict(asset_id=organic.id, day=NOW.date(), impressions=999, clicks=99),
+                dict(asset_id=sponsored.id, day=NOW.date(), impressions=20, clicks=2),
+            ],
+            baseline=True,
         )
         session.commit()
         campaign_id = campaign.id

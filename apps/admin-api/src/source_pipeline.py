@@ -62,6 +62,7 @@ from devfeed_core.source_lifecycle import (
 )
 from devfeed_core.source_types import SourceType
 from devfeed_core.text_search import text_search
+from devfeed_http.dependencies import run_database
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, select
@@ -69,7 +70,7 @@ from sqlalchemy import func, select
 from devfeed_admin_api.analytics_current import preparing
 from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
 from devfeed_admin_api.auth import Admin, require_admin
-from devfeed_admin_api.dependencies import DB, DBFactory, read_metadata
+from devfeed_admin_api.dependencies import DB, DBFactory
 
 router = APIRouter(
     prefix="/v1/admin/source-pipeline",
@@ -224,12 +225,12 @@ def _hydrate_uris(session, result):
 
 
 async def _read_board(factory, analytics, query, **parameters):
-    identifiers = await read_metadata(factory, _matching_sources, query)
+    identifiers = await run_database(factory, _matching_sources, query)
     try:
         result = await analytics.source_board(query, matching_ids=identifiers, **parameters)
     except AnalyticsUnavailable as error:
         raise preparing() from error
-    return await read_metadata(factory, _hydrate_uris, result)
+    return await run_database(factory, _hydrate_uris, result)
 
 
 @router.get("", response_model=SourcePipelineBoard, operation_id="admin_source_pipeline")

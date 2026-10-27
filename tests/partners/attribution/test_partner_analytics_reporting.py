@@ -48,7 +48,6 @@ def test_direct_report_groups_all_scoped_assets_before_sorting_and_pagination(mo
             asset(account, "Company", other, "Other"),
             asset(account, "Company", empty, "Unmeasured"),
         ]
-        monkeypatch.setattr(report, "_assets", lambda *_: assets)
         stamp = datetime.now(UTC).isoformat()
         values = [
             {
@@ -75,7 +74,7 @@ def test_direct_report_groups_all_scoped_assets_before_sorting_and_pagination(mo
         ]
         store = Store(values)
         result = await report.reporting_metrics(
-            None, None, store, limit=1, sort="impressions", order="desc"
+            assets, store, limit=1, sort="impressions", order="desc"
         )
         assert result["asset_total"] == 3
         assert result["assets"][0]["name"] == "Other"
@@ -88,14 +87,14 @@ def test_direct_report_groups_all_scoped_assets_before_sorting_and_pagination(mo
         assert result["trend"] == [{"day": today, "impressions": 140, "clicks": 8}]
         assert {row["ad_format"] for row in result["format_totals"]} == {"feed", "header"}
         second_page = await report.reporting_metrics(
-            None, None, store, limit=1, offset=1, sort="impressions", order="desc"
+            assets, store, limit=1, offset=1, sort="impressions", order="desc"
         )
         assert second_page["assets"][0]["name"] == "Grouped product"
         assert second_page["assets"][0]["aggregated"]
         assert second_page["assets"][0]["measured_days"] == 1
         assert second_page["assets"][0]["impressions"] == 40
         final_page = await report.reporting_metrics(
-            None, None, store, limit=1, offset=2, sort="impressions", order="desc"
+            assets, store, limit=1, offset=2, sort="impressions", order="desc"
         )
         assert final_page["assets"][0]["name"] == "Unmeasured"
         assert final_page["assets"][0]["ctr"] is None
@@ -107,9 +106,8 @@ def test_large_authorized_scope_is_queried_in_bounded_batches(monkeypatch):
     async def run():
         account = uuid.uuid4()
         assets = [asset(account, "Company", uuid.uuid4(), str(i)) for i in range(101)]
-        monkeypatch.setattr(report, "_assets", lambda *_: assets)
         store = Store([])
-        result = await report.reporting_metrics(None, None, store)
+        result = await report.reporting_metrics(assets, store)
         assert result["asset_total"] == 101
         assert [len(batch) for batch in store.calls] == [50, 50, 1]
 
@@ -119,9 +117,7 @@ def test_large_authorized_scope_is_queried_in_bounded_batches(monkeypatch):
 def test_metrics_outside_authorized_scope_are_rejected(monkeypatch):
     async def run():
         account, identity = uuid.uuid4(), uuid.uuid4()
-        monkeypatch.setattr(
-            report, "_assets", lambda *_: [asset(account, "Company", identity, "Name")]
-        )
+        assets = [asset(account, "Company", identity, "Name")]
 
         class Unsafe:
             async def partner_daily(self, *_args, **_kwargs):
@@ -136,28 +132,23 @@ def test_metrics_outside_authorized_scope_are_rejected(monkeypatch):
                 ]
 
         with pytest.raises(ValueError, match="Unauthorized"):
-            await report.reporting_metrics(None, None, Unsafe())
+            await report.reporting_metrics(assets, Unsafe())
 
     asyncio.run(run())
 
 
 @pytest.mark.integration
-def test_direct_report_matches_existing_sql_report_for_all_sorts(database):
-    from devfeed_core.models import (
-        PartnerAccount,
-        PartnerAsset,
-        PartnerDailyMetric,
-        PartnerTrackedDailyMetric,
-    )
+def test_direct_report_preserves_metrics_and_account_scope_for_all_sorts(
+    database, partner_analytics
+):
+    from devfeed_core.models import PartnerAccount, PartnerAsset
     from sqlalchemy import select
 
-    async def run(session, account, assets, values):
-        scope = select(PartnerAccount).where(PartnerAccount.id == account.id)
+    async def run(metadata, values):
         for sort in ("name", "account", "impressions", "clicks", "ctr"):
             for order in ("asc", "desc"):
                 actual = await report.reporting_metrics(
-                    session,
-                    scope,
+                    metadata,
                     Store(values),
                     days=30,
                     limit=2,
@@ -197,50 +188,28 @@ def test_direct_report_matches_existing_sql_report_for_all_sorts(database):
             assets.append(item)
         session.flush()
         for item, first, second in ((assets[0], 5, 3), (assets[1], 0, 0), (assets[3], 900, 1)):
-            session.add(
-                PartnerDailyMetric(
-                    asset_id=item.id,
-                    day=now.date(),
-                    impressions=first,
-                    clicks=second,
-                    updated_at=now,
-                )
+            partner_analytics.seed(
+                asset_id=item.id, day=now.date(), impressions=first, clicks=second, updated_at=now
             )
-        session.add(
-            PartnerTrackedDailyMetric(
-                asset_id=assets[0].id, day=now.date(), impressions=2, clicks=1, updated_at=now
-            )
+        partner_analytics.seed(
+            asset_id=assets[0].id,
+            day=now.date(),
+            impressions=2,
+            clicks=1,
+            updated_at=now,
+            baseline=True,
         )
         session.flush()
-        values = [
-            {
-                "owner": str(assets[0].id),
-                "day": now.date(),
-                "impressions": 7,
-                "clicks": 4,
-                "updated_at": now.isoformat(),
-            },
-            {
-                "owner": str(assets[1].id),
-                "day": now.date(),
-                "impressions": 0,
-                "clicks": 0,
-                "updated_at": now.isoformat(),
-            },
-            {
-                "owner": str(assets[3].id),
-                "day": now.date(),
-                "impressions": 900,
-                "clicks": 1,
-                "updated_at": now.isoformat(),
-            },
-        ]
-        asyncio.run(run(session, account, assets, values))
+        values = partner_analytics.daily([row.id for row in assets])
+        metadata = report.reporting_assets(
+            session, select(PartnerAccount).where(PartnerAccount.id == account.id)
+        )
+        asyncio.run(run(metadata, values))
 
 
 @pytest.mark.integration
-def test_direct_report_matches_canonical_products_and_format_totals(database):
-    from devfeed_core.models import PartnerAccount, PartnerAsset, PartnerDailyMetric, PartnerProduct
+def test_direct_report_matches_canonical_products_and_format_totals(database, partner_analytics):
+    from devfeed_core.models import PartnerAccount, PartnerAsset, PartnerProduct
     from sqlalchemy import select
 
     now = datetime.now(UTC)
@@ -278,14 +247,12 @@ def test_direct_report_matches_canonical_products_and_format_totals(database):
         session.flush()
         values = []
         for row, impressions, clicks in ((first, 10, 1), (second, 20, 2)):
-            session.add(
-                PartnerDailyMetric(
-                    asset_id=row.id,
-                    day=now.date(),
-                    impressions=impressions,
-                    clicks=clicks,
-                    updated_at=now,
-                )
+            partner_analytics.seed(
+                asset_id=row.id,
+                day=now.date(),
+                impressions=impressions,
+                clicks=clicks,
+                updated_at=now,
             )
             values.append(
                 {
@@ -298,7 +265,9 @@ def test_direct_report_matches_canonical_products_and_format_totals(database):
             )
         session.flush()
         scope = select(PartnerAccount).where(PartnerAccount.id == account.id)
-        actual = asyncio.run(report.reporting_metrics(session, scope, Store(values)))
+        values = partner_analytics.daily([first.id, second.id])
+        metadata = report.reporting_assets(session, scope)
+        actual = asyncio.run(report.reporting_metrics(metadata, Store(values)))
         assert actual["asset_total"] == 1
         assert actual["totals"] == {"impressions": 30, "clicks": 3, "ctr": 10.0, "measured_days": 1}
         assert actual["assets"][0]["name"] == "Current"

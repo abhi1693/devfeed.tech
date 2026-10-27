@@ -99,6 +99,12 @@ def test_lifecycle_always_releases_resources_clients_and_telemetry(failure, monk
 
     monkeypatch.setattr(runtime, "stop_runtime", stop)
 
+    def drain():
+        blocking_threads.append(threading.get_ident())
+        events.append("analytics")
+
+    monkeypatch.setattr(runtime, "drain_analytics", drain)
+
     @asynccontextmanager
     async def resources(app):
         events.append("start")
@@ -127,8 +133,8 @@ def test_lifecycle_always_releases_resources_clients_and_telemetry(failure, monk
             asyncio.run(scenario())
     else:
         asyncio.run(scenario())
-    assert events[-3:] == ["resources", "clients", "telemetry"]
-    assert len(blocking_threads) == 2
+    assert events[-4:] == ["resources", "analytics", "clients", "telemetry"]
+    assert len(blocking_threads) == 3
     logger.info.assert_any_call("test_api_started")
     logger.info.assert_any_call("test_api_stopped")
 

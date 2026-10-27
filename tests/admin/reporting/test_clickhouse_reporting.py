@@ -1,5 +1,6 @@
 """Native analytical queries preserve the existing dashboard's metric contracts."""
 
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -8,10 +9,8 @@ from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
     ArticleLike,
-    ArticleOpen,
     ArticleOrigin,
     ArticleTopic,
-    InferenceCall,
     IngestionJob,
     Source,
     Topic,
@@ -25,6 +24,7 @@ NOW = datetime(2026, 10, 25, 12, tzinfo=UTC)
 
 
 def seed_dashboard(session):
+    observations = {"opens": [], "inference": []}
     source = Source(
         name="Publisher",
         source_type="publisher",
@@ -97,15 +97,13 @@ def seed_dashboard(session):
             )
             for number in (1, 2)
         )
-        session.add(
-            ArticleOpen(
-                article_id=article.id, viewer_key="reader-one", opened_hour=NOW - timedelta(days=1)
-            )
+        observations["opens"].append(
+            dict(article_id=article.id, viewer_key="a" * 64, opened_hour=NOW - timedelta(days=1))
         )
-    session.add(
-        ArticleOpen(
+    observations["opens"].append(
+        dict(
             article_id=articles[0].id,
-            viewer_key="reader-two",
+            viewer_key="b" * 64,
             opened_hour=NOW - timedelta(days=1),
         )
     )
@@ -115,8 +113,9 @@ def seed_dashboard(session):
             {"inputTokens": "invalid", "outputTokens": 0},
         ]
     ):
-        session.add(
-            InferenceCall(
+        observations["inference"].append(
+            dict(
+                id=uuid.uuid4(),
                 started_at=NOW - timedelta(days=1),
                 finished_at=NOW - timedelta(days=1) + timedelta(seconds=2),
                 operation="article_analysis",
@@ -130,14 +129,18 @@ def seed_dashboard(session):
             )
         )
 
+    return observations
+
 
 def test_native_sections_preserve_domain_totals_and_do_not_multiply_relationships(database):
     from tests.support.analytics import load_sections
 
     with database.begin() as session:
-        seed_dashboard(session)
+        observations = seed_dashboard(session)
     with database() as session:
-        results = load_sections(session, sorted(ANALYTICAL_GROUPS), 7, NOW)
+        results = load_sections(
+            session, sorted(ANALYTICAL_GROUPS), 7, NOW, observations=observations
+        )
     publishing = results["publishing"].data.summary
     assert publishing.published == 2 and publishing.automated == 0
     # Estimated percentiles stay within the two observed delays; TDigest does
@@ -193,6 +196,7 @@ def test_custom_calendar_windows_filter_before_totals_percentiles_and_top_source
         )
         for name in ("Excluded", "Selected")
     ]
+    observations = {"opens": [], "inference": []}
     with database.begin() as session:
         session.add_all(sources)
         session.flush()
@@ -218,11 +222,6 @@ def test_custom_calendar_windows_filter_before_totals_percentiles_and_top_source
                         entry_key=str(index),
                         original_url=article.canonical_url,
                     ),
-                    ArticleOpen(
-                        article_id=article.id,
-                        viewer_key="range-reader",
-                        opened_hour=stamp.replace(minute=0, second=0, microsecond=0),
-                    ),
                     ArticleAnalysisJob(
                         article_id=article.id,
                         status="succeeded",
@@ -231,23 +230,40 @@ def test_custom_calendar_windows_filter_before_totals_percentiles_and_top_source
                         finished_at=stamp,
                         duration_ms=index * 10_000 if selected else 1_000_000,
                     ),
-                    InferenceCall(
-                        started_at=stamp,
-                        finished_at=stamp,
-                        operation="analysis",
-                        status="returned",
-                        model="Selected" if selected else "Excluded",
-                        web_searches=0,
-                        request_hash="abcd"[index] * 64,
-                        tokens={
-                            "inputTokens": index * 100 if selected else 10_000,
-                            "outputTokens": 10,
-                        },
-                        duration_ms=index * 10_000 if selected else 1_000_000,
-                    ),
                 ]
             )
-    results = load_sections(database, sorted(ANALYTICAL_GROUPS), window.days, NOW, window=window)
+            observations["opens"].append(
+                dict(
+                    article_id=article.id,
+                    viewer_key="c" * 64,
+                    opened_hour=stamp.replace(minute=0, second=0, microsecond=0),
+                )
+            )
+            observations["inference"].append(
+                dict(
+                    id=uuid.uuid4(),
+                    started_at=stamp,
+                    finished_at=stamp,
+                    operation="analysis",
+                    status="returned",
+                    model="Selected" if selected else "Excluded",
+                    web_searches=0,
+                    request_hash="abcd"[index] * 64,
+                    tokens={
+                        "inputTokens": index * 100 if selected else 10_000,
+                        "outputTokens": 10,
+                    },
+                    duration_ms=index * 10_000 if selected else 1_000_000,
+                )
+            )
+    results = load_sections(
+        database,
+        sorted(ANALYTICAL_GROUPS),
+        window.days,
+        NOW,
+        window=window,
+        observations=observations,
+    )
     publishing = results["publishing"]
     assert publishing.start == window.start and publishing.end == window.inclusive_end
     assert publishing.granularity == grain

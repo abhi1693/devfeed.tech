@@ -1,6 +1,5 @@
-"""Current operator reads over one frozen vector of ClickHouse shard snapshots."""
+"""Current operator boards query canonical ClickHouse observations directly."""
 
-import hashlib
 import json
 import uuid
 from collections import defaultdict
@@ -13,7 +12,6 @@ from fastapi import HTTPException
 
 CARD_KINDS = ("article", "source", "candidate", "topic-proposal", "relationship-proposal")
 FRESH_SECONDS = 60
-SHARDS = 256
 
 
 def preparing(message="Analytics are being prepared.", *, retry_after=2):
@@ -36,39 +34,23 @@ def _next_cursor(offset, count, total):
 
 
 @dataclass(frozen=True)
-class FrozenCards:
+class CurrentSelection:
     policy: str
     kinds: tuple[str, ...]
-    manifests: tuple[tuple[str, int, int], ...]
     snapshot: AnalyticsSnapshot
 
     def parameters(self):
-        return {
-            "policy": self.policy,
-            "kinds": self.kinds,
-            "manifest_kinds": [row[0] for row in self.manifests],
-            "manifest_shards": [row[1] for row in self.manifests],
-            "manifest_generations": [row[2] for row in self.manifests],
-        }
+        return {"policy": self.policy, "kinds": self.kinds}
 
     @staticmethod
     def source():
-        # Three arrays avoid relying on driver-specific Array(Tuple) binding.
-        # The same immutable vector is bound to counts, ranked keys and payloads.
-        return """analytics_cards c INNER JOIN (
-            SELECT tupleElement(item,1) AS kind,tupleElement(item,2) AS shard,
-              tupleElement(item,3) AS generation FROM (
-                SELECT arrayJoin(arrayZip({manifest_kinds:Array(String)},
-                  {manifest_shards:Array(UInt16)},
-                  {manifest_generations:Array(UInt64)})) AS item
-              )
-          ) frozen ON c.kind=frozen.kind AND c.shard=frozen.shard
-              AND c.generation=frozen.generation
-          WHERE c.policy={policy:String} AND c.kind IN {kinds:Array(String)}
-            AND c.deleted=0
-            AND tuple(c.kind,c.shard,c.generation) IN arrayZip(
-              {manifest_kinds:Array(String)}, {manifest_shards:Array(UInt16)},
-              {manifest_generations:Array(UInt64)})"""
+        # FINAL must choose the newest identity before applying mutable filters;
+        # otherwise an old stage or a deleted card can reappear.
+        return """(SELECT * REPLACE(if(state='retry_wait'
+            AND next_transition_at<={as_of:DateTime64(6,'UTC')},'waiting',state) AS state)
+          FROM analytics_card_canonical FINAL
+          WHERE policy={policy:String} AND kind IN {kinds:Array(String)}) c
+          WHERE c.deleted=0"""
 
 
 class CurrentCards:
@@ -77,133 +59,71 @@ class CurrentCards:
         self.now = now or datetime.now(UTC)
         self.policy = pipeline_policy_version(getattr(client, "settings", None))
 
-    async def freeze(self, kinds):
+    async def selection(self, kinds):
         kinds = tuple(sorted(set(kinds)))
         if not kinds or set(kinds) - set(CARD_KINDS):
             raise ValueError("Unknown current analytical kind")
-        status, policy, manifests = await self._manifest_observation(kinds)
-        expected = {(kind, shard) for kind in kinds for shard in range(SHARDS)}
-        observed = {(row["kind"], int(row["shard"])) for row in manifests}
-        # Refuse partial coverage and snapshots approaching their seven-day TTL.
-        # The durable canonical store lets the exporter restore expired shards.
-        if expected != observed or any(
-            self.now - timestamp(row["updated_at"]) >= timedelta(days=6, hours=23)
-            for row in manifests
-        ):
+        status = await self.client.status()
+        if not status.get("ready") or status.get("policy", self.policy) != self.policy:
             raise preparing()
-        vector = tuple(
-            (row["kind"], int(row["shard"]), int(row["generation"])) for row in manifests
-        )
-        lag = max(
-            float(status.get("lag_seconds") or 0),
-            (self.now - timestamp(status["updated_at"])).total_seconds(),
-            0,
-        )
-        revision = json.loads(status.get("catalog_revision") or "[]")
-        target_revision = json.loads(status.get("catalog_target_revision") or "[]")
-        catalog_pending = revision != target_revision
-        catalog_lag = None
-        if catalog_pending and status.get("catalog_progress_at"):
-            catalog_lag = max(
-                0, (self.now - timestamp(status["catalog_progress_at"])).total_seconds()
-            )
-            lag = max(lag, catalog_lag)
+        lag = max(float(status.get("lag_seconds") or 0), 0)
+        generated_at = status.get("generated_at") or status.get("updated_at")
         snapshot = AnalyticsSnapshot(
-            status="stale"
-            if lag > FRESH_SECONDS
-            else "catching_up"
-            if catalog_pending
-            else "fresh",
-            generated_at=timestamp(status["generated_at"]),
-            generation=policy + ":" + hashlib.sha256(repr(vector).encode()).hexdigest()[:16],
-            policy_version=policy,
-            article_generation=max((row[2] for row in vector), default=0),
-            catalog_revision=revision,
-            catalog_target_revision=target_revision,
-            catalog_lag_seconds=catalog_lag,
+            status="stale" if lag > FRESH_SECONDS else "fresh",
+            generated_at=timestamp(generated_at) if generated_at else None,
+            generation=str(status["version"]),
+            policy_version=self.policy,
             lag_seconds=lag,
         )
-        return FrozenCards(policy, kinds, vector, snapshot)
+        return CurrentSelection(self.policy, kinds, snapshot)
 
-    async def _manifest_observation(self, kinds):
-        status_sql = (
-            "/* admin:card-status */ SELECT * FROM analytics_card_status FINAL WHERE singleton=1"
+    async def _query(self, selection, query, **parameters):
+        return await self.client.query(
+            query + " SETTINGS optimize_move_to_prewhere_if_final=0,"
+            "enable_optimize_predicate_expression=0",
+            selection.parameters() | {"as_of": self.now} | parameters,
         )
-        for _ in range(2):
-            rows = await self.client.query(status_sql)
-            if (
-                not rows
-                or not rows[0]["ready"]
-                or rows[0]["policy"] != self.policy
-                or rows[0]["target_policy"] != self.policy
-            ):
-                raise preparing()
-            status = rows[0]
-            policy = status["policy"]
-            manifests = await self.client.query(
-                "/* admin:card-manifest */ SELECT kind,shard,generation,updated_at,item_count "
-                "FROM analytics_card_manifest FINAL WHERE policy={policy:String} "
-                "AND kind IN {kinds:Array(String)} ORDER BY kind,shard",
-                {"policy": policy, "kinds": kinds},
-            )
-            observed = await self.client.query(status_sql)
-            if not observed or not observed[0]["ready"]:
-                raise preparing()
-            # A same-policy reset withdraws readiness before replacing manifests.
-            # Never pair its empty/partial new vector with a previous ready status.
-            # One retry also absorbs a policy rollover or ordinary status heartbeat.
-            identity = ("version", "policy", "target_policy", "ready")
-            if all(status[field] == observed[0][field] for field in identity):
-                return observed[0], policy, manifests
-        raise preparing()
 
-    async def _query(self, frozen, query, **parameters):
-        return await self.client.query(query, frozen.parameters() | parameters)
-
-    async def _payloads(self, frozen, keys):
-        if not keys:
-            return {}
-        rows = await self._query(
-            frozen,
-            "/* admin:card-payloads */ SELECT c.kind,toString(c.entity_id) AS id,c.payload "
-            "FROM " + frozen.source() + " AND c.entity_id IN {ids:Array(UUID)}",
-            ids=list({row["id"] for row in keys}),
-        )
-        payloads = {(row["kind"], str(row["id"])): json.loads(row["payload"]) for row in rows}
-        if any((row["kind"], row["id"]) not in payloads for row in keys):
-            raise AnalyticsUnavailable("Current card snapshot is being renewed")
-        return payloads
-
-    async def _stage_counts(self, frozen, base, board, params):
-        rows = await self._query(
-            frozen,
-            f"/* admin:{board}-counts */ SELECT c.stage,count() AS total FROM "
-            + base
-            + " GROUP BY c.stage",
-            **params,
-        )
-        return {row["stage"]: int(row["total"]) for row in rows}
-
-    async def _page_keys(self, frozen, base, board, order, params):
+    async def _stage_page(self, selection, base, board, order, params):
+        # Count and page in one statement. Rank only narrow metadata, then read
+        # JSON for the selected identities so a large board does not sort every
+        # payload. A left join preserves totals for an out-of-range lane offset.
         return await self._query(
-            frozen,
-            f"""/* admin:{board}-page-keys */ SELECT kind,id,stage FROM (
-                SELECT c.kind,toString(c.entity_id) AS id,c.stage,
-                  row_number() OVER(PARTITION BY c.stage ORDER BY {order}) AS position
-                FROM {base} AND c.stage IN {{stages:Array(String)}}
-              ) WHERE position>{{offset:UInt64}} AND position<={{offset:UInt64}}+{{limit:UInt64}}
-              ORDER BY stage,position""",
+            selection,
+            f"""/* admin:{board}-page */ WITH selected AS (
+                SELECT * FROM (
+                  SELECT c.kind,c.shard,c.entity_id,c.stage,c.state,
+                    row_number() OVER(PARTITION BY c.stage ORDER BY {order}) AS position
+                  FROM {base} AND c.stage IN {{stages:Array(String)}}
+                ) WHERE position>{{offset:UInt64}}
+                    AND position<={{offset:UInt64}}+{{limit:UInt64}}
+              ), payloads AS (
+                SELECT kind,shard,entity_id,payload FROM analytics_card_canonical FINAL
+                WHERE policy={{policy:String}} AND tuple(kind,shard,entity_id) IN (
+                  SELECT kind,shard,entity_id FROM selected
+                )
+              ), pages AS (
+                SELECT s.stage,groupArray(tuple(s.position,s.kind,toString(s.entity_id),
+                  p.payload,s.state)) AS items FROM selected s INNER JOIN payloads p
+                  ON s.kind=p.kind AND s.shard=p.shard AND s.entity_id=p.entity_id
+                GROUP BY s.stage
+              ), totals AS (
+                SELECT c.stage,count() AS total FROM {base}
+                  AND c.stage IN {{stages:Array(String)}} GROUP BY c.stage
+              ) SELECT t.stage,t.total,p.items FROM totals t
+                LEFT JOIN pages p ON t.stage=p.stage""",
             **params,
         )
 
-    async def _cards_by_stage(self, frozen, keys, card_type):
-        payloads = await self._payloads(frozen, keys)
-        by_stage = defaultdict(list)
-        for row in keys:
-            by_stage[row["stage"]].append(
-                card_type.model_validate(payloads[(row["kind"], row["id"])])
-            )
-        return by_stage
+    @staticmethod
+    def _stage_items(rows, card_type):
+        result = defaultdict(list)
+        for row in rows:
+            for _, _, _, payload, state in sorted(row["items"], key=lambda item: item[0]):
+                value = json.loads(payload)
+                value["state"] = state
+                result[row["stage"]].append(card_type.model_validate(value))
+        return result
 
     async def article_board(
         self,
@@ -226,7 +146,7 @@ class CurrentCards:
             PipelineSourceGroup,
         )
 
-        frozen = await self.freeze(("article",))
+        selected = await self.selection(("article",))
         since = self.now - timedelta(days=7)
         params = {
             "since": since,
@@ -259,13 +179,16 @@ class CurrentCards:
                 params["source_group"] = str(source_group)
         if needs_attention:
             condition += " AND c.state IN ('blocked','retry_wait')"
-        base = frozen.source() + condition
-        totals = await self._stage_counts(frozen, base, "article", params)
+        base = selected.source() + condition
         stages = (stage,) if stage else STAGES
         if group_by == "source":
             rows = await self._query(
-                frozen,
-                """/* admin:article-source-groups */ SELECT * FROM (
+                selected,
+                """/* admin:article-source-groups */ SELECT stage,sum(total) AS stage_total,
+                    max(group_count) AS group_count,
+                    groupArrayIf(tuple(position,source_id,source_name,total,state_counts),
+                      position>{offset:UInt64} AND position<={offset:UInt64}+{limit:UInt64})
+                        AS source_groups FROM (
                     SELECT stage,source_id,source_name,total,state_counts,
                       count() OVER(PARTITION BY stage) AS group_count,
                       row_number() OVER(PARTITION BY stage ORDER BY priority,
@@ -284,27 +207,32 @@ class CurrentCards:
                             GROUP BY c.stage,c.source_id,c.state
                           ) GROUP BY stage,source_id
                       )
-                  ) WHERE position>{offset:UInt64} AND position<={offset:UInt64}+{limit:UInt64}
-                  ORDER BY stage,position""",
+                  ) GROUP BY stage""",
                 **params,
             )
             columns = []
             for key in stages:
-                groups = [row for row in rows if row["stage"] == key]
-                group_count = int(groups[0]["group_count"]) if groups else 0
+                row: dict = next((row for row in rows if row["stage"] == key), {})
+                group_count = int(row.get("group_count", 0))
+                groups = [
+                    PipelineSourceGroup(
+                        source_id=item[1], source_name=item[2], total=item[3], state_counts=item[4]
+                    )
+                    for item in sorted(row.get("source_groups", []), key=lambda item: item[0])
+                ]
                 offset = params["offset"]
                 columns.append(
                     PipelineColumn(
                         stage=key,
-                        total=totals.get(key, 0),
+                        total=int(row.get("stage_total", 0)),
                         items=[],
-                        source_groups=[PipelineSourceGroup.model_validate(row) for row in groups],
+                        source_groups=groups,
                         next_cursor=_next_cursor(offset, limit, group_count),
                     )
                 )
         else:
-            keys = await self._page_keys(
-                frozen,
+            rows = await self._stage_page(
+                selected,
                 base,
                 "article",
                 """if(c.stage IN ('published','rejected'),0,if(c.state='running',0,1)),
@@ -314,7 +242,8 @@ class CurrentCards:
                     if(c.stage IN ('published','rejected'),'',toString(c.entity_id)) ASC""",
                 params,
             )
-            items = await self._cards_by_stage(frozen, keys, PipelineCard)
+            totals = {row["stage"]: int(row["total"]) for row in rows}
+            items = self._stage_items(rows, PipelineCard)
             columns = [
                 PipelineColumn(
                     stage=key,
@@ -329,7 +258,7 @@ class CurrentCards:
             terminal_since=since,
             counts={column.stage: column.total for column in columns},
             columns=columns,
-            snapshot=frozen.snapshot,
+            snapshot=selected.snapshot,
         )
 
     async def source_board(self, query, *, stage=None, cursor=0, matching_ids=None):
@@ -341,7 +270,7 @@ class CurrentCards:
             SourcePipelineColumn,
         )
 
-        frozen = await self.freeze(("source", "candidate"))
+        selected = await self.selection(("source", "candidate"))
         params = {
             "since": query.terminal_since,
             "terminal_stages": tuple(SOURCE_TERMINAL_STAGES),
@@ -369,10 +298,9 @@ class CurrentCards:
             params["source_type"] = query.source_type
         if query.needs_attention:
             condition += " AND (c.state IN ('blocked','retry_wait') OR c.stage='review')"
-        base = frozen.source() + condition
-        totals = await self._stage_counts(frozen, base, "source", params)
-        keys = await self._page_keys(
-            frozen,
+        base = selected.source() + condition
+        rows = await self._stage_page(
+            selected,
             base,
             "source",
             """if(c.state='running',0,1),
@@ -381,7 +309,8 @@ class CurrentCards:
                 c.kind,toString(c.entity_id)""",
             params,
         )
-        items = await self._cards_by_stage(frozen, keys, SourcePipelineCard)
+        totals = {row["stage"]: int(row["total"]) for row in rows}
+        items = self._stage_items(rows, SourcePipelineCard)
         columns = [
             SourcePipelineColumn(
                 stage=key,
@@ -396,7 +325,7 @@ class CurrentCards:
             terminal_since=query.terminal_since,
             counts={column.stage: column.total for column in columns},
             columns=columns,
-            snapshot=frozen.snapshot,
+            snapshot=selected.snapshot,
         )
 
     async def operations(self):
@@ -409,39 +338,40 @@ class CurrentCards:
             ReviewQueue,
         )
 
-        frozen = await self.freeze(CARD_KINDS)
-        review_rows = await self._query(
-            frozen,
-            """/* admin:operations-reviews */ SELECT c.kind,countIf(c.review_pending=1) AS pending,
-              minIf(toNullable(c.created_at),c.review_pending=1) AS oldest,
-              countIf(c.kind='source' AND c.enabled=1 AND c.approval_status='approved'
-                AND c.consecutive_failures>0) AS failures FROM """
-            + frozen.source()
-            + " GROUP BY c.kind",
+        selected = await self.selection(CARD_KINDS)
+        observed = await self._query(
+            selected,
+            """/* admin:operations */ WITH cards AS (SELECT c.kind,c.created_at,
+                c.review_pending,c.enabled,c.approval_status,c.consecutive_failures,
+                c.blocker_codes,c.entity_id,c.title,c.editorial_revision FROM """
+            + selected.source()
+            + """), reviews AS (
+                SELECT kind,countIf(review_pending=1) AS pending,
+                  minIf(toNullable(created_at),review_pending=1) AS oldest,
+                  countIf(kind='source' AND enabled=1 AND approval_status='approved'
+                    AND consecutive_failures>0) AS failures
+                FROM cards GROUP BY kind
+              ), blockers AS (
+                SELECT code,count() AS total,
+                  groupArraySorted(5)(tuple(created_at,toString(entity_id),kind,
+                    title,editorial_revision)) AS targets
+                FROM (SELECT *,arrayJoin(blocker_codes) AS code FROM cards)
+                GROUP BY code
+              ) SELECT (SELECT groupArray(tuple(kind,pending,oldest,failures)) FROM reviews)
+                  AS reviews,
+                (SELECT groupArray(tuple(code,total,targets)) FROM blockers) AS blockers""",
         )
-        reviews = {row["kind"]: row for row in review_rows}
-        blockers = blocker_catalog()
+        row = observed[0] if observed else {"reviews": [], "blockers": []}
+        reviews = {
+            item[0]: {"pending": item[1], "oldest": item[2], "failures": item[3]}
+            for item in row["reviews"]
+        }
+        settings = getattr(self.client, "settings", None) or get_settings()
+        blockers = blocker_catalog(full_automation=settings.full_automation)
         by_code = {item.code: item for item in blockers}
-        groups = await self._query(
-            frozen,
-            """/* admin:operations-blocker-keys */ SELECT code,count() AS total,
-              groupArraySorted(5)(tuple(created_at,toString(entity_id),kind)) AS targets FROM (
-                SELECT c.created_at,c.entity_id,c.kind,arrayJoin(c.blocker_codes) AS code FROM """
-            + frozen.source()
-            + ") GROUP BY code",
-        )
-        target_ids = {str(target[1]) for row in groups for target in row["targets"]}
-        target_rows = []
-        if target_ids:
-            target_rows = await self._query(
-                frozen,
-                "/* admin:operations-targets */ SELECT c.kind,toString(c.entity_id) AS id,"
-                "c.title,c.editorial_revision FROM "
-                + frozen.source()
-                + " AND c.entity_id IN {ids:Array(UUID)}",
-                ids=sorted(target_ids),
-            )
-        targets = {(row["kind"], row["id"]): row for row in target_rows}
+        groups = [
+            {"code": item[0], "total": item[1], "targets": item[2]} for item in row["blockers"]
+        ]
         for row in groups:
             if row["code"] not in by_code:
                 raise AnalyticsUnavailable("Current blocker policy is being prepared")
@@ -450,12 +380,11 @@ class CurrentCards:
             item.targets = [
                 RecoveryTarget(
                     id=uuid.UUID(str(key[1])),
-                    title=target["title"],
+                    title=key[3],
                     kind=key[2],
-                    revision=int(target["editorial_revision"]),
+                    revision=int(key[4]),
                 )
                 for key in row["targets"]
-                if (target := targets.get((key[2], str(key[1])))) is not None
             ]
         mapping = {
             "article": "articles",
@@ -466,9 +395,9 @@ class CurrentCards:
         return OverviewSectionReport(
             generated_at=self.now,
             days=1,
-            snapshot=frozen.snapshot,
+            snapshot=selected.snapshot,
             data=OperationsSection(
-                full_automation=get_settings().full_automation,
+                full_automation=settings.full_automation,
                 reviews=[
                     ReviewQueue(
                         kind=name,
@@ -477,7 +406,7 @@ class CurrentCards:
                     )
                     for kind, name in mapping.items()
                 ],
-                source_failures=sum(int(row["failures"]) for row in review_rows),
+                source_failures=sum(int(row["failures"]) for row in reviews.values()),
                 blockers=blockers,
             ),
         )
