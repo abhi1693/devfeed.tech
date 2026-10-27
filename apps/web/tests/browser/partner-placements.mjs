@@ -7,6 +7,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 import { assertPartnerCallerProofs, partnerRuntimePlan } from "./partner-runtimes.mjs";
+import {
+  closePlacementFixture,
+  runPlacementStage,
+  withPlacementDeliveryHeld,
+} from "./partner-fixture.mjs";
 
 // Validate selectors before opening temporary directories, servers, or browsers.
 const runtimePlan = partnerRuntimePlan(process.argv.slice(2));
@@ -157,7 +162,7 @@ let queries = [];
 let headerQueries = [];
 let headerInventory = false;
 let events = [];
-let deliveryGate = null;
+const delivery = { pending: null };
 let mediaMode = "standard";
 let platformMode = "managed";
 let listingAttribution = null;
@@ -196,7 +201,7 @@ function currentCallerProofs() {
 function resetSelectedRuntimeFixture() {
   sessionCsrfToken = "fixture-csrf";
   appearanceTheme = "system";
-  deliveryGate = null;
+  delivery.pending = null;
   platformMode = "managed";
   listingAttribution = null;
   platformLogoGate = null;
@@ -3373,8 +3378,8 @@ const fixture = createServer(async (req, res) => {
     let raw = "";
     for await (const part of req) raw += part;
     const body = raw ? JSON.parse(raw) : undefined;
-    if (["feed", "search", "topic", "header"].includes(body?.surface) && deliveryGate)
-      await deliveryGate;
+    if (["feed", "search", "topic", "header"].includes(body?.surface) && delivery.pending)
+      await delivery.pending;
     const json = response(req.url, body, req.headers);
     if (json?.trackingRetry) {
       res.writeHead(503, { "Content-Type": "application/json" });
@@ -3460,6 +3465,7 @@ app.stdout.on("data", (data) => {
 app.stderr.on("data", (data) => {
   logs += data;
 });
+let runFailed = false;
 try {
   let ready = false;
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -3492,6 +3498,7 @@ try {
     console.log(`[${new Date().toISOString()}] Partner ${platform} ${phase} BEGIN`);
     const checkpoints = [];
     let evidence;
+    let failed = false;
     const context = await chromium.launchPersistentContext(
       path.join(temp, probe ? `${platform}-${phase}` : platform),
       {
@@ -3548,8 +3555,8 @@ try {
             });
             return;
           }
-          if (["feed", "search", "topic", "header"].includes(body?.surface) && deliveryGate)
-            await deliveryGate;
+          if (["feed", "search", "topic", "header"].includes(body?.surface) && delivery.pending)
+            await delivery.pending;
           const json = response(request.url(), body, request.headers(), true);
           await route.fulfill(
             request.url().endsWith("/partner-tracking/events") ? { status: 204 } : { json },
@@ -4006,28 +4013,25 @@ try {
       ]) {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
         queries = [];
-        let release;
-        deliveryGate = new Promise((resolve) => {
-          release = resolve;
-        });
-        await page.goto(`${base}${route}`);
         const readingArticle = page
           .locator(".article-grid > .article-card:not(.partner-placement) .card-open-link")
           .nth(8);
-        await readingArticle.waitFor();
-        await readingArticle.scrollIntoViewIfNeeded();
-        await readingArticle.focus();
-        await page.evaluate(
-          () =>
-            new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
-        );
-        const before = await readingArticle.boundingBox();
-        assert.ok(
-          await page.evaluate(() => scrollY > 0),
-          `${platform}: reader is scrolled past the first insertion point`,
-        );
-        deliveryGate = null;
-        release();
+        const before = await withPlacementDeliveryHeld(delivery, async () => {
+          await page.goto(`${base}${route}`);
+          await readingArticle.waitFor();
+          await readingArticle.scrollIntoViewIfNeeded();
+          await readingArticle.focus();
+          await page.evaluate(
+            () =>
+              new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+          );
+          const before = await readingArticle.boundingBox();
+          assert.ok(
+            await page.evaluate(() => scrollY > 0),
+            `${platform}: reader is scrolled past the first insertion point`,
+          );
+          return before;
+        });
         await assertGrid(`anonymous ${route}`);
         assert.equal(
           await readingArticle.evaluate((element) => element === document.activeElement),
@@ -4080,29 +4084,27 @@ try {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
         for (const filtered of [false, true]) {
           queries = [];
-          let release;
-          deliveryGate = new Promise((resolve) => {
-            release = resolve;
-          });
           const route = filtered
             ? "/search?q=typescript&section=articles&content_types=tutorial&sort=newest&date_from=2026-10-01&date_to=2026-10-13"
             : "/search?q=typescript";
-          await page.goto("about:blank");
-          await page.goto(`${base}${route}`);
           const readingResult = page.locator(".search-section-articles .search-result-link").nth(8);
-          await readingResult.waitFor();
-          await readingResult.scrollIntoViewIfNeeded();
-          await readingResult.focus();
-          await readingResult.evaluate((node) => {
-            window.__searchReadingResult = node;
+          const before = await withPlacementDeliveryHeld(delivery, async () => {
+            await page.goto("about:blank");
+            await page.goto(`${base}${route}`);
+            await readingResult.waitFor();
+            await readingResult.scrollIntoViewIfNeeded();
+            await readingResult.focus();
+            await readingResult.evaluate((node) => {
+              window.__searchReadingResult = node;
+            });
+            await page.evaluate(
+              () =>
+                new Promise((resolve) =>
+                  requestAnimationFrame(() => requestAnimationFrame(resolve)),
+                ),
+            );
+            return await readingResult.boundingBox();
           });
-          await page.evaluate(
-            () =>
-              new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
-          );
-          const before = await readingResult.boundingBox();
-          deliveryGate = null;
-          release();
           const engagement = page.locator('.search-sidebar [data-ad-format="engagement"]');
           await engagement.waitFor();
           const label = `${platform}: ${width}px ${filtered ? "filtered articles" : "all results"} search`;
@@ -4535,39 +4537,41 @@ try {
         queries = [];
         headerQueries = [];
         events = [];
-        let releaseNative;
-        deliveryGate = new Promise((resolve) => {
-          releaseNative = resolve;
-        });
-        await page.goto(`${base}/`);
         const reading = page
           .locator(".article-grid > .article-card:not(.partner-placement) .card-open-link")
           .nth(8);
-        await reading.waitFor();
-        // Keep the editorial card's intentional hover lift out of the reading anchor measurement.
-        await page.mouse.move(0, 0);
-        await reading.scrollIntoViewIfNeeded();
-        await reading.focus();
-        await reading.evaluate(async (node) => {
-          await Promise.all(
-            node
-              .closest(".article-card")
-              .getAnimations()
-              .map((animation) => animation.finished.catch(() => {})),
-          );
-        });
-        await page.evaluate(
-          () =>
-            new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        const { readingBefore, headerBefore } = await withPlacementDeliveryHeld(
+          delivery,
+          async () => {
+            await page.goto(`${base}/`);
+            await reading.waitFor();
+            // Keep the editorial card's intentional hover lift out of the reading anchor measurement.
+            await page.mouse.move(0, 0);
+            await reading.scrollIntoViewIfNeeded();
+            await reading.focus();
+            await reading.evaluate(async (node) => {
+              await Promise.all(
+                node
+                  .closest(".article-card")
+                  .getAnimations()
+                  .map((animation) => animation.finished.catch(() => {})),
+              );
+            });
+            await page.evaluate(
+              () =>
+                new Promise((resolve) =>
+                  requestAnimationFrame(() => requestAnimationFrame(resolve)),
+                ),
+            );
+            const readingBefore = await reading.boundingBox();
+            const headerBefore = await page.locator(".topbar").evaluate((header) => ({
+              height: header.getBoundingClientRect().height,
+              searchWidth: header.querySelector(".search").getBoundingClientRect().width,
+              actionsWidth: header.querySelector(".header-actions").getBoundingClientRect().width,
+            }));
+            return { readingBefore, headerBefore };
+          },
         );
-        const readingBefore = await reading.boundingBox();
-        const headerBefore = await page.locator(".topbar").evaluate((header) => ({
-          height: header.getBoundingClientRect().height,
-          searchWidth: header.querySelector(".search").getBoundingClientRect().width,
-          actionsWidth: header.querySelector(".header-actions").getBoundingClientRect().width,
-        }));
-        deliveryGate = null;
-        releaseNative();
         const credit = page.locator(".topbar .partner-placement--header_sponsorship");
         const promoted = page.locator(
           '.article-grid > .article-card[data-ad-format="sponsored_content"]',
@@ -4802,44 +4806,49 @@ try {
           path: `${reportDirectory}/${platform}-grid-rejects-engagement-${width === 390 ? "mobile" : "desktop"}.png`,
           animations: "disabled",
         });
-        nativeMode = "disclosure";
-        await page.goto(`${base}/`);
-        await page.reload();
-        const permanent = page.locator(".article-card:not(.partner-placement)").first();
-        await permanent.locator('[data-promotion-kind="sponsored"]').waitFor();
-        assert.equal(await page.locator(".partner-placement").count(), 0);
-        assert.equal(
-          await permanent.locator('[data-promotion-kind="sponsored"]').getAttribute("title"),
-          `Sponsored by ${sponsored.partner_name}`,
-        );
-        await permanent.locator(".card-open-link").click();
-        await page.locator('.preview-copy > [data-promotion-kind="sponsored"]').waitFor();
-        assert.equal(await page.locator(".partner-placement").count(), 0);
-        assert.equal(
-          await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
-          false,
-        );
+        await runPlacementStage(`${platform}/${width}: permanent disclosure`, async () => {
+          nativeMode = "disclosure";
+          await page.goto(`${base}/`);
+          await page.reload();
+          const permanent = page.locator(".article-card:not(.partner-placement)").first();
+          await permanent.locator('[data-promotion-kind="sponsored"]').waitFor();
+          assert.equal(await page.locator(".partner-placement").count(), 0);
+          assert.equal(
+            await permanent.locator('[data-promotion-kind="sponsored"]').getAttribute("title"),
+            `Sponsored by ${sponsored.partner_name}`,
+          );
+          await permanent.locator(".card-open-link").click();
+          await page.locator('.preview-copy > [data-promotion-kind="sponsored"]').waitFor();
+          assert.equal(await page.locator(".partner-placement").count(), 0);
+          assert.equal(
+            await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+            false,
+          );
+        });
       }
       nativeMode = null;
       mediaMode = "standard";
       placementLimited = true;
       try {
-        const limited = await page.evaluate(
-          async (url) => {
-            const response = await fetch(url, {
-              method: "POST",
-              credentials: "omit",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ surface: "feed" }),
-            });
-            return {
-              status: response.status,
-              retryAfter: response.headers.get("retry-after"),
-              cacheControl: response.headers.get("cache-control"),
-              body: await response.json(),
-            };
-          },
-          `${extension ? "https://devfeed.tech" : origin}/api/v1/partner-placements/query`,
+        const limited = await runPlacementStage(`${platform}: placement 429 response`, () =>
+          page.evaluate(
+            async (url) => {
+              const response = await fetch(url, {
+                method: "POST",
+                credentials: "omit",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ surface: "feed" }),
+                signal: AbortSignal.timeout(5000),
+              });
+              return {
+                status: response.status,
+                retryAfter: response.headers.get("retry-after"),
+                cacheControl: response.headers.get("cache-control"),
+                body: await response.json(),
+              };
+            },
+            `${extension ? "https://devfeed.tech" : origin}/api/v1/partner-placements/query`,
+          ),
         );
         const { cacheControl, ...retryGuidance } = limited;
         assert.ok(
@@ -4858,11 +4867,21 @@ try {
       } finally {
         placementLimited = false;
       }
-      await assertNoPlacementHistory(page, `${platform}: reader navigation`);
+      await runPlacementStage(`${platform}: history isolation`, () =>
+        assertNoPlacementHistory(page, `${platform}: reader navigation`),
+      );
       checkpoints.push("history-isolation");
-      await assertFeedPlacementContinuity(page, base, platform);
+      await runPlacementStage(
+        `${platform}: feed continuity`,
+        () => assertFeedPlacementContinuity(page, base, platform),
+        { timeoutMs: 120_000 },
+      );
       checkpoints.push("feed-continuity");
-      await assertMountedPlacementExpiry(context, base, platform);
+      await runPlacementStage(
+        `${platform}: mounted expiry`,
+        () => assertMountedPlacementExpiry(context, base, platform),
+        { timeoutMs: 120_000 },
+      );
       checkpoints.push("mounted-expiry");
       for (const pathname of ["/v1/partner-placements/query", "/v1/partner-tracking/events"])
         assert.ok(
@@ -4876,35 +4895,65 @@ try {
       checkpoints.push("full-placement-matrix");
       evidence = { runtime: platform, caller_proofs: currentCallerProofs(), checkpoints };
     } catch (error) {
+      failed = true;
+      console.error("Placement browser failure", platform, phase, error);
       const page = context.pages().findLast((page) => page.url() !== "about:blank");
-      console.error("Placement browser failure", platform, phase, {
-        signedIn,
-        nativeMode,
-        queries,
-        headerQueries,
-        browserErrors: browserErrors.slice(-20),
-        pages: context.pages().map((page) => page.url()),
-        page: page
-          ? {
-              url: page.url(),
-              text: await page.locator("body").innerText(),
-              articleGrids: await page.locator(".article-grid").evaluateAll((grids) =>
-                grids.map((grid) => ({
-                  visible: grid.checkVisibility(),
-                  articleCount: grid.querySelectorAll(".card-open-link").length,
-                  hiddenAncestor: grid.closest("[hidden], [inert]")?.id ?? null,
-                })),
-              ),
-              placements: await page
-                .locator(".partner-placement")
-                .evaluateAll((nodes) => nodes.map((node) => node.outerHTML)),
-            }
-          : null,
-      });
-      await page?.screenshot({ path: `${reportDirectory}/${platform}-failure.png` });
+      try {
+        const diagnostics = await runPlacementStage(
+          `${platform}: failure diagnostics`,
+          async () => ({
+            signedIn,
+            nativeMode,
+            queries,
+            headerQueries,
+            browserErrors: browserErrors.slice(-20),
+            pages: context.pages().map((page) => page.url()),
+            page: page
+              ? {
+                  url: page.url(),
+                  text: await page.locator("body").innerText(),
+                  articleGrids: await page.locator(".article-grid").evaluateAll((grids) =>
+                    grids.map((grid) => ({
+                      visible: grid.checkVisibility(),
+                      articleCount: grid.querySelectorAll(".card-open-link").length,
+                      hiddenAncestor: grid.closest("[hidden], [inert]")?.id ?? null,
+                    })),
+                  ),
+                  placements: await page
+                    .locator(".partner-placement")
+                    .evaluateAll((nodes) => nodes.map((node) => node.outerHTML)),
+                }
+              : null,
+          }),
+          { timeoutMs: 5000 },
+        );
+        console.error("Placement browser diagnostics", platform, phase, diagnostics);
+      } catch (diagnosticError) {
+        console.error("Placement browser diagnostics unavailable", diagnosticError);
+      }
+      try {
+        await runPlacementStage(
+          `${platform}: failure screenshot`,
+          () =>
+            page?.screenshot({
+              path: `${reportDirectory}/${platform}-failure.png`,
+              timeout: 5000,
+            }),
+          { timeoutMs: 5000 },
+        );
+      } catch (diagnosticError) {
+        console.error("Placement browser failure screenshot unavailable", diagnosticError);
+      }
       throw error;
     } finally {
-      await context.close();
+      try {
+        await runPlacementStage(`${platform}/${phase}: close browser`, () => context.close(), {
+          timeoutMs: 10_000,
+        });
+      } catch (cleanupError) {
+        if (!failed) throw cleanupError;
+        console.error("Placement browser cleanup failed", cleanupError);
+      }
       // Only fully checked, closed contexts contribute completion evidence.
       if (evidence) {
         if (probe) callerProbeEvidence.push(evidence);
@@ -4950,12 +4999,23 @@ try {
     );
   }
 } catch (error) {
+  runFailed = true;
+  console.error("Placement run failed", error);
   console.error(logs);
   throw error;
 } finally {
-  app.kill("SIGTERM");
-  edge.closeAllConnections();
-  await new Promise((resolve) => edge.close(resolve));
-  await new Promise((resolve) => fixture.close(resolve));
-  await rm(temp, { recursive: true, force: true });
+  try {
+    await runPlacementStage(
+      "fixture shutdown",
+      async () => {
+        app.kill("SIGTERM");
+        await Promise.all([closePlacementFixture(edge), closePlacementFixture(fixture)]);
+        await rm(temp, { recursive: true, force: true });
+      },
+      { timeoutMs: 10_000 },
+    );
+  } catch (cleanupError) {
+    if (!runFailed) throw cleanupError;
+    console.error("Placement fixture cleanup failed", cleanupError);
+  }
 }
