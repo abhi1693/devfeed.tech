@@ -373,3 +373,47 @@ def test_empty_ingestion_compatibility_page_is_a_valid_bounded_read_without_fabr
         assert response.status_code == 200 and response.json() == []
         api.session.add.assert_not_called()
         api.session.commit.assert_not_called()
+
+
+@pytest.mark.parametrize("kind", ["list", "review"])
+def test_moderation_native_outage_returns_safe_retryable_error_without_writing(monkeypatch, kind):
+    from devfeed_core.analytics import AnalyticsUnavailable
+
+    class Unavailable(SearchAnalyticsFake):
+        async def rank(self, *_args, **_kwargs):
+            raise AnalyticsUnavailable("private details")
+
+        async def get(self, *_args, **_kwargs):
+            raise AnalyticsUnavailable("private details")
+
+    monkeypatch.setattr(search_suggestions, "SearchSuggestionAnalytics", Unavailable)
+    with operator_api(search_suggestions) as api:
+        api.app.state.analytics = SimpleNamespace(client=object())
+        api.session.get.return_value = suggestion()
+        if kind == "list":
+            response = api.client.get("/v1/admin/search-suggestions")
+        else:
+            response = api.client.post(
+                f"/v1/admin/search-suggestions/{'a' * 64}/review", json={"status": "approved"}
+            )
+        assert response.status_code == 503 and "private" not in response.text
+        api.session.commit.assert_not_called()
+
+
+@pytest.mark.parametrize("digest,exists,expected", [("bad", True, 422), ("a" * 64, False, 404)])
+def test_suggestion_validation_and_missing_rows_finish_before_native_lookup(
+    monkeypatch, digest, exists, expected
+):
+    from unittest.mock import AsyncMock
+
+    analytics = SimpleNamespace(get=AsyncMock(side_effect=AssertionError("No native read")))
+    monkeypatch.setattr(search_suggestions, "SearchSuggestionAnalytics", lambda _client: analytics)
+    with operator_api(search_suggestions) as api:
+        api.app.state.analytics = SimpleNamespace(client=object())
+        api.session.get.return_value = suggestion() if exists else None
+        response = api.client.post(
+            f"/v1/admin/search-suggestions/{digest}/review", json={"status": "approved"}
+        )
+        assert response.status_code == expected
+        analytics.get.assert_not_called()
+        api.session.commit.assert_not_called()

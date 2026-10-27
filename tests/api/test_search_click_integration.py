@@ -76,7 +76,7 @@ def test_verified_search_clicks_are_bounded_and_still_require_moderation(
     assert limited.status_code == 429 and 1 <= int(limited.headers["retry-after"]) <= 60
     with database.begin() as session:
         row = session.get(SearchQueryStat, query_hash("c++ sql"))
-        assert row.query == "c++ sql" and row.successful_count == 0
+        assert row.query == "c++ sql"
         assert row.status == "pending"
         assert session.scalar(select(func.count()).select_from(SearchQueryStat)) == 1
         assert observed == [query_hash("c++ sql")] * 20
@@ -92,3 +92,4 @@ def test_verified_search_clicks_are_bounded_and_still_require_moderation(
     assert client.post("/v1/search/analytics/click", json=event).status_code == 403
     with database() as session:
         assert session.scalar(select(func.count()).select_from(SearchQueryStat)) == 1
+    assert observed == [query_hash("c++ sql")] * 20

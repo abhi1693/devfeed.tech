@@ -195,3 +195,107 @@ def test_relationship_quota_rejects_nonrunning_or_unrelated_invocations():
                 await quota.admit(record, limit)
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"started_at": "2026-01-01T00:00:00Z"},
+        {"started_at": datetime(2026, 1, 1)},
+    ],
+)
+def test_imported_iso_and_naive_timestamps_are_normalized_to_utc(changes):
+    async def run():
+        client = Client()
+        await InferenceStore(client).write([invocation() | changes])
+        assert client.rows[0]["started_at"] == datetime(2026, 1, 1, tzinfo=UTC)
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"started_at": "invalid"},
+        {"started_at": None},
+        {"status": 123},
+        {"operation": "x" * 201},
+        {"model": 123},
+        {"reasoning_effort": "x" * 201},
+        {"tokens": [1]},
+        {"web_searches": "invalid"},
+        {"duration_ms": {}},
+        {"web_searches": 2**64},
+        {"duration_ms": 2**64},
+    ],
+)
+def test_malformed_inference_telemetry_cannot_partially_write_a_batch(changes):
+    async def run():
+        client = Client()
+        with pytest.raises(ValueError):
+            await InferenceStore(client).write([invocation(), invocation() | changes])
+        assert client.rows == []
+
+    asyncio.run(run())
+
+
+def test_empty_batches_and_nonobject_observations_do_not_open_transport():
+    async def run():
+        client = Client()
+        store = InferenceStore(client)
+        assert await store.write([]) == 0
+        with pytest.raises(ValueError, match="object"):
+            await store.write([None])
+        with pytest.raises(ValueError, match="batch"):
+            await store.write(None)
+        assert not client.rows
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("operation", ["relationship_count", "exists"])
+@pytest.mark.parametrize(
+    "reply", [[], [{"calls": True}], [{"calls": "1"}], [{"calls": 1}, {"calls": 1}]]
+)
+def test_quota_reads_fail_closed_on_ambiguous_or_malformed_accounting(operation, reply):
+    class Invalid(Client):
+        async def query(self, *_args):
+            return reply
+
+    async def run():
+        store = InferenceStore(Invalid())
+        arguments = (
+            (uuid.uuid4(), datetime.now(UTC)) if operation == "exists" else (datetime.now(UTC),)
+        )
+        with pytest.raises(RuntimeError, match="count"):
+            await getattr(store, operation)(*arguments)
+
+    asyncio.run(run())
+
+
+def test_exact_invocation_lookup_and_schema_initialization_are_bounded():
+    class Storage(Client):
+        async def execute(self, statement):
+            self.schema = statement
+
+    async def run():
+        client = Storage()
+        store = InferenceStore(client)
+        await store.initialize()
+        assert "analytics_inference_events" in client.schema
+        item = invocation()
+        assert await store.exists(item["id"], item["started_at"])
+        assert client.queries[-1][1] == dict(id=str(item["id"]), started=item["started_at"])
+        with pytest.raises(ValueError, match="identity"):
+            await store.exists("invalid", item["started_at"])
+        assert len(client.queries) == 1
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("factory,timeout", [(None, 30), (lambda: None, 0), (lambda: None, 301)])
+def test_relationship_reservation_rejects_invalid_coordination_configuration(factory, timeout):
+    from devfeed_core.analytics_inference_store import RelationshipQuota
+
+    with pytest.raises(ValueError, match="configuration"):
+        RelationshipQuota(None, factory, timeout_seconds=timeout)

@@ -19,7 +19,7 @@ from typing import Any
 
 from psycopg import sql
 from psycopg.rows import dict_row
-from sqlalchemy import Engine, and_, event, literal, or_, select
+from sqlalchemy import Engine, and_, event, or_, select, tuple_
 from sqlalchemy.pool import Pool
 from sqlalchemy.sql import Select, visitors
 from sqlalchemy.sql.elements import BindParameter
@@ -97,7 +97,7 @@ def _bound_predicate(statement, compiled, parameters):
         if isinstance(node, BindParameter):
             name = compiled.bind_names.get(node, node.key)
             if name in parameters:
-                return literal(parameters[name], type_=node.type)
+                return node._with_value(parameters[name], maintain_key=True, required=False)
         return None
 
     return visitors.replacement_traverse(and_(*criteria), {}, replace)
@@ -114,16 +114,29 @@ def _records(connection, table, predicate=None):
 
 
 def _insert_candidates(connection, statement, compiled, parameters):
-    table = statement.table
-    criteria = []
+    """Read before-images only for updates on conflict, in bounded groups."""
     conflict = getattr(statement, "_post_values_clause", None)
-    columns = getattr(conflict, "inferred_target_elements", None) or tuple(table.primary_key)
-    for column in columns:
-        column = table.c[column] if isinstance(column, str) else column
-        if column.name not in parameters:
-            return []
-        criteria.append(column == parameters[column.name])
-    return _records(connection, table, and_(*criteria)) if criteria else []
+    if not getattr(conflict, "update_values_to_set", None):
+        return []
+    table = statement.table
+    columns = getattr(conflict, "inferred_target_elements", None)
+    if not columns:
+        constraint = getattr(conflict, "constraint_target", None)
+        columns = next(
+            (item.columns for item in table.constraints if item.name == constraint), None
+        )
+    columns = tuple(columns) if columns is not None else tuple(table.primary_key)
+    columns = tuple(table.c[column] if isinstance(column, str) else column for column in columns)
+    records = []
+    for start in range(0, len(parameters), MAX_BATCH):
+        keys = [
+            tuple(row[column.name] for column in columns)
+            for row in parameters[start : start + MAX_BATCH]
+            if all(column.name in row for column in columns)
+        ]
+        if keys:
+            records.extend(_records(connection, table, tuple_(*columns).in_(keys)))
+    return records
 
 
 def _parameter_rows(context):
@@ -278,14 +291,15 @@ class ApplicationAnalyticsCapture:
         context._devfeed_analytics_parameters = values_rows
         captured = []
         pairs: list[tuple[dict, dict]] = []
-        for values in values_rows:
-            rows = list(
-                _insert_candidates(connection, operation, compiled, values)
-                if operation.is_insert
-                else _records(connection, target, _bound_predicate(operation, compiled, values))
-            )
-            captured.extend(rows)
-            pairs.extend((row, values) for row in rows)
+        if operation.is_insert:
+            captured = _insert_candidates(connection, operation, compiled, values_rows)
+        else:
+            for values in values_rows:
+                rows = list(
+                    _records(connection, target, _bound_predicate(operation, compiled, values))
+                )
+                captured.extend(rows)
+                pairs.extend((row, values) for row in rows)
         context._devfeed_analytics_before = captured
         context._devfeed_analytics_pairs = pairs
         context._devfeed_analytics_cascades = (
@@ -336,18 +350,25 @@ class ApplicationAnalyticsCapture:
     def remember_attempts(session, connection, context, previous):
         operation = context.compiled.statement
         source = operation.table.name
+        if source not in JOB_TABLES or operation.is_delete:
+            return
         parameters = context._devfeed_analytics_parameters
-        if source in JOB_TABLES and not operation.is_delete:
-            identities = [row for row in previous]
+        identities = list(previous)
+        if operation.is_insert:
             identities.extend(
-                values for values in parameters if all(key in values for key in TABLES[source].keys)
+                row for row in parameters if row.get("status") in {"succeeded", "failed"}
             )
-            for identity in identities:
-                predicate = and_(
-                    *(operation.table.c[key] == identity[key] for key in TABLES[source].keys)
-                )
-                for record in _records(connection, operation.table, predicate):
-                    _remember(session, source, record)
+        keys = TABLES[source].keys
+        identities = list({tuple(row[key] for key in keys) for row in identities})
+        for start in range(0, len(identities), MAX_BATCH):
+            predicate = and_(
+                tuple_(*(operation.table.c[key] for key in keys)).in_(
+                    identities[start : start + MAX_BATCH]
+                ),
+                operation.table.c.status.in_(["succeeded", "failed"]),
+            )
+            for record in _records(connection, operation.table, predicate):
+                _remember(session, source, record)
 
 
 async def _publication_rows(connection, identities):

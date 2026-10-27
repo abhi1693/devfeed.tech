@@ -300,3 +300,90 @@ def test_reporting_requires_completed_history_and_claim_import():
             await report.require_partner_claims(Checkpoints(set()))
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "sort,order,expected",
+    [
+        ("name", "asc", ["Alpha", "beta", "unknown", "Zed"]),
+        ("name", "desc", ["Zed", "unknown", "beta", "Alpha"]),
+        ("account", "asc", ["beta", "unknown", "Zed", "Alpha"]),
+        ("account", "desc", ["Alpha", "beta", "unknown", "Zed"]),
+        ("impressions", "asc", ["Zed", "Alpha", "beta", "unknown"]),
+        ("impressions", "desc", ["beta", "Alpha", "Zed", "unknown"]),
+        ("clicks", "asc", ["Zed", "Alpha", "beta", "unknown"]),
+        ("clicks", "desc", ["Alpha", "beta", "Zed", "unknown"]),
+        ("ctr", "asc", ["beta", "Alpha", "unknown", "Zed"]),
+        ("ctr", "desc", ["Alpha", "beta", "unknown", "Zed"]),
+    ],
+)
+def test_native_metric_ordering_keeps_unmeasured_values_and_stable_ties_explicit(
+    sort, order, expected
+):
+    async def run():
+        today = datetime.now(UTC).date()
+        account = uuid.uuid4()
+        rows = [
+            asset(account, company, uuid.UUID(int=i + 1), name)
+            for i, (name, company) in enumerate(
+                [
+                    ("Alpha", "Two"),
+                    ("beta", "One"),
+                    ("Zed", "One"),
+                    ("unknown", "One"),
+                ]
+            )
+        ]
+        values = [
+            {
+                "owner": str(row["id"]),
+                "day": today,
+                "impressions": impressions,
+                "clicks": clicks,
+                "updated_at": datetime(2026, 1, 1) if i == 0 else datetime(2026, 1, 2, tzinfo=UTC),
+            }
+            for i, (row, impressions, clicks) in enumerate(
+                zip(rows[:3], [10, 20, 0], [1, 1, 0], strict=True)
+            )
+        ]
+        result = await report.reporting_metrics(rows, Store(values), sort=sort, order=order)
+        assert [row["name"] for row in result["assets"]] == expected
+        assert result["last_updated_at"] == datetime(2026, 1, 2, tzinfo=UTC)
+        assert result["totals"]["impressions"] == 30 and result["totals"]["clicks"] == 2
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"sort": "invalid"},
+        {"order": "invalid"},
+        {"days": 0},
+        {"days": 366},
+        {"limit": 0},
+        {"limit": 201},
+        {"offset": -1},
+    ],
+)
+def test_invalid_native_report_ranges_fail_before_any_data_read(options):
+    from unittest.mock import AsyncMock
+
+    async def run():
+        store = type("Store", (), {"partner_daily": AsyncMock()})()
+        with pytest.raises(ValueError):
+            await report.reporting_metrics([], store, **options)
+        store.partner_daily.assert_not_called()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("sort", ["name", "account", "clicks"])
+def test_identical_native_names_and_metrics_use_stable_asset_identity(sort):
+    async def run():
+        account = uuid.uuid4()
+        rows = [asset(account, "Same", uuid.UUID(int=i), "Same") for i in (2, 1)]
+        result = await report.reporting_metrics(rows, Store([]), sort=sort)
+        assert [row["id"] for row in result["assets"]] == [uuid.UUID(int=1), uuid.UUID(int=2)]
+
+    asyncio.run(run())

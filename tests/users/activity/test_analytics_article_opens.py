@@ -291,3 +291,162 @@ def test_trending_passes_bounded_external_business_data_to_one_query():
         assert "visible_articles" in statement
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [],
+        [{"entries": "1"}],
+        [{"entries": 1, "earliest": "bad", "latest": "bad", "ready": 0}],
+        [
+            {
+                "entries": 1,
+                "earliest": "2026-10-27T12:00:00Z",
+                "latest": "2026-10-27T13:00:00Z",
+                "ready": 0,
+            }
+        ],
+        [
+            {
+                "entries": 1,
+                "earliest": "2026-10-27T12:30:00Z",
+                "latest": "2026-10-27T12:30:00Z",
+                "ready": 0,
+            }
+        ],
+        [
+            {
+                "entries": 1,
+                "earliest": "2026-10-27T12:00:00Z",
+                "latest": "2026-10-27T12:00:00Z",
+                "ready": 2,
+            }
+        ],
+    ],
+)
+def test_corrupt_or_conflicting_cutover_never_serves_partial_historical_totals(rows):
+    from unittest.mock import AsyncMock
+
+    async def run():
+        client = CutoverClient()
+        client.query = AsyncMock(return_value=rows)
+        store = ArticleOpenAnalytics(client)
+        with pytest.raises(AnalyticsUnavailable):
+            await store.cutover()
+        assert client.rows == []
+
+    asyncio.run(run())
+
+
+def test_cutover_write_gate_requires_a_fixed_boundary_and_ready_mark_is_idempotent():
+    from unittest.mock import AsyncMock
+
+    async def run():
+        client = CutoverClient()
+        store = ArticleOpenAnalytics(client)
+        stamp = datetime(2026, 10, 27, 12, tzinfo=UTC)
+        importer = type("Importer", (), {"complete": AsyncMock(return_value=True)})()
+        with pytest.raises(AnalyticsUnavailable, match="has not started"):
+            await store.write_cutover()
+        with pytest.raises(AnalyticsUnavailable, match="Conflicting"):
+            await store.mark_ready(stamp, importer)
+        await store.begin_import(stamp)
+        assert await store.write_cutover() == stamp
+        assert await store.mark_ready(stamp, importer) == stamp
+        assert await store.mark_ready(stamp, importer) == stamp
+        assert len(client.rows) == 2
+        store._cutover = AsyncMock(side_effect=[(None, False), (stamp + timedelta(hours=1), False)])
+        with pytest.raises(AnalyticsUnavailable, match="Conflicting"):
+            await store.begin_import(stamp)
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "operation,values",
+    [
+        ("import_opens", None),
+        ("import_opens", [{}]),
+        ("import_opens", [None]),
+        ("import_totals", None),
+        ("import_totals", [{}]),
+        ("import_totals", [{"opens": True}]),
+        ("import_totals", [{"opens": 2**64}]),
+        ("import_totals", [{"opens": 1, "article_id": "bad"}]),
+    ],
+)
+def test_invalid_historical_pages_fail_before_any_partial_insert(operation, values):
+    async def run():
+        client = RecordingClient()
+        with pytest.raises(ValueError):
+            await getattr(ArticleOpenAnalytics(client), operation)(values)
+        assert client.inserts == []
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("result", ["unknown", "negative", "boolean"])
+def test_invalid_lifetime_results_do_not_silently_hide_missing_or_corrupt_data(result):
+    from unittest.mock import AsyncMock
+
+    async def run():
+        identity = uuid.uuid4()
+        row = {
+            "article_id": str(uuid.uuid4() if result == "unknown" else identity),
+            "opens": -1 if result == "negative" else True,
+        }
+        client = RecordingClient()
+        client.query = AsyncMock(return_value=[row])
+        store = ArticleOpenAnalytics(client)
+        assert await store.totals([], cutover=datetime.now(UTC)) == {}
+        with pytest.raises(RuntimeError, match="Invalid ClickHouse"):
+            await store.totals([identity], cutover=datetime.now(UTC))
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "metadata,limit,cursor",
+    [
+        ("bad", 1, 0),
+        (b"x", 1, 0),
+        (b"", 0, 0),
+        (b"", 101, 0),
+        (b"", 1, -1),
+        (b"", 1, 1000001),
+        (b"", True, 0),
+    ],
+)
+def test_invalid_trending_external_input_never_reaches_clickhouse(metadata, limit, cursor):
+    async def run():
+        client = RecordingClient()
+        store = ArticleOpenAnalytics(client)
+        with pytest.raises(ValueError):
+            await store.trending(datetime.now(UTC), metadata, limit=limit, cursor=cursor)
+        assert client.queries == []
+
+    asyncio.run(run())
+
+
+def test_empty_trending_and_valid_lifetime_results_keep_the_requested_identity_set():
+    from unittest.mock import AsyncMock
+
+    async def run():
+        identity = uuid.uuid4()
+        client = RecordingClient()
+        store = ArticleOpenAnalytics(client)
+        assert await store.trending(datetime.now(UTC), b"", limit=1, cursor=0) == []
+        assert client.queries == []
+        client.query = AsyncMock(return_value=[{"article_id": str(identity), "opens": 5}])
+        assert await store.totals([identity, identity], cutover=datetime.now(UTC)) == {
+            str(identity): 5
+        }
+        with pytest.raises(ValueError, match="identity batch"):
+            await store.totals("bad", cutover=datetime.now(UTC))
+        with pytest.raises(ValueError, match="Invalid open timestamp"):
+            await store.record(identity, "a" * 64, "bad")
+        with pytest.raises(ValueError, match="Invalid article identity"):
+            await store.record("bad", "a" * 64, datetime.now(UTC))
+
+    asyncio.run(run())

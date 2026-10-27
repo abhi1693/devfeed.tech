@@ -418,3 +418,93 @@ def test_automatic_worker_imports_history_retires_postgres_and_restarts_without_
                     await admin.execute(f"DROP DATABASE `{target}` SYNC")
 
         asyncio.run(run())
+
+
+def test_postgres_connector_normalizes_dsn_and_owns_each_connection(monkeypatch):
+    first, second = AsyncMock(), AsyncMock()
+    first.__aenter__.return_value = first
+    second.__aenter__.return_value = second
+    connect = AsyncMock(side_effect=[first, second])
+    monkeypatch.setattr(runner.psycopg.AsyncConnection, "connect", connect)
+    factory = runner.postgres_connections(
+        "postgresql+psycopg://fixture/source_test", connect_timeout=4
+    )
+
+    async def run():
+        async with factory() as a, factory() as b:
+            assert a is first and b is second
+
+    asyncio.run(run())
+    assert connect.await_count == 2
+    assert connect.await_args.args == ("postgresql://fixture/source_test",)
+    assert connect.await_args.kwargs["autocommit"] is True
+    assert connect.await_args.kwargs["connect_timeout"] == 4
+    first.__aexit__.assert_awaited_once()
+    second.__aexit__.assert_awaited_once()
+
+
+@pytest.mark.parametrize("timeout", [True, 0, 61])
+def test_connector_rejects_invalid_connect_deadlines(timeout):
+    with pytest.raises(ValueError, match="connect timeout"):
+        runner.postgres_connections("postgresql://fixture/source_test", connect_timeout=timeout)
+
+
+@pytest.mark.parametrize("value", [None, (17,)])
+def test_advisory_coordination_requires_one_result_and_accepts_tuple_rows(value):
+    connection = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(fetchone=AsyncMock(return_value=value)))
+    )
+    if value is None:
+        with pytest.raises(RuntimeError, match="coordination failed"):
+            asyncio.run(runner._scalar(connection, "SELECT coordination"))
+    else:
+        assert asyncio.run(runner._scalar(connection, "SELECT coordination")) == 17
+
+
+@pytest.mark.parametrize("timeout", [True, 0, 301])
+def test_runner_rejects_invalid_page_deadline(timeout):
+    with pytest.raises(ValueError, match="import deadline"):
+        runner.AnalyticsImportRunner(None, Pool().connect, timeout=timeout)
+
+
+def test_cached_importer_refuses_a_lost_or_changed_cutoff():
+    async def run():
+        pool, store = Pool(), Store()
+        importer = runner.AnalyticsImportRunner(store, pool.connect)
+        await importer.once()
+        store.cutover = None
+        with pytest.raises(RuntimeError, match="cutoff changed or disappeared"):
+            await importer.once()
+        assert store.pages == 1 and not pool.lock.locked()
+
+    asyncio.run(run())
+
+
+def test_schema_prepare_returns_busy_without_opening_a_source_connection():
+    from devfeed_core.analytics_cutover import AnalyticsCutoverBusy
+
+    async def run():
+        pool = Pool()
+        async with pool.lock:
+            with pytest.raises(AnalyticsCutoverBusy, match="already running"):
+                await runner.AnalyticsImportRunner(Store(), pool.connect).prepare()
+        assert pool.connections == 1
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("operation", ["once", "prepare"])
+def test_coordinator_rejects_reused_lock_connection_for_source_reads(operation):
+    async def run():
+        pool = Pool()
+        connection = Connection(pool)
+
+        @asynccontextmanager
+        async def reused():
+            yield connection
+
+        with pytest.raises(RuntimeError, match="independent source connections"):
+            await getattr(runner.AnalyticsImportRunner(Store(), reused), operation)()
+        assert not pool.lock.locked()
+
+    asyncio.run(run())

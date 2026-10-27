@@ -424,3 +424,196 @@ def test_blocker_classification_scopes_each_private_evidence_query_to_selected_i
     for statement, identifier in statements:
         assert [identifier] in statement.compile().params.values()
     assert "MATERIALIZED" in str(statements[0][0])
+
+
+def test_direct_normalization_orders_revisions_and_keeps_semantic_deletions_stable():
+    from devfeed_core import analytics_direct_cards as direct
+
+    identity, source = uuid.uuid4(), uuid.uuid4()
+    row = {
+        "stage": "analysis",
+        "state": "retry_wait",
+        "source_id": source,
+        "source_ids": [source],
+        "created_at": NOW,
+        "activity_at": NOW,
+        "payload": {"title": "Article", "next_check_at": NOW},
+        "blocker_codes": ["z", "a"],
+        "consecutive_failures": -1,
+    }
+    first = direct.normalize_card(row, "policy", "article", identity, 7, NOW)
+    later = direct.normalize_card(
+        {**row, "payload": {"title": "Article", "next_check_at": NOW + timedelta(minutes=1)}},
+        "policy",
+        "article",
+        identity,
+        8,
+        NOW + timedelta(minutes=1),
+    )
+    assert first["version"] < later["version"] and first["semantic_hash"] == later["semantic_hash"]
+    assert first["source_id"] == str(source) and first["source_ids"] == [str(source)]
+    assert first["blocker_codes"] == ["a", "z"] and first["consecutive_failures"] == 0
+    assert first["shard"] == identity.bytes[0] and first["deleted"] == 0
+    deleted = direct.normalize_card(None, "policy", "article", identity, 9, NOW)
+    repeated = direct.normalize_card(
+        None, "policy", "article", identity, 10, NOW + timedelta(days=1)
+    )
+    assert deleted["deleted"] == 1 and deleted["semantic_hash"] == repeated["semantic_hash"]
+    with pytest.raises(ValueError):
+        direct.identity("invalid")
+
+
+@pytest.mark.parametrize(
+    "kind", ["article", "source", "candidate", "topic-proposal", "relationship-proposal", "unknown"]
+)
+def test_direct_builder_dispatches_selected_ids_and_tombstones_missing_records(monkeypatch, kind):
+    from devfeed_core import analytics_direct_cards as direct
+    from devfeed_core import db
+
+    first, missing = uuid.uuid4(), uuid.uuid4()
+    factory = object()
+    monkeypatch.setattr(db, "get_engine", lambda: object())
+    monkeypatch.setattr(direct, "sessionmaker", Mock(return_value=factory))
+    monkeypatch.setattr(direct, "pipeline_policy_version", lambda _settings: "policy")
+    observed = []
+
+    def rows(actual_factory, *args):
+        assert actual_factory is factory
+        observed.append(args)
+        return [{"entity_id": first, "stage": "active", "payload": {"title": "Selected"}}]
+
+    for name in ("article_rows", "source_rows", "proposal_rows"):
+        monkeypatch.setattr(direct, name, rows)
+    if kind == "unknown":
+        with pytest.raises(ValueError, match="Unknown operator card kind"):
+            direct.build_cards(object(), kind, [first, missing], 11)
+        assert observed == []
+        return
+    result = direct.build_cards(object(), kind, [str(first), missing], 11)
+    assert [row["deleted"] for row in result] == [0, 1]
+    assert all(row["version"] == 11 << 64 and row["kind"] == kind for row in result)
+    args = observed[0]
+    selected = [first, missing]
+    if kind == "article":
+        assert args[0] == selected
+    elif kind in {"source", "topic-proposal"}:
+        assert args[:2] == (selected, [])
+    else:
+        assert args[:2] == ([], selected)
+
+
+def test_direct_card_owners_include_both_association_images_without_unknown_population():
+    from devfeed_core.analytics_direct_cards import card_identities
+
+    a, b, source, candidate = [uuid.uuid4() for _ in range(4)]
+    result = card_identities(
+        [
+            {
+                "source_table": "article_origins",
+                "before_record": {"article_id": a},
+                "record": {"article_id": b},
+            },
+            {"source_table": "sources", "record": {"id": source}},
+            {"source_table": "source_candidates", "record": {"source_id": source}},
+            {"source_table": "source_candidates", "record": {"id": candidate}},
+            {"source_table": "sources", "record": {}},
+            {"source_table": "unrelated", "identity": {"id": uuid.uuid4()}},
+        ]
+    )
+    assert result == {
+        "article": {str(a), str(b)},
+        "source": {str(source)},
+        "candidate": {str(candidate)},
+    }
+
+
+def test_direct_publication_initializes_only_canonical_and_batches_on_a_worker(monkeypatch):
+    import asyncio
+    import threading
+    from unittest.mock import AsyncMock
+
+    from devfeed_core import analytics_direct_cards as direct
+
+    async def run():
+        client = SimpleNamespace(execute=AsyncMock(), insert=AsyncMock())
+        await direct.initialize_cards(client)
+        ddl = client.execute.call_args.args[0]
+        assert "ReplacingMergeTree(version)" in ddl and "TTL" not in ddl
+        assert "analytics_card_canonical" in ddl and "manifest" not in ddl
+        loop_thread = threading.get_ident()
+        built = []
+
+        def build(_settings, kind, keys, revision):
+            assert threading.get_ident() != loop_thread
+            built.append((kind, keys, revision))
+            return [{"id": key} for key in keys]
+
+        monkeypatch.setattr(direct, "build_cards", build)
+        identifiers = [uuid.UUID(int=i + 1) for i in range(201)]
+        await direct.publish_card_ids(client, None, "article", [], 1)
+        assert client.insert.call_count == 0
+        await direct.publish_cards(
+            client,
+            None,
+            [
+                {"source_table": "articles", "record": {"id": key}}
+                for key in [*identifiers, identifiers[0]]
+            ],
+            12,
+        )
+        assert [len(keys) for _, keys, _ in built] == [200, 1]
+        assert [key for _, keys, _ in built for key in keys] == sorted(map(str, identifiers))
+        assert all(kind == "article" and revision == 12 for kind, _, revision in built)
+        assert client.insert.call_count == 2
+
+    asyncio.run(run())
+
+
+def test_dependent_card_pages_follow_research_and_catalog_cursors_without_global_payloads():
+    import asyncio
+
+    from devfeed_core.analytics_direct_cards import dependent_card_batches
+
+    async def run():
+        job, proposal, article = [uuid.uuid4() for _ in range(3)]
+        calls = []
+        pages = iter([[{"id": proposal}], [], [{"id": article}], []])
+
+        class Connection:
+            async def execute(self, statement, params):
+                calls.append((statement, params))
+
+                async def fetchall():
+                    return next(pages)
+
+                return SimpleNamespace(fetchall=fetchall)
+
+        rows = [
+            batch
+            async for batch in dependent_card_batches(
+                Connection(),
+                [
+                    {"source_table": "topic_analysis_jobs", "record": {"id": job}},
+                    {"source_table": "topics", "record": {"id": uuid.uuid4()}},
+                ],
+            )
+        ]
+        assert rows == [
+            [{"source_table": "topic_relation_proposals", "identity": {"id": proposal}}],
+            [{"source_table": "articles", "identity": {"id": article}}],
+        ]
+        assert calls[0][1] == ([str(job)], uuid.UUID(int=0))
+        assert calls[1][1] == ([str(job)], proposal)
+        assert calls[2][1] == (uuid.UUID(int=0),) and calls[3][1] == (article,)
+        assert all("LIMIT 200" in sql and "SELECT id" in sql for sql, _ in calls)
+        assert [
+            batch
+            async for batch in dependent_card_batches(
+                Connection(),
+                [
+                    {"source_table": "sources", "record": {"id": uuid.uuid4()}},
+                ],
+            )
+        ] == []
+
+    asyncio.run(run())

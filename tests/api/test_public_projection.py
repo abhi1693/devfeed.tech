@@ -4,14 +4,17 @@ import pytest
 from devfeed_core.models import Article, ArticleOrigin, ArticleTag, Source, Tag
 from sqlalchemy import select
 
+from tests.support.user_analytics import direct_client as direct_client
 from tests.support.user_personalization import user_data as user_data
 
 pytestmark = pytest.mark.integration
 
 
 @pytest.mark.parametrize("status", ["pending", "rejected"])
-def test_public_articles_omit_unapproved_sources_and_origins(database, client, user_data, status):
-    user_client, _, _, _, _ = user_data
+def test_public_articles_omit_unapproved_sources_and_origins(
+    database, client, direct_client, status
+):
+    user_client = direct_client[0]
     with database.begin() as session:
         article = session.scalar(select(Article).where(Article.title == "Article 109"))
         hidden = session.scalar(select(Source).where(Source.approval_status == "rejected"))

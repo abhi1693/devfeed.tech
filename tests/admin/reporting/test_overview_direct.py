@@ -681,3 +681,230 @@ def test_completed_job_without_completion_time_keeps_only_current_snapshot():
         assert {row["status"] for row in sink.rows} == {"succeeded", "failed"}
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "method", ["publications", "jobs", "decisions", "feeds", "accounts", "sources", "memberships"]
+)
+@pytest.mark.parametrize("value", [None, "invalid", [None] * 1001])
+def test_malformed_or_oversized_observations_never_reach_clickhouse(method, value):
+    async def run():
+        sink = Sink()
+        with pytest.raises(ValueError):
+            await getattr(DirectOverviewAnalytics(sink), method)(value)
+        assert sink.rows == []
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"article_id": "bad", "revision": 1, "published_at": "2026-01-01T00:00:00Z"},
+        {
+            "article_id": str(uuid.UUID(int=1)),
+            "revision": True,
+            "published_at": "2026-01-01T00:00:00Z",
+        },
+        {"article_id": str(uuid.UUID(int=1)), "revision": 1, "published_at": "not-a-date"},
+        {"article_id": str(uuid.UUID(int=1)), "revision": 1, "published_at": "2026-01-01"},
+        {
+            "article_id": str(uuid.UUID(int=1)),
+            "revision": 1,
+            "published_at": "2026-01-01T00:00:00Z",
+            "automated": 1,
+        },
+        {
+            "article_id": str(uuid.UUID(int=1)),
+            "revision": 1,
+            "published_at": "2026-01-01T00:00:00Z",
+            "source_ids": "bad",
+        },
+        {
+            "article_id": str(uuid.UUID(int=1)),
+            "revision": 1,
+            "published_at": "2026-01-01T00:00:00Z",
+            "topic_ids": [None] * 1001,
+        },
+    ],
+)
+def test_publication_validation_is_atomic_with_an_earlier_valid_observation(changes):
+    async def run():
+        sink = Sink()
+        valid = {"article_id": uuid.uuid4(), "revision": 1, "published_at": "2026-01-01T00:00:00Z"}
+        with pytest.raises(ValueError):
+            await DirectOverviewAnalytics(sink).publications([valid, changes])
+        assert sink.rows == []
+
+    asyncio.run(run())
+
+
+def test_source_snapshots_route_hydrated_rows_and_tombstones_without_requiring_old_fields():
+    async def run():
+        sink = Sink()
+        store = DirectOverviewAnalytics(sink)
+        article, user, topic, proposal = [uuid.uuid4() for _ in range(4)]
+        await store.publish(
+            [
+                {
+                    "source_table": "articles",
+                    "identity": {"id": article},
+                    "publication": {"article_id": article, "deleted": True},
+                },
+                {
+                    "source_table": "user_recommendation_states",
+                    "identity": {"user_id": user},
+                    "feed": {"user_id": user, "deleted": True},
+                },
+                {"source_table": "user_accounts", "identity": {"id": user}},
+                {"source_table": "topics", "operation": "D", "before_record": {"id": topic}},
+                {
+                    "source_table": "topic_proposals",
+                    "record": {"id": proposal, "status": "pending"},
+                },
+                {
+                    "source_table": "user_interests",
+                    "record": {"user_id": user, "topic_id": topic, "reason": "related_topic"},
+                },
+            ],
+            revision=9,
+        )
+        assert len(sink.rows) == 6
+        assert {row["domain"] for row in sink.rows} == {
+            "publication",
+            "feed",
+            "account",
+            "topic",
+            "job",
+            "membership",
+        }
+        assert all(row["deleted"] == (row["domain"] != "membership") for row in sink.rows)
+        await store.accounts(
+            [{"id": user, "revision": 10, "created_at": "2026-01-01T00:00:00+00:00"}]
+        )
+        await store.topics([{"id": topic, "revision": 10}])
+        assert sink.rows[-2]["occurred_at"] == datetime(2026, 1, 1, tzinfo=UTC)
+        assert sink.rows[-1]["name"] == "Unnamed"
+
+    asyncio.run(run())
+
+
+def test_completed_jobs_are_batched_and_unnumbered_completions_keep_distinct_identities():
+    async def run():
+        from unittest.mock import AsyncMock
+
+        sink = Sink()
+        sink.insert = AsyncMock(side_effect=sink.insert)
+        store = DirectOverviewAnalytics(sink)
+        changes = [
+            {
+                "source_table": "ingestion_jobs",
+                "record": {
+                    "id": uuid.uuid4(),
+                    "status": "succeeded",
+                    "attempts": 1,
+                    "finished_at": "2026-01-01T00:00:00Z",
+                },
+            }
+            for _ in range(501)
+        ]
+        await store.publish(changes, revision=2)
+        assert [len(call.args[1]) for call in sink.insert.call_args_list] == [1000, 2]
+        job = uuid.uuid4()
+        first = {
+            "id": job,
+            "kind": "analysis",
+            "status": "failed",
+            "revision": 3,
+            "attempt": 0,
+            "finished_at": "2026-01-01T00:00:00Z",
+        }
+        await store.jobs(
+            [first, {**first, "finished_at": "2026-01-01T01:00:00Z"}, {**first, "deleted": True}]
+        )
+        facts = [row for row in sink.rows[1002:] if row["domain"] == "job"]
+        assert len(facts) == 2 and facts[0]["id"] != facts[1]["id"]
+        assert sink.rows[-1]["domain"] == "queue" and sink.rows[-1]["deleted"] == 1
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "method,record",
+    [
+        ("jobs", {"id": str(uuid.UUID(int=1)), "kind": "analysis", "status": "", "revision": 1}),
+        (
+            "jobs",
+            {"id": str(uuid.UUID(int=1)), "kind": "x" * 101, "status": "queued", "revision": 1},
+        ),
+        (
+            "jobs",
+            {
+                "id": str(uuid.UUID(int=1)),
+                "kind": "analysis",
+                "status": "queued",
+                "revision": 1,
+                "attempt": 2**32,
+            },
+        ),
+        (
+            "memberships",
+            {
+                "user_id": str(uuid.UUID(int=1)),
+                "topic_id": str(uuid.UUID(int=2)),
+                "kind": "other",
+                "revision": 1,
+            },
+        ),
+        ("sources", {"id": str(uuid.UUID(int=1)), "revision": 1, "consecutive_failures": -1}),
+        ("feeds", {"user_id": str(uuid.UUID(int=1)), "revision": 1, "interest_count": 2**32}),
+    ],
+)
+def test_invalid_states_and_counter_overflow_are_rejected_before_insert(method, record):
+    async def run():
+        sink = Sink()
+        with pytest.raises(ValueError):
+            await getattr(DirectOverviewAnalytics(sink), method)([record])
+        assert sink.rows == []
+
+    asyncio.run(run())
+
+
+def test_direct_query_boundaries_reject_arbitrary_granularity_and_dimension():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    async def run():
+        client = SimpleNamespace(
+            query=AsyncMock(return_value=[{"published": 2}]), execute=AsyncMock()
+        )
+        store = DirectOverviewAnalytics(client)
+        start, end = datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC)
+        await store.initialize()
+        assert client.execute.await_count == 2
+        for method in ("audience", "publication_report", "publication_overview", "throughput"):
+            with pytest.raises(ValueError):
+                await getattr(store, method)(start, end, granularity="day);DROP TABLE x")
+        with pytest.raises(ValueError):
+            await store.publication_dimensions(start, end, dimension="other")
+        client.query.assert_not_called()
+        assert await store.publication_report(start, end, granularity="hour") == [{"published": 2}]
+        sql, params = client.query.call_args.args
+        assert params == {"start": start, "end": end} and "occurred_at<{end:" in sql
+        for dimension in ("source", "topic"):
+            await store.publication_dimensions(start, end, dimension=dimension)
+            assert f"ARRAY JOIN {dimension}_ids" in client.query.call_args.args[0]
+        await store.audience(start, end, daily=True)
+        assert "AS day" in client.query.call_args.args[0]
+
+    asyncio.run(run())
+
+
+def test_raw_observation_batches_enforce_the_memory_bound_before_inserting():
+    async def run():
+        sink = Sink()
+        with pytest.raises(ValueError, match="batch is too large"):
+            await DirectOverviewAnalytics(sink)._write([{}] * 1001)
+        assert sink.rows == []
+
+    asyncio.run(run())

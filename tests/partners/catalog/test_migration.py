@@ -401,15 +401,30 @@ def assert_master_rows_preserved(connection, before):
 
 
 def assert_partner_schema(connection, metadata):
+    receipt_columns = {"impression_recorded_at", "click_recorded_at"}
+
+    def belongs_to_partnership_revision(value, name, kind, _reflected, _compare_to):
+        # These operational claims were added in 0038. This test deliberately
+        # exercises deployed 0024 in isolation, including its retained history.
+        return not (
+            kind == "column"
+            and value.table.name == "partner_placement_deliveries"
+            and name in receipt_columns
+        )
+
     context = MigrationContext.configure(
         connection,
         opts={
             "compare_server_default": True,
             "include_name": lambda name, kind, parent: kind != "table" or name in metadata.tables,
+            "include_object": belongs_to_partnership_revision,
         },
     )
     assert compare_metadata(context, metadata) == []
     inspector = inspect(connection)
+    assert not receipt_columns.intersection(
+        column["name"] for column in inspector.get_columns("partner_placement_deliveries")
+    )
     for name, table in metadata.tables.items():
         expected_checks = {
             constraint.name

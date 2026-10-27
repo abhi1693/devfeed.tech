@@ -120,3 +120,152 @@ def test_conflicting_legacy_owner_rejects_whole_page(database):
     with database() as session:
         assert session.get(PartnerPlacementDelivery, fresh) is None
         assert session.get(PartnerPlacementDelivery, conflict).click_recorded_at is None
+
+
+class ClaimConnection:
+    """Track a complete page's atomic transaction boundary without a database."""
+
+    def __init__(self, rows=(), error=None):
+        self.rows = rows
+        self.error = error
+        self.events = []
+        self.parameters = None
+        self.active = False
+
+    def transaction(self):
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def scope():
+            self.active = True
+            self.events.append("begin")
+            try:
+                yield
+            except Exception:
+                self.events.append("rollback")
+                raise
+            else:
+                self.events.append("commit")
+            finally:
+                self.active = False
+
+        return scope()
+
+    async def execute(self, statement, parameters):
+        assert self.active
+        self.events.append("write")
+        self.parameters = parameters
+        if self.error:
+            raise self.error
+
+        async def fetchall():
+            assert self.active
+            return self.rows
+
+        from types import SimpleNamespace
+
+        return SimpleNamespace(fetchall=fetchall)
+
+
+def historical_receipt(**updates):
+    return (
+        dict(
+            asset_id=uuid.UUID(int=1),
+            delivery_id=uuid.UUID(int=2),
+            day="2026-01-01",
+            kind="impression",
+        )
+        | updates
+    )
+
+
+def test_claim_page_groups_both_event_kinds_and_replays_a_stable_sentinel():
+    async def run():
+        connection = ClaimConnection(
+            [{"delivery_id": uuid.UUID(int=2)}, {"delivery_id": uuid.UUID(int=3)}]
+        )
+        page = [
+            historical_receipt(),
+            historical_receipt(kind="click"),
+            historical_receipt(
+                delivery_id=uuid.UUID(int=3), day=datetime(2026, 1, 1, tzinfo=UTC).date()
+            ),
+        ]
+        await backfill_partner_claims(connection, page)
+        parameters = list(connection.parameters)
+        assert parameters[:5] == [
+            uuid.UUID(int=1),
+            uuid.UUID(int=2),
+            datetime(2026, 1, 1, tzinfo=UTC),
+            LEGACY_CLAIM_AT,
+            LEGACY_CLAIM_AT,
+        ]
+        assert parameters[8:] == [LEGACY_CLAIM_AT, None]
+        assert connection.events == ["begin", "write", "commit"]
+        await backfill_partner_claims(connection, page)
+        assert parameters == connection.parameters
+        assert connection.events == ["begin", "write", "commit"] * 2
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "records", [None, {}, "invalid", [{}] * 1001, [None], [{}], [{"private": "not allowed"}]]
+)
+def test_invalid_claim_pages_are_rejected_without_starting_a_transaction(records):
+    async def run():
+        connection = ClaimConnection()
+        with pytest.raises(ValueError):
+            await backfill_partner_claims(connection, records)
+        assert connection.events == []
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("asset_id", "invalid"),
+        ("delivery_id", "invalid"),
+        ("day", "2026-02-31"),
+        ("day", None),
+        ("day", datetime(2026, 1, 1, tzinfo=UTC)),
+        ("kind", "view"),
+        ("kind", []),
+    ],
+)
+def test_invalid_receipt_identities_dates_and_kinds_reject_the_whole_page(field, value):
+    async def run():
+        connection = ClaimConnection()
+        page = [historical_receipt(), historical_receipt(**{field: value})]
+        with pytest.raises(ValueError):
+            await backfill_partner_claims(connection, page)
+        assert connection.events == []
+
+    asyncio.run(run())
+
+
+def test_inconsistent_receipt_days_do_not_create_partial_claims():
+    async def run():
+        connection = ClaimConnection()
+        with pytest.raises(ValueError, match="Inconsistent"):
+            await backfill_partner_claims(
+                connection, [historical_receipt(), historical_receipt(day="2026-01-02")]
+            )
+        assert connection.events == []
+        await backfill_partner_claims(connection, [])
+        assert connection.events == []
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("error", [None, RuntimeError("write interrupted")])
+def test_claim_owner_conflicts_and_write_errors_rollback_before_page_acknowledgement(error):
+    async def run():
+        connection = ClaimConnection([], error=error)
+        with pytest.raises(RuntimeError, match="write interrupted" if error else "Conflicting"):
+            await backfill_partner_claims(connection, [historical_receipt()])
+        assert connection.events == ["begin", "write", "rollback"]
+        assert not connection.active
+
+    asyncio.run(run())

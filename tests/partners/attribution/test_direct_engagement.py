@@ -221,3 +221,176 @@ def test_real_clickhouse_deduplicates_receipts_and_revisions_without_private_que
                 await admin.execute(f"DROP DATABASE `{target}` SYNC")
 
     asyncio.run(run())
+
+
+def test_baselines_replacements_and_empty_authorized_scopes_are_distinct():
+    class Storage(Client):
+        def __init__(self):
+            super().__init__()
+            self.ddl = []
+            self.result = []
+
+        async def execute(self, statement):
+            self.ddl.append(statement)
+
+        async def query(self, statement, parameters):
+            self.queries.append((statement, parameters))
+            return self.result
+
+    async def run():
+        storage = Storage()
+        store = DirectEngagementAnalytics(storage)
+        await store.initialize()
+        assert len(storage.ddl) == 2
+        asset, when = uuid.uuid4(), datetime(2026, 1, 1, tzinfo=UTC)
+        total = dict(
+            asset_id=asset, day=when.date(), impressions=0, clicks=0, revision=1, updated_at=when
+        )
+        await store.partner_totals([total], baseline=True)
+        await store.partner_totals([total])
+        assert [row["kind"] for row in storage.rows] == ["partner_baseline", "partner_import"]
+        assert storage.rows[0]["identity"] == storage.rows[1]["identity"]
+        await store.search_baselines(
+            [dict(query_hash="d" * 64, count=7, first_seen=when, last_seen=when, revision=2)]
+        )
+        assert storage.rows[-1]["searches"] == 7
+        assert storage.rows[-1]["owner"] == "d" * 64
+        assert await store.partner_daily([]) == []
+        assert await store.partner_summary([]) == []
+        assert await store.search_counts([]) == []
+        assert storage.queries == []
+        storage.result = [dict(owner=str(asset), day=0, impressions=1, clicks=0)]
+        result = await store.partner_daily([asset], end=date(1970, 1, 1))
+        assert result[0]["day"] == date(1970, 1, 1)
+        assert storage.queries[-1][1] == dict(owners=[str(asset)], end=0)
+        storage.result = [dict(owner=str(asset), impressions=1, clicks=0)]
+        assert await store.partner_summary([asset]) == storage.result
+        assert storage.queries[-1][1] == dict(owners=[str(asset)])
+        await store.partner_events([])
+        await store.search_events([])
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "operation", ["partner_events", "partner_totals", "search_events", "search_baselines"]
+)
+@pytest.mark.parametrize("records", [None, {}, "invalid", [{}] * 1001])
+def test_invalid_write_containers_never_send_partial_data(operation, records):
+    async def run():
+        client = Client()
+        with pytest.raises(ValueError):
+            await getattr(DirectEngagementAnalytics(client), operation)(records)
+        assert client.rows == [] and client.queries == []
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "operation", ["partner_events", "partner_totals", "search_events", "search_baselines"]
+)
+@pytest.mark.parametrize("record", [None, {}, {"query": "private"}])
+def test_write_shapes_reject_unknown_private_or_missing_fields(operation, record):
+    async def run():
+        client = Client()
+        with pytest.raises(ValueError):
+            await getattr(DirectEngagementAnalytics(client), operation)([record])
+        assert client.rows == []
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("asset_id", "invalid"),
+        ("delivery_id", "invalid"),
+        ("kind", "view"),
+        ("day", "2026-01-01"),
+        ("day", datetime(2026, 1, 1, tzinfo=UTC)),
+        ("observed_at", datetime(2026, 1, 1)),
+        ("observed_at", "2026-01-01"),
+    ],
+)
+def test_receipt_dimensions_require_valid_anonymous_identifiers_and_aware_dates(field, value):
+    async def run():
+        client = Client()
+        event = dict(
+            asset_id=uuid.uuid4(),
+            delivery_id=uuid.uuid4(),
+            kind="click",
+            day=date(2026, 1, 1),
+            observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        event[field] = value
+        with pytest.raises(ValueError):
+            await DirectEngagementAnalytics(client).partner_events([event])
+        assert client.rows == []
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("field", ["revision", "impressions", "clicks"])
+@pytest.mark.parametrize("value", [-1, True, 1.5, 2**64])
+def test_import_totals_reject_invalid_unsigned_accounting_without_writing(field, value):
+    async def run():
+        client = Client()
+        total = dict(
+            asset_id=uuid.uuid4(),
+            day=date(2026, 1, 1),
+            impressions=1,
+            clicks=0,
+            revision=1,
+            updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        total[field] = value
+        with pytest.raises(ValueError):
+            await DirectEngagementAnalytics(client).partner_totals([total])
+        assert client.rows == []
+
+    asyncio.run(run())
+
+
+def test_import_baselines_reject_invalid_flags_and_reversed_times():
+    async def run():
+        client = Client()
+        store = DirectEngagementAnalytics(client)
+        with pytest.raises(ValueError):
+            await store.partner_totals([], baseline=1)
+        with pytest.raises(ValueError):
+            await store.search_baselines(
+                [
+                    dict(
+                        query_hash="e" * 64,
+                        count=1,
+                        revision=1,
+                        first_seen=datetime(2026, 1, 2, tzinfo=UTC),
+                        last_seen=datetime(2026, 1, 1, tzinfo=UTC),
+                    )
+                ]
+            )
+        for values in ("not-a-list", ["not-a-hash"], ["f" * 64] * 1001):
+            with pytest.raises(ValueError):
+                await store.search_counts(values)
+        with pytest.raises(ValueError):
+            await store.partner_daily([uuid.uuid4()], start=datetime(2026, 1, 1, tzinfo=UTC))
+        assert not client.rows and not client.queries
+
+    asyncio.run(run())
+
+
+def test_internal_insert_refuses_unknown_kinds_and_mixed_security_domains():
+    from devfeed_core.analytics_direct_engagement import _row
+
+    async def run():
+        client = Client()
+        store = DirectEngagementAnalytics(client)
+        with pytest.raises(ValueError):
+            _row("invalid", "", "", 0, 0)
+        with pytest.raises(ValueError):
+            await store._insert("invalid")
+        with pytest.raises(ValueError, match="Mixed"):
+            await store._insert([{"kind": "partner_event"}, {"kind": "search_event"}])
+        assert not client.rows
+
+    asyncio.run(run())

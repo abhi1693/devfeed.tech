@@ -79,3 +79,50 @@ def test_failed_page_never_publishes_readiness_or_heartbeat(service):
     assert exporter.bootstrapping is True
     assert status.write.await_args.kwargs["ready"] is False
     exporter._write_heartbeat.assert_not_called()
+
+
+def test_complete_step_without_import_boundary_never_publishes_ready(service):
+    exporter, _, status, runner = service
+    status.read.side_effect = worker.AnalyticsUnavailable("not started")
+    runner.once.return_value = worker.ImportStep.COMPLETE
+    runner._importer = None
+    with pytest.raises(RuntimeError, match="completed without a cutoff"):
+        asyncio.run(exporter.once())
+    assert status.write.await_count == 1
+    assert status.write.await_args.kwargs["ready"] is False
+    exporter._write_heartbeat.assert_not_called()
+
+
+@pytest.mark.parametrize("cutover", [datetime(2026, 10, 1, tzinfo=UTC), "2026-10-01T00:00:00Z"])
+def test_direct_status_preserves_cutoff_policy_and_current_readiness(cutover):
+    from devfeed_core.analytics_status import STATUS_DDL, AnalyticsStatus
+
+    client = SimpleNamespace(execute=AsyncMock(), insert=AsyncMock(), query=AsyncMock())
+    status = AnalyticsStatus(client)
+
+    async def run():
+        await status.initialize()
+        await status.write(ready=False, cutover=cutover, policy="new-policy")
+        client.execute.assert_awaited_once_with(STATUS_DDL)
+        table, rows = client.insert.await_args.args
+        assert table == "analytics_direct_status" and len(rows) == 1
+        row = rows[0]
+        assert row["ready"] == 0 and row["policy"] == "new-policy"
+        assert row["capture_started_at"] == datetime(2026, 10, 1, tzinfo=UTC)
+        assert row["reader_coverage_start"] == datetime(2026, 10, 1, tzinfo=UTC).date()
+        assert row["version"] > 0 and row["updated_at"].utcoffset().total_seconds() == 0
+        client.query.return_value = [row]
+        read = await status.read()
+        assert read["generated_at"] == row["updated_at"]
+        assert read["policy"] == "new-policy" and read["ready"] == 0
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("rows", [[], [{"ready": 1}, {"ready": 1}]])
+def test_missing_or_ambiguous_direct_status_fails_closed(rows):
+    from devfeed_core.analytics_status import AnalyticsStatus
+
+    client = SimpleNamespace(query=AsyncMock(return_value=rows))
+    with pytest.raises(worker.AnalyticsUnavailable, match="still running"):
+        asyncio.run(AnalyticsStatus(client).read())

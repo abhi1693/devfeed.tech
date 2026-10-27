@@ -163,3 +163,123 @@ def test_metadata_pages_create_use_and_close_the_session_before_clickhouse():
         assert events[-1] == "clickhouse"
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "response,valid",
+    [
+        ([], False),
+        ([{"successful_count": -1}], False),
+        ([{"successful_count": "2"}], False),
+        ([{"successful_count": 2, "first_seen": "first", "last_seen": "last"}], True),
+    ],
+)
+def test_single_suggestion_metrics_validate_native_counts(response, valid):
+    async def run():
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        analytics = SearchSuggestionAnalytics(Client())
+        analytics.store = SimpleNamespace(search_counts=AsyncMock(return_value=response))
+        if valid:
+            assert await analytics.get("a" * 64) == {
+                "successful_count": 2,
+                "first_seen_at": "first",
+                "last_seen_at": "last",
+            }
+        else:
+            with pytest.raises(AnalyticsUnavailable):
+                await analytics.get("a" * 64)
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("count", [None, -1, "1"])
+def test_rank_rejects_malformed_counts_instead_of_returning_misleading_volume(monkeypatch, count):
+    async def run():
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        monkeypatch.setattr(
+            search_suggestions,
+            "_metadata_page",
+            lambda *_args, **_kwargs: [{"query_hash": "a" * 64, "query": "search"}],
+        )
+        analytics = SearchSuggestionAnalytics(Client())
+        analytics.store = SimpleNamespace(
+            search_counts=AsyncMock(
+                return_value=[{"query_hash": "a" * 64, "successful_count": count}]
+            )
+        )
+        with pytest.raises(AnalyticsUnavailable):
+            await analytics.rank(object())
+
+    asyncio.run(run())
+
+
+def test_empty_pages_and_missing_metrics_do_not_invent_successful_searches(monkeypatch):
+    async def run():
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        analytics = SearchSuggestionAnalytics(Client())
+        analytics.store = SimpleNamespace(search_counts=AsyncMock(return_value=[]))
+        monkeypatch.setattr(search_suggestions, "_metadata_page", lambda *_args, **_kwargs: [])
+        assert await analytics.rank(object()) == []
+        analytics.store.search_counts.assert_not_called()
+        monkeypatch.setattr(
+            search_suggestions,
+            "_metadata_page",
+            lambda *_args, **_kwargs: [{"query_hash": "a" * 64, "query": "search"}],
+        )
+        assert await analytics.rank(object()) == []
+
+    asyncio.run(run())
+
+
+def test_metadata_page_can_read_all_moderation_states_and_review_unknown_hashes_safely():
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from devfeed_core.models import SearchQueryStat
+
+    rows = [{"query_hash": "a" * 64, "query": "search"}]
+    session = Mock()
+    session.execute.return_value.mappings.return_value.all.return_value = rows
+
+    @contextmanager
+    def factory():
+        yield session
+
+    assert search_suggestions._metadata_page(factory, cursor=None, prefix=None, status=None) == rows
+    assert "WHERE" not in str(session.execute.call_args.args[0])
+    search_suggestions._metadata_page(factory, cursor="a" * 64, prefix="search", status="approved")
+    bound = session.execute.call_args.args[0].compile().params
+    assert "a" * 64 in bound.values() and "search" in bound.values()
+    session.get.return_value = None
+    with pytest.raises(ValueError):
+        search_suggestions.review_query(
+            session, "BAD", status="approved", reviewer="admin", note=None
+        )
+    with pytest.raises(LookupError):
+        search_suggestions.review_query(
+            session, "a" * 64, status="approved", reviewer="admin", note=None
+        )
+    value = SimpleNamespace(status="pending", reviewed_at=None, reviewed_by=None, review_note=None)
+    session.get.return_value = value
+    assert (
+        search_suggestions.review_query(
+            session, "a" * 64, status="rejected", reviewer="admin", note="Private"
+        )
+        is value
+    )
+    session.get.assert_called_with(SearchQueryStat, "a" * 64)
+    assert (value.status, value.reviewed_by, value.review_note) == ("rejected", "admin", "Private")
+    assert value.reviewed_at.tzinfo == UTC
+
+
+@pytest.mark.parametrize("value", ["x" * 201, "word " * 21, "!!!", ""])
+def test_search_query_limits_reject_invalid_metadata_before_any_io(value):
+    with pytest.raises(ValueError):
+        search_suggestions.normalize_query(value)

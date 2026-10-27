@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 from devfeed_api import partner_tracking as api
-from devfeed_api.dependencies import get_session
+from devfeed_api.dependencies import get_session_factory
 from devfeed_api.main import create_app
 from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.config import Settings, get_settings
@@ -102,7 +102,7 @@ def tracking_client(monkeypatch):
     monkeypatch.setattr(api, "consume_reserved_rate_limits", Mock(return_value=0))
     monkeypatch.setattr(api, "get_rate_limit_redis", Mock())
     app = create_app()
-    app.dependency_overrides[get_session] = lambda: session
+    app.dependency_overrides[get_session_factory] = lambda: lambda: nullcontext(session)
 
     class Analytics:
         available = True

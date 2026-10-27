@@ -1270,7 +1270,11 @@ def test_capture_savepoints_release_only_committed_outer_pending_work(monkeypatc
         (None, {"attempts": 1}, False),
         ({"status": "queued", "attempts": 1}, {"attempts": 1}, False),
         ({"status": "succeeded", "attempts": 2}, {"attempts": 1}, False),
-        ({"status": "failed", "attempts": 2}, {"attempts": 2}, True),
+        (
+            {"status": "failed", "attempts": 2, "finished_at": "2026-10-27T01:00:00Z"},
+            {"attempts": 2},
+            True,
+        ),
         (
             {"status": "succeeded", "finished_at": "2026-10-27T01:00:00Z"},
             {"finished_at": "2026-10-27T01:00:00Z"},
@@ -1294,7 +1298,13 @@ def test_current_completed_job_suppresses_stale_attempt_snapshot_in_publication(
     from types import SimpleNamespace
 
     identity = str(uuid.uuid4())
-    current = {"id": identity, "status": "succeeded", "attempts": 1, "duration_ms": 200}
+    current = {
+        "id": identity,
+        "status": "succeeded",
+        "attempts": 1,
+        "duration_ms": 200,
+        "finished_at": "2026-10-27T01:00:00Z",
+    }
     previous = current | {"duration_ms": 0}
 
     class Connection:
@@ -1391,3 +1401,470 @@ def test_orm_clock_update_classifier_ignores_predicate_binds_and_requires_assign
     assert not producer._clock_only_update(operation, [{"articles_id": uuid.uuid4()}])
     assert not producer._clock_only_update(insert(Article), [])
     assert not producer._clock_only_update(update(Topic).values(name="Changed"), [])
+
+
+def test_source_reads_export_only_allowlisted_fields_and_skip_recursive_capture():
+    from unittest.mock import Mock
+
+    from devfeed_core.models import ArticleAnalysisJob
+
+    connection = Mock()
+    expected = [{"id": str(uuid.uuid4()), "status": "queued"}]
+    connection.execute.return_value.scalars.return_value = expected
+    table = ArticleAnalysisJob.__table__
+    assert producer._records(connection, table, table.c.id == uuid.uuid4()) == expected
+    statement = connection.execute.call_args.args[0]
+    assert statement.get_execution_options()[producer._SKIP] is True
+    sql = str(statement)
+    assert "jsonb_build_object" in sql and "totalTokens" in sql
+    assert "input_snapshot" not in sql and "private_prompt" not in sql
+    assert " WHERE " in " ".join(sql.split())
+    producer._records(connection, table)
+    assert " WHERE " not in " ".join(str(connection.execute.call_args.args[0]).split())
+
+
+def test_upsert_conflict_lookup_uses_the_conflicting_unique_key_and_not_generated_identity(
+    monkeypatch,
+):
+    from unittest.mock import Mock
+
+    from devfeed_core.models import ArticleOrigin
+
+    source, article = uuid.uuid4(), uuid.uuid4()
+    table = ArticleOrigin.__table__
+    statement = pg_insert(table).values(source_id=source, entry_key="entry", article_id=article)
+    statement = statement.on_conflict_do_update(
+        index_elements=["source_id", "entry_key"], set_={"article_id": article}
+    )
+    prior = [{"id": str(uuid.uuid4()), "article_id": str(uuid.uuid4())}]
+    read = Mock(return_value=prior)
+    monkeypatch.setattr(producer, "_records", read)
+    result = producer._insert_candidates(
+        object(), statement, None, [{"source_id": source, "entry_key": "entry", "id": uuid.uuid4()}]
+    )
+    assert result == prior
+    predicate = read.call_args.args[2]
+    assert list(predicate.compile().params.values()) == [[(source, "entry")]]
+    read.reset_mock()
+    assert producer._insert_candidates(object(), statement, None, [{"source_id": source}]) == []
+    read.assert_not_called()
+    no_key = Table("sources", MetaData(), Column("id", Uuid))
+    assert producer._insert_candidates(object(), insert(no_key), None, [{"id": source}]) == []
+
+
+def test_core_values_lists_preserve_shared_upsert_assignments_for_each_inserted_row():
+    from types import SimpleNamespace
+
+    from sqlalchemy.dialects import postgresql
+
+    table = Table(
+        "articles",
+        MetaData(),
+        Column("id", Uuid, primary_key=True),
+        Column("publication_status", String),
+    )
+    ids = [uuid.uuid4(), uuid.uuid4()]
+    statement = (
+        pg_insert(table)
+        .values([{"id": identity} for identity in ids])
+        .on_conflict_do_update(
+            index_elements=[table.c.id], set_={"publication_status": "published"}
+        )
+    )
+    compiled = statement.compile(dialect=postgresql.dialect())
+    context = SimpleNamespace(compiled=compiled, compiled_parameters=[compiled.params])
+    rows = producer._parameter_rows(context)
+    assert [row["id"] for row in rows] == ids
+    shared = {
+        key: value for key, value in compiled.params.items() if not key.endswith(("_m0", "_m1"))
+    }
+    assert shared and all(all(row[key] == value for key, value in shared.items()) for row in rows)
+
+
+def test_capture_insert_and_job_completion_keep_generated_keys_and_sanitized_attempts(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from sqlalchemy.dialects import postgresql
+
+    table = Table(
+        "article_analysis_jobs",
+        MetaData(),
+        Column("id", Uuid, primary_key=True),
+        Column("status", String),
+    )
+    identity = uuid.uuid4()
+    statement = insert(table).values(id=identity, status="succeeded")
+    compiled = statement.compile(dialect=postgresql.dialect())
+    context = SimpleNamespace(
+        compiled=compiled,
+        _devfeed_analytics_parameters=[compiled.params],
+        _devfeed_analytics_pairs=[],
+    )
+    session = Mock(info={})
+    completed = {
+        "id": identity,
+        "status": "succeeded",
+        "attempts": 1,
+        "finished_at": datetime.now(UTC),
+        "usage": {"totalTokens": "7"},
+    }
+    monkeypatch.setattr(producer, "_records", lambda *_args: [completed])
+    capture = producer.ApplicationAnalyticsCapture
+    capture.remember_keys(session, context, [])
+    capture.remember_attempts(session, object(), context, [])
+    [change] = session.info[producer._PENDING].values()
+    assert change["identity"] == {"id": identity}
+    assert change["attempts"] == [completed]
+
+
+def test_capture_after_keeps_cascade_and_dependent_owner_identities(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    table = Table("topics", MetaData(), Column("id", Uuid, primary_key=True))
+    topic, article, user = [uuid.uuid4() for _ in range(3)]
+    context = SimpleNamespace(
+        compiled=SimpleNamespace(statement=delete(table)),
+        _devfeed_analytics_before=[{"id": topic}],
+        _devfeed_analytics_cascades=[("user_topics", {"user_id": user, "topic_id": topic})],
+        _devfeed_analytics_articles=[article],
+        _devfeed_analytics_parameters=[],
+    )
+    session = Mock(info={})
+    connection = SimpleNamespace(info={})
+    capture = producer.ApplicationAnalyticsCapture
+    capture.attach(session, None, connection)
+    capture.after(connection, SimpleNamespace(rowcount=1), "DELETE", (), context, False)
+    changes = list(session.info[producer._PENDING].values())
+    assert {change["source_table"] for change in changes} == {"topics", "user_topics", "articles"}
+    assert any(change["identity"] == {"id": article} for change in changes)
+    capture.detach(None, SimpleNamespace(info=connection.info))
+    context._devfeed_analytics_before = []
+    capture.after(connection, SimpleNamespace(rowcount=1), "DELETE", (), context, False)
+    assert list(session.info[producer._PENDING].values()) == changes
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("mode", ["plain", "ignore_conflict", "update_conflict"])
+@pytest.mark.parametrize("bulk_style", ["executemany", "values_list"])
+def test_bulk_article_capture_reads_before_images_only_for_upsert_updates_in_bounded_pages(
+    source_engine, mode, bulk_style
+):
+    from sqlalchemy import event
+
+    engine, table, _, emitted = source_engine
+    size = 451
+    values = [
+        {
+            "id": uuid.uuid4(),
+            "discovered_at": datetime.now(UTC),
+            "publication_status": "pending",
+            "content_type": "article",
+        }
+        for _ in range(size)
+    ]
+    if mode != "plain":
+        with AppSession(engine) as session:
+            session.execute(insert(table), values)
+            session.commit()
+        emitted.clear()
+    statement = pg_insert(table)
+    if mode == "ignore_conflict":
+        statement = statement.on_conflict_do_nothing(index_elements=[table.c.id])
+    elif mode == "update_conflict":
+        statement = statement.on_conflict_do_update(
+            index_elements=[table.c.id], set_={"publication_status": "published"}
+        )
+    reads = []
+
+    def observed(_connection, _cursor, sql, _parameters, context, _executemany):
+        if context.execution_options.get(producer._SKIP) and "jsonb_build_object" in sql:
+            reads.append(sql)
+
+    event.listen(engine, "before_cursor_execute", observed)
+    try:
+        with AppSession(engine) as session:
+            if bulk_style == "executemany":
+                session.execute(statement, values)
+            else:
+                session.execute(statement.values(values))
+            session.commit()
+    finally:
+        event.remove(engine, "before_cursor_execute", observed)
+    assert len(reads) == (
+        (size + producer.MAX_BATCH - 1) // producer.MAX_BATCH if mode == "update_conflict" else 0
+    )
+    if mode == "ignore_conflict":
+        assert emitted == []
+    else:
+        assert len(emitted) == 1 and len(emitted[0]) == size
+        if mode == "update_conflict":
+            assert all(
+                change["before_record"]["publication_status"] == "pending" for change in emitted[0]
+            )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("status", ["queued", "succeeded"])
+@pytest.mark.parametrize("bulk_style", ["executemany", "values_list"])
+def test_bulk_job_capture_skips_nonterminal_reads_and_batches_completed_attempt_snapshots(
+    database, monkeypatch, status, bulk_style
+):
+    from devfeed_core.models import Article, ArticleAnalysisJob
+    from sqlalchemy import event
+
+    emitted = []
+    monkeypatch.setattr(producer, "submit", emitted.append)
+    with database.begin() as session:
+        article = Article(
+            canonical_url="https://producer.test/bulk-jobs",
+            url_hash="bulk-jobs",
+            title="Bulk job lifecycle",
+        )
+        session.add(article)
+        session.flush()
+        identity = article.id
+    size = 451
+    article_ids = [identity, *[uuid.uuid4() for _ in range(size - 1)]]
+    with database.begin() as session:
+        session.execute(
+            insert(Article.__table__),
+            [
+                {
+                    "id": value,
+                    "canonical_url": f"https://producer.test/bulk-jobs/{value}",
+                    "url_hash": value.hex,
+                    "title": "Bulk job lifecycle",
+                }
+                for value in article_ids[1:]
+            ],
+        )
+    emitted.clear()
+    now = datetime.now(UTC)
+    values = [
+        {
+            "id": uuid.uuid4(),
+            "article_id": article_identity,
+            "status": status,
+            "attempts": 1,
+            "finished_at": now if status == "succeeded" else None,
+            "usage": {"totalTokens": 7},
+        }
+        for article_identity in article_ids
+    ]
+    engine, reads = database.kw["bind"], []
+
+    def observed(_connection, _cursor, sql, _parameters, context, _executemany):
+        if context.execution_options.get(producer._SKIP) and "jsonb_build_object" in sql:
+            reads.append(sql)
+
+    event.listen(engine, "before_cursor_execute", observed)
+    try:
+        with database.begin() as session:
+            statement = insert(ArticleAnalysisJob.__table__)
+            if bulk_style == "executemany":
+                session.execute(statement, values)
+            else:
+                session.execute(statement.values(values))
+    finally:
+        event.remove(engine, "before_cursor_execute", observed)
+    assert len(reads) == (
+        (size + producer.MAX_BATCH - 1) // producer.MAX_BATCH if status == "succeeded" else 0
+    )
+    changes = [
+        change
+        for batch in emitted
+        for change in batch
+        if change["source_table"] == "article_analysis_jobs"
+    ]
+    assert len(changes) == size
+    assert all(bool(change["attempts"]) is (status == "succeeded") for change in changes)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("operation", ["update", "delete"])
+@pytest.mark.parametrize("empty", [False, True])
+def test_expanding_in_filters_keep_exact_update_delete_ownership_in_postgresql(
+    source_engine, operation, empty
+):
+    engine, table, _, emitted = source_engine
+    identities = [uuid.uuid4() for _ in range(3)]
+    with AppSession(engine) as session:
+        session.execute(
+            insert(table),
+            [
+                {
+                    "id": identity,
+                    "discovered_at": datetime.now(UTC),
+                    "publication_status": "pending",
+                    "content_type": "article",
+                }
+                for identity in identities
+            ],
+        )
+        session.commit()
+        emitted.clear()
+        targets = [] if empty else identities[:2]
+        statement = (
+            update(table).values(publication_status="published")
+            if operation == "update"
+            else delete(table)
+        )
+        result = session.execute(statement.where(table.c.id.in_(targets)))
+        assert result.rowcount == len(targets)
+        session.commit()
+        rows = dict(session.execute(select(table.c.id, table.c.publication_status)).all())
+    assert {str(change["identity"]["id"]) for batch in emitted for change in batch} == set(
+        map(str, targets)
+    )
+    if operation == "delete":
+        assert set(rows) == set(identities) - set(targets)
+    else:
+        assert rows == {
+            identity: "published" if identity in targets else "pending" for identity in identities
+        }
+
+
+def test_named_conflict_constraint_reads_the_existing_natural_owner_in_one_page(monkeypatch):
+    from unittest.mock import Mock
+
+    from sqlalchemy import UniqueConstraint
+
+    table = Table(
+        "article_origins",
+        MetaData(),
+        Column("id", Uuid, primary_key=True),
+        Column("source_id", Uuid),
+        Column("entry_key", String),
+        Column("article_id", Uuid),
+        UniqueConstraint("source_id", "entry_key", name="source_entry"),
+    )
+    source, article = uuid.uuid4(), uuid.uuid4()
+    statement = pg_insert(table).on_conflict_do_update(
+        constraint="source_entry", set_={"article_id": article}
+    )
+    prior = [{"id": uuid.uuid4(), "article_id": uuid.uuid4()}]
+    read = Mock(return_value=prior)
+    monkeypatch.setattr(producer, "_records", read)
+    assert (
+        producer._insert_candidates(
+            object(),
+            statement,
+            None,
+            [{"source_id": source, "entry_key": "existing", "id": uuid.uuid4()}],
+        )
+        == prior
+    )
+    read.assert_called_once()
+    assert list(read.call_args.args[2].compile().params.values()) == [[(source, "existing")]]
+
+
+@pytest.mark.integration
+def test_queued_job_upsert_completion_survives_a_same_transaction_requeue(database, monkeypatch):
+    from devfeed_core.models import Article, ArticleAnalysisJob
+
+    emitted = []
+    monkeypatch.setattr(producer, "submit", emitted.append)
+    with database.begin() as session:
+        article = Article(
+            canonical_url="https://producer.test/upsert-attempt",
+            url_hash="upsert-attempt",
+            title="Upsert job lifecycle",
+        )
+        session.add(article)
+        session.flush()
+        job = ArticleAnalysisJob(article_id=article.id, status="queued", attempts=0)
+        session.add(job)
+        session.flush()
+        article_id, job_id = article.id, job.id
+    emitted.clear()
+    with database.begin() as session:
+        statement = pg_insert(ArticleAnalysisJob.__table__).values(
+            id=job_id, article_id=article_id, status="queued", attempts=0
+        )
+        session.execute(
+            statement.on_conflict_do_update(
+                index_elements=[ArticleAnalysisJob.id],
+                set_={
+                    "status": "succeeded",
+                    "attempts": 1,
+                    "finished_at": datetime.now(UTC),
+                    "usage": {"totalTokens": 7},
+                },
+            )
+        )
+        pending = [
+            change
+            for change in session.info[producer._PENDING].values()
+            if change["source_table"] == "article_analysis_jobs"
+        ]
+        assert len(pending) == 1
+        assert any(
+            row["status"] == "succeeded" and row["attempts"] == 1 for row in pending[0]["attempts"]
+        )
+        session.execute(
+            update(ArticleAnalysisJob)
+            .where(ArticleAnalysisJob.id == job_id)
+            .values(status="queued", attempts=2, finished_at=None, usage={})
+        )
+    attempts = [
+        row
+        for batch in emitted
+        for change in batch
+        for row in change["attempts"]
+        if change["source_table"] == "article_analysis_jobs"
+    ]
+    assert attempts and all(
+        row["status"] == "succeeded" and row["attempts"] == 1 for row in attempts
+    )
+    assert all(row["usage"]["totalTokens"] == "7" for row in attempts)
+
+
+@pytest.mark.parametrize("status", ["queued", "succeeded"])
+def test_bulk_job_capture_callback_reads_only_bounded_terminal_snapshots(monkeypatch, status):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from sqlalchemy.dialects import postgresql
+
+    size = 451
+    table = Table(
+        "article_analysis_jobs",
+        MetaData(),
+        Column("id", Uuid, primary_key=True),
+        Column("status", String),
+    )
+    identities = [uuid.uuid4() for _ in range(size)]
+    statement = insert(table)
+    context = SimpleNamespace(
+        compiled=statement.compile(dialect=postgresql.dialect()),
+        compiled_parameters=[{"id": identity, "status": status} for identity in identities],
+        execution_options={},
+    )
+    session = Mock(info={})
+    connection = SimpleNamespace(info={}, dialect=SimpleNamespace(name="postgresql"))
+
+    def records(_connection, _table, predicate):
+        values = predicate.compile().params
+        selected = next(value for value in values.values() if value and isinstance(value[0], tuple))
+        return [
+            {"id": item[0], "status": "succeeded", "attempts": 1, "finished_at": datetime.now(UTC)}
+            for item in selected
+        ]
+
+    reads = Mock(side_effect=records)
+    monkeypatch.setattr(producer, "_records", reads)
+    capture = producer.ApplicationAnalyticsCapture
+    capture.attach(session, None, connection)
+    capture.before(connection, None, "INSERT", (), context, True)
+    assert reads.call_count == 0
+    capture.after(connection, SimpleNamespace(rowcount=size), "INSERT", (), context, True)
+    assert reads.call_count == (
+        (size + producer.MAX_BATCH - 1) // producer.MAX_BATCH if status == "succeeded" else 0
+    )
+    assert len(session.info[producer._PENDING]) == size
+    assert all(
+        bool(change["attempts"]) is (status == "succeeded")
+        for change in session.info[producer._PENDING].values()
+    )

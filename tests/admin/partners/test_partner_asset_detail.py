@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event
 
 from tests.partners.promotions.test_promotions import seed_catalog
+from tests.support.partner_analytics import partner_analytics as partner_analytics
 from tests.support.partner_portal import admin_portal_client as admin_portal_client
 from tests.support.partner_portal import seed
 
@@ -64,7 +65,9 @@ def test_asset_detail_hides_foreign_and_missing_records(admin_portal_client, dat
 
 
 @pytest.mark.integration
-def test_asset_detail_is_read_only_and_independent_of_report_pages(admin_portal_client, database):
+def test_asset_detail_is_read_only_and_independent_of_report_pages(
+    admin_portal_client, database, partner_analytics
+):
     client, _ = admin_portal_client
     with database.begin() as session:
         account = PartnerAccount(name="Large account", tier="gold")
@@ -127,7 +130,7 @@ def test_asset_detail_is_read_only_and_independent_of_report_pages(admin_portal_
 
 @pytest.mark.integration
 def test_asset_detail_returns_the_record_instead_of_a_product_aggregate(
-    admin_portal_client, database
+    admin_portal_client, database, partner_analytics
 ):
     client, _ = admin_portal_client
     with database.begin() as session:

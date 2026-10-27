@@ -316,3 +316,27 @@ def test_campaign_article_identity_is_required_only_for_sponsored_content(ad_for
             starts_at=PARTNER_NOW,
             ends_at=PARTNER_NOW + timedelta(days=1),
         )
+
+
+def test_campaign_disallowed_format_never_records_sponsorship_or_enrolls(campaigns, monkeypatch):
+    service, session, _account, enrollment = campaigns
+    monkeypatch.setattr(partner_campaigns, "ad_format_allowed", lambda *_args: False)
+    with pytest.raises(HTTPException) as failure:
+        service.save(agreement())
+    assert failure.value.status_code == 422
+    session.add.assert_not_called()
+    session.flush.assert_not_called()
+    enrollment.assert_not_called()
+
+
+def test_campaign_native_summary_cannot_add_another_accounts_asset(campaigns):
+    service, session, account, _ = campaigns
+    saved = stored_campaign(account)
+    session.execute.return_value.all.return_value = [(uuid.uuid4(), saved.id)]
+    analytics = Mock()
+    analytics.partner_summary = AsyncMock(
+        return_value=[{"owner": str(uuid.uuid4()), "impressions": 1, "clicks": 0}]
+    )
+    with pytest.raises(ValueError, match="Unauthorized"):
+        asyncio.run(service.metadata([saved]).reports(analytics))
+    session.commit.assert_not_called()

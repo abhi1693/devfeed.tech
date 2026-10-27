@@ -156,7 +156,12 @@ def test_dispatch_and_recovery_preserve_bodies_without_loading_them(database, ki
             assert recover_jobs(database, 10, utcnow(), kind=kind) == 1
     finally:
         event.remove(get_engine(), "before_cursor_execute", capture)
-    assert len(statements) == 2
+    metadata_reads = [statement for statement in statements if "jsonb_build_object(" in statement]
+    # Dispatch and recovery still perform exactly their two indexed work reads.
+    # Direct analytics may read narrow before/after metadata for each changed job.
+    # Account for that bounded work while checking every projection for payloads.
+    assert len(statements) - len(metadata_reads) == 2
+    assert len(metadata_reads) <= 4
     for field in ("input_snapshot", "catalog_snapshot", "result", "payload", "requested_by"):
         assert all(f".{field}" not in statement for statement in statements)
     with database() as session:

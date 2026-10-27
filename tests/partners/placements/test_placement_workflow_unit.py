@@ -352,3 +352,125 @@ def test_standing_agreement_cannot_bypass_explicit_selected_inventory(monkeypatc
     assert not placements.automatic_asset_available(
         session, creative, owner, value, NOW, surface="feed"
     )
+
+
+@pytest.mark.parametrize("blocked", ["before-ranking", "witness-changed"])
+def test_search_delivery_stops_when_the_public_witness_is_withdrawn(delivery, monkeypatch, blocked):
+    value = delivery
+    value.asset.ad_format = value.campaign.ad_format = "engagement"
+    context = NS(blocked=blocked == "before-ranking", lock_witness=Mock(return_value=False))
+    monkeypatch.setattr(placements, "PublicSearchContext", NS(resolve=lambda *_: context))
+    query = PlacementQuery(
+        surface="search",
+        ad_formats=["engagement"],
+        search={"query": "OpenAPI changes", "results": {"articles": [article().id]}},
+    )
+    assert placements.deliver_placements(value.session, query, KEY, now=NOW) == []
+    value.session.add.assert_not_called()
+    if blocked == "witness-changed":
+        context.lock_witness.assert_called_once()
+    else:
+        context.lock_witness.assert_not_called()
+
+
+def test_invalid_effective_audience_never_reserves_or_issues_a_delivery(delivery, monkeypatch):
+    monkeypatch.setattr(placements, "effective_audience", lambda *_: None)
+    assert issue(delivery) == []
+    delivery.session.add.assert_not_called()
+    delivery.capacity.assert_not_called()
+
+
+@pytest.mark.parametrize("visible", [False, True])
+def test_sponsored_story_rechecks_public_visibility_and_marks_the_issued_story_seen(
+    delivery, visible
+):
+    value, story = delivery, article(feed_at=NOW)
+    value.asset.ad_format = value.campaign.ad_format = "sponsored_content"
+    value.asset.article_id = value.campaign.article_id = story.id
+    value.session.scalar.side_effect = [
+        True,
+        "Current grounded publisher task",
+        story if visible else None,
+    ]
+    query = PlacementQuery(surface="feed", ad_formats=["sponsored_content"])
+    result = placements.deliver_placements(value.session, query, KEY, now=NOW)
+    if visible:
+        assert len(result) == 1 and result[0]["article"].id == story.id
+        assert result[0]["url"] == f"/articles/{story.slug}"
+        value.session.add.assert_called_once()
+    else:
+        assert result == []
+        value.session.add.assert_not_called()
+        value.destination.assert_not_called()
+
+
+def test_engagement_feed_candidates_require_visible_tutorials_and_pick_one_edge_per_product():
+    from sqlalchemy.dialects.postgresql import dialect
+
+    session = Mock(spec=Session)
+    assert placements.engagement_feed_candidates(session, []) is None
+    session.execute.return_value.all.return_value = []
+    assert placements.engagement_feed_candidates(session, [uuid.uuid4()]) is None
+    tutorial = article()
+    session.execute.return_value.all.return_value = [tutorial]
+    query = placements.engagement_feed_candidates(session, [tutorial.id, tutorial.id])
+    sql = str(query.compile(dialect=dialect()))
+    assert "row_number() OVER (PARTITION BY partner_article_matches.product_id" in sql
+    assert "partner_article_matches.article_fingerprint" in sql
+    assert "anon_1.rank =" in sql
+
+
+@pytest.mark.parametrize("surface", ["article", "search"])
+def test_contextual_sql_can_be_composed_without_loading_all_product_matches(surface):
+    from devfeed_core.partner_search_context import PublicSearchContext
+    from sqlalchemy.dialects.postgresql import dialect
+
+    session, tutorial = Mock(spec=Session), article()
+    session.scalar.return_value = tutorial
+    values = {"surface": surface}
+    if surface == "article":
+        values["article_id"] = tutorial.id
+        context = None
+    else:
+        values.update(
+            ad_formats=["engagement"],
+            search={"query": "OpenAPI", "results": {"articles": [tutorial.id]}},
+        )
+        context = PublicSearchContext({"articles": {tutorial.id}})
+    query = placements.contextual_candidates(
+        session, PlacementQuery(**values), NOW, as_query=True, search_context=context
+    )
+    assert query is not None and "SELECT" in str(query.compile(dialect=dialect()))
+    session.execute.assert_not_called()
+
+
+@pytest.mark.parametrize("surface", ["feed", "topic", "search"])
+def test_engagement_format_keeps_its_own_relevance_contract_when_composed_with_other_creatives(
+    monkeypatch, surface
+):
+    from sqlalchemy.dialects.postgresql import dialect
+
+    session = Mock(spec=Session)
+    matches = select(
+        PartnerProductTopic.product_id,
+        PartnerProductTopic.score,
+        PartnerProductTopic.reason,
+        PartnerProductTopic.product_revision,
+        PartnerProductTopic.product_updated_at,
+    )
+    monkeypatch.setattr(placements, "engagement_feed_candidates", lambda *_: matches)
+    values = {"surface": surface, "ad_formats": ["engagement"]}
+    if surface == "topic":
+        values["topic_id"] = uuid.uuid4()
+    elif surface == "search":
+        values["search"] = {"query": "OpenAPI", "results": {"articles": [article().id]}}
+    else:
+        values["ad_formats"] = ["engagement", "feed"]
+        values["article_ids"] = [article().id]
+    output = placements.placement_format_candidates(session, PlacementQuery(**values), matches)
+    sql = str(output.compile(dialect=dialect()))
+    assert "engagement" in sql and "intent" in sql
+    if surface == "topic":
+        assert 100 in output.compile(dialect=dialect()).params.values()
+    if surface == "feed":
+        assert "UNION ALL" in sql

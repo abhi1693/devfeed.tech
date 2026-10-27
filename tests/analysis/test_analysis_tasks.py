@@ -670,3 +670,225 @@ def test_each_specialist_has_its_own_retry_budget(runtime, monkeypatch):
     analysis_tasks._analyze(job.id)
     assert job.status == "queued" and job.attempts == 21
     assert job.steps["developer_relevance"]["attempts"] == 1
+
+
+@pytest.mark.parametrize("blocked", ["disabled", "unapproved", "deleted"])
+def test_claim_rejects_unavailable_inputs_before_creating_a_paid_client(
+    runtime, monkeypatch, blocked
+):
+    from unittest.mock import Mock
+
+    article, job, settings, _ = runtime
+    if blocked == "disabled":
+        settings.ai_enabled = False
+    elif blocked == "unapproved":
+        monkeypatch.setattr(analysis_tasks, "approved_sources", lambda *_args, **_kwargs: [])
+    else:
+        factory = analysis_tasks.session_factory()
+        with factory() as session:
+            scalar = session.scalar
+            session.scalar = lambda statement: (
+                scalar(statement)
+                if statement.column_descriptions[0]["entity"] is ArticleAnalysisJob
+                else None
+            )
+    client = Mock(
+        side_effect=AssertionError("No external inference for unavailable business inputs")
+    )
+    monkeypatch.setattr(analysis_tasks, "CodexClient", client)
+    analysis_tasks._analyze(job.id)
+    assert (
+        job.outcome
+        == {"disabled": None, "unapproved": "unapproved", "deleted": "superseded"}[blocked]
+    )
+    assert job.status == ("failed" if blocked == "disabled" else "succeeded")
+    assert article.ai_summary is None
+    client.assert_not_called()
+
+
+def test_application_warms_changed_source_snapshot_after_closing_its_read_scope(
+    runtime, monkeypatch
+):
+    from unittest.mock import Mock
+
+    article, job, _, _ = runtime
+    previous = dict(job.input_snapshot)
+    article.summary += " Updated after the inference request."
+    candidates = Mock(return_value={})
+    monkeypatch.setattr(analysis_tasks, "analysis_candidates", candidates)
+    _, current = analysis_tasks._prepare_application(
+        analysis_tasks.session_factory(), article.id, previous
+    )
+    assert current != previous
+    assert [call.args[1] for call in candidates.call_args_list] == [previous, current]
+
+
+def analysis_service(runtime):
+    article, job, settings, _ = runtime
+    service = analysis_tasks.ArticleAnalysisService(
+        settings, analysis_tasks.session_factory(), analysis_tasks.CodexClient
+    )
+    context = analysis_tasks.AnalysisContext(job.id, uuid.uuid4(), job.input_snapshot, article.id)
+    return service, context
+
+
+@pytest.mark.parametrize("phase", ["prepare", "infer", "start", "propose", "apply"])
+def test_every_analysis_phase_stops_when_its_lease_is_lost(runtime, monkeypatch, phase):
+    from dataclasses import replace
+    from unittest.mock import Mock
+
+    _, job, settings, _ = runtime
+    settings.full_automation = True
+    service, context = analysis_service(runtime)
+    monkeypatch.setattr(analysis_tasks, "owned_job", lambda *_args: None)
+    result = SimpleNamespace(developer_relevance="relevant", page_kind="article")
+    attempt = analysis_tasks.AnalysisAttempt()
+    client = Mock(side_effect=AssertionError("No call after lease loss"))
+    service = replace(service, client_factory=client)
+    if phase == "prepare":
+        service.run(context)
+    elif phase == "infer":
+        with pytest.raises(analysis_tasks._AnalysisStopped):
+            service.infer(
+                context, analysis_tasks.PreparedAnalysis({}, None, False, "test"), attempt
+            )
+    elif phase == "start":
+        with pytest.raises(analysis_tasks._AnalysisStopped):
+            service.start_step(context, "overview", "digest")
+    elif phase == "propose":
+        service.propose_topics(context, result)
+    else:
+        assert service.apply(None, context, result, None, attempt, {}, None) is None
+    assert job.status == "queued" and job.result is None
+    client.assert_not_called()
+
+
+@pytest.mark.parametrize("blocked", ["unapproved", "deleted", "deferred", "published"])
+def test_application_rechecks_business_visibility_and_never_overwrites_withdrawn_inputs(
+    runtime, monkeypatch, blocked
+):
+    article, job, _, _ = runtime
+    service, context = analysis_service(runtime)
+    job.status = "running"
+    monkeypatch.setattr(analysis_tasks, "owned_job", lambda *_args: job)
+    if blocked == "unapproved":
+        monkeypatch.setattr(analysis_tasks, "approved_sources", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        analysis_tasks.ArticleAnalysisService,
+        "lock_article",
+        staticmethod(lambda *_args: None if blocked == "deleted" else article),
+    )
+    monkeypatch.setattr(analysis_tasks, "eligible_article", lambda _: blocked != "deferred")
+    if blocked == "published":
+        article.publication_status = "published"
+    result = SimpleNamespace(model_dump=lambda **_kwargs: {"validated": True})
+    with service.factory() as session:
+        outcome = service.apply(
+            session, context, result, None, analysis_tasks.AnalysisAttempt(), {}, None
+        )
+    assert (
+        outcome
+        == {
+            "unapproved": "unapproved",
+            "deleted": "superseded",
+            "deferred": "content_date_deferred",
+            "published": "published_preserved",
+        }[blocked]
+    )
+    assert job.status == "succeeded" and article.ai_summary is None
+
+
+@pytest.mark.parametrize("changed", ["source", "catalog", "saved_taxonomy"])
+def test_apply_prepared_refuses_source_and_catalog_drift_without_partial_publication(
+    runtime, monkeypatch, changed
+):
+    from unittest.mock import Mock
+
+    article, job, _, _ = runtime
+    service, context = analysis_service(runtime)
+    apply = Mock()
+    refresh = Mock()
+    monkeypatch.setattr(analysis_tasks, "apply_analysis", apply)
+    monkeypatch.setattr(analysis_tasks, "refresh_superseded_analysis", refresh)
+    monkeypatch.setattr(analysis_tasks, "lock_topics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(analysis_tasks, "source_snapshot", lambda *_args: {"current": True})
+    monkeypatch.setattr(analysis_tasks, "snapshot_current", lambda *_args: changed != "catalog")
+    monkeypatch.setattr(analysis_tasks, "analysis_catalog_current", lambda *_args: False)
+    with service.factory() as session:
+        if changed == "saved_taxonomy":
+            service.apply_current(session, context, object(), article, job, {}, {"current": True})
+            assert job.outcome == "superseded"
+            refresh.assert_called_once()
+        else:
+            with pytest.raises(analysis_tasks._ApplicationInputsChanged):
+                service.apply_current(
+                    session,
+                    context,
+                    object(),
+                    article,
+                    job,
+                    {},
+                    {} if changed == "source" else {"current": True},
+                )
+            refresh.assert_not_called()
+    apply.assert_not_called()
+
+
+def test_dependency_failure_before_any_specialist_uses_durable_retry_without_fake_usage(
+    runtime, monkeypatch
+):
+    from unittest.mock import Mock
+
+    _, job, _, _ = runtime
+    service, context = analysis_service(runtime)
+    job.status, job.attempts = "running", 1
+    monkeypatch.setattr(analysis_tasks, "owned_job", lambda *_args: job)
+    monkeypatch.setattr(
+        analysis_tasks.ArticleAnalysisService,
+        "prepare",
+        lambda *_args: analysis_tasks.PreparedAnalysis({}, None, False, "test"),
+    )
+    monkeypatch.setattr(
+        analysis_tasks.ArticleAnalysisService,
+        "infer",
+        Mock(side_effect=RuntimeError("dependency lost")),
+    )
+    recorded = Mock()
+    monkeypatch.setattr(analysis_tasks, "record_attempt", recorded)
+    service.run(context)
+    assert job.status == "queued" and job.error == "analysis_dependency_failure"
+    assert job.active_step is None
+    recorded.assert_not_called()
+
+
+def test_invalid_saved_specialist_output_is_revalidated_and_replaced_before_publication(
+    runtime, monkeypatch
+):
+    _, job, _, _ = runtime
+    complete = analysis_tasks.CodexClient(None).complete
+    calls, failed = [], False
+
+    def infer(prompt, schema):
+        nonlocal failed
+        fields = set(schema["properties"]) - {"outcome", "reason"}
+        calls.append(fields)
+        if "ai_description" in fields and not failed:
+            failed = True
+            raise AnalysisError("codex_timeout")
+        return complete(prompt, schema)
+
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=infer)
+    )
+    analysis_tasks._analyze(job.id)
+    assert job.status == "queued"
+    steps = dict(job.steps)
+    steps["developer_relevance"] = steps["developer_relevance"] | {
+        "output": {"invalid": "saved output"}
+    }
+    job.steps = steps
+    job.available_at = utcnow()
+    analysis_tasks._analyze(job.id)
+    assert job.outcome == "applied" and job.status == "succeeded"
+    assert sum("developer_relevance" in fields for fields in calls) == 2
+    assert job.steps["developer_relevance"]["output"] != {"invalid": "saved output"}

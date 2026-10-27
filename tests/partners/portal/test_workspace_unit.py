@@ -1,6 +1,7 @@
 """Workspace contracts enforce scope, bounds and independent product policy summaries."""
 
 import uuid
+from contextlib import contextmanager
 from datetime import timedelta
 from types import SimpleNamespace as NS
 from unittest.mock import AsyncMock, Mock
@@ -11,7 +12,7 @@ from devfeed_http.partner_portal import inventory_product_view
 from devfeed_partner_api import workspace
 from devfeed_partner_api.auth import PartnerIdentity, require_partner
 from devfeed_partner_api.connections import PartnerConnectionOut
-from devfeed_partner_api.dependencies import get_session
+from devfeed_partner_api.dependencies import get_session, get_session_factory
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.dialects import postgresql
@@ -40,6 +41,15 @@ def api(monkeypatch):
     app.include_router(workspace.router)
     app.dependency_overrides[require_partner] = lambda: identity
     app.dependency_overrides[get_session] = lambda: session
+
+    @contextmanager
+    def factory():
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_session_factory] = lambda: factory
     monkeypatch.setattr(workspace, "credential_storage_available", lambda: True)
     with TestClient(app) as client:
         yield client, session, identity
@@ -87,19 +97,26 @@ def connection_payload(account_id):
 
 def test_workspace_report_receives_complete_identity_scope_and_validated_filters(api, monkeypatch):
     client, session, identity = api
+    metadata = []
+    catalog = Mock(return_value=metadata)
     reporter = AsyncMock(return_value=report_payload())
+    monkeypatch.setattr(workspace, "reporting_assets", catalog)
     monkeypatch.setattr(workspace, "reporting_metrics", reporter)
     monkeypatch.setattr(workspace, "require_partner_history", AsyncMock())
     result = client.get(
         "/v1/partner/dashboard?days=7&sort=account&order=desc&limit=3&offset=2&ad_format=feed"
     )
     assert result.status_code == 200 and result.json()["account_total"] == 2
-    _, scope, _, days, limit, offset = reporter.call_args.args
+    source, scope, ad_format = catalog.call_args.args
+    assert source is session and ad_format == "feed"
+    assets, _, days, limit, offset = reporter.call_args.args
+    assert assets is metadata
+    session.close.assert_called_once_with()
     sql = statement_sql(scope)
     assert identity.subject in sql and identity.issuer in sql and "'active'" in sql
     assert "LIMIT" not in sql and "OFFSET" not in sql
     assert (days, limit, offset) == (7, 3, 2)
-    assert reporter.call_args.kwargs == {"sort": "account", "order": "desc", "ad_format": "feed"}
+    assert reporter.call_args.kwargs == {"sort": "account", "order": "desc"}
 
 
 def test_optional_account_filters_authorize_before_reading_data(api, monkeypatch):
