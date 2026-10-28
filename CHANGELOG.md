@@ -2,6 +2,28 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.1.5 — 2026-10-28
+
+### Enhancements
+
+- Move administration analytics and historical reports to ClickHouse, with automatic historical import and charts that retry independently while reports are preparing.
+
+### Performance Improvements
+
+- Reduce PostgreSQL reporting load by serving administration pipelines, overview charts, and analytical totals from ClickHouse.
+- Batch background job dispatch and analytics reads, and reduce idle worker polling and health-write overhead.
+
+### Fixes
+
+- [#310](https://github.com/abhi1693/devfeed.tech/pull/310) - Require a public display name or username for leaderboard entries and correctly identify your own ranking on web, Chrome, and Edge.
+- [#314](https://github.com/abhi1693/devfeed.tech/pull/314) - Handle missing worker state safely during operational recovery.
+
+### Upgrade Notes
+
+- Prepare persistent ClickHouse storage and apply PostgreSQL migration `0038` and versioned ClickHouse schema migrations before starting new application producers. Deploy the new applications, drain old application and worker processes, retire the old pipeline and report projectors through their deployment configuration, then start the historical importer. Follow the [analytics rollout guide](apps/admin-api/ANALYTICS.md#compose-and-rollout).
+- Update worker deployment commands to `devfeed-worker` and health probes to `devfeed-worker-health` together with the application image. Allow active jobs to drain before replacement; see the [worker runtime guide](benchmarks/worker-runtime.md).
+- Back up ClickHouse, including import progress and readiness. Historical import removes legacy PostgreSQL analytics after completion; older application binaries cannot use the retired tables. Direct analytics delivery is best effort, so failed delivery can lose observations and complete ClickHouse data loss cannot be recovered automatically.
+
 ## 0.1.4 — 2026-10-25
 
 ### Performance Improvements
