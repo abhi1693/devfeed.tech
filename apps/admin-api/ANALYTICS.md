@@ -110,6 +110,19 @@ cannot prove that an old pod stopped producing business changes after a source
 page was scanned. Draining old processes is therefore required for the handover.
 Do not put the full historical scan in a synchronous migration or readiness hook.
 
+Permanently retire the Fleet Deployments `devfeed-read-model-pipeline` and
+`devfeed-read-model-reports` before starting the importer. Remove their owning
+manifests and Kustomize/catalog entries, together with any associated autoscalers,
+scheduled hooks, probes and read-model alerts. Remove `DEVFEED_READ_MODEL_*`
+configuration and dedicated database credentials, pooler and network policy once
+their last consumer is gone. Updating the application image alone does not remove
+old Deployments: they must not keep running or be recreated by GitOps. Compose's
+equivalent `pipeline-projector` and `report-projector` services are removed; remove
+their orphaned containers when updating an existing stack. The new runtime has no
+read-model/report projector entrypoint, scheduled refresh job or PostgreSQL
+analytical fallback. Only the finite historical importer remains, with the
+retirement gates above defining when it can also be removed.
+
 Back up ClickHouse together with import progress and readiness. After PostgreSQL
 history is removed, an empty ClickHouse database cannot reconstruct deleted
 history. Restoring an older ClickHouse snapshot also loses later observations
