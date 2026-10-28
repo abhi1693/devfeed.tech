@@ -1,19 +1,5 @@
 import { expect, it } from "vitest";
-import {
-  methodName,
-  normalizeBody,
-  normalizeMeta,
-  normalizePayload,
-  redactAuthText,
-  routeName,
-} from "@devfeed/telemetry/privacy";
-
-const settings = {
-  enabled: true,
-  app: "web" as const,
-  version: "1.2.3",
-  environment: "production",
-};
+import { methodName, redactAuthText, routeName } from "@devfeed/telemetry/privacy";
 
 it.each([
   "/",
@@ -133,45 +119,6 @@ it("scopes labels to their owning application", () => {
   ).toBe("/partnerships/accounts/:id/assets/:id/edit");
 });
 
-it("rejects spoofed or identifying Faro view names and preserves approved names", () => {
-  const approved = normalizeMeta({ view: { id: "view-id", name: "/articles/:id" } }, settings);
-  expect(approved.view).toEqual({ id: "view-id", name: "/articles/:id" });
-  for (const name of [
-    "/articles/private-slug",
-    "/users/private-reader",
-    "/settings?code=private",
-    42,
-  ])
-    expect(normalizeMeta({ view: { name } }, settings).view?.name).toBe("unmatched");
-  expect(normalizeMeta({ view: { name: "/partnerships" } }, settings).view?.name).toBe("unmatched");
-});
-
-it("accepts only approved semantic route attributes at the browser and receiver boundary", () => {
-  const approved = {
-    name: "route_change",
-    timestamp: "2026-10-15T00:00:00Z",
-    attributes: { route: "/users/:username" },
-  };
-  expect(normalizePayload("event", approved, settings)).toEqual(approved);
-  const identifying = {
-    ...approved,
-    attributes: {
-      route: "/users/private-reader",
-      url: "/users/private-reader?q=private-query",
-    },
-  };
-  expect(normalizePayload("event", identifying, settings)).toEqual({
-    ...approved,
-    attributes: { route: "unmatched" },
-  });
-  expect(normalizeBody({ events: [identifying] }, settings).events).toEqual([
-    { ...approved, attributes: { route: "unmatched" } },
-  ]);
-  expect(
-    normalizePayload("event", { ...approved, attributes: { route: "/partnerships" } }, settings),
-  ).toMatchObject({ attributes: { route: "unmatched" } });
-});
-
 it.each([
   "access_token",
   "refresh-token",
@@ -193,13 +140,10 @@ it.each([
   "oauth_verifier",
   "device_code",
   "user_code",
-])("redacts the %s credential in attributes, query strings and nested payloads", (field) => {
+])("redacts the %s credential in request URLs", (field) => {
   expect(redactAuthText(`https://example.com/?${field}=private&topic=typescript`)).toBe(
     `https://example.com/?${field}=[REDACTED]&topic=typescript`,
   );
-  expect(normalizePayload("event", { nested: [{ [field]: "private", keep: "public" }] })).toEqual({
-    nested: [{ [field]: "[REDACTED]", keep: "public" }],
-  });
 });
 
 it("sanitizes credential headers and URLs without destroying ordinary diagnostics", () => {
@@ -214,109 +158,32 @@ it("sanitizes credential headers and URLs without destroying ordinary diagnostic
   expect(redactAuthText("code=private;state=private&q=public")).toBe(
     "code=[REDACTED];state=[REDACTED]&q=public",
   );
-  for (const value of [null, 42, "private", { stringValue: "private" }]) {
-    expect(normalizePayload("event", { key: "http.request.header.Authorization", value })).toEqual({
-      key: "http.request.header.Authorization",
-      value:
-        value !== null && typeof value === "object" ? { stringValue: "[REDACTED]" } : "[REDACTED]",
-    });
-  }
 });
 
-it("bounds telemetry arrays and drops malformed entries while preserving valid diagnostics", () => {
-  const entries = Array.from({ length: 101 }, (_, index) => ({ message: String(index) }));
-  const result = normalizeBody(
-    { logs: entries, events: [null, [], "bad", { name: "public" }] },
-    settings,
+it.each(["session_state", "RelayState"])("redacts %s callback state in request URLs", (field) => {
+  expect(redactAuthText(`/callback?${field}=private&topic=public`)).toBe(
+    `/callback?${field}=[REDACTED]&topic=public`,
   );
-  expect(result.logs).toEqual(entries.slice(0, 100));
-  expect(result.events).toEqual([{ name: "public" }]);
-  expect(result.measurements).toEqual([]);
-  expect(result.exceptions).toEqual([]);
-  expect(result).not.toHaveProperty("traces");
-  for (const value of [null, undefined, 42, "bad", []])
-    expect(normalizePayload("event", value)).toBeNull();
-  expect(normalizeBody([], settings)).toMatchObject({
-    logs: [],
-    events: [],
-    meta: { app: { name: "devfeed-web" } },
-  });
 });
 
-it.each(["exceptions", "measurements", "events", "logs"] as const)(
-  "drops malformed %s while retaining redacted structured diagnostics",
-  (collection) => {
-    const diagnostic = { name: "public", message: "code=private&topic=typescript" };
-    const result = normalizeBody(
-      { [collection]: [null, [], "bad", 42, false, diagnostic] },
-      settings,
-    );
-    expect(result[collection]).toEqual([
-      { name: "public", message: "code=[REDACTED]&topic=typescript" },
-    ]);
-    expect(diagnostic.message).toBe("code=private&topic=typescript");
-  },
-);
-
-it.each(["exception", "measurement", "log"])(
-  "preserves ordinary route_change diagnostics of type %s",
-  (type) => {
-    const diagnostic = {
-      name: "route_change",
-      attributes: { route: "/articles/private-slug", component: "router" },
-    };
-    expect(normalizePayload(type, diagnostic, settings)).toEqual(diagnostic);
-  },
-);
-
-it.each([undefined, null, "invalid", {}, 42])(
-  "does not invent trace spans from malformed resourceSpans: %j",
-  (resourceSpans) => {
-    expect(normalizePayload("trace", { resourceSpans }, settings)).toEqual({
-      resourceSpans: [],
-    });
-  },
-);
-
-it("uses trusted deployment labels for traces and preserves custom attributes", () => {
-  const spoofed = ["service.name", "service.version", "deployment.environment.name"].map((key) => ({
-    key,
-    value: { stringValue: "spoofed" },
-  }));
-  const custom = { key: "custom", value: { stringValue: "public" } };
-  const input = {
-    resourceSpans: [{ resource: { attributes: [...spoofed, custom] }, scopeSpans: [] }],
-  };
-  expect(normalizePayload("trace", input, settings)).toEqual({
-    resourceSpans: [
-      {
-        resource: {
-          attributes: [
-            custom,
-            { key: "service.name", value: { stringValue: "devfeed-web-browser" } },
-            { key: "service.version", value: { stringValue: "1.2.3" } },
-            { key: "deployment.environment.name", value: { stringValue: "production" } },
-          ],
-        },
-        scopeSpans: [],
-      },
-    ],
-  });
-  expect(input.resourceSpans[0].resource.attributes).toEqual([...spoofed, custom]);
-  expect(normalizePayload("trace", input)).toEqual(input);
+it("preserves UTF-8 and escapes punctuation while redacting an encoded callback", () => {
+  const callback = "/callback?code=private&topic=日本語&label=don't";
+  const expected = encodeURIComponent(
+    callback.replace("code=private", "code=[REDACTED]"),
+  ).replaceAll("'", "%27");
+  expect(
+    redactAuthText(`/login?return_to=${encodeURIComponent(callback).replaceAll("'", "%27")}`),
+  ).toBe(`/login?return_to=${expected}`);
 });
 
-it("overwrites browser-supplied app labels and controls the sampling override", () => {
-  const input = {
-    app: { name: "spoofed", custom: "public" },
-    session: { id: "session", attributes: { isSampled: true, custom: "public" } },
-  };
-  expect(normalizeMeta(input, settings)).toEqual({
-    app: { name: "devfeed-web", version: "1.2.3", environment: "production", custom: "public" },
-    session: { id: "session", attributes: { custom: "public" } },
-  });
-  expect(normalizeMeta(input, settings, true).session?.attributes).toEqual(
-    input.session.attributes,
+it("retains malformed encoded diagnostics without losing adjacent credentials", () => {
+  expect(redactAuthText("/callback?topic=%FF&state=private")).toBe(
+    "/callback?topic=%FF&state=[REDACTED]",
   );
-  expect(normalizeMeta(null, settings)).not.toHaveProperty("session");
+});
+
+it("bounds repeatedly encoded callback URLs", () => {
+  let callback = "/callback?code=private";
+  for (let depth = 0; depth < 7; depth++) callback = encodeURIComponent(callback);
+  expect(redactAuthText(`/login?return_to=${callback}`)).not.toContain("private");
 });

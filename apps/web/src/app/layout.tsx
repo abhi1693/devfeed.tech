@@ -1,8 +1,6 @@
 import { TagFollowsProvider } from "@/components/tag-follows";
 import { HeaderSponsorshipProvider } from "@/components/header-sponsorship";
 import { TopicFollowsProvider } from "@/components/topic-follows";
-import { BrowserTelemetry } from "@devfeed/telemetry/browser";
-import { browserSettings } from "@devfeed/telemetry/receiver";
 import { DeferredGoogleAnalytics } from "@/components/deferred-google-analytics";
 import { DeferredClarity } from "@/components/deferred-clarity";
 import { WebArticleNavigationProvider } from "@/components/web-article-navigation";
@@ -74,7 +72,6 @@ export default async function RootLayout({
       </head>
       <body>
         <ReaderNavigationRecovery />
-        <BrowserTelemetry {...browserSettings("web")} />
         <JsonLd data={siteStructuredData(brandMark)} />
         <UserProvider>
           <ReaderContextProvider>

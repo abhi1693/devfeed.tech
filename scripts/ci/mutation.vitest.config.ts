@@ -24,9 +24,9 @@ export default defineConfig({
       ...web.resolve?.alias,
       // Workspace symlinks otherwise resolve back to the original, unmutated package.
       ...Object.fromEntries(
-        ["privacy", "session", "receiver", "server", "propagation", "browser"].map((name) => [
+        ["privacy", "server", "propagation"].map((name) => [
           `@devfeed/telemetry/${name}`,
-          path.join(root, `packages/telemetry/src/${name}.${name === "browser" ? "tsx" : "ts"}`),
+          path.join(root, `packages/telemetry/src/${name}.ts`),
         ]),
       ),
     },

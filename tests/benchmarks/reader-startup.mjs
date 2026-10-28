@@ -28,17 +28,6 @@ function usedBytes(entry) {
   }
   return used;
 }
-// Fix Faro's sampling decision for a comparable 90%-of-sessions path; UUID entropy is untouched.
-function unsampledSession(value = 0xffffffff) {
-  const random = crypto.getRandomValues.bind(crypto);
-  crypto.getRandomValues = (array) => {
-    if (array instanceof Uint32Array && array.length === 1) {
-      array[0] = value;
-      return array;
-    }
-    return random(array);
-  };
-}
 const phase = process.argv[2] || "before";
 const root = `reports/reader-startup/${phase}`;
 await mkdir(root, { recursive: true });
@@ -100,7 +89,6 @@ const app = spawn(
       DEVFEED_PUBLIC_API_URL: api,
       DEVFEED_USER_API_URL: api,
       DEVFEED_USER_BASE_URL: origin,
-      DEVFEED_FARO_ENABLED: "true",
       DEVFEED_TELEMETRY_ENVIRONMENT: "benchmark",
     },
     stdio: "pipe",
@@ -122,7 +110,6 @@ try {
   const results = [];
   for (const route of ["/latest", "/topics", "/sources", "/users/leader-reader"]) {
     const context = await browser.newContext({ viewport: { width: 1350, height: 940 } });
-    await context.addInitScript(unsampledSession);
     const page = await context.newPage();
     await page.coverage.startJSCoverage({ resetOnNavigation: false });
     const errors = [];
@@ -144,7 +131,7 @@ try {
       (chunk) => chunk.totalBytes > 50_000 && chunk.text.includes("TracingInstrumentation"),
     );
     if (phase.startsWith("after"))
-      assert.equal(tracingDownloaded, false, "unsampled sessions do not download tracing");
+      assert.equal(tracingDownloaded, false, "reader does not download browser tracing");
     const totals = chunks.reduce(
       (a, c) => ({
         totalBytes: a.totalBytes + c.totalBytes,
@@ -183,44 +170,6 @@ try {
     await page.screenshot({ path: `${root}/${route.replaceAll("/", "_")}.png`, fullPage: true });
     await context.close();
   }
-  // Exercise real compiled SDK initialization for both sampled and DNT sessions.
-  for (const sampled of [true, false]) {
-    const context = await browser.newContext();
-    if (sampled) await context.addInitScript(unsampledSession, 0);
-    else
-      await context.addInitScript(() =>
-        Object.defineProperty(navigator, "doNotTrack", { get: () => "1" }),
-      );
-    const page = await context.newPage();
-    await page.coverage.startJSCoverage();
-    await page.goto(origin + "/latest");
-    await page.waitForTimeout(2000);
-    const coverage = await page.coverage.stopJSCoverage();
-    const tracing = coverage.some(
-      (entry) =>
-        (entry.source?.length ?? 0) > 50_000 && entry.source.includes("TracingInstrumentation"),
-    );
-    assert.equal(
-      tracing,
-      sampled,
-      sampled ? "sampled sessions load tracing" : "DNT sessions skip tracing",
-    );
-    if (!sampled)
-      assert.equal(
-        coverage.some(
-          (entry) =>
-            (entry.source?.length ?? 0) > 50_000 && entry.source.includes("initializeFaro"),
-        ),
-        false,
-        "DNT sessions skip the Faro SDK",
-      );
-    const request = page.waitForRequest((request) => request.url() === origin + "/api/v1/topics");
-    await page.evaluate(() => fetch("/api/v1/topics"));
-    const traceparent = (await request).headers()["traceparent"];
-    if (sampled) assert.match(traceparent, /^00-[a-f0-9]{32}-[a-f0-9]{16}-01$/);
-    else assert.equal(traceparent, undefined);
-    await context.close();
-  }
   if (process.env.DEVFEED_STARTUP_LIGHTHOUSE === "1") {
     const { default: lighthouse } = await import("lighthouse");
     const { launch } = await import("chrome-launcher");
@@ -238,7 +187,6 @@ try {
           });
           try {
             const connection = await chromium.connectOverCDP(`http://127.0.0.1:${chrome.port}`);
-            await connection.contexts()[0].addInitScript(unsampledSession);
             const result = await lighthouse(
               origin + route,
               {

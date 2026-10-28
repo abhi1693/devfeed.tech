@@ -26,13 +26,7 @@
     }
   },
   "telemetry": {
-    "tests": [
-      "telemetry",
-      "telemetry-privacy",
-      "telemetry-fuzz",
-      "telemetry-browser-faro",
-      "telemetry-session"
-    ],
+    "tests": ["telemetry", "telemetry-privacy", "telemetry-fuzz"],
     "files": {
       "packages/telemetry/src/auth-privacy.ts": 84,
       "packages/telemetry/src/privacy.ts": 94

@@ -103,9 +103,7 @@ The scheduler generates cached sitemaps in the background. Crawler requests serv
 the last completed snapshot while refreshes run; see
 [sitemap refresh and retention](apps/aggregator/README.md#cached-sitemaps).
 
-[Configure OpenTelemetry and service metrics](packages/core/OBSERVABILITY.md). The 0.1.2 dependency
-refresh retains the latest compatible OpenTelemetry 2.x JavaScript family until Faro supports SDK 3;
-see [telemetry compatibility](packages/telemetry/README.md#dependency-compatibility).
+[Configure OpenTelemetry and service metrics](packages/core/OBSERVABILITY.md). See [telemetry route labels](packages/telemetry/README.md) for bounded request metrics.
 
 ## Help shape what comes next
 

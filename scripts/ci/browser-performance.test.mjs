@@ -146,7 +146,7 @@ test("frontend consumers, assets, dependencies and the gate trigger browser budg
     "apps/extensions/build.mjs",
     "packages/ui/src/index.ts",
     "packages/theme/assets/devfeed-icon-32.png",
-    "packages/telemetry/src/faro.ts",
+    "packages/telemetry/src/server.ts",
     "package.json",
     "package-lock.json",
     ".github/workflows/ci.yml",
