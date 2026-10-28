@@ -55,10 +55,11 @@ work. Here’s mine:
 - **Choose how to read.** Switch between cards and a compact list, and use light,
   dark, or system appearance.
 - **See your reading rank.** Compare longest streaks and total reading days among
-  readers with public visibility and recorded reading activity. A username is
-  optional; readers without one appear without a profile link.
-  Each leaderboard shows your rank in the list, or below it when you are outside
-  the displayed ten readers.
+  readers with public visibility, recorded reading activity, and a display name
+  or username. A username is optional; named readers without one appear without
+  a profile link. Accounts without either name are omitted.
+  Each leaderboard shows your rank in your linked profile row, or separately
+  below the board when your account cannot be matched to a listed username.
 - **Bring a source with you.** Suggest an RSS or Atom feed for review from the web
   app or browser extensions.
 
