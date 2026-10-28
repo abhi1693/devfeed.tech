@@ -114,7 +114,7 @@ await new Promise((resolve) => probe.close(resolve));
 // Image URLs point directly at the fixture server, preserving independent image requests.
 const appOrigin = `http://127.0.0.1:${port}`;
 const env = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => !/^(DEVFEED_|FARO_|OTEL_)/.test(key)),
+  Object.entries(process.env).filter(([key]) => !/^(DEVFEED_|OTEL_)/.test(key)),
 );
 const app = spawn(
   process.execPath,

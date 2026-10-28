@@ -144,7 +144,6 @@ try {
           ...env,
           DEVFEED_ANALYTICS_ENABLED: "false",
           DEVFEED_X_PIXEL_ENABLED: "false",
-          DEVFEED_FARO_ENABLED: "false",
           DEVFEED_PUBLIC_API_URL: upstream,
           DEVFEED_USER_API_URL: upstream,
           DEVFEED_USER_BASE_URL: origin,

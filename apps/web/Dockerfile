@@ -23,7 +23,7 @@ COPY apps/extensions apps/extensions
 COPY scripts/assets scripts/assets
 COPY scripts/ci scripts/ci
 RUN --mount=type=cache,target=/app/apps/web/.next/cache,sharing=locked \
-    mkdir -p apps/web/public && npm run web:build && node packages/telemetry/scripts/private-sourcemaps.mjs apps/web/.next
+    mkdir -p apps/web/public && npm run web:build
 
 FROM ${DOCKERHUB_PREFIX}alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35 AS runtime
 WORKDIR /app
@@ -38,7 +38,6 @@ RUN node --version && node -e 'require("node:crypto"); require("node:tls")'
 COPY --from=builder --chown=node:node /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder --chown=node:node /app/apps/web/public ./apps/web/public
-COPY --from=builder --chown=node:node /app/apps/web/.next/faro-sourcemaps ./apps/web/.next/faro-sourcemaps
 USER node
 EXPOSE 3000 9100
 CMD ["node", "apps/web/server.js"]

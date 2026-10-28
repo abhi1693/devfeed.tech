@@ -104,7 +104,7 @@ const audits = [];
 const lighthouseOnly = process.argv.includes("--lighthouse-only");
 const env = Object.fromEntries(
   Object.entries(process.env).filter(
-    ([key]) => !/^(DEVFEED_|GOOGLE_ANALYTICS_|MICROSOFT_CLARITY_|FARO_|OTEL_)/.test(key),
+    ([key]) => !/^(DEVFEED_|GOOGLE_ANALYTICS_|MICROSOFT_CLARITY_|OTEL_)/.test(key),
   ),
 );
 try {
@@ -147,7 +147,6 @@ try {
           DEVFEED_METRICS_PORT: new URL(metricOrigin).port,
           DEVFEED_OTLP_ENDPOINT: collectorOrigin,
           DEVFEED_ANALYTICS_ENABLED: "false",
-          DEVFEED_FARO_ENABLED: "false",
           DEVFEED_X_PIXEL_ENABLED: "false",
         },
         stdio: ["ignore", "pipe", "pipe"],

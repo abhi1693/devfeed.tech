@@ -36,9 +36,6 @@ function decoded(value: string) {
 function name(value: string) {
   return decoded(value).toLowerCase().replace(/[_.-]/g, "");
 }
-function credentialField(value: string) {
-  return credentialFields.has(name(value.split(".").at(-1) || value));
-}
 function encodedValue(value: string, depth: number): string {
   const plain = decoded(value);
   if (plain === value) return value;
@@ -65,24 +62,4 @@ export function redactAuthText(value: string, depth = 0): string {
       return original;
     },
   );
-}
-export function redactAuthentication(value: unknown, depth = 0): unknown {
-  if (typeof value === "string") return redactAuthText(value);
-  if (value === null || typeof value !== "object") return value;
-  if (depth >= 20) return "[truncated]";
-  if (Array.isArray(value)) return value.map((item) => redactAuthentication(item, depth + 1));
-  const input = value as Record<string, unknown>;
-  const output = Object.fromEntries(
-    Object.entries(input).map(([key, item]) => [
-      key,
-      credentialField(key) ? redacted : redactAuthentication(item, depth + 1),
-    ]),
-  );
-  // OTLP attributes store the semantic field name separately from its value.
-  if (typeof input.key === "string" && "value" in input && credentialField(input.key))
-    output.value =
-      input.value !== null && typeof input.value === "object"
-        ? { stringValue: redacted }
-        : redacted;
-  return output;
 }

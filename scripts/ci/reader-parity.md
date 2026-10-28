@@ -95,3 +95,6 @@ requires that exact commit’s successful master CI attempt before building and 
 release images. Tag runs reuse the master reader proof rather than repeating the matrix.
 The scheduling changes add no inter-worker dependencies and remove no coverage or
 final-merge gate.
+
+Sponsored-column checks stop the prior reader document before installing fixtures,
+so their delivery counts cover only the five-column workspace under test.
