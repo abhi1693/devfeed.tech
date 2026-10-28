@@ -1,11 +1,7 @@
 import { trace } from "@opentelemetry/api";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { channel } from "node:diagnostics_channel";
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
-import path from "node:path";
 import { Registry, Counter, Gauge, Histogram, collectDefaultMetrics } from "@prometheus-io/client";
-import { observeDeliveries } from "./delivery";
 import { routeName, methodName, redactAuthText } from "./privacy";
 let registered = false;
 export async function registerTelemetry(app: "web" | "admin" | "partner") {
@@ -34,13 +30,6 @@ export async function registerTelemetry(app: "web" | "admin" | "partner") {
       process.env.DEVFEED_TELEMETRY_ENVIRONMENT || "development",
     )
     .set(1);
-  const deliveries = new Counter({
-    name: "devfeed_faro_deliveries_total",
-    help: "Faro receiver outcomes; status 202 means collector accepted",
-    labelNames: ["status", "outcome"],
-    registers: [registry],
-  });
-  observeDeliveries((status, outcome) => deliveries.labels(String(status), outcome).inc());
   const requests = new Counter({
     name: "devfeed_http_requests_total",
     help: "Completed application HTTP requests",
@@ -76,7 +65,7 @@ export async function registerTelemetry(app: "web" | "admin" | "partner") {
     const { request, response } = message as { request: IncomingMessage; response: ServerResponse };
     if (
       request.socket.localPort === port ||
-      /^\/(?:_next\/|telemetry\/collect|health(?:\/|$))/.test(request.url || "")
+      /^\/(?:_next\/|health(?:\/|$))/.test(request.url || "")
     )
       return;
     const state = {
@@ -135,27 +124,6 @@ export async function registerTelemetry(app: "web" | "admin" | "partner") {
         response.end();
       }
       return;
-    }
-    // Maps live outside Next's public/static tree. Collector access is internal only.
-    const map = request.url?.match(
-      /^\/sourcemaps\/(?:_next\/static\/)?([a-zA-Z0-9_./-]+\.js\.map)$/,
-    );
-    if (request.method === "GET" && map && !map[1].includes("..")) {
-      const filename = path.join(process.cwd(), ".next/faro-sourcemaps", map[1]);
-      try {
-        if ((await stat(filename)).isFile()) {
-          response.writeHead(200, {
-            "Content-Type": "application/json",
-            "Cache-Control": "private, max-age=3600",
-          });
-          createReadStream(filename)
-            .on("error", () => response.destroy())
-            .pipe(response);
-          return;
-        }
-      } catch {
-        /* Missing maps are normal during a rolling release. */
-      }
     }
     response.writeHead(404);
     response.end();

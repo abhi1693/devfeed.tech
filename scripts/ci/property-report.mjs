@@ -2,7 +2,7 @@ export const propertySuites = {
   "pagination.property.test.ts": 3,
   "urls.property.test.ts": 4,
   "follows.property.test.tsx": 4,
-  "telemetry-fuzz.test.ts": 4,
+  "telemetry-fuzz.test.ts": 3,
 };
 
 export function checkPropertyReport(report) {

@@ -234,43 +234,13 @@ Request URLs and log messages have no string-length cap. Control characters are
 escaped; job-stream event size, queue and retention limits remain.
 The logger does not automatically capture request bodies, headers or local variables.
 
-Browser telemetry removes the same authentication material from error messages,
-stack filenames, log payloads, event attributes, metadata and OTLP attributes.
-Sanitization runs before browser transport and again at the receiver, including
-when a client skips browser normalization. Node request logs use the same URL policy.
-Other diagnostic content is preserved. The browser receiver still validates
-origin, content type and size, enforces rate/time limits, and assigns service identity.
-Metric routes remain grouped to limit cardinality; Node request logs use concrete URLs.
+Node request logs redact authentication values using the same URL policy.
+Metric routes remain grouped to limit cardinality; request logs use concrete URLs.
 
 Restart running services to load the updated logging code. Redaction applies to new
 records; it does not remove authentication material from existing retained logs.
 
 ## Frontend telemetry
-
-Web and admin Faro metadata uses the version embedded in the Next build
-(`DEVFEED_BUILD_VERSION`), then `DEVFEED_VERSION`, then `development`.
-`DEVFEED_TELEMETRY_ENVIRONMENT` supplies the environment independently. The receiver
-assigns these values again when forwarding a payload; client metadata is not authoritative.
-
-`devfeed_faro_deliveries_total{service,status,outcome}` counts receiver outcomes once.
-`accepted` / 202 means the upstream collector accepted the batch, not that every
-event was stored. The bounded outcomes distinguish missing, mismatched or unconfigured
-origins, content encoding, invalid bodies, size/rate/time limits, disabled or
-unconfigured collectors, upstream rejection, and upstream transport errors. They
-contain no origin values, URLs, payloads or user/session identities.
-
-```promql
-sum by (service, status, outcome) (
-  increase(devfeed_faro_deliveries_total{namespace="devfeed"}[24h])
-)
-```
-
-A high 403 fraction alone cannot establish genuine browser data loss. Compare the
-rejection reasons with a sampled browser's network response and collector ingestion
-in the same window. Faro samples 10% of sessions, honors Do Not Track, and batches
-events for up to five seconds. Unsampled sessions and unfinished page-lifecycle vitals
-are not evidence of delivery failure. Do not weaken origin validation to improve the
-acceptance ratio.
 
 Node emits `http_server_request_duration_seconds` with `http_request_method`,
 `http_route`, `http_response_status_code`, and `devfeed_request_kind` labels. Known
@@ -288,10 +258,9 @@ confirm all replicas have updated before judging the corrected SLOs. New outcome
 labels also start new counter series; older events have no reason and cannot be
 classified retroactively. Let the selected rate windows age past the rollout.
 
-After building both Next applications, run the real Faro browser/receiver regression
-with `node apps/web/tests/browser/telemetry.mjs` and
-`node apps/web/tests/browser/telemetry.mjs admin`. These use a local collector fixture
-and force a sampled session only inside the test; they do not send production events.
+After building the Next applications, run `node apps/web/tests/browser/telemetry.mjs`
+(with `admin` or `partner` for those apps) to verify request metrics and the absence
+of browser collection routes and public source maps. Tests use local API fixtures.
 
 ## Migration
 

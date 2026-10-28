@@ -417,8 +417,7 @@ The automated browser tests send only to a disposable local relay fixture. Googl
 `/debug/mp/collect` endpoint can validate payloads without recording test events;
 an HTTP 2xx from `/mp/collect` alone does not prove GA4 processed an event.
 
-After fresh web, partner and extension builds, check the actual Faro views, partner
-request metrics and extension page-view envelopes with:
+After fresh web, partner and extension builds, check server request metrics and extension page-view envelopes with:
 
 ```sh
 node apps/web/tests/browser/telemetry.mjs web

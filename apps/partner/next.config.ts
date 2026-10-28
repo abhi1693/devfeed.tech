@@ -5,7 +5,6 @@ import path from "node:path";
 const config: NextConfig = {
   env: { DEVFEED_BUILD_VERSION: version },
   output: "standalone",
-  productionBrowserSourceMaps: true,
   serverExternalPackages: ["@pyroscope/nodejs", "@prometheus-io/client", "@opentelemetry/sdk-node"],
   outputFileTracingRoot: path.join(import.meta.dirname, "../.."),
   poweredByHeader: false,

@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { methodName, normalizeMeta, routeName } from "@devfeed/telemetry/privacy";
+import { methodName, routeName } from "@devfeed/telemetry/privacy";
 import { propertyOptions } from "../../../scripts/ci/property-config.mjs";
 
 const options = propertyOptions();
@@ -59,29 +59,6 @@ describe("telemetry privacy properties", () => {
         expect(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "OTHER"]).toContain(
           methodName(input),
         );
-      }),
-      options,
-    );
-  });
-
-  it("uses trusted application metadata and removes client sampling decisions", () => {
-    fc.assert(
-      fc.property(fc.jsonValue(), fc.jsonValue(), (app, isSampled) => {
-        const input = { app, session: { attributes: { isSampled, marker: "retained" } } };
-        const settings = {
-          enabled: true,
-          app: "web" as const,
-          version: "0.0.50",
-          environment: "production",
-        };
-        const normalized = normalizeMeta(input, settings);
-        expect(normalized.app).toMatchObject({
-          name: "devfeed-web",
-          version: settings.version,
-          environment: settings.environment,
-        });
-        expect(normalized.session?.attributes).toEqual({ marker: "retained" });
-        expect(input.session.attributes.isSampled).toEqual(isSampled);
       }),
       options,
     );

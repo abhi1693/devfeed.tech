@@ -32,12 +32,11 @@ const env = {
     Object.entries(process.env).filter(
       ([key]) =>
         key !== "NODE_V8_COVERAGE" &&
-        !/^(DEVFEED_|GOOGLE_ANALYTICS_|MICROSOFT_CLARITY_|FARO_|OTEL_)/.test(key),
+        !/^(DEVFEED_|GOOGLE_ANALYTICS_|MICROSOFT_CLARITY_|OTEL_)/.test(key),
     ),
   ),
   NEXT_TELEMETRY_DISABLED: "1",
   DEVFEED_ANALYTICS_ENABLED: "false",
-  DEVFEED_FARO_ENABLED: "false",
   DEVFEED_METRICS_ENABLED: "false",
   DEVFEED_X_PIXEL_ENABLED: "false",
 };

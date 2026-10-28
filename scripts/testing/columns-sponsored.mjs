@@ -155,6 +155,8 @@ async function installSponsoredProducts(page) {
 
 /** Columns and the existing article layouts retain contextual paid delivery and tracking. */
 export async function checkColumnsSponsoredProducts(page, target, output) {
+  // Stop the signed-in reader before fixtures can intercept its pending deliveries.
+  await page.goto("about:blank");
   const fixture = await installColumnsFeedFixture(page, { signedIn: true });
   fixture.setStress(true);
   fixture.setOrdinaryArticles(

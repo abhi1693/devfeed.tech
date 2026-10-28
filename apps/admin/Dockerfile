@@ -19,7 +19,7 @@ COPY packages/ui packages/ui
 COPY packages/telemetry packages/telemetry
 COPY apps/admin apps/admin
 RUN --mount=type=cache,target=/app/apps/admin/.next/cache,sharing=locked \
-    npm run admin:build && node packages/telemetry/scripts/private-sourcemaps.mjs apps/admin/.next
+    npm run admin:build
 
 FROM ${DOCKERHUB_PREFIX}alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35 AS runtime
 WORKDIR /app
@@ -33,7 +33,6 @@ COPY --from=builder /usr/local/bin/node /usr/local/bin/node
 RUN node --version && node -e 'require("node:crypto"); require("node:tls")'
 COPY --from=builder --chown=node:node /app/apps/admin/.next/standalone ./
 COPY --from=builder --chown=node:node /app/apps/admin/.next/static ./apps/admin/.next/static
-COPY --from=builder --chown=node:node /app/apps/admin/.next/faro-sourcemaps ./apps/admin/.next/faro-sourcemaps
 USER node
 EXPOSE 3000 9100
 CMD ["node", "apps/admin/server.js"]
