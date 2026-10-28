@@ -87,6 +87,8 @@ x-core-environment: &core-environment # Use a hex password so it is safe inside 
   DEVFEED_CODEX_MODEL:
   DEVFEED_CODEX_AUTH_TOKEN:
   DEVFEED_CODEX_TIMEOUT_SECONDS:
+  DEVFEED_JOB_QUEUE_MODE:
+  DEVFEED_JOB_QUEUE_OVERRIDES:
   DEVFEED_NOTIFICATIONS_ENABLED:
   DEVFEED_CHIMELY_USER_ENVIRONMENT: ${DEVFEED_CHIMELY_USER_ENVIRONMENT:-devfeed-users}
 
@@ -181,7 +183,7 @@ x-worker-environment: &worker-environment
 
 x-dedicated-worker: &dedicated-worker
   <<: [*backend, *worker-runtime]
-  profiles: [workers]
+  profiles: [legacy-dedicated]
   depends_on: *ready
 
 services:
@@ -468,6 +470,7 @@ services:
         ]
 
   worker:
+    profiles: [legacy-workers]
     <<: [*backend, *worker-runtime]
     entrypoint: [python, /opt/devfeed/chimely-consumer.py, worker]
     volumes:
@@ -478,6 +481,7 @@ services:
     # Keep AI enabled so ingestion queues analysis, even with a dedicated consumer.
     environment:
       <<: [*core-environment, *chimely-environment, *clickhouse-worker, *worker-environment]
+      DEVFEED_WORKER_LEGACY_QUEUES: "true"
       DEVFEED_WORKER_QUEUE: ${DEVFEED_WORKER_QUEUE:-all}
       DEVFEED_PARTNER_CREDENTIAL_KEY:
       # Only delivery workers need Chimely management API keys.
@@ -660,6 +664,8 @@ services:
     networks: [default, data]
     environment:
       <<: [*chimely-environment, *clickhouse-user]
+      DEVFEED_JOB_QUEUE_MODE:
+      DEVFEED_JOB_QUEUE_OVERRIDES:
       DEVFEED_NOTIFICATIONS_ENABLED:
       DEVFEED_CHIMELY_USER_HMAC_SECRET:
       # Only user inbox signing, persistence and user identity settings.
@@ -897,34 +903,49 @@ services:
       test: [CMD, node, /opt/devfeed/health.cjs]
       interval: 5s
 
-  # Opt in through compose.workers.yaml; legacy workers remain the default.
-  ai-maintenance-worker:
-    <<: *dedicated-worker
-    profiles: [pooled-workers]
-    environment:
-      <<: [*core-environment, *clickhouse-worker, *worker-environment]
-      DEVFEED_WORKER_QUEUE: ai-maintenance
+  # One independently sized worker deployment per priority by default.
+  # Full backend dependencies permit every ordinary job kind on any priority.
+  high-worker: &priority-worker
+    scale: ${DEVFEED_HIGH_WORKER_REPLICAS:-4}
+    <<: [*backend, *worker-runtime]
+    entrypoint: [python, /opt/devfeed/chimely-consumer.py, worker]
+    environment: &priority-worker-environment
+      <<: [*core-environment, *chimely-environment, *clickhouse-worker, *worker-environment]
+      DEVFEED_WORKER_QUEUE: high
+      DEVFEED_PARTNER_CREDENTIAL_KEY:
+      # Per-kind routing can move notification jobs between priority queues.
+      DEVFEED_CHIMELY_ADMIN_API_KEY:
+      DEVFEED_CHIMELY_USER_API_KEY:
     depends_on:
       <<: *ready
-      codex-server:
-        condition: service_healthy
+      chimely-provision:
+        condition: service_completed_successfully
     volumes:
+      - ./infra/chimely/consumer.py:/opt/devfeed/chimely-consumer.py:ro
+      - chimely-worker-credentials:/run/devfeed-chimely:ro
       - codex-socket:/run/codex:ro
 
-  pipeline-worker:
-    <<: *dedicated-worker
-    profiles: [pooled-workers]
+  default-worker:
+    <<: *priority-worker
+    scale: ${DEVFEED_DEFAULT_WORKER_REPLICAS:-4}
     environment:
-      <<: [*core-environment, *clickhouse-worker, *worker-environment]
-      DEVFEED_WORKER_QUEUE: pipeline
-      DEVFEED_PARTNER_CREDENTIAL_KEY:
+      <<: *priority-worker-environment
+      DEVFEED_WORKER_QUEUE: default
+
+  low-worker:
+    <<: *priority-worker
+    scale: ${DEVFEED_LOW_WORKER_REPLICAS:-1}
+    environment:
+      <<: *priority-worker-environment
+      DEVFEED_WORKER_QUEUE: low
 
   codex-client:
     <<: [*backend, *worker-runtime]
-    profiles: [ai]
+    profiles: [legacy-ai]
     scale: ${DEVFEED_CODEX_CLIENT_REPLICAS:-1}
     environment:
       <<: [*core-environment, *clickhouse-worker, *worker-environment]
+      DEVFEED_WORKER_LEGACY_QUEUES: "true"
       DEVFEED_WORKER_QUEUE: analysis
     depends_on:
       <<: *ready
@@ -939,6 +960,7 @@ services:
     scale: ${DEVFEED_ARTICLE_ANALYSIS_WORKER_REPLICAS:-1}
     environment:
       <<: [*core-environment, *clickhouse-worker, *worker-environment]
+      DEVFEED_WORKER_LEGACY_QUEUES: "true"
       DEVFEED_WORKER_QUEUE: article-analysis
     volumes:
       - codex-socket:/run/codex:ro
@@ -948,6 +970,7 @@ services:
     scale: ${DEVFEED_TOPIC_ANALYSIS_WORKER_REPLICAS:-1}
     environment:
       <<: [*core-environment, *clickhouse-worker, *worker-environment]
+      DEVFEED_WORKER_LEGACY_QUEUES: "true"
       DEVFEED_WORKER_QUEUE: topic-analysis
     volumes:
       - codex-socket:/run/codex:ro
@@ -957,6 +980,7 @@ services:
     scale: ${DEVFEED_RESEARCH_VERIFICATION_WORKER_REPLICAS:-1}
     environment:
       <<: [*core-environment, *clickhouse-worker, *worker-environment]
+      DEVFEED_WORKER_LEGACY_QUEUES: "true"
       DEVFEED_WORKER_QUEUE: research-verification
     volumes:
       - codex-socket:/run/codex:ro
@@ -966,6 +990,7 @@ services:
     scale: ${DEVFEED_SOURCE_ANALYSIS_WORKER_REPLICAS:-1}
     environment:
       <<: [*core-environment, *clickhouse-worker, *worker-environment]
+      DEVFEED_WORKER_LEGACY_QUEUES: "true"
       DEVFEED_WORKER_QUEUE: source-analysis
     volumes:
       - codex-socket:/run/codex:ro
@@ -977,12 +1002,14 @@ services:
     scale: ${DEVFEED_SOURCE_DISCOVERY_WORKER_REPLICAS:-1}
     environment:
       <<: [*core-environment, *clickhouse-worker, *worker-environment]
+      DEVFEED_WORKER_LEGACY_QUEUES: "true"
 
   relationships-worker:
     <<: *dedicated-worker
     scale: ${DEVFEED_RELATIONSHIPS_WORKER_REPLICAS:-1}
     environment:
       <<: [*core-environment, *clickhouse-worker, *worker-environment]
+      DEVFEED_WORKER_LEGACY_QUEUES: "true"
       DEVFEED_WORKER_QUEUE: relationships
     volumes:
       - codex-socket:/run/codex:ro
@@ -992,6 +1019,7 @@ services:
     scale: ${DEVFEED_INGESTION_WORKER_REPLICAS:-1}
     environment:
       <<: [*core-environment, *clickhouse-worker, *worker-environment]
+      DEVFEED_WORKER_LEGACY_QUEUES: "true"
       DEVFEED_WORKER_QUEUE: ingestion
       DEVFEED_PARTNER_CREDENTIAL_KEY:
 
@@ -1002,19 +1030,21 @@ services:
     scale: ${DEVFEED_ARTICLE_ENRICHMENT_WORKER_REPLICAS:-1}
     environment:
       <<: [*core-environment, *clickhouse-worker, *worker-environment]
+      DEVFEED_WORKER_LEGACY_QUEUES: "true"
 
   source-enrichment-worker:
     <<: *dedicated-worker
     scale: ${DEVFEED_SOURCE_ENRICHMENT_WORKER_REPLICAS:-1}
     environment:
       <<: [*core-environment, *clickhouse-worker, *worker-environment]
+      DEVFEED_WORKER_LEGACY_QUEUES: "true"
       DEVFEED_WORKER_QUEUE: source-enrichment
 
   images-worker:
     <<: *dedicated-worker
+    profiles: []
     image: ${DEVFEED_IMAGES_WORKER_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/images-worker:master}
     command: [devfeed-images-worker]
-    profiles: [workers, images]
     scale: ${DEVFEED_IMAGES_WORKER_REPLICAS:-1}
     environment:
       <<: [*core-environment, *clickhouse-worker, *worker-environment]
@@ -1058,7 +1088,7 @@ services:
       retries: 3
 
   notifications-worker:
-    profiles: [workers]
+    profiles: [legacy-dedicated]
     <<: [*backend, *worker-runtime]
     entrypoint: [python, /opt/devfeed/chimely-consumer.py, worker]
     volumes:
@@ -1068,6 +1098,7 @@ services:
     scale: ${DEVFEED_NOTIFICATIONS_WORKER_REPLICAS:-1}
     environment:
       <<: [*core-environment, *chimely-environment, *clickhouse-worker, *worker-environment]
+      DEVFEED_WORKER_LEGACY_QUEUES: "true"
       DEVFEED_WORKER_QUEUE: notifications
       # Only delivery workers need Chimely management API keys.
       DEVFEED_CHIMELY_ADMIN_API_KEY:

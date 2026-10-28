@@ -125,3 +125,22 @@ def test_unknown_queue_is_rejected_before_creating_a_redis_connection(monkeypatc
     with pytest.raises(ValueError, match="Unknown worker queue"):
         queues.get_queue("unknown-private-queue")
     connect.assert_not_called()
+
+
+def test_owned_delivery_on_an_old_custom_route_is_repaired_in_place(runtime):
+    row = existing(runtime, JobStatus.QUEUED, origin="retired-dedicated")
+    row.meta = {"devfeed_queue": "article-analysis"}
+    runtime.base.side_effect = DuplicateJobError()
+    assert enqueue(runtime) is row
+    assert runtime.connection.eval.call_args.args[-1] == "retired-dedicated"
+    assert runtime.base.call_count == 1
+    row.delete.assert_not_called()
+
+
+def test_logical_metadata_cannot_be_spoofed_by_the_enqueue_caller(runtime):
+    runtime.queue.logical_name = "source-analysis"
+    enqueue(runtime, meta={"devfeed_queue": "ingestion", "owner": "outbox"})
+    assert runtime.base.call_args.kwargs["meta"] == {
+        "devfeed_queue": "source-analysis",
+        "owner": "outbox",
+    }

@@ -83,6 +83,32 @@ class Settings(BaseSettings):
     analytics_poll_seconds: float = Field(default=1, ge=0.1, le=60)
     analytics_backfill_poll_seconds: float = Field(default=0.1, ge=0.1, le=60)
     redis_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    job_queue_mode: Literal["priority", "legacy"] = "priority"
+    job_queue_overrides: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_job_queue_routes(self) -> Self:
+        import re
+
+        from devfeed_core.worker_queues import ROUTABLE_QUEUES, configured_queue
+
+        for kind, destination in self.job_queue_overrides.items():
+            if kind not in ROUTABLE_QUEUES or not re.fullmatch(
+                r"[a-z][a-z0-9_-]{0,63}", destination
+            ):
+                raise ValueError("Invalid job queue override")
+        # Credentials for image storage and solver execution remain scoped.
+        # A custom dedicated name is supported, but sharing their transport is unsafe.
+        for isolated in ("images", "solver"):
+            destination = configured_queue(isolated, self)
+            if any(
+                configured_queue(kind, self) == destination
+                for kind in ROUTABLE_QUEUES
+                if kind != isolated
+            ):
+                raise ValueError("Image and solver queues must remain dedicated")
+        return self
+
     partner_credential_key: SecretStr | None = None
 
     redis_sentinel_nodes: list[tuple[str, int]] = []

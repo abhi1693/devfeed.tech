@@ -88,7 +88,8 @@ def _enrich_source(identifier: uuid.UUID) -> None:
         if (
             job.operation == "relevance"
             and delivery is not None
-            and delivery.origin not in {"analysis", "source-analysis", "solver"}
+            and ((getattr(delivery, "meta", None) or {}).get("devfeed_queue") or delivery.origin)
+            not in {"analysis", "source-analysis", "solver"}
         ):
             # A delivery queued before a mode change must not invoke Codex from
             # an ingestion worker. Return it to the outbox for current routing.

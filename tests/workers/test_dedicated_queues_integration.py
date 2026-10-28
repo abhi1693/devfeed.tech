@@ -228,44 +228,84 @@ def test_fresh_arrivals_and_older_articles_both_receive_dispatch_capacity(
         fresh.connection.close()
 
 
-@pytest.mark.parametrize("pool", ["ai-maintenance", "pipeline"])
-def test_shared_pool_drains_every_lane_fairly_without_touching_reserved_work(
-    database, monkeypatch, pool
+@pytest.mark.parametrize("destination", ["high", "article-private"])
+def test_priority_delivery_preserves_metadata_and_repairs_original_route_after_override_change(
+    database, monkeypatch, destination
 ):
-    from devfeed_aggregator.analysis_worker import AnalysisAwareWorker, CodexReadiness
-    from devfeed_core.worker_queues import worker_queues
-    from rq.serializers import JSONSerializer
-    from rq.worker import DequeueStrategy
-
-    names = worker_queues(pool, ai_enabled=True, notifications_enabled=True)
-    seen = []
-
-    class ObservedPoolWorker(AnalysisAwareWorker):
-        # Observe scheduling in the parent; execute through the production fork path.
-        def execute_job(self, job, queue):
-            seen.append(queue.name)
-            return super().execute_job(job, queue)
-
-    monkeypatch.setattr(CodexReadiness, "ready", lambda self, **kwargs: True)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "job_queue_mode", "priority")
+    monkeypatch.setattr(settings, "job_queue_overrides", {"article-analysis": destination})
     with ExitStack() as stack:
-        queues = [get_queue(name) for name in names]
-        for queue in queues:
-            stack.callback(queue.connection.close)
-        reserved = get_queue("notifications")
-        stack.callback(reserved.connection.close)
-        untouched = reserved.enqueue("builtins.str", "reserved")
-        jobs = [
-            queue.enqueue("builtins.str", f"{queue.name}-{index}")
-            for queue in queues
-            for index in range(2)
-        ]
-        consumer = ObservedPoolWorker(
-            queues,
-            connection=queues[0].connection,
-            serializer=JSONSerializer,
-            name=f"pool-{uuid.uuid4()}",
+        original = get_queue("article-analysis-fresh")
+        stack.callback(original.connection.close)
+        delivery = original.enqueue(
+            "builtins.str", "payload", unique=True, job_id="route-stable", meta={"owner": "durable"}
         )
-        consumer.work(burst=True, max_jobs=len(jobs), dequeue_strategy=DequeueStrategy.ROUND_ROBIN)
-        assert seen == names * 2
-        assert all(job.get_status(refresh=True) == JobStatus.FINISHED for job in jobs)
-        assert reserved.job_ids == [untouched.id]
+        assert delivery.origin == destination
+        assert delivery.meta == {"owner": "durable", "devfeed_queue": "article-analysis-fresh"}
+        original.connection.lrem(original.key, 0, delivery.id)
+        monkeypatch.setattr(
+            settings, "job_queue_overrides", {"article-analysis": "replacement-route"}
+        )
+        current = get_queue("article-analysis-fresh")
+        stack.callback(current.connection.close)
+        replay = current.enqueue("builtins.str", "payload", unique=True, job_id="route-stable")
+        assert replay.id == delivery.id and replay.origin == destination
+        assert original.job_ids == [delivery.id]
+        assert current.job_ids == []
+
+
+@pytest.mark.parametrize(
+    "kind,handler,expected",
+    [
+        ("ingestion", "devfeed_aggregator.recommendation_tasks.refresh", "recommendations"),
+        (
+            "source-analysis",
+            "devfeed_aggregator.partner_tasks.process_evaluation",
+            "partner-evaluation",
+        ),
+    ],
+)
+def test_priority_handler_aliases_honor_per_kind_overrides(
+    database, monkeypatch, kind, handler, expected
+):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "job_queue_mode", "priority")
+    monkeypatch.setattr(settings, "job_queue_overrides", {expected: "custom-delivery"})
+    queue = get_queue(kind)
+    try:
+        delivery = queue.enqueue(handler, "identifier")
+        assert delivery.origin == "custom-delivery"
+        assert delivery.meta["devfeed_queue"] == expected
+        assert queue.job_ids == []
+    finally:
+        queue.connection.close()
+
+
+def test_priority_scheduler_publishes_mixed_kinds_with_original_admission_identity(
+    database, monkeypatch
+):
+    from devfeed_core.worker_queues import configured_queue, physical_queues
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "job_queue_mode", "priority")
+    for name in ("ai_enabled", "full_automation", "auto_approve_topics"):
+        monkeypatch.setattr(settings, name, True)
+    monkeypatch.setattr(settings, "scheduler_batch_size", 1)
+    monkeypatch.setattr(scheduler, "schedule_automation", lambda _: {})
+    monkeypatch.setattr(scheduler, "schedule_verification", lambda _: 0)
+    expected = seed(database)
+    for name in ("article-analysis", "article-enrichment"):
+        expected[name + "-fresh"] = expected.pop(name)
+    scheduler.tick()
+    seen = {}
+    with ExitStack() as stack:
+        for name in physical_queues():
+            queue = get_queue(name, physical=True)
+            stack.callback(queue.connection.close)
+            for delivery in queue.jobs:
+                logical = delivery.meta["devfeed_queue"]
+                assert delivery.origin == configured_queue(logical)
+                assert logical not in seen
+                seen[logical] = delivery.args[0]
+    assert seen == expected

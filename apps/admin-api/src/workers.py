@@ -11,6 +11,7 @@ from typing import Annotated, Literal, overload
 from typing import cast as type_cast
 
 from devfeed_core.ai_capacity import cooldown_remaining
+from devfeed_core.config import get_settings
 from devfeed_core.job_definitions import JOB_DEFINITIONS, Job, queue_lanes
 from devfeed_core.models import (
     Article,
@@ -22,7 +23,14 @@ from devfeed_core.models import (
     TopicAnalysisJob,
     TopicProposal,
 )
-from devfeed_core.worker_queues import AI_QUEUES, BACKGROUND_QUEUES, QUEUES
+from devfeed_core.worker_queues import (
+    AI_QUEUES,
+    BACKGROUND_QUEUES,
+    LEGACY_ALIASES,
+    ROUTABLE_QUEUES,
+    configured_queue,
+    physical_queues,
+)
 from fastapi import APIRouter, Depends, HTTPException, Path, Response
 from pydantic import BaseModel
 from redis import Redis
@@ -292,23 +300,32 @@ def read_workers(
         values = pipe.execute()
     workers = []
     pending = []
+    allowed_queues = set(physical_queues())
     for index, key in enumerate(keys):
         raw, ttl = values[index * 2 : index * 2 + 2]
         fields = dict(zip(WORKER_FIELDS, map(decoded, raw), strict=True))
         if not any(raw):
             continue  # Expired membership is normal; reads must not clean RQ registries.
-        queues = [q for q in (fields["queues"] or "").split(",") if q in QUEUES]
+        queues = [q for q in (fields["queues"] or "").split(",") if q in allowed_queues]
         if not queues:
             continue
         registered = ttl > 0 and not fields["death"]
         started, heartbeat = timestamp(fields["birth"]), timestamp(fields["last_heartbeat"])
-        ai = any(q in AI_QUEUES for q in queues)
-        background = any(q in (*BACKGROUND_QUEUES, "notifications") for q in queues)
+        logical = {
+            LEGACY_ALIASES.get(name, name)
+            for name in ROUTABLE_QUEUES
+            if configured_queue(name) in queues
+        }
+        ai = bool(logical.intersection(AI_QUEUES)) or (
+            get_settings().job_queue_mode == "priority"
+            and configured_queue("partner-pipeline") in queues
+        )
+        background = bool(logical.intersection((*BACKGROUND_QUEUES, "notifications")))
         worker = WorkerOut(
             name=key.removeprefix("rq:worker:"),
             queues=queues,
             role="solver"
-            if queues == ["solver"]
+            if logical == {"solver"}
             else "mixed"
             if ai and background
             else "ai"
@@ -341,12 +358,13 @@ def read_workers(
 def queue_snapshot(
     connection: Redis, session: Session, workers: Sequence[WorkerOut]
 ) -> list[QueueOut]:
+    names = physical_queues()
     with connection.pipeline(transaction=False) as pipe:
-        for name in QUEUES:
+        for name in names:
             pipe.llen("rq:queue:" + name)
         depths = pipe.execute()
     queues = {}
-    for name, depth in zip(QUEUES, depths, strict=True):
+    for name, depth in zip(names, depths, strict=True):
         assigned = [w for w in workers if w.registered and name in w.queues]
         queues[name] = QueueOut(
             name=name,
@@ -394,7 +412,7 @@ def queue_snapshot(
         .group_by(ResearchVerificationJob.relationships)
     )
     for name, status, count, earliest in session.execute(union_all(*statements)):
-        queue = queues[name]
+        queue = queues[configured_queue(name)]
         if status in {"queued", "running", "failed", "succeeded", "review_required"}:
             setattr(queue, status, getattr(queue, status) + count)
         if status == "queued" and earliest:

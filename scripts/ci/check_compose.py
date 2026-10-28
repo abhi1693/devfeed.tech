@@ -104,7 +104,12 @@ def check_ch_ui_runtime(management: dict) -> None:
 
 def check() -> None:
     base = {"POSTGRES_PASSWORD": "a" * 64}
-    registry_fixtures = {**base, "COMPOSE_PROFILES": "ai,workers,notifications,search,mcp"}
+    registry_fixtures = {
+        **base,
+        "COMPOSE_PROFILES": (
+            "ai,workers,legacy-workers,legacy-ai,legacy-dedicated,notifications,search,mcp"
+        ),
+    }
     mcp = render({**base, "COMPOSE_PROFILES": "mcp"})["services"]["mcp"]
     assert mcp["ports"][0]["host_ip"] == "127.0.0.1"
     assert mcp["environment"] == {
@@ -240,7 +245,15 @@ def check() -> None:
         )["services"]
         for name, service in connector_services.items():
             environment = service.get("environment", {})
-            if name in {"admin-api", "partner-api", "worker", "ingestion-worker"}:
+            if name in {
+                "admin-api",
+                "partner-api",
+                "worker",
+                "ingestion-worker",
+                "high-worker",
+                "default-worker",
+                "low-worker",
+            }:
                 assert environment[credential_key] == "fixture-credential-encryption-key", name
             else:
                 assert credential_key not in environment, name
@@ -310,6 +323,10 @@ def check() -> None:
                 "partner-api",
                 "user-api",
                 "worker",
+                "high-worker",
+                "default-worker",
+                "low-worker",
+                "images-worker",
             }
         ), name
     assert "clickhouse" not in services["admin-api"]["depends_on"]
@@ -341,7 +358,7 @@ def check() -> None:
     assert services["user-api"]["environment"]["DEVFEED_USER_MCP_ISSUER_URL"] == ""
     assert "chimely" in services and "chimely-db-init" in services
     assert "codex-server" not in services
-    production_workers = render({**base, "COMPOSE_PROFILES": "workers"})["services"]
+    production_workers = render({**base, "COMPOSE_PROFILES": "legacy-dedicated"})["services"]
     assert production_workers["article-enrichment-worker"]["image"].endswith(
         "/article-enrichment-worker:master"
     )
@@ -352,7 +369,7 @@ def check() -> None:
     dedicated = render(
         {
             **base,
-            "COMPOSE_PROFILES": "workers",
+            "COMPOSE_PROFILES": "legacy-dedicated,legacy-workers",
             "DEVFEED_ARTICLE_ANALYSIS_WORKER_REPLICAS": "8",
             "DEVFEED_NOTIFICATIONS_WORKER_REPLICAS": "2",
             "DEVFEED_CHIMELY_ADMIN_API_KEY": "test-admin",
@@ -377,7 +394,7 @@ def check() -> None:
     assert "codex-server" not in dedicated  # An external endpoint is supported.
     for queue in ai_queues | background_queues | {"notifications"}:
         name = queue + "-worker"
-        assert name not in services  # Opt-in; default capacity remains unchanged.
+        assert name not in services or name == "images-worker"  # Legacy named consumers are opt-in.
         service = dedicated[name]
         assert service["image"] == f"devfeed/{name}:local"
         dedicated_package = {
@@ -471,7 +488,9 @@ def check() -> None:
     assert "codex-server" not in services["admin-api"]["depends_on"]
     assert all(v["read_only"] for v in services["admin-api"]["volumes"])
     for name, volume, role in (
-        ("worker", "chimely-worker-credentials", "worker"),
+        ("high-worker", "chimely-worker-credentials", "worker"),
+        ("default-worker", "chimely-worker-credentials", "worker"),
+        ("low-worker", "chimely-worker-credentials", "worker"),
         ("admin-api", "chimely-admin-credentials", "admin"),
         ("user-api", "chimely-user-credentials", "user"),
     ):
@@ -481,7 +500,9 @@ def check() -> None:
         )
         assert services[name]["entrypoint"] == ["python", "/opt/devfeed/chimely-consumer.py", role]
         assert {v["source"] for v in services[name]["volumes"] if v["type"] == "volume"} == (
-            {volume, "codex-socket"} if name == "admin-api" else {volume}
+            {volume, "codex-socket"}
+            if name in {"admin-api", "high-worker", "default-worker", "low-worker"}
+            else {volume}
         )
         assert all(v["read_only"] for v in services[name]["volumes"])
     assert services["user-api"]["command"][:2] == ["uvicorn", "devfeed_user_api.main:app"]
@@ -576,7 +597,7 @@ def check() -> None:
         services = render(
             {**base, **options, **auth, **user_auth, **shared_providers, **chimely}, build=build
         )["services"]
-        for name in ("migrate", "api", "worker", "scheduler", "admin-api"):
+        for name in ("migrate", "api", "high-worker", "scheduler", "admin-api"):
             environment = services[name]["environment"]
             assert all(environment[key] == value for key, value in options.items())
             assert "host.docker.internal=host-gateway" in services[name]["extra_hosts"]
@@ -603,15 +624,15 @@ def check() -> None:
         for name, service in services.items():
             environment = service.get("environment", {})
             assert ("DEVFEED_CHIMELY_ADMIN_API_KEY" in environment) == (
-                name in {"worker", "chimely-provision"}
+                name in {"high-worker", "default-worker", "low-worker", "chimely-provision"}
             )
             assert ("DEVFEED_CHIMELY_ADMIN_HMAC_SECRET" in environment) == (name == "admin-api")
             assert ("DEVFEED_CHIMELY_USER_HMAC_SECRET" in environment) == (name == "user-api")
             assert ("DEVFEED_CHIMELY_USER_API_KEY" in environment) == (
-                name in {"worker", "chimely-provision"}
+                name in {"high-worker", "default-worker", "low-worker", "chimely-provision"}
             )
         assert (
-            services["worker"]["environment"]["DEVFEED_CHIMELY_ADMIN_API_KEY"]
+            services["high-worker"]["environment"]["DEVFEED_CHIMELY_ADMIN_API_KEY"]
             == (chimely["DEVFEED_CHIMELY_ADMIN_API_KEY"])
         )
         assert (
@@ -687,7 +708,7 @@ def check() -> None:
     bundled = render(
         {
             **base,
-            "COMPOSE_PROFILES": "notifications,ai",
+            "COMPOSE_PROFILES": "notifications,ai,legacy-workers,legacy-ai",
             "CHIMELY_POSTGRES_PASSWORD": "b" * 64,
             "CHIMELY_ADMIN_EMAIL": "admin@example.test",
             "CHIMELY_ADMIN_PASSWORD": "test-bootstrap-password",
@@ -704,7 +725,7 @@ def check() -> None:
     scaled = render(
         {
             **base,
-            "COMPOSE_PROFILES": "ai",
+            "COMPOSE_PROFILES": "ai,legacy-workers,legacy-ai",
             "DEVFEED_WORKER_REPLICAS": "10",
             "DEVFEED_CODEX_CLIENT_REPLICAS": "10",
         },

@@ -383,3 +383,29 @@ def test_changed_source_identity_invalidates_old_results_and_only_reconciles_pen
         runtime.reconcile.assert_not_called()
     else:
         runtime.reconcile.assert_called_once_with(runtime.session, runtime.source, automatic=True)
+
+
+@pytest.mark.parametrize(
+    "origin,logical,admitted",
+    [
+        ("high", "source-analysis", True),
+        ("source-ai", "source-analysis", True),
+        ("source-analysis", "source-enrichment", False),
+        ("default", "source-enrichment", False),
+        ("source-analysis", None, True),
+        ("default", None, False),
+    ],
+)
+def test_relevance_admission_uses_logical_delivery_metadata_not_transport_name(
+    runtime, monkeypatch, origin, logical, admitted
+):
+    relevance(runtime, monkeypatch)
+    delivery = SimpleNamespace(origin=origin, meta={"devfeed_queue": logical} if logical else {})
+    monkeypatch.setattr(source_tasks, "get_current_job", lambda: delivery)
+    source_tasks.enrich_source(str(runtime.job.id))
+    if admitted:
+        runtime.client.complete.assert_called_once()
+        assert runtime.job.status == "succeeded"
+    else:
+        runtime.client.complete.assert_not_called()
+        assert runtime.job.status == "queued" and runtime.job.attempts == 0

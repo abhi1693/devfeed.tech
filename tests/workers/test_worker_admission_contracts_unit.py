@@ -578,3 +578,166 @@ def test_background_dequeue_translates_only_its_own_safe_shutdown(
     else:
         with pytest.raises(StopRequested):
             worker.dequeue_job_and_maintain_ttl(75)
+
+
+@pytest.mark.parametrize(
+    "metadata,origin,handler,expected",
+    [
+        ({"devfeed_queue": "article-analysis-fresh"}, "high", None, "article-analysis-fresh"),
+        ({"devfeed_queue": "partner-evaluation"}, "default", None, "partner-evaluation"),
+        ({}, "relationships", None, "relationships"),
+        (
+            {},
+            "default",
+            "devfeed_aggregator.partner_tasks.process_evaluation",
+            "partner-evaluation",
+        ),
+        ({}, "default", "unknown.private.handler", "other"),
+    ],
+)
+def test_execution_policy_uses_logical_metadata_before_physical_priority(
+    metadata, origin, handler, expected
+):
+    job = SimpleNamespace(meta=metadata, origin=origin, func_name=handler)
+    assert analysis_worker.logical_job_queue(job) == expected
+
+
+def priority_worker(monkeypatch, worker_factory):
+    from devfeed_core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "job_queue_mode", "priority")
+    build, depths = worker_factory
+    depths["default"] = 1
+    worker = build("default")
+    monkeypatch.setattr(worker, "get_redis_server_version", lambda: (8, 0, 0))
+    return worker
+
+
+def queued_delivery(identifier, logical):
+    return SimpleNamespace(
+        id=identifier,
+        key=f"rq:job:{identifier}",
+        meta={"devfeed_queue": logical},
+        origin="default",
+        func_name="builtins.str",
+    )
+
+
+def test_priority_scan_reaches_io_behind_more_than_one_page_of_paused_ai(
+    monkeypatch, worker_factory
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    worker.codex_readiness.ready = Mock(return_value=False)
+    worker.codex_readiness.reason = "codex_unavailable"
+    jobs = {
+        f"ai-{index}": queued_delivery(f"ai-{index}", "article-analysis") for index in range(150)
+    }
+    jobs["io"] = queued_delivery("io", "ingestion")
+    identifiers = list(jobs)
+    scans = []
+
+    def read(key, start, end):
+        scans.append((start, end))
+        return identifiers[start : end + 1]
+
+    monkeypatch.setattr(worker.connection, "lrange", read)
+    claim = Mock(return_value=1)
+    monkeypatch.setattr(worker.connection, "eval", claim)
+    monkeypatch.setattr(worker.job_class, "fetch", lambda identifier, **kwargs: jobs[identifier])
+    snapshot = analysis_worker.AdmissionSnapshot({"default": True})
+    assert worker.dequeue_priority(snapshot) is None
+    result = worker.dequeue_priority(snapshot)
+    assert result[0].id == "io"
+    assert scans == [(0, 99), (100, 199)]
+    assert worker.codex_readiness.ready.call_count == 2
+    # No paused delivery was removed or requeued; only the admitted IO job moves.
+    assert claim.call_count == 1
+    assert claim.call_args.args[-2:] == ("io", "default")
+
+
+def test_priority_quota_gate_skips_ai_but_executes_io_without_clearing_ai_work(
+    monkeypatch, worker_factory
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    snapshot = analysis_worker.AdmissionSnapshot({"default": True}, "quota_budget_exhausted")
+    worker.admission_snapshot = lambda: snapshot
+    worker.codex_readiness.ready = Mock(side_effect=AssertionError("quota must gate the RPC"))
+    jobs = {"ai": queued_delivery("ai", "topic-analysis"), "io": queued_delivery("io", "ingestion")}
+    monkeypatch.setattr(worker.connection, "lrange", lambda *args: list(jobs))
+    claim = Mock(return_value=1)
+    monkeypatch.setattr(worker.connection, "eval", claim)
+    monkeypatch.setattr(worker.job_class, "fetch", lambda identifier, **kwargs: jobs[identifier])
+    assert worker.dequeue_priority(snapshot)[0].id == "io"
+    worker.codex_readiness.ready.assert_not_called()
+    assert claim.call_args.args[-2:] == ("io", "default")
+
+
+def test_priority_claim_race_does_not_execute_a_delivery_claimed_by_another_worker(
+    monkeypatch, worker_factory
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    jobs = {
+        "first": queued_delivery("first", "ingestion"),
+        "second": queued_delivery("second", "ingestion"),
+    }
+    monkeypatch.setattr(worker.connection, "lrange", lambda *args: list(jobs))
+    claim = Mock(side_effect=[0, 1])
+    monkeypatch.setattr(worker.connection, "eval", claim)
+    monkeypatch.setattr(worker.job_class, "fetch", lambda identifier, **kwargs: jobs[identifier])
+    assert (
+        worker.dequeue_priority(analysis_worker.AdmissionSnapshot({"default": True}))[0].id
+        == "second"
+    )
+    assert claim.call_count == 2
+
+
+def test_priority_ai_claim_requires_a_fresh_readiness_check_for_each_delivery(
+    monkeypatch, worker_factory
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    job = queued_delivery("ai", "partner-evaluation")
+    monkeypatch.setattr(worker.connection, "lrange", lambda *args: ["ai"])
+    monkeypatch.setattr(worker.connection, "eval", lambda *args: 1)
+    monkeypatch.setattr(worker.job_class, "fetch", lambda *args, **kwargs: job)
+    worker.codex_readiness.ready = Mock(return_value=True)
+    snapshot = analysis_worker.AdmissionSnapshot({"default": True})
+    assert worker.dequeue_priority(snapshot)[0] is job
+    assert worker.dequeue_priority(snapshot)[0] is job
+    assert worker.codex_readiness.ready.call_args_list == [call(pending=True), call(pending=True)]
+
+
+@pytest.mark.parametrize(
+    "hint,expected", [(True, True), (False, False), (None, True), ("false", True)]
+)
+def test_partner_pipeline_admission_requires_explicit_transport_only_hint(hint, expected):
+    job = SimpleNamespace(
+        meta={"devfeed_queue": "partner-pipeline", "devfeed_ai": hint}, origin="default"
+    )
+    assert analysis_worker.job_requires_ai(job) is expected
+
+
+def test_false_partner_hint_cannot_bypass_article_analysis_admission():
+    job = SimpleNamespace(
+        meta={"devfeed_queue": "article-analysis", "devfeed_ai": False}, origin="default"
+    )
+    assert analysis_worker.job_requires_ai(job)
+
+
+def test_custom_partner_pipeline_consumer_has_readiness_for_ai_assessment(
+    monkeypatch, worker_factory
+):
+    from devfeed_core.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "job_queue_mode", "priority")
+    monkeypatch.setattr(settings, "job_queue_overrides", {"partner-pipeline": "partner-sync"})
+    build, depths = worker_factory
+    depths["partner-sync"] = 1
+    worker = build("partner-sync")
+    assert worker.codex_readiness is not None
+    worker.codex_readiness.ready = Mock(return_value=True)
+    job = SimpleNamespace(
+        meta={"devfeed_queue": "partner-pipeline", "devfeed_ai": True}, origin="partner-sync"
+    )
+    assert worker.priority_admission(job, worker.queues[0], ai_blocked=False)
+    worker.codex_readiness.ready.assert_called_once_with(pending=True)

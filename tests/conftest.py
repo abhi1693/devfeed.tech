@@ -66,6 +66,10 @@ def unit_test_settings(request, monkeypatch):
     inbox_settings.cache_clear()
     # Ordinary behavior tests stay independent of cache state. Cache tests opt in
     # explicitly and use an in-memory fake or disposable integration Redis.
+    # Existing lifecycle suites explicitly retain coverage of the supported legacy
+    # transport. Priority-routing suites opt into the production default separately.
+    monkeypatch.setenv("DEVFEED_JOB_QUEUE_MODE", "legacy")
+    monkeypatch.setenv("DEVFEED_JOB_QUEUE_OVERRIDES", "{}")
     monkeypatch.setenv("DEVFEED_CACHE_ENABLED", "false")
     monkeypatch.setenv("DEVFEED_IMAGE_STORAGE_ENABLED", "false")
     monkeypatch.setenv("DEVFEED_AI_ENABLED", "false")

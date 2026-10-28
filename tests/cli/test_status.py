@@ -127,3 +127,49 @@ def test_redis_outage_keeps_database_counts_and_marks_unknown_depths_instead_of_
     assert not result["scheduler_healthy"] and result["scheduler_last_seen"] is None
     assert "private-secret" not in str(result) + caplog.text
     close.assert_called_once_with()
+
+
+def test_priority_status_reads_and_sums_each_physical_queue_once(dependencies, monkeypatch):
+    from devfeed_core.config import get_settings
+    from devfeed_core.worker_queues import configured_queue, physical_queues
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "job_queue_mode", "priority")
+    monkeypatch.setattr(
+        settings,
+        "job_queue_overrides",
+        {
+            "source-analysis": "source-ai",
+            "partner-evaluation": "partner-ai",
+            "partner-pipeline": "partner-sync",
+        },
+    )
+    connection = status.get_queue().connection
+    pipeline = connection.pipeline()
+    names = physical_queues()
+    depths = {name: index + 1 for index, name in enumerate(names)}
+    pipeline.execute.return_value = list(depths.values())
+    pipeline.reset_mock()
+    workers = []
+    for name in ("default", "source-ai", "partner-ai", "partner-sync", "unrelated"):
+        consumer = Worker([name], connection=connection, prepare_for_work=False, name=name)
+        consumer.get_state = Mock(return_value="idle")
+        consumer.pid, consumer.last_heartbeat = 42, NOW
+        workers.append(consumer)
+    monkeypatch.setattr(status.Worker, "all", Mock(return_value=workers))
+    result = status.snapshot()
+    assert result["queue_depths"] == depths
+    assert result["queue_depth"] == depths[configured_queue("ingestion")]
+    # Shared transports contain both AI and ordinary work; their total LLEN
+    # must not be presented as the number of AI deliveries.
+    assert result["analysis_queue_depth"] is None
+    assert pipeline.llen.call_count == len(names)
+    assert {worker["name"] for worker in result["workers"]} == {
+        "default",
+        "source-ai",
+        "partner-ai",
+        "partner-sync",
+    }
+    assert {"source-ai", "partner-ai", "partner-sync"} <= {
+        worker["name"] for worker in result["analysis_workers"]
+    }

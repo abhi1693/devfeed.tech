@@ -1,3 +1,4 @@
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -5,7 +6,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.jobs import JOB_TIMEOUT_SECONDS
 from devfeed_core.redis import create_redis
 from devfeed_core.telemetry import inject_context
-from devfeed_core.worker_queues import QUEUES
+from devfeed_core.worker_queues import QUEUES, ROUTABLE_QUEUES, configured_queue, physical_queues
 from redis.backoff import ExponentialWithJitterBackoff
 from redis.retry import Retry
 from rq import Queue
@@ -29,9 +30,30 @@ return 1
 class DurableQueue(Queue):
     """Keep an existing delivery in place when the database outbox checks it again."""
 
+    logical_name: str | None = None
+
     def enqueue(self, f: str | Callable[..., object], *args: Any, **kwargs: Any) -> Job:
+        aliases = {
+            "devfeed_aggregator.recommendation_tasks.refresh": "recommendations",
+            "devfeed_aggregator.partner_tasks.process_evaluation": "partner-evaluation",
+            "devfeed_aggregator.partner_sync_tasks.process_pipeline": "partner-pipeline",
+        }
+        alias = aliases.get(f) if isinstance(f, str) else None
+        if (
+            self.logical_name
+            and alias
+            and alias != self.logical_name
+            and get_settings().job_queue_mode == "priority"
+        ):
+            target = get_queue(alias)
+            try:
+                return target.enqueue(f, *args, **kwargs)
+            finally:
+                target.connection.close()
+        if self.logical_name:
+            kwargs["meta"] = {**(kwargs.get("meta") or {}), "devfeed_queue": self.logical_name}
         if context := inject_context():
-            kwargs["meta"] = {**kwargs.get("meta", {}), "devfeed_trace": context}
+            kwargs["meta"] = {**(kwargs.get("meta") or {}), "devfeed_trace": context}
         try:
             # RQ constrains an otherwise independent function TypeVar; both union
             # alternatives are supported, but its stub rejects their union.
@@ -51,7 +73,12 @@ class DurableQueue(Queue):
                 status = existing.get_status(refresh=True)
                 if status == JobStatus.QUEUED:
                     origin = existing.origin
-                    if origin in QUEUES:
+                    # A routing override may have changed since this delivery was
+                    # published. Repair its original transport instead of duplicating it.
+                    owned = (existing.meta or {}).get("devfeed_queue") in ROUTABLE_QUEUES
+                    if origin in QUEUES or (
+                        owned and re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", origin or "")
+                    ):
                         key = f"rq:queue:{origin}"
                         self.connection.eval(
                             RESTORE_QUEUED,
@@ -79,11 +106,16 @@ class DurableQueue(Queue):
             return super().enqueue(f, *args, **kwargs)  # type: ignore[type-var]
 
 
-def get_queue(name: str = "ingestion") -> DurableQueue:
-    if name not in QUEUES:
-        raise ValueError("Unknown worker queue")
-    return DurableQueue(
-        name,
+def get_queue(name: str = "ingestion", *, physical: bool = False) -> DurableQueue:
+    settings = get_settings()
+    if physical:
+        if name not in (*QUEUES, *physical_queues(settings)):
+            raise ValueError("Unknown worker queue")
+        destination = name
+    else:
+        destination = configured_queue(name, settings)
+    queue = DurableQueue(
+        destination,
         connection=create_redis(
             get_settings(),
             socket_connect_timeout=5,
@@ -94,3 +126,6 @@ def get_queue(name: str = "ingestion") -> DurableQueue:
         serializer=JSONSerializer,
         default_timeout=JOB_TIMEOUT_SECONDS,
     )
+
+    queue.logical_name = None if physical else name
+    return queue

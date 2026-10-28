@@ -1,24 +1,25 @@
-# Opt-in pooled topology. Requires images built from this revision or later.
+# One independently sized deployment per priority. Requires the new routing runtime.
 # docker compose -f compose.yaml -f compose.workers.yaml --profile workers --profile ai up -d
 services:
-  ai-maintenance-worker:
+  high-worker:
     profiles: [workers]
-    scale: ${DEVFEED_AI_MAINTENANCE_WORKER_REPLICAS:-1}
-    environment:
-      DEVFEED_WORKER_QUEUE: ai-maintenance
-
-  pipeline-worker:
+    scale: ${DEVFEED_HIGH_WORKER_REPLICAS:-4}
+  default-worker:
     profiles: [workers]
-    scale: ${DEVFEED_PIPELINE_WORKER_REPLICAS:-2}
-    environment:
-      DEVFEED_WORKER_QUEUE: pipeline
+    scale: ${DEVFEED_DEFAULT_WORKER_REPLICAS:-4}
+  low-worker:
+    profiles: [workers]
+    scale: ${DEVFEED_LOW_WORKER_REPLICAS:-1}
 
-  article-analysis-worker:
-    scale: ${DEVFEED_ARTICLE_ANALYSIS_WORKER_REPLICAS:-4}
-
-  # Keep relationships, images, notifications and solver on their existing runtimes.
-  # These queues retain their own credentials, admission controls and resources.
+  # Retain scoped Images credentials and the external isolated solver runtime.
+  # Optional dedicated consumers can be re-enabled with a routing override.
+  worker:
+    scale: 0
   codex-client:
+    scale: 0
+  article-analysis-worker:
+    scale: 0
+  relationships-worker:
     scale: 0
   topic-analysis-worker:
     scale: 0
@@ -34,5 +35,5 @@ services:
     scale: 0
   source-enrichment-worker:
     scale: 0
-  worker:
+  notifications-worker:
     scale: 0

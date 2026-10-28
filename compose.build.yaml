@@ -79,13 +79,17 @@ services:
     <<: *backend-build
     image: devfeed/codex-client:local
     develop: *backend-develop
-  ai-maintenance-worker:
+  high-worker:
     <<: *backend-build
-    image: devfeed/ai-maintenance-worker:local
+    image: devfeed/high-worker:local
     develop: *backend-develop
-  pipeline-worker:
+  default-worker:
     <<: *backend-build
-    image: devfeed/pipeline-worker:local
+    image: devfeed/default-worker:local
+    develop: *backend-develop
+  low-worker:
+    <<: *backend-build
+    image: devfeed/low-worker:local
     develop: *backend-develop
   article-analysis-worker:
     <<: *backend-build

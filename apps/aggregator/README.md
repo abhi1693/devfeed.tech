@@ -319,61 +319,125 @@ credentials and arbitrary exception messages are excluded from these diagnostics
 rules, qualification gates and retry timing/limits are unchanged. Existing failed jobs
 are not rewritten or retried automatically.
 
-## Shared worker pools
+## Priority queues and dedicated overrides
 
-`compose.workers.yaml` opts into fewer worker processes without combining the
-busy article, notification, image or solver workloads. Use images built from
-this revision or later; older images do not recognize the new queue groups.
-The original Compose topology remains available when the override is omitted.
+Ordinary jobs use three physical RQ queues by default. Each queue has its own
+worker deployment, so sustained high-priority work cannot consume the capacity
+reserved for default or low-priority work:
+
+| Queue | Default work | Worker replicas |
+| --- | --- | ---: |
+| `high` | Fresh article analysis, enrichment and interactive feed preparation | 4 |
+| `default` | Routine ingestion, analysis, discovery and enrichment | 4 |
+| `low` | Notifications | 1 |
+
+These are separate consumers of one queue each, rather than a single deployment
+that always polls high before default before low. Priority affects when a waiting
+job starts; it does not interrupt work already running. Job kinds remain distinct
+for provider admission, retries, leases and metrics even when they share a queue.
+During an AI-provider pause, workers perform a bounded forward scan for runnable
+non-AI deliveries without moving paused AI jobs. This permits a runnable delivery
+to pass paused work rather than enforcing strict FIFO during the pause.
+The scheduler, search indexer and temporary analytics importer remain separate.
+
+Images and solver work keep separate physical queues and credentialed workers.
+Image-storage credentials and solver endpoints are never mounted on general
+priority consumers. Compose runs nine priority consumers plus one Images worker;
+retain the existing isolated solver worker for eleven production worker pods.
+The default counts are a starting resource budget, not a throughput guarantee.
 
 ```sh
-docker compose -f compose.yaml -f compose.workers.yaml --profile workers --profile ai up -d
+docker compose --profile ai up -d
 ```
 
-For local source builds, append `-f compose.build.yaml` before the profile
-options, then build before starting the services. Both pools use the full backend
-image, which contains the enrichment and discovery dependencies. Do not substitute
-the smaller dedicated discovery image for the pipeline pool.
+The `ai` profile starts the local Codex server; omit it when using an external
+endpoint. All priority workers use the full backend image, containing discovery,
+enrichment and AI dependencies, a read-only Codex socket and the provisioned
+notification-consumer credentials. Because notification jobs may be overridden to
+any priority queue, all three priority deployments receive notification delivery
+credentials. API authentication and image-storage credentials remain separate.
 
-The override stops the generic and superseded dedicated consumers and starts
-four article-analysis workers, one AI-maintenance worker, one relationships
-worker, two pipeline workers, one Images worker and one notifications worker:
-ten consumers in Compose. Keep the existing isolated solver worker in Kubernetes
-for an eleven-pod production topology, compared with fifteen previously.
-The scheduler, search indexer and temporary analytics importer are separate.
+Set each deployment's capacity independently:
 
-- `devfeed-worker --queue ai-maintenance` consumes topic analysis, research
-  verification and source analysis. It never consumes the article backlog.
-- `devfeed-worker --queue pipeline` consumes ingestion, source discovery, both
-  fresh/ordinary article-enrichment lanes and source enrichment. It never
-  consumes AI analysis, notification, solver or image deliveries.
-- Both pools use the existing round-robin dequeue policy, durable deliveries,
-  retry behavior, health markers and graceful shutdown. Four article-analysis
-  consumers preserve the three dedicated slots plus the former general AI slot;
-  fresh and ordinary lanes retain round-robin service.
+```dotenv
+DEVFEED_JOB_QUEUE_MODE=priority
+DEVFEED_HIGH_WORKER_REPLICAS=4
+DEVFEED_DEFAULT_WORKER_REPLICAS=4
+DEVFEED_LOW_WORKER_REPLICAS=1
+```
 
-Only the Images worker receives image-storage credentials. Notification management
-credentials and solver endpoints stay on their existing consumers. Pooling does
-not require broader credentials or a new physical queue; pending deliveries remain
-on their original queue and can be consumed by either topology during transition.
-Topic admission counts a live maintenance pool while busy, but does not reserve a
-busy worker shared between article and topic analysis for both families.
+`DEVFEED_JOB_QUEUE_OVERRIDES` maps logical job lanes to their physical destination.
+For example, move notifications to high and reserve a dedicated queue for both
+fresh and routine article analysis:
 
-For Kubernetes, release and verify the new backend image first, then update Fleet:
-set article-analysis to four replicas; replace the general AI and three quiet AI
-specialists with one `ai-maintenance` consumer; replace ingestion, discovery and
-article/source enrichment with two `pipeline` consumers. Keep relationships,
-images, notifications and solver at one replica each. Carry over each pool's
-existing network grants for PostgreSQL, Valkey, ClickHouse, Codex or public fetches
-as applicable; retain the native worker-health probes and 1,560-second drain grace.
-Remove credentials and network grants belonging only to superseded workloads.
-This application PR does not change the live Kubernetes deployments.
+```dotenv
+DEVFEED_JOB_QUEUE_OVERRIDES={"notifications":"high","article-analysis-fresh":"article-analysis","article-analysis":"article-analysis"}
+```
+
+Start consumers for the override, for example `devfeed-worker --queue article-analysis`.
+Set the same routing configuration on every publisher, scheduler and worker.
+The destination must be serviced by a deployment; configuring an override does
+not automatically create or scale that deployment. `partner-pipeline`,
+`partner-evaluation` and `recommendations` are also valid per-kind override keys.
+Partner publication backpressure observes its physical queue: a busy shared
+default queue can delay publication, so use a dedicated override when that work
+needs an independent latency budget. Images and solver must each
+retain an exclusive physical destination; configuration rejects mixing either
+with a shared priority queue or another job kind. Do not
+substitute the smaller discovery-only image for a general priority worker.
+
+`compose.workers.yaml` supplies an explicit priority-topology override and zeros
+all superseded legacy consumers. For local builds, append `-f compose.build.yaml`:
+
+```sh
+docker compose -f compose.yaml -f compose.workers.yaml -f compose.build.yaml --profile ai build
+docker compose -f compose.yaml -f compose.workers.yaml -f compose.build.yaml --profile ai up -d
+```
+
+For Kubernetes, release and verify the new backend image before changing routing.
+Coordinate the switch on every publisher and consumer: stop dispatch during the
+routing change rather than updating only a subset of publishers. Deploy the
+high/default/low consumers with the same configuration and independent replica
+counts; keep Images and solver consumers separate. Carry over PostgreSQL,
+Valkey, ClickHouse, Codex, Chimely and public-fetch network access as required, plus
+the native worker-health probes and 1,560-second drain grace. This application PR
+does not change live Kubernetes deployments.
+
+During the transition, old named physical queues can still contain deliveries.
+Their Compose services are retained behind `legacy-workers`, `legacy-ai` and
+`legacy-dedicated` profiles with `DEVFEED_WORKER_LEGACY_QUEUES=true`. An explicit
+`devfeed-worker --queue ingestion --legacy-queues --burst` consumes the old
+`ingestion` queue directly instead of mapping it to default. Keep those drain
+consumers until every old queue is empty, including retries and already-dispatched
+deliveries. Enable `ai` as well when the legacy AI consumers use the local server.
+Do not remove old consumers merely because the new queues have started receiving
+work. New destinations preserve job identity and do not authorize duplicate work.
 
 Baseline completed jobs per hour, oldest queued-job age, fresh-article publication
-latency, retries, resource use and provider cooldowns before changing the topology.
-Compare representative ingestion and AI bursts after rollout; fewer pods alone is
-not proof of equal throughput. Keep article capacity at four, and restore separate
-consumers or raise pool replicas if queue age or publication latency regresses.
-A rollback restores the original deployments and their replica counts; queue names,
-job identities, leases and retry routing do not change. This is static consolidation;
-autoscaling is a separate change requiring burst and scale-down validation.
+latency, retries, resource use and provider cooldowns. Compare representative
+bursts after rollout, then tune replica counts without changing the number of
+queue types. A rollback must keep consumers on all queues that still contain
+work; reversing configuration alone can strand deliveries. Autoscaling remains a
+separate change requiring burst and scale-down validation.
+
+Before releasing this routing change to existing Kubernetes deployments, explicitly
+set `DEVFEED_JOB_QUEUE_MODE=legacy` on their publishers and workers. The previous
+named worker deployments must not silently start consuming mixed priority work
+without the general worker's dependencies and notification credentials. Publish
+and verify the new image in legacy mode first. Stop dispatch, drain legacy queues,
+then switch all publishers and the new priority consumers together. Keep the old
+worker configuration available until its transport queues are empty. Resume
+publication only after worker registration and queue routing agree.
+
+The worker dashboard reports the configured physical topology. Before switching
+routing, verify the old queues in legacy mode:
+
+```sh
+DEVFEED_JOB_QUEUE_MODE=legacy uv run devfeed status
+```
+
+An absent old queue in the priority dashboard is not proof that it has drained.
+Keep old custom-route consumers until their own transport lists are empty as well.
+For a Compose legacy drain, set the high/default/low replica variables to zero,
+set routing mode to legacy, and explicitly enable the legacy worker profiles.
+Switch routing back to priority before starting the priority deployments.

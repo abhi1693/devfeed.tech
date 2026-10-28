@@ -11,6 +11,7 @@ from devfeed_core.models import (
     SourceEnrichmentJob,
 )
 from devfeed_core.schemas import ArticleEnrichmentJobOut, JobOut
+from devfeed_core.worker_queues import configured_queue
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from redis.exceptions import RedisError
@@ -137,7 +138,7 @@ def status(session: DB) -> IngestionData:
     }
     try:
         heartbeat = cast(bytes | None, get_redis().get("devfeed:scheduler:heartbeat"))
-        depth = get_redis().llen("rq:queue:ingestion")
+        depth = get_redis().llen("rq:queue:" + configured_queue("ingestion"))
         redis_available = True
     except RedisError as exc:
         logger.warning("ingestion_status_unavailable", extra={"error_type": type(exc).__name__})

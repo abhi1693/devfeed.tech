@@ -200,78 +200,170 @@ def test_managed_images_are_reserved_for_credentialed_images_worker(monkeypatch,
 
 
 @pytest.mark.parametrize(
-    "pool,expected",
+    "kind,expected",
     [
-        ("ai-maintenance", ["topic-analysis", "research-verification", "source-analysis"]),
-        (
-            "pipeline",
-            [
-                "ingestion",
-                "source-discovery",
-                "article-enrichment-fresh",
-                "article-enrichment",
-                "source-enrichment",
-            ],
-        ),
+        ("article-analysis-fresh", "high"),
+        ("article-enrichment-fresh", "high"),
+        ("article-analysis", "default"),
+        ("ingestion", "default"),
+        ("notifications", "low"),
+        ("images", "images"),
+        ("solver", "solver"),
+        ("partner-evaluation", "default"),
+        ("recommendations", "high"),
     ],
 )
-def test_pooled_workers_keep_round_robin_and_exclude_reserved_queues(monkeypatch, pool, expected):
-    from rq.worker import DequeueStrategy
+def test_priority_routes_keep_logical_kinds_separate_from_transport(kind, expected):
+    from devfeed_core.config import Settings
+    from devfeed_core.worker_queues import configured_queue
 
+    settings = Settings(job_queue_mode="priority")
+    assert configured_queue(kind, settings) == expected
+
+
+def test_production_routing_defaults_to_priority(monkeypatch):
+    from devfeed_core.config import Settings
+    from devfeed_core.worker_queues import configured_queue, physical_queues
+
+    monkeypatch.delenv("DEVFEED_JOB_QUEUE_MODE")
+    settings = Settings()
+    assert settings.job_queue_mode == "priority"
+    assert configured_queue("notifications", settings) == "low"
+    assert physical_queues(settings) == ("high", "default", "low", "solver", "images")
+
+
+def test_queue_overrides_cover_fresh_lane_and_custom_workers():
+    from devfeed_core.config import Settings
+    from devfeed_core.worker_queues import configured_queue, physical_queues, worker_queues
+
+    settings = Settings(
+        job_queue_mode="priority",
+        job_queue_overrides={
+            "article-analysis": "article-ai",
+            "article-analysis-fresh": "urgent-ai",
+            "notifications": "default",
+        },
+    )
+    assert configured_queue("article-analysis", settings) == "article-ai"
+    assert configured_queue("article-analysis-fresh", settings) == "urgent-ai"
+    assert configured_queue("notifications", settings) == "default"
+    assert worker_queues(
+        "article-ai", ai_enabled=True, notifications_enabled=True, settings=settings
+    ) == ["article-ai"]
+    assert len(physical_queues(settings)) == len(set(physical_queues(settings)))
+    settings.job_queue_overrides.pop("article-analysis-fresh")
+    assert configured_queue("article-analysis-fresh", settings) == "article-ai"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"unknown-kind": "default"},
+        {"ingestion": "bad:name"},
+        {"ingestion": "a" * 65},
+        {"ingestion": "images"},
+        {"images": "high"},
+        {"solver": "low"},
+        {"images": "solver"},
+        {"solver": "custom", "notifications": "custom"},
+    ],
+)
+def test_invalid_or_credential_mixing_queue_routes_fail_configuration(overrides):
+    from devfeed_core.config import Settings
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        Settings(job_queue_mode="priority", job_queue_overrides=overrides)
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        "source-discovery",
+        "article-analysis",
+        "article-enrichment",
+        "ingestion",
+        "relationships",
+        "source-analysis",
+        "background",
+        "analysis",
+    ],
+)
+def test_priority_startup_rejects_old_consumers_that_would_receive_unrelated_jobs(
+    monkeypatch, selector
+):
     settings = get_settings()
-    monkeypatch.setattr(settings, "ai_enabled", False)
-    monkeypatch.setattr(settings, "notifications_enabled", True)
-    monkeypatch.setattr(settings, "image_storage_enabled", True)
-    queues = []
-    work = Mock()
+    monkeypatch.setattr(settings, "job_queue_mode", "priority")
+    queue = Mock()
+    runtime = Mock()
+    monkeypatch.setattr(worker, "get_queue", queue)
+    monkeypatch.setattr(worker, "Worker", runtime)
+    with pytest.raises(ValueError, match="dedicated|legacy"):
+        worker.run(burst=True, queue_name=selector)
+    queue.assert_not_called()
+    runtime.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "selector", ["article-analysis", "article-analysis-fresh", "source-discovery"]
+)
+def test_old_dedicated_selector_can_start_with_exclusive_override(monkeypatch, selector):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "job_queue_mode", "priority")
+    kind = selector.removesuffix("-fresh")
+    monkeypatch.setattr(settings, "job_queue_overrides", {kind: "dedicated"})
+    selected = []
     monkeypatch.setattr(
         worker,
         "get_queue",
-        lambda name="ingestion": (
-            queues.append(name) or SimpleNamespace(connection=SimpleNamespace(close=lambda: None))
+        lambda name, **kwargs: (
+            selected.append(name) or SimpleNamespace(connection=SimpleNamespace(close=lambda: None))
         ),
     )
-    monkeypatch.setattr(worker, "Worker", lambda *a, **kw: SimpleNamespace(name="pool", work=work))
-    worker.run(burst=True, queue_name=pool)
-    assert queues == expected
-    assert not {
-        "notifications",
-        "solver",
-        "images",
-        "relationships",
-        "article-analysis",
-        "article-analysis-fresh",
-    }.intersection(queues)
-    assert work.call_args.kwargs["dequeue_strategy"] is DequeueStrategy.ROUND_ROBIN
-
-
-def test_pooled_topology_covers_every_physical_queue_without_cross_pool_consumers():
-    from collections import Counter
-
-    from devfeed_core.worker_queues import QUEUES, worker_queues
-
-    pools = (
-        "article-analysis",
-        "ai-maintenance",
-        "relationships",
-        "pipeline",
-        "images",
-        "notifications",
-        "solver",
+    monkeypatch.setattr(
+        worker,
+        "Worker",
+        lambda *args, **kwargs: SimpleNamespace(name="dedicated", work=lambda **kwargs: None),
     )
-    coverage = Counter(
-        q
-        for pool in pools
-        for q in worker_queues(pool, ai_enabled=True, notifications_enabled=True)
+    worker.run(burst=True, queue_name=selector)
+    assert selected == ["dedicated"]
+
+
+def test_logical_selector_cannot_bypass_isolation_when_custom_name_matches_legacy_queue():
+    from devfeed_core.config import Settings
+    from devfeed_core.worker_queues import worker_queues
+
+    settings = Settings(
+        job_queue_mode="priority",
+        job_queue_overrides={
+            "article-analysis": "article-analysis",
+            "ingestion": "article-analysis",
+        },
     )
-    assert coverage == Counter(QUEUES)
+    with pytest.raises(ValueError, match="dedicated"):
+        worker_queues(
+            "article-analysis", ai_enabled=True, notifications_enabled=True, settings=settings
+        )
 
 
-@pytest.mark.parametrize("pool", ["pipeline", "ai-maintenance"])
-def test_cli_accepts_explicit_pool_without_starting_other_consumers(monkeypatch, tmp_path, pool):
-    monkeypatch.setattr(worker, "runtime_marker", lambda _: tmp_path / "identity")
-    monkeypatch.setattr("sys.argv", ["devfeed-worker", "--queue", pool, "--burst"])
-    run = Mock()
-    monkeypatch.setattr(worker, "run", run)
-    assert worker.main() == 0
-    assert run.call_args.kwargs["queue_name"] == pool
+@pytest.mark.parametrize("selector", ["high", "default", "low", "custom"])
+def test_explicit_physical_selectors_are_generic_runtime_opt_in(selector):
+    from devfeed_core.config import Settings
+    from devfeed_core.worker_queues import worker_queues
+
+    settings = Settings(job_queue_mode="priority", job_queue_overrides={"ingestion": "custom"})
+    assert worker_queues(
+        selector, ai_enabled=True, notifications_enabled=True, settings=settings
+    ) == [selector]
+
+
+def test_dedicated_fresh_selector_does_not_subscribe_to_shared_ordinary_lane():
+    from devfeed_core.config import Settings
+    from devfeed_core.worker_queues import worker_queues
+
+    settings = Settings(
+        job_queue_mode="priority", job_queue_overrides={"article-analysis-fresh": "fresh-ai"}
+    )
+    assert worker_queues(
+        "article-analysis-fresh", ai_enabled=True, notifications_enabled=True, settings=settings
+    ) == ["fresh-ai"]
