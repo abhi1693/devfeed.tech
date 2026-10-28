@@ -414,3 +414,50 @@ def test_management_ui_runtime_requires_non_root_private_pid_configuration(
     management_runtime[key] = value
     with pytest.raises(AssertionError):
         check_compose.check_ch_ui_runtime(management_runtime)
+
+
+@pytest.mark.parametrize("build", [False, True])
+def test_pooled_compose_preserves_busy_slots_and_separates_credentials(build):
+    configuration = check_compose.render(
+        {"POSTGRES_PASSWORD": "fixture-only-password", "COMPOSE_PROFILES": "workers,ai"},
+        pooled=True,
+        build=build,
+    )
+    services = configuration["services"]
+    for name in (
+        "worker",
+        "codex-client",
+        "ingestion-worker",
+        "source-discovery-worker",
+        "article-enrichment-worker",
+        "source-enrichment-worker",
+        "topic-analysis-worker",
+        "research-verification-worker",
+        "source-analysis-worker",
+    ):
+        assert services[name]["scale"] == 0
+    assert services["article-analysis-worker"]["scale"] == 4
+    assert services["pipeline-worker"]["scale"] == 2
+    assert services["ai-maintenance-worker"]["scale"] == 1
+    for name, queue in [
+        ("ai-maintenance-worker", "ai-maintenance"),
+        ("pipeline-worker", "pipeline"),
+    ]:
+        service = services[name]
+        assert service["environment"]["DEVFEED_WORKER_QUEUE"] == queue
+        assert service["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed_worker"
+        assert "DEVFEED_IMAGE_STORAGE_SECRET_KEY" not in service["environment"]
+        assert not service["environment"].get("DEVFEED_CHIMELY_ADMIN_API_KEY")
+        assert not service["environment"].get("DEVFEED_SOLVER_SERVICES")
+        if build:
+            assert service["image"] == f"devfeed/{name}:local"
+            assert service["build"]["dockerfile"] == "Dockerfile"
+    worker_names = (
+        "article-analysis-worker",
+        "ai-maintenance-worker",
+        "relationships-worker",
+        "pipeline-worker",
+        "images-worker",
+        "notifications-worker",
+    )
+    assert sum(services[name].get("scale", 1) for name in worker_names) == 10

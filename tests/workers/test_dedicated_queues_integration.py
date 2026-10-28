@@ -226,3 +226,46 @@ def test_fresh_arrivals_and_older_articles_both_receive_dispatch_capacity(
     finally:
         old.connection.close()
         fresh.connection.close()
+
+
+@pytest.mark.parametrize("pool", ["ai-maintenance", "pipeline"])
+def test_shared_pool_drains_every_lane_fairly_without_touching_reserved_work(
+    database, monkeypatch, pool
+):
+    from devfeed_aggregator.analysis_worker import AnalysisAwareWorker, CodexReadiness
+    from devfeed_core.worker_queues import worker_queues
+    from rq.serializers import JSONSerializer
+    from rq.worker import DequeueStrategy
+
+    names = worker_queues(pool, ai_enabled=True, notifications_enabled=True)
+    seen = []
+
+    class ObservedPoolWorker(AnalysisAwareWorker):
+        # Observe scheduling in the parent; execute through the production fork path.
+        def execute_job(self, job, queue):
+            seen.append(queue.name)
+            return super().execute_job(job, queue)
+
+    monkeypatch.setattr(CodexReadiness, "ready", lambda self, **kwargs: True)
+    with ExitStack() as stack:
+        queues = [get_queue(name) for name in names]
+        for queue in queues:
+            stack.callback(queue.connection.close)
+        reserved = get_queue("notifications")
+        stack.callback(reserved.connection.close)
+        untouched = reserved.enqueue("builtins.str", "reserved")
+        jobs = [
+            queue.enqueue("builtins.str", f"{queue.name}-{index}")
+            for queue in queues
+            for index in range(2)
+        ]
+        consumer = ObservedPoolWorker(
+            queues,
+            connection=queues[0].connection,
+            serializer=JSONSerializer,
+            name=f"pool-{uuid.uuid4()}",
+        )
+        consumer.work(burst=True, max_jobs=len(jobs), dequeue_strategy=DequeueStrategy.ROUND_ROBIN)
+        assert seen == names * 2
+        assert all(job.get_status(refresh=True) == JobStatus.FINISHED for job in jobs)
+        assert reserved.job_ids == [untouched.id]

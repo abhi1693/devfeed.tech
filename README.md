@@ -124,3 +124,6 @@ and partnership tiers. Superusers manage accounts in the admin application. See 
 
 Configure product API endpoints, mappings, pagination and authentication in the admin app.
 See [partner API connectors](packages/core/PARTNER_CONNECTORS.md) for setup and supported contracts.
+
+For fewer worker processes with reserved article capacity, see the opt-in
+[shared worker pools](apps/aggregator/README.md#shared-worker-pools).

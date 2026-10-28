@@ -265,3 +265,69 @@ def test_capacity_reports_busy_shared_workers_without_changing_admission(monkeyp
     assert result["shared_workers"] == 1
     # The scheduler still excludes a busy mixed worker from reservable capacity.
     assert result["article_workers"] == result["topic_workers"] == 1
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("state", ["busy", "idle"])
+def test_maintenance_pool_keeps_topic_admission_while_article_slots_remain_separate(
+    database, state
+):
+    from devfeed_core.redis import create_redis
+    from devfeed_core.worker_queues import worker_queues
+
+    with create_redis(get_settings()) as redis:
+        for name, pool in [
+            ("maintenance", "ai-maintenance"),
+            *[(f"article-{i}", "article-analysis") for i in range(4)],
+        ]:
+            key = f"rq:worker:{name}"
+            redis.sadd("rq:workers", key)
+            redis.hset(
+                key,
+                mapping={
+                    "queues": ",".join(
+                        worker_queues(pool, ai_enabled=True, notifications_enabled=False)
+                    ),
+                    "state": state,
+                    "last_heartbeat": utcnow().isoformat(),
+                },
+            )
+            redis.expire(key, 90)
+        capacity = worker_capacity(redis)
+        assert capacity["topic_workers"] == 1
+        assert capacity["article_workers"] == 4
+        assert capacity["idle_topic_workers"] == int(state == "idle")
+        assert topic_admission_limit(capacity) == 2
+
+
+@pytest.mark.parametrize(
+    "queues,state,topic_slots,article_slots",
+    [
+        ("topic-analysis,research-verification,source-analysis", "busy", 1, 0),
+        ("article-analysis-fresh,article-analysis", "busy", 0, 1),
+        ("topic-analysis,article-analysis", "busy", 0, 0),
+        ("topic-analysis,article-analysis", "idle", 1, 1),
+        ("topic-analysis,ingestion", "busy", 0, 0),
+    ],
+)
+def test_capacity_reserves_busy_slots_only_within_one_execution_family(
+    monkeypatch, queues, state, topic_slots, article_slots
+):
+    from unittest.mock import MagicMock
+
+    from devfeed_core import pipeline_capacity
+
+    now = utcnow()
+    connection = MagicMock()
+    connection.smembers.return_value = {b"rq:worker:pool"}
+    connection.pipeline.return_value.__enter__.return_value.execute.return_value = [
+        [queues.encode(), state.encode(), b"", now.isoformat().encode()],
+        90,
+    ]
+    monkeypatch.setattr(pipeline_capacity, "utcnow", lambda: now)
+    monkeypatch.setattr(pipeline_capacity, "cooldown_remaining", lambda _: 0)
+    capacity = worker_capacity(connection)
+    assert capacity["topic_workers"] == topic_slots
+    assert capacity["article_workers"] == article_slots
+    assert capacity["idle_topic_workers"] == (topic_slots if state == "idle" else 0)
+    assert capacity["idle_article_workers"] == (article_slots if state == "idle" else 0)

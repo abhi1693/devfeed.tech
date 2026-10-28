@@ -318,3 +318,62 @@ Unknown failures retain a generic message and stage. Raw model responses, page t
 credentials and arbitrary exception messages are excluded from these diagnostics. Evidence
 rules, qualification gates and retry timing/limits are unchanged. Existing failed jobs
 are not rewritten or retried automatically.
+
+## Shared worker pools
+
+`compose.workers.yaml` opts into fewer worker processes without combining the
+busy article, notification, image or solver workloads. Use images built from
+this revision or later; older images do not recognize the new queue groups.
+The original Compose topology remains available when the override is omitted.
+
+```sh
+docker compose -f compose.yaml -f compose.workers.yaml --profile workers --profile ai up -d
+```
+
+For local source builds, append `-f compose.build.yaml` before the profile
+options, then build before starting the services. Both pools use the full backend
+image, which contains the enrichment and discovery dependencies. Do not substitute
+the smaller dedicated discovery image for the pipeline pool.
+
+The override stops the generic and superseded dedicated consumers and starts
+four article-analysis workers, one AI-maintenance worker, one relationships
+worker, two pipeline workers, one Images worker and one notifications worker:
+ten consumers in Compose. Keep the existing isolated solver worker in Kubernetes
+for an eleven-pod production topology, compared with fifteen previously.
+The scheduler, search indexer and temporary analytics importer are separate.
+
+- `devfeed-worker --queue ai-maintenance` consumes topic analysis, research
+  verification and source analysis. It never consumes the article backlog.
+- `devfeed-worker --queue pipeline` consumes ingestion, source discovery, both
+  fresh/ordinary article-enrichment lanes and source enrichment. It never
+  consumes AI analysis, notification, solver or image deliveries.
+- Both pools use the existing round-robin dequeue policy, durable deliveries,
+  retry behavior, health markers and graceful shutdown. Four article-analysis
+  consumers preserve the three dedicated slots plus the former general AI slot;
+  fresh and ordinary lanes retain round-robin service.
+
+Only the Images worker receives image-storage credentials. Notification management
+credentials and solver endpoints stay on their existing consumers. Pooling does
+not require broader credentials or a new physical queue; pending deliveries remain
+on their original queue and can be consumed by either topology during transition.
+Topic admission counts a live maintenance pool while busy, but does not reserve a
+busy worker shared between article and topic analysis for both families.
+
+For Kubernetes, release and verify the new backend image first, then update Fleet:
+set article-analysis to four replicas; replace the general AI and three quiet AI
+specialists with one `ai-maintenance` consumer; replace ingestion, discovery and
+article/source enrichment with two `pipeline` consumers. Keep relationships,
+images, notifications and solver at one replica each. Carry over each pool's
+existing network grants for PostgreSQL, Valkey, ClickHouse, Codex or public fetches
+as applicable; retain the native worker-health probes and 1,560-second drain grace.
+Remove credentials and network grants belonging only to superseded workloads.
+This application PR does not change the live Kubernetes deployments.
+
+Baseline completed jobs per hour, oldest queued-job age, fresh-article publication
+latency, retries, resource use and provider cooldowns before changing the topology.
+Compare representative ingestion and AI bursts after rollout; fewer pods alone is
+not proof of equal throughput. Keep article capacity at four, and restore separate
+consumers or raise pool replicas if queue age or publication latency regresses.
+A rollback restores the original deployments and their replica counts; queue names,
+job identities, leases and retry routing do not change. This is static consolidation;
+autoscaling is a separate change requiring burst and scale-down validation.

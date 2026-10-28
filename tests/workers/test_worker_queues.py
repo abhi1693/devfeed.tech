@@ -197,3 +197,81 @@ def test_managed_images_are_reserved_for_credentialed_images_worker(monkeypatch,
     worker.run(burst=True, queue_name=queue_name)
     assert "images" not in names
     assert "ingestion" in names
+
+
+@pytest.mark.parametrize(
+    "pool,expected",
+    [
+        ("ai-maintenance", ["topic-analysis", "research-verification", "source-analysis"]),
+        (
+            "pipeline",
+            [
+                "ingestion",
+                "source-discovery",
+                "article-enrichment-fresh",
+                "article-enrichment",
+                "source-enrichment",
+            ],
+        ),
+    ],
+)
+def test_pooled_workers_keep_round_robin_and_exclude_reserved_queues(monkeypatch, pool, expected):
+    from rq.worker import DequeueStrategy
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "ai_enabled", False)
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+    monkeypatch.setattr(settings, "image_storage_enabled", True)
+    queues = []
+    work = Mock()
+    monkeypatch.setattr(
+        worker,
+        "get_queue",
+        lambda name="ingestion": (
+            queues.append(name) or SimpleNamespace(connection=SimpleNamespace(close=lambda: None))
+        ),
+    )
+    monkeypatch.setattr(worker, "Worker", lambda *a, **kw: SimpleNamespace(name="pool", work=work))
+    worker.run(burst=True, queue_name=pool)
+    assert queues == expected
+    assert not {
+        "notifications",
+        "solver",
+        "images",
+        "relationships",
+        "article-analysis",
+        "article-analysis-fresh",
+    }.intersection(queues)
+    assert work.call_args.kwargs["dequeue_strategy"] is DequeueStrategy.ROUND_ROBIN
+
+
+def test_pooled_topology_covers_every_physical_queue_without_cross_pool_consumers():
+    from collections import Counter
+
+    from devfeed_core.worker_queues import QUEUES, worker_queues
+
+    pools = (
+        "article-analysis",
+        "ai-maintenance",
+        "relationships",
+        "pipeline",
+        "images",
+        "notifications",
+        "solver",
+    )
+    coverage = Counter(
+        q
+        for pool in pools
+        for q in worker_queues(pool, ai_enabled=True, notifications_enabled=True)
+    )
+    assert coverage == Counter(QUEUES)
+
+
+@pytest.mark.parametrize("pool", ["pipeline", "ai-maintenance"])
+def test_cli_accepts_explicit_pool_without_starting_other_consumers(monkeypatch, tmp_path, pool):
+    monkeypatch.setattr(worker, "runtime_marker", lambda _: tmp_path / "identity")
+    monkeypatch.setattr("sys.argv", ["devfeed-worker", "--queue", pool, "--burst"])
+    run = Mock()
+    monkeypatch.setattr(worker, "run", run)
+    assert worker.main() == 0
+    assert run.call_args.kwargs["queue_name"] == pool

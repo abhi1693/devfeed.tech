@@ -1,0 +1,38 @@
+# Opt-in pooled topology. Requires images built from this revision or later.
+# docker compose -f compose.yaml -f compose.workers.yaml --profile workers --profile ai up -d
+services:
+  ai-maintenance-worker:
+    profiles: [workers]
+    scale: ${DEVFEED_AI_MAINTENANCE_WORKER_REPLICAS:-1}
+    environment:
+      DEVFEED_WORKER_QUEUE: ai-maintenance
+
+  pipeline-worker:
+    profiles: [workers]
+    scale: ${DEVFEED_PIPELINE_WORKER_REPLICAS:-2}
+    environment:
+      DEVFEED_WORKER_QUEUE: pipeline
+
+  article-analysis-worker:
+    scale: ${DEVFEED_ARTICLE_ANALYSIS_WORKER_REPLICAS:-4}
+
+  # Keep relationships, images, notifications and solver on their existing runtimes.
+  # These queues retain their own credentials, admission controls and resources.
+  codex-client:
+    scale: 0
+  topic-analysis-worker:
+    scale: 0
+  research-verification-worker:
+    scale: 0
+  source-analysis-worker:
+    scale: 0
+  ingestion-worker:
+    scale: 0
+  source-discovery-worker:
+    scale: 0
+  article-enrichment-worker:
+    scale: 0
+  source-enrichment-worker:
+    scale: 0
+  worker:
+    scale: 0

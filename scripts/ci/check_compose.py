@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def render(values: dict[str, str], *, build: bool = False) -> dict:
+def render(values: dict[str, str], *, build: bool = False, pooled: bool = False) -> dict:
     # Never read the developer's .env or inherited application credentials.
     values = {
         "DEVFEED_CLICKHOUSE_READER_PASSWORD": "fixture-only-reader-password",
@@ -46,6 +46,8 @@ def render(values: dict[str, str], *, build: bool = False) -> dict:
         env_file = Path(directory) / ".env"
         env_file.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
         command = ["docker", "compose", "--env-file", str(env_file), "-f", "compose.yaml"]
+        if pooled:
+            command += ["-f", "compose.workers.yaml"]
         if build:
             command += ["-f", "compose.build.yaml"]
         result = subprocess.run(

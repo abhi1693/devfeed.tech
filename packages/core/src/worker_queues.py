@@ -18,7 +18,7 @@ QueueName = Literal[
     "source-enrichment",
     "images",
 ]
-WorkerQueue = Literal[QueueName, "all", "background", "analysis"]
+WorkerQueue = Literal[QueueName, "all", "background", "analysis", "ai-maintenance", "pipeline"]
 QUEUES: tuple[str, ...] = get_args(QueueName)
 AI_QUEUES = (
     "relationships",
@@ -36,11 +36,24 @@ BACKGROUND_QUEUES = (
     "source-enrichment",
     "images",
 )
+# Pools exclude busy article analysis, delivery, solver and credentialed image work.
+AI_MAINTENANCE_QUEUES = ("topic-analysis", "research-verification", "source-analysis")
+PIPELINE_QUEUES = (
+    "ingestion",
+    "source-discovery",
+    "article-enrichment-fresh",
+    "article-enrichment",
+    "source-enrichment",
+)
 SHARED_BACKGROUND_QUEUES = tuple(q for q in BACKGROUND_QUEUES if q != "source-discovery")
 
 
 def worker_queues(name: str, *, ai_enabled: bool, notifications_enabled: bool) -> list[str]:
-    """Explicit queues opt in; groups follow feature flags and never include solver."""
+    """Explicit queues/pools opt in; legacy all/background groups follow feature flags."""
+    if name == "ai-maintenance":
+        return list(AI_MAINTENANCE_QUEUES)
+    if name == "pipeline":
+        return list(PIPELINE_QUEUES)
     if name in {"article-analysis", "article-enrichment"}:
         return [f"{name}-fresh", name]
     if name == "analysis":

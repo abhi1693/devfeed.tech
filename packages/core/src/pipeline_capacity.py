@@ -10,6 +10,7 @@ from devfeed_core.ai_capacity import cooldown_remaining
 from devfeed_core.config import get_settings
 from devfeed_core.models import utcnow
 from devfeed_core.redis import create_redis
+from devfeed_core.worker_queues import AI_MAINTENANCE_QUEUES
 from redis import Redis
 
 
@@ -55,8 +56,15 @@ def worker_capacity(connection: Redis) -> dict[str, int | bool]:
                 relevant = True
                 result[f"eligible_{kind}_workers"] += 1
                 result[f"busy_{kind}_workers"] += state == "busy"
-                # A busy mixed worker may be serving another queue. Do not reserve it twice.
-                if len(queues) == 1 or state == "idle":
+                # A maintenance-only pool reserves topic capacity while busy.
+                # Fresh/ordinary article lanes also share one execution family.
+                # A busy cross-family worker cannot reserve capacity twice.
+                family = (
+                    set(AI_MAINTENANCE_QUEUES)
+                    if kind == "topic"
+                    else {"article-analysis", "article-analysis-fresh"}
+                )
+                if set(queues) <= family or state == "idle":
                     result[f"{kind}_workers"] += 1
                     result[f"idle_{kind}_workers"] += state == "idle"
         result["shared_workers"] += relevant and len(queues) > 1

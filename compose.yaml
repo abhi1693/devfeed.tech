@@ -897,6 +897,28 @@ services:
       test: [CMD, node, /opt/devfeed/health.cjs]
       interval: 5s
 
+  # Opt in through compose.workers.yaml; legacy workers remain the default.
+  ai-maintenance-worker:
+    <<: *dedicated-worker
+    profiles: [pooled-workers]
+    environment:
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
+      DEVFEED_WORKER_QUEUE: ai-maintenance
+    depends_on:
+      <<: *ready
+      codex-server:
+        condition: service_healthy
+    volumes:
+      - codex-socket:/run/codex:ro
+
+  pipeline-worker:
+    <<: *dedicated-worker
+    profiles: [pooled-workers]
+    environment:
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
+      DEVFEED_WORKER_QUEUE: pipeline
+      DEVFEED_PARTNER_CREDENTIAL_KEY:
+
   codex-client:
     <<: [*backend, *worker-runtime]
     profiles: [ai]
