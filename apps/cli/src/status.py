@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import cast
 
 from devfeed_aggregator.queue import get_queue
-from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.models import (
     Article,
@@ -18,7 +17,6 @@ from devfeed_core.models import (
 )
 from devfeed_core.worker_queues import (
     AI_QUEUES,
-    LEGACY_ALIASES,
     ROUTABLE_QUEUES,
     configured_queue,
     physical_queues,
@@ -136,14 +134,12 @@ def snapshot() -> dict[str, object]:
         ai_queues = {
             configured_queue(name)
             for name in ROUTABLE_QUEUES
-            if LEGACY_ALIASES.get(name, name) in AI_QUEUES
+            if name in (*AI_QUEUES, "partner-evaluation", "partner-pipeline")
         }
-        if get_settings().job_queue_mode == "priority":
-            ai_queues.add(configured_queue("partner-pipeline"))
         non_ai_queues = {
             configured_queue(name)
             for name in ROUTABLE_QUEUES
-            if LEGACY_ALIASES.get(name, name) not in AI_QUEUES
+            if name not in (*AI_QUEUES, "partner-evaluation")
         }
         with queue.connection.pipeline(transaction=False) as pipe:
             for name in names:

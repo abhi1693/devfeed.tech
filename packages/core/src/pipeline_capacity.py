@@ -96,9 +96,5 @@ def topic_admission_limit(capacity: dict[str, int | bool]) -> int:
     # Shared priority workers may be busy with another kind from the same
     # transport queue. Keep a bounded topic backlog without requiring an idle
     # window; execution remains limited by the actual worker replica count.
-    workers = (
-        capacity.get("eligible_topic_workers", 0)
-        if settings.job_queue_mode == "priority"
-        else capacity["topic_workers"]
-    )
+    workers = capacity.get("eligible_topic_workers", 0)
     return min(settings.topic_decision_max_pending, workers * settings.topic_decision_worker_buffer)

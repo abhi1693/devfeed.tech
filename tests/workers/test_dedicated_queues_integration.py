@@ -233,7 +233,6 @@ def test_priority_delivery_preserves_metadata_and_repairs_original_route_after_o
     database, monkeypatch, destination
 ):
     settings = get_settings()
-    monkeypatch.setattr(settings, "job_queue_mode", "priority")
     monkeypatch.setattr(settings, "job_queue_overrides", {"article-analysis": destination})
     with ExitStack() as stack:
         original = get_queue("article-analysis-fresh")
@@ -270,7 +269,6 @@ def test_priority_handler_aliases_honor_per_kind_overrides(
     database, monkeypatch, kind, handler, expected
 ):
     settings = get_settings()
-    monkeypatch.setattr(settings, "job_queue_mode", "priority")
     monkeypatch.setattr(settings, "job_queue_overrides", {expected: "custom-delivery"})
     queue = get_queue(kind)
     try:
@@ -288,7 +286,7 @@ def test_priority_scheduler_publishes_mixed_kinds_with_original_admission_identi
     from devfeed_core.worker_queues import configured_queue, physical_queues
 
     settings = get_settings()
-    monkeypatch.setattr(settings, "job_queue_mode", "priority")
+    monkeypatch.setattr(settings, "job_queue_overrides", {})
     for name in ("ai_enabled", "full_automation", "auto_approve_topics"):
         monkeypatch.setattr(settings, name, True)
     monkeypatch.setattr(settings, "scheduler_batch_size", 1)

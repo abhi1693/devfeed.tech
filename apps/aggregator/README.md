@@ -360,7 +360,6 @@ credentials. API authentication and image-storage credentials remain separate.
 Set each deployment's capacity independently:
 
 ```dotenv
-DEVFEED_JOB_QUEUE_MODE=priority
 DEVFEED_HIGH_WORKER_REPLICAS=4
 DEVFEED_DEFAULT_WORKER_REPLICAS=4
 DEVFEED_LOW_WORKER_REPLICAS=1
@@ -386,8 +385,8 @@ retain an exclusive physical destination; configuration rejects mixing either
 with a shared priority queue or another job kind. Do not
 substitute the smaller discovery-only image for a general priority worker.
 
-`compose.workers.yaml` supplies an explicit priority-topology override and zeros
-all superseded legacy consumers. For local builds, append `-f compose.build.yaml`:
+`compose.workers.yaml` supplies an explicit replica-count override for the three
+priority deployments. For local builds, append `-f compose.build.yaml`:
 
 ```sh
 docker compose -f compose.yaml -f compose.workers.yaml -f compose.build.yaml --profile ai build
@@ -403,41 +402,51 @@ Valkey, ClickHouse, Codex, Chimely and public-fetch network access as required, 
 the native worker-health probes and 1,560-second drain grace. This application PR
 does not change live Kubernetes deployments.
 
-During the transition, old named physical queues can still contain deliveries.
-Their Compose services are retained behind `legacy-workers`, `legacy-ai` and
-`legacy-dedicated` profiles with `DEVFEED_WORKER_LEGACY_QUEUES=true`. An explicit
-`devfeed-worker --queue ingestion --legacy-queues --burst` consumes the old
-`ingestion` queue directly instead of mapping it to default. Keep those drain
-consumers until every old queue is empty, including retries and already-dispatched
-deliveries. Enable `ai` as well when the legacy AI consumers use the local server.
-Do not remove old consumers merely because the new queues have started receiving
-work. New destinations preserve job identity and do not authorize duplicate work.
+Before upgrading an existing deployment, stop every dispatcher/publisher and all
+workers so the one-time transport migration can run without concurrent dequeues.
+Use the new image and the same routing configuration intended for its consumers.
+The migration command defaults to a read-only preview:
+
+```sh
+uv run devfeed migrate-queues
+uv run devfeed migrate-queues --apply
+```
+
+Inspect the preview's source/destination counts and blockers before applying.
+The command moves queued deliveries while preserving job identities, payloads,
+retention and retry metadata. It refuses unsafe active/intermediate deliveries;
+never force-move running jobs. Require `complete=true` after apply and zero
+remaining deliveries on sources that are not configured destinations. Existing
+Images/solver queues may retain queued jobs annotated in place. Intermediate and
+started lists must be empty before starting the new consumers and resuming
+publication. An absent old queue in the new dashboard is not proof of migration.
+The application carries no alternate queue-runtime compatibility mode.
+
+Per-kind custom destinations use the same worker runtime. For example, after
+configuring both article-analysis lanes to `article-analysis`, a deployment can
+copy the default worker template and select only that physical queue:
+
+```yaml
+# compose.dedicated.yaml
+services:
+  article-worker:
+    extends:
+      file: compose.yaml
+      service: default-worker
+    scale: 4
+    environment:
+      DEVFEED_WORKER_QUEUE: article-analysis
+```
+
+Pass `-f compose.dedicated.yaml` after `-f compose.yaml`. Set the routing override
+on every publisher as well as every consumer, and size the default deployment
+again after transferring work to its dedicated consumer. Images and solver custom
+queues still require their separate credentialed runtime.
 
 Baseline completed jobs per hour, oldest queued-job age, fresh-article publication
 latency, retries, resource use and provider cooldowns. Compare representative
 bursts after rollout, then tune replica counts without changing the number of
-queue types. A rollback must keep consumers on all queues that still contain
-work; reversing configuration alone can strand deliveries. Autoscaling remains a
-separate change requiring burst and scale-down validation.
-
-Before releasing this routing change to existing Kubernetes deployments, explicitly
-set `DEVFEED_JOB_QUEUE_MODE=legacy` on their publishers and workers. The previous
-named worker deployments must not silently start consuming mixed priority work
-without the general worker's dependencies and notification credentials. Publish
-and verify the new image in legacy mode first. Stop dispatch, drain legacy queues,
-then switch all publishers and the new priority consumers together. Keep the old
-worker configuration available until its transport queues are empty. Resume
-publication only after worker registration and queue routing agree.
-
-The worker dashboard reports the configured physical topology. Before switching
-routing, verify the old queues in legacy mode:
-
-```sh
-DEVFEED_JOB_QUEUE_MODE=legacy uv run devfeed status
-```
-
-An absent old queue in the priority dashboard is not proof that it has drained.
-Keep old custom-route consumers until their own transport lists are empty as well.
-For a Compose legacy drain, set the high/default/low replica variables to zero,
-set routing mode to legacy, and explicitly enable the legacy worker profiles.
-Switch routing back to priority before starting the priority deployments.
+queue types. A rollback must drain the new physical queues before restoring an
+older release that cannot consume them; reversing configuration alone can strand
+deliveries. Autoscaling remains a separate change requiring burst and scale-down
+validation.

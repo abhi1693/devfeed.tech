@@ -847,7 +847,7 @@ def test_worker_configures_shared_logs_without_starting_worker(json_logs, monkey
     calls = []
     connection = SimpleNamespace(close=lambda: calls.append("close"))
     monkeypatch.setattr(
-        worker, "get_queue", lambda name="ingestion": SimpleNamespace(connection=connection)
+        worker, "get_queue", lambda name="default", **kwargs: SimpleNamespace(connection=connection)
     )
 
     def fake_worker(*args, **kwargs):
@@ -864,7 +864,7 @@ def test_worker_configures_shared_logs_without_starting_worker(json_logs, monkey
 
 
 def test_worker_initialization_failure_is_logged(json_logs, monkeypatch):
-    def fail():
+    def fail(*args, **kwargs):
         raise RuntimeError("private-redis-password")
 
     monkeypatch.setattr(worker, "get_queue", fail)

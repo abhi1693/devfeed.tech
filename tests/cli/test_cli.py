@@ -207,11 +207,11 @@ def test_worker_and_scheduler_commands_delegate_to_runtime(monkeypatch, capsys):
     calls = []
     monkeypatch.setattr(commands.worker, "run", lambda **kwargs: calls.append(kwargs))
     assert run(["worker", "--burst", "--name", "test-worker", "--max-jobs", "2"]) == 0
-    assert calls == [{"burst": True, "name": "test-worker", "max_jobs": 2}]
-    assert run(["worker", "--queue", "analysis", "--burst"]) == 0
-    assert calls[-1] == {"burst": True, "name": None, "max_jobs": None, "queue_name": "analysis"}
-    assert run(["worker", "--queue", "background", "--burst"]) == 0
-    assert calls[-1]["queue_name"] == "background"
+    assert calls == [{"burst": True, "name": "test-worker", "max_jobs": 2, "queue_name": "default"}]
+    assert run(["worker", "--queue", "high", "--burst"]) == 0
+    assert calls[-1] == {"burst": True, "name": None, "max_jobs": None, "queue_name": "high"}
+    assert run(["worker", "--queue", "default", "--burst"]) == 0
+    assert calls[-1]["queue_name"] == "default"
     monkeypatch.setattr(commands.scheduler, "tick", lambda: {"dispatched": 3})
     assert run(["scheduler", "--once"]) == 0
     assert json.loads(capsys.readouterr().out) == {"dispatched": 3}
@@ -226,7 +226,7 @@ def test_worker_startup_errors_keep_actionable_messages_without_credentials(
 ):
     closed = []
     queue = SimpleNamespace(connection=SimpleNamespace(close=lambda: closed.append(True)))
-    monkeypatch.setattr(commands.worker, "get_queue", lambda *args: queue)
+    monkeypatch.setattr(commands.worker, "get_queue", lambda *args, **kwargs: queue)
 
     def fail(**kwargs):
         if duplicate_name:
@@ -250,7 +250,7 @@ def test_worker_startup_errors_keep_actionable_messages_without_credentials(
         assert "redis://[REDACTED]@host" in output.err
         assert "user:secret" not in output.err
     assert output.out == ""
-    assert closed == [True] * 5  # Includes the fresh article extraction lane.
+    assert closed == [True]  # One explicitly selected physical queue.
 
 
 @pytest.mark.parametrize(
@@ -294,3 +294,43 @@ def test_empty_update_is_rejected_before_database(monkeypatch, capsys):
     for resource in ("sources", "tags"):
         assert run([resource, "update", str(uuid.uuid4())]) == 2
         assert "Specify at least one" in capsys.readouterr().err
+
+
+def test_worker_cli_accepts_configured_physical_override(monkeypatch):
+    from devfeed_core.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "job_queue_overrides", {"article-analysis": "dedicated-ai"})
+    calls = []
+    monkeypatch.setattr(commands.worker, "run", lambda **kwargs: calls.append(kwargs))
+    assert run(["worker", "--queue", "dedicated-ai", "--burst"]) == 0
+    assert calls[-1]["queue_name"] == "dedicated-ai"
+    calls.clear()
+    assert run(["worker", "--queue", "unconfigured-private"]) == 2
+    assert calls == []
+
+
+@pytest.mark.parametrize("apply,blocked", [(False, False), (True, False), (True, True)])
+def test_queue_migration_cli_previews_by_default_and_rejects_incomplete_apply(
+    monkeypatch, capsys, apply, blocked
+):
+    from unittest.mock import Mock
+
+    from devfeed_aggregator import queue_migration
+    from devfeed_core import redis
+
+    connection = Mock()
+    monkeypatch.setattr(redis, "create_redis", lambda *args, **kwargs: connection)
+    report = {
+        "complete": apply and not blocked,
+        "moved": 0 if blocked else 3,
+        "blocked": [{"reason": "worker_active"}] if blocked else [],
+    }
+    migrate = Mock(return_value=report)
+    monkeypatch.setattr(queue_migration, "migrate_queues", migrate)
+    args = ["migrate-queues", "--source", "ingestion"] + (["--apply"] if apply else [])
+    assert run(args) == (2 if blocked else 0)
+    migrate.assert_called_once_with(connection, apply=apply, sources=["ingestion"])
+    connection.close.assert_called_once()
+    if not blocked:
+        assert json.loads(capsys.readouterr().out) == report

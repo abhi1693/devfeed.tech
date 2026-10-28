@@ -409,3 +409,20 @@ def test_relevance_admission_uses_logical_delivery_metadata_not_transport_name(
     else:
         runtime.client.complete.assert_not_called()
         assert runtime.job.status == "queued" and runtime.job.attempts == 0
+
+
+def test_relevance_without_metadata_requires_an_exclusive_configured_destination(monkeypatch):
+    from devfeed_core.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "job_queue_overrides", {})
+    assert not source_tasks._relevance_delivery(SimpleNamespace(origin="source-analysis", meta={}))
+    assert not source_tasks._relevance_delivery(SimpleNamespace(origin="default", meta={}))
+    monkeypatch.setattr(settings, "job_queue_overrides", {"source-analysis": "assessment"})
+    assert source_tasks._relevance_delivery(SimpleNamespace(origin="assessment", meta={}))
+    assert not source_tasks._relevance_delivery(
+        SimpleNamespace(origin="assessment", meta={"devfeed_queue": "source-enrichment"})
+    )
+    assert not source_tasks._relevance_delivery(
+        SimpleNamespace(origin="assessment", meta={"devfeed_queue": []})
+    )

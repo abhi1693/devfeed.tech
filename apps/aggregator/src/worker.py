@@ -16,7 +16,14 @@ from devfeed_core.runtime_files import runtime_marker, write_runtime_marker
 from devfeed_core.services import OperationConflict
 from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import __version__
-from devfeed_core.worker_queues import WorkerQueue, configured_queue, physical_queues, worker_queues
+from devfeed_core.worker_queues import (
+    ROUTABLE_QUEUES,
+    WorkerQueue,
+    configured_queue,
+    physical_queues,
+    worker_queues,
+)
+from rq.exceptions import DeserializationError
 from rq.job import Job
 from rq.serializers import JSONSerializer
 from rq.worker import DequeueStrategy
@@ -36,11 +43,13 @@ JOB_FUNCTIONS["devfeed_aggregator.partner_sync_tasks.process_pipeline"] = "partn
 
 
 def job_fields(job: Job) -> dict[str, object]:
-    return {
-        "job_id": job.args[0] if job.args else job.id,
-        "rq_job_id": job.id,
-        "job_kind": JOB_FUNCTIONS.get(getattr(job, "func_name", "") or ""),
-    }
+    try:
+        identifier = job.args[0] if job.args else job.id
+        kind = JOB_FUNCTIONS.get(getattr(job, "func_name", "") or "")
+    except DeserializationError:
+        # Logging must not interrupt RQ's failure/quarantine handling.
+        identifier, kind = job.id, None
+    return {"job_id": identifier, "rq_job_id": job.id, "job_kind": kind}
 
 
 def log_job_exception(
@@ -63,8 +72,7 @@ def run(
     burst: bool = False,
     name: str | None = None,
     max_jobs: int | None = None,
-    queue_name: str = "all",
-    legacy_queues: bool = False,
+    queue_name: str = "default",
 ) -> None:
     settings = get_settings()
     solver_selector = queue_name in {"solver", configured_queue("solver", settings)}
@@ -77,13 +85,7 @@ def run(
     worker_name = name
     telemetry = start_runtime("worker-" + queue_name, profiling=False, tracing=False)
     try:
-        names = worker_queues(
-            queue_name,
-            ai_enabled=settings.ai_enabled,
-            notifications_enabled=settings.notifications_enabled,
-            settings=settings,
-            legacy=legacy_queues,
-        )
+        names = worker_queues(queue_name, settings=settings)
         if (
             configured_queue("notifications", settings) in names
             and importlib.util.find_spec("devfeed_notifications") is None
@@ -92,18 +94,8 @@ def run(
                 "Notification delivery requires devfeed-aggregator[notifications] "
                 "or devfeed-aggregator[all-workers]"
             )
-        if (
-            settings.image_storage_enabled
-            and queue_name in {"all", "background"}
-            and "images" in names
-        ):
-            # R2 credentials belong only to the dedicated Images pipeline worker.
-            names.remove("images")
         for queue_label in names:
-            if settings.job_queue_mode == "priority" or legacy_queues:
-                queues.append(get_queue(queue_label, physical=True))
-            else:
-                queues.append(get_queue() if queue_label == "ingestion" else get_queue(queue_label))
+            queues.append(get_queue(queue_label, physical=True))
         worker = Worker(
             queues,
             connection=queues[0].connection,
@@ -122,11 +114,7 @@ def run(
                     burst=burst,
                     max_jobs=max_jobs,
                     logging_level=settings.log_level,
-                    dequeue_strategy=(
-                        DequeueStrategy.DEFAULT
-                        if settings.job_queue_mode == "priority" and not legacy_queues
-                        else DequeueStrategy.ROUND_ROBIN
-                    ),
+                    dequeue_strategy=DequeueStrategy.DEFAULT,
                 )
             except ValueError as exc:
                 if str(exc) == f"There exists an active worker named {worker.name!r} already":
@@ -155,26 +143,32 @@ def main() -> int:
     parser.add_argument(
         "--queue",
         choices=tuple(dict.fromkeys((*get_args(WorkerQueue), *physical_queues()))),
-        default="all",
+        default="default",
     )
     args = parser.parse_args()
     return start_queue_worker(args, args.queue)
 
 
 def queue_worker_main(queue_name: str, description: str) -> int:
-    """Shared command-line contract for apps pinned to one durable queue."""
-    return start_queue_worker(worker_parser(description).parse_args(), queue_name)
+    """Start an optional dedicated image only on an exclusive configured route."""
+    args = worker_parser(description).parse_args()
+    settings = get_settings()
+    destination = configured_queue(queue_name, settings)
+    base = queue_name.removesuffix("-fresh")
+    family = (
+        {base, base + "-fresh"}
+        if base in {"article-analysis", "article-enrichment"}
+        else {queue_name}
+    )
+    owners = {kind for kind in ROUTABLE_QUEUES if configured_queue(kind, settings) == destination}
+    if not owners <= family:
+        raise OperationConflict("Dedicated worker images require an exclusive job queue override")
+    return start_queue_worker(args, destination)
 
 
 def worker_parser(description: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument(
-        "--legacy-queues",
-        action="store_true",
-        default=os.environ.get("DEVFEED_WORKER_LEGACY_QUEUES") == "true",
-        help="Drain original per-kind queues during migration",
-    )
     parser.add_argument("--burst", action="store_true", help="Exit when the queue is empty")
     parser.add_argument("--name", help="Unique RQ worker name")
     parser.add_argument("--max-jobs", type=int, help="Stop after this many jobs")
@@ -184,10 +178,7 @@ def worker_parser(description: str) -> argparse.ArgumentParser:
 def start_queue_worker(args: argparse.Namespace, queue_name: str) -> int:
     worker_name = args.name or f"{os.uname().nodename}-{uuid.uuid4().hex}"
     write_runtime_marker(runtime_marker("worker-name"), worker_name)
-    options = {"legacy_queues": True} if getattr(args, "legacy_queues", False) else {}
-    run(
-        burst=args.burst, name=worker_name, max_jobs=args.max_jobs, queue_name=queue_name, **options
-    )
+    run(burst=args.burst, name=worker_name, max_jobs=args.max_jobs, queue_name=queue_name)
     return 0
 
 

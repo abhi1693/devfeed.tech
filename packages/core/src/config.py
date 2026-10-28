@@ -83,7 +83,6 @@ class Settings(BaseSettings):
     analytics_poll_seconds: float = Field(default=1, ge=0.1, le=60)
     analytics_backfill_poll_seconds: float = Field(default=0.1, ge=0.1, le=60)
     redis_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-    job_queue_mode: Literal["priority", "legacy"] = "priority"
     job_queue_overrides: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")

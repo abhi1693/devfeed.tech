@@ -63,10 +63,6 @@ services:
     <<: *backend-build
     image: devfeed/search-setup:local
     develop: *backend-develop
-  worker:
-    <<: *backend-build
-    image: devfeed/worker:local
-    develop: *backend-develop
   scheduler:
     <<: *backend-build
     image: devfeed/scheduler:local
@@ -74,10 +70,6 @@ services:
   analytics-importer:
     <<: *backend-build
     image: devfeed/analytics-importer:local
-    develop: *backend-develop
-  codex-client:
-    <<: *backend-build
-    image: devfeed/codex-client:local
     develop: *backend-develop
   high-worker:
     <<: *backend-build
@@ -91,52 +83,6 @@ services:
     <<: *backend-build
     image: devfeed/low-worker:local
     develop: *backend-develop
-  article-analysis-worker:
-    <<: *backend-build
-    image: devfeed/article-analysis-worker:local
-    develop: *backend-develop
-  topic-analysis-worker:
-    <<: *backend-build
-    image: devfeed/topic-analysis-worker:local
-    develop: *backend-develop
-  research-verification-worker:
-    <<: *backend-build
-    image: devfeed/research-verification-worker:local
-    develop: *backend-develop
-  source-analysis-worker:
-    <<: *backend-build
-    image: devfeed/source-analysis-worker:local
-    develop: *backend-develop
-  source-discovery-worker:
-    <<: *backend-build
-    image: devfeed/source-discovery-worker:local
-    build:
-      <<: *backend-build-config
-      args:
-        <<: *backend-build-args
-        DEVFEED_PACKAGE_ARGS: --package devfeed-source-discovery-worker
-    develop: *backend-develop
-  relationships-worker:
-    <<: *backend-build
-    image: devfeed/relationships-worker:local
-    develop: *backend-develop
-  ingestion-worker:
-    <<: *backend-build
-    image: devfeed/ingestion-worker:local
-    develop: *backend-develop
-  article-enrichment-worker:
-    <<: *backend-build
-    image: devfeed/article-enrichment-worker:local
-    build:
-      <<: *backend-build-config
-      args:
-        <<: *backend-build-args
-        DEVFEED_PACKAGE_ARGS: --package devfeed-article-enrichment-worker
-    develop: *backend-develop
-  source-enrichment-worker:
-    <<: *backend-build
-    image: devfeed/source-enrichment-worker:local
-    develop: *backend-develop
   images-worker:
     <<: *backend-build
     image: devfeed/images-worker:local
@@ -145,10 +91,6 @@ services:
       args:
         <<: *backend-build-args
         DEVFEED_PACKAGE_ARGS: --package devfeed-images-worker
-    develop: *backend-develop
-  notifications-worker:
-    <<: *backend-build
-    image: devfeed/notifications-worker:local
     develop: *backend-develop
   admin-api:
     image: devfeed/admin-api:local

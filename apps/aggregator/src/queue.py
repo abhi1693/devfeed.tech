@@ -6,7 +6,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.jobs import JOB_TIMEOUT_SECONDS
 from devfeed_core.redis import create_redis
 from devfeed_core.telemetry import inject_context
-from devfeed_core.worker_queues import QUEUES, ROUTABLE_QUEUES, configured_queue, physical_queues
+from devfeed_core.worker_queues import ROUTABLE_QUEUES, configured_queue, physical_queues
 from redis.backoff import ExponentialWithJitterBackoff
 from redis.retry import Retry
 from rq import Queue
@@ -39,12 +39,7 @@ class DurableQueue(Queue):
             "devfeed_aggregator.partner_sync_tasks.process_pipeline": "partner-pipeline",
         }
         alias = aliases.get(f) if isinstance(f, str) else None
-        if (
-            self.logical_name
-            and alias
-            and alias != self.logical_name
-            and get_settings().job_queue_mode == "priority"
-        ):
+        if self.logical_name and alias and alias != self.logical_name:
             target = get_queue(alias)
             try:
                 return target.enqueue(f, *args, **kwargs)
@@ -76,9 +71,7 @@ class DurableQueue(Queue):
                     # A routing override may have changed since this delivery was
                     # published. Repair its original transport instead of duplicating it.
                     owned = (existing.meta or {}).get("devfeed_queue") in ROUTABLE_QUEUES
-                    if origin in QUEUES or (
-                        owned and re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", origin or "")
-                    ):
+                    if owned and re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", origin or ""):
                         key = f"rq:queue:{origin}"
                         self.connection.eval(
                             RESTORE_QUEUED,
@@ -109,7 +102,7 @@ class DurableQueue(Queue):
 def get_queue(name: str = "ingestion", *, physical: bool = False) -> DurableQueue:
     settings = get_settings()
     if physical:
-        if name not in (*QUEUES, *physical_queues(settings)):
+        if name not in physical_queues(settings):
             raise ValueError("Unknown worker queue")
         destination = name
     else:

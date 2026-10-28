@@ -110,8 +110,9 @@ def test_read_only_snapshot_excludes_expired_and_unrelated_workers(telemetry):
     worker = body["workers"][0]
     assert worker["completed_executions"] == 42 and worker["failed_executions"] == 3
     assert worker["role"] == "ai" and worker["registered"] is True
-    assert body["queues"][1]["dispatched"] == 12
-    assert body["queues"][1]["succeeded"] == 0
+    queue = next(queue for queue in body["queues"] if queue["name"] == "relationships")
+    assert queue["dispatched"] == 12
+    assert queue["succeeded"] == 0
     assert b"rq:worker:expired" in store.members
 
 
@@ -120,7 +121,12 @@ def test_stopped_worker_is_offline_and_not_queue_capacity(telemetry):
     store.worker(death=NOW.isoformat().encode())
     response = client.get("/v1/admin/workers")
     assert response.json()["workers"][0]["state"] == "offline"
-    assert response.json()["queues"][1]["registered_workers"] == 0
+    assert (
+        next(queue for queue in response.json()["queues"] if queue["name"] == "relationships")[
+            "registered_workers"
+        ]
+        == 0
+    )
 
 
 def test_missing_worker_and_outage_are_not_empty_success(telemetry):
@@ -226,7 +232,6 @@ def test_priority_snapshot_counts_each_transport_once_and_combines_logical_rows(
     from devfeed_core.config import get_settings
 
     settings = get_settings()
-    monkeypatch.setattr(settings, "job_queue_mode", "priority")
     monkeypatch.setattr(
         settings,
         "job_queue_overrides",
@@ -265,7 +270,6 @@ def test_priority_partner_evaluation_override_retains_ai_worker_role(telemetry, 
     from devfeed_core.config import get_settings
 
     settings = get_settings()
-    monkeypatch.setattr(settings, "job_queue_mode", "priority")
     monkeypatch.setattr(settings, "job_queue_overrides", {"partner-evaluation": "partner-ai"})
     client, store, _ = telemetry
     store.worker("partner-evaluation", queues=b"partner-ai", state=b"idle")
@@ -283,7 +287,6 @@ def test_priority_partner_pipeline_override_retains_mixed_worker_role(telemetry,
     from devfeed_core.config import get_settings
 
     settings = get_settings()
-    monkeypatch.setattr(settings, "job_queue_mode", "priority")
     monkeypatch.setattr(settings, "job_queue_overrides", {"partner-pipeline": "partner-sync"})
     client, store, _ = telemetry
     store.worker("partner-pipeline", queues=b"partner-sync", state=b"idle")

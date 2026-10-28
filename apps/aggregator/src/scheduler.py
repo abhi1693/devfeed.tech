@@ -229,9 +229,7 @@ def _tick() -> dict[str, int]:
                     backfill_logos(session, PartnerProduct, limit=10)
         except Exception as exc:
             logger.warning("partner_match_refresh_failed", extra={"error_type": type(exc).__name__})
-        recommendation_queue = (
-            get_queue("recommendations") if get_settings().job_queue_mode == "priority" else queue
-        )
+        recommendation_queue = get_queue("recommendations")
         try:
             recommendations_dispatched = dispatch_recommendations(
                 factory, recommendation_queue, batch
@@ -432,9 +430,7 @@ def run() -> None:
                 scheduler_health() as health,
                 recommendation_dispatcher(
                     session_factory(),
-                    (lambda: get_queue("recommendations"))
-                    if settings.job_queue_mode == "priority"
-                    else get_queue,
+                    lambda: get_queue("recommendations"),
                 ),
                 partner_dispatcher(session_factory()),
                 sitemap_refresher(),

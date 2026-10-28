@@ -11,7 +11,6 @@ from typing import Annotated, Literal, overload
 from typing import cast as type_cast
 
 from devfeed_core.ai_capacity import cooldown_remaining
-from devfeed_core.config import get_settings
 from devfeed_core.job_definitions import JOB_DEFINITIONS, Job, queue_lanes
 from devfeed_core.models import (
     Article,
@@ -26,7 +25,6 @@ from devfeed_core.models import (
 from devfeed_core.worker_queues import (
     AI_QUEUES,
     BACKGROUND_QUEUES,
-    LEGACY_ALIASES,
     ROUTABLE_QUEUES,
     configured_queue,
     physical_queues,
@@ -311,16 +309,13 @@ def read_workers(
             continue
         registered = ttl > 0 and not fields["death"]
         started, heartbeat = timestamp(fields["birth"]), timestamp(fields["last_heartbeat"])
-        logical = {
-            LEGACY_ALIASES.get(name, name)
-            for name in ROUTABLE_QUEUES
-            if configured_queue(name) in queues
-        }
-        ai = bool(logical.intersection(AI_QUEUES)) or (
-            get_settings().job_queue_mode == "priority"
-            and configured_queue("partner-pipeline") in queues
+        logical = {name for name in ROUTABLE_QUEUES if configured_queue(name) in queues}
+        ai = bool(logical.intersection((*AI_QUEUES, "partner-evaluation", "partner-pipeline")))
+        background = bool(
+            logical.intersection(
+                (*BACKGROUND_QUEUES, "notifications", "recommendations", "partner-pipeline")
+            )
         )
-        background = bool(logical.intersection((*BACKGROUND_QUEUES, "notifications")))
         worker = WorkerOut(
             name=key.removeprefix("rq:worker:"),
             queues=queues,

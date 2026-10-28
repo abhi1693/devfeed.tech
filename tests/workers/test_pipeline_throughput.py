@@ -88,10 +88,10 @@ def test_topic_evidence_reuse_preserves_age_and_never_serves_expired(
     "capacity,expected",
     [
         ({"observed": False}, 4),
-        ({"observed": True, "cooldown_seconds": 10, "topic_workers": 3}, 0),
-        ({"observed": True, "cooldown_seconds": 0, "topic_workers": 0}, 0),
-        ({"observed": True, "cooldown_seconds": 0, "topic_workers": 3}, 6),
-        ({"observed": True, "cooldown_seconds": 0, "topic_workers": 100}, 8),
+        ({"observed": True, "cooldown_seconds": 10, "eligible_topic_workers": 3}, 0),
+        ({"observed": True, "cooldown_seconds": 0, "eligible_topic_workers": 0}, 0),
+        ({"observed": True, "cooldown_seconds": 0, "eligible_topic_workers": 3}, 6),
+        ({"observed": True, "cooldown_seconds": 0, "eligible_topic_workers": 100}, 8),
     ],
 )
 def test_admission_follows_observed_workers_and_hard_cap(capacity, expected):
@@ -99,7 +99,7 @@ def test_admission_follows_observed_workers_and_hard_cap(capacity, expected):
 
 
 @pytest.mark.integration
-def test_capacity_excludes_expired_heartbeats_and_busy_shared_workers(database):
+def test_capacity_excludes_expired_heartbeats_and_identifies_shared_slots(database):
     from devfeed_core.redis import create_redis
 
     redis = create_redis(get_settings())
@@ -169,7 +169,7 @@ def test_priority_reserves_oldest_slot_and_uses_only_eligible_article_demand(dat
                 session.add(article)
                 session.flush()
                 session.add(ArticleTag(article_id=article.id, tag_id=tag.id))
-    capacity = {"observed": True, "cooldown_seconds": 0, "topic_workers": 1}
+    capacity = {"observed": True, "cooldown_seconds": 0, "eligible_topic_workers": 1}
     assert schedule_decisions(database, capacity=capacity) == 2
     with database() as session:
         assert set(session.scalars(select(TopicAnalysisJob.proposal_id))) == {
@@ -305,7 +305,7 @@ def priority_transport(database, monkeypatch):
     from devfeed_aggregator.analysis_worker import AdmissionSnapshot, AnalysisAwareWorker
     from devfeed_aggregator.queue import get_queue
 
-    monkeypatch.setattr(get_settings(), "job_queue_mode", "priority")
+    monkeypatch.setattr(get_settings(), "job_queue_overrides", {})
     queue = get_queue("default", physical=True)
     worker = AnalysisAwareWorker(
         [queue], connection=queue.connection, serializer=queue.serializer, prepare_for_work=False
@@ -388,7 +388,7 @@ def test_priority_capacity_observes_fresh_article_slots_and_admits_bounded_topic
 ):
     from devfeed_core.redis import create_redis
 
-    monkeypatch.setattr(get_settings(), "job_queue_mode", "priority")
+    monkeypatch.setattr(get_settings(), "job_queue_overrides", {})
     with create_redis(get_settings()) as redis:
         for name, queue in [
             ("high-1", "high"),
@@ -419,7 +419,6 @@ def test_priority_capacity_ignores_drain_only_named_consumer(
     from devfeed_core import pipeline_capacity
 
     settings = get_settings()
-    monkeypatch.setattr(settings, "job_queue_mode", "priority")
     monkeypatch.setattr(
         settings,
         "job_queue_overrides",
@@ -437,3 +436,39 @@ def test_priority_capacity_ignores_drain_only_named_consumer(
     observed = worker_capacity(connection)
     assert observed["eligible_topic_workers"] == expected
     assert topic_admission_limit(observed) == expected * settings.topic_decision_worker_buffer
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("metadata", [None, "null", "[]", '"invalid-metadata-shape"'])
+def test_priority_worker_quarantines_malformed_payload_and_continues_valid_work(
+    priority_transport, metadata
+):
+    from devfeed_aggregator.analysis_worker import AnalysisAwareWorker
+    from devfeed_aggregator.worker import log_job_exception, log_work_horse_killed
+    from rq.job import JobStatus
+
+    _, physical, get_queue = priority_transport
+    source = get_queue("ingestion")
+    try:
+        malformed = source.enqueue("builtins.str", "malformed")
+        physical.connection.hset(malformed.key, "data", b"not-a-serialized-job")
+        if metadata is None:
+            physical.connection.hdel(malformed.key, "meta")
+        else:
+            physical.connection.hset(malformed.key, "meta", metadata)
+        following = source.enqueue("builtins.str", "valid")
+        consumer = AnalysisAwareWorker(
+            [physical],
+            connection=physical.connection,
+            serializer=physical.serializer,
+            exception_handlers=[log_job_exception],
+            work_horse_killed_handler=log_work_horse_killed,
+        )
+        consumer.work(burst=True, max_jobs=2)
+        assert malformed.get_status(refresh=True) == JobStatus.FAILED
+        assert following.get_status(refresh=True) == JobStatus.FINISHED
+        assert physical.failed_job_registry.get_job_ids() == [malformed.id]
+        assert physical.job_ids == []
+        assert physical.intermediate_queue.get_job_ids() == []
+    finally:
+        source.connection.close()

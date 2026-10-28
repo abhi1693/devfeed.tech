@@ -25,7 +25,9 @@ from devfeed_core.source_inspection import complete_website_profile
 from devfeed_core.source_profiles import PROFILE_FIELDS
 from devfeed_core.source_relevance import feed_sample
 from devfeed_core.source_types import SourceType
+from devfeed_core.worker_queues import ROUTABLE_QUEUES, configured_queue
 from rq import get_current_job
+from rq.job import Job
 from sqlalchemy import select
 
 from devfeed_aggregator.codex_client import AnalysisError
@@ -73,6 +75,17 @@ def enrich_source(job_id: str) -> None:
             raise
 
 
+def _relevance_delivery(delivery: Job) -> bool:
+    allowed = {"source-analysis", "solver"}
+    logical = (getattr(delivery, "meta", None) or {}).get("devfeed_queue")
+    if logical is not None:
+        return isinstance(logical, str) and logical in allowed
+    # A dedicated configured destination establishes execution capability. A
+    # shared priority queue cannot establish the kind of an unlabelled delivery.
+    owners = {name for name in ROUTABLE_QUEUES if configured_queue(name) == delivery.origin}
+    return bool(owners) and owners <= allowed
+
+
 def _enrich_source(identifier: uuid.UUID) -> None:
     started = time.perf_counter()
     factory = session_factory()
@@ -88,11 +101,10 @@ def _enrich_source(identifier: uuid.UUID) -> None:
         if (
             job.operation == "relevance"
             and delivery is not None
-            and ((getattr(delivery, "meta", None) or {}).get("devfeed_queue") or delivery.origin)
-            not in {"analysis", "source-analysis", "solver"}
+            and not _relevance_delivery(delivery)
         ):
-            # A delivery queued before a mode change must not invoke Codex from
-            # an ingestion worker. Return it to the outbox for current routing.
+            # A source whose operation changed must be admitted through the
+            # assessment lane before invoking Codex.
             job.status = "queued"
             job.available_at = utcnow()
             job.dispatched_at = None

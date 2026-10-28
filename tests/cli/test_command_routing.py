@@ -138,7 +138,12 @@ def operations(monkeypatch):
 def test_typer_tree_preserves_every_command():
     assert isinstance(app, typer.Typer)
     command = get_command(app)
-    assert set(command.commands) == set(GROUPS) | {"worker", "scheduler", "status"}
+    assert set(command.commands) == set(GROUPS) | {
+        "worker",
+        "scheduler",
+        "status",
+        "migrate-queues",
+    }
     for name, subcommands in GROUPS.items():
         assert set(command.commands[name].commands) == set(subcommands)
     assert app.pretty_exceptions_enable is False
@@ -320,7 +325,6 @@ def test_conflict_does_not_echo_sensitive_values(kind, operations):
 @pytest.mark.parametrize(
     "arguments",
     [
-        ["worker", "--queue", "unknown"],
         ["sources", "add", "https://example.com/rss"],
         ["sources", "list", "--status", "bad"],
         ["sources", "list", "--offset", "-1"],

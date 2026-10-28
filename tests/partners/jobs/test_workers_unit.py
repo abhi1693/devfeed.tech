@@ -202,13 +202,9 @@ def test_product_sync_preserves_generation_and_fences_results(monkeypatch, mode)
         ("sync", True, True),
     ],
 )
-@pytest.mark.parametrize("mode", ["legacy", "priority"])
 def test_pipeline_routes_api_work_to_standard_worker_and_closes_queue(
-    monkeypatch, operation, enabled, failed, mode
+    monkeypatch, operation, enabled, failed
 ):
-    from devfeed_core.config import get_settings
-
-    monkeypatch.setattr(get_settings(), "job_queue_mode", mode)
     session, queue = Mock(), Mock()
     queue.count = 0
     job = leased_job(operation=operation)
@@ -234,14 +230,10 @@ def test_pipeline_routes_api_work_to_standard_worker_and_closes_queue(
         assert pipeline.dispatch_partner_pipeline(transaction_factory(session)) == 1
         assert job.dispatched_at is not None
     expected = "source-analysis" if operation == "assess" else "ingestion"
-    expected_calls = (
-        ["partner-pipeline"] * (1 + int(enabled))
-        if mode == "priority"
-        else ["ingestion"] + (["source-analysis"] if enabled else [])
+    assert [call.args[0] for call in lookup.call_args_list] == ["partner-pipeline"] * (
+        1 + int(enabled)
     )
-    assert [call.args[0] for call in lookup.call_args_list] == expected_calls
-    if mode == "priority":
-        assert queue.enqueue.call_args.kwargs["meta"] == {"devfeed_ai": operation == "assess"}
+    assert queue.enqueue.call_args.kwargs["meta"] == {"devfeed_ai": operation == "assess"}
     assert expected in queue.enqueue.call_args.kwargs["job_id"]
     assert queue.connection.close.call_count == 1 + int(enabled)
 

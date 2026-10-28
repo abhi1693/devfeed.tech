@@ -14,13 +14,13 @@ from devfeed_core.config import get_settings
 from devfeed_core.quota_pacing import quota_key, snapshot_pause_reason
 from devfeed_core.runtime_files import write_runtime_marker
 from devfeed_core.telemetry import current, extract_context, span, start_runtime, stop_runtime
-from devfeed_core.worker_queues import AI_QUEUES, QUEUES, ROUTABLE_QUEUES, configured_queue
+from devfeed_core.worker_queues import AI_QUEUES, ROUTABLE_QUEUES, configured_queue
 from opentelemetry.trace import StatusCode
 from redis.client import Pipeline
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from rq import Worker
-from rq.exceptions import NoSuchJobError, StopRequested
+from rq.exceptions import DeserializationError, NoSuchJobError, StopRequested
 from rq.job import Job
 from rq.queue import Queue
 from rq.suspension import WORKERS_SUSPENDED
@@ -50,20 +50,32 @@ return 0
 """
 
 
+def job_metadata(job: Job) -> dict[str, Any]:
+    metadata = getattr(job, "meta", {})
+    return metadata if isinstance(metadata, dict) else {}
+
+
 def logical_job_queue(job: Job, queue: Queue | None = None) -> str:
     """Keep execution policy independent of the physical transport queue."""
-    logical = getattr(job, "meta", {}).get("devfeed_queue")
+    logical = job_metadata(job).get("devfeed_queue")
     if isinstance(logical, str) and logical in ROUTABLE_QUEUES:
         return logical
     origin = getattr(job, "origin", None) or (queue.name if queue else None)
-    if origin in QUEUES:
-        return str(origin)
-    # Old deliveries retain their logical origin. A priority delivery lacking
-    # metadata uses a conservative handler fallback; source enrichment can also
-    # perform AI assessment, so fail closed for that ambiguous handler.
+    owners = [name for name in ROUTABLE_QUEUES if configured_queue(name) == origin]
+    if len(owners) == 1:
+        return owners[0]
+    # Deliveries lacking usable metadata use a conservative handler fallback.
+    # Source enrichment can also perform AI assessment, so fail closed for that
+    # ambiguous handler on a shared physical queue.
     from devfeed_core.job_definitions import JOB_DEFINITIONS
 
-    handler = getattr(job, "func_name", None)
+    try:
+        handler = getattr(job, "func_name", None)
+    except DeserializationError:
+        # Claim malformed deliveries into RQ's intermediate list and let its
+        # normal execution/failure handling quarantine them. Raising before
+        # claim would leave a poison delivery at the head on every restart.
+        return "other"
     if handler == "devfeed_aggregator.partner_tasks.process_evaluation":
         return "partner-evaluation"
     if handler == "devfeed_aggregator.partner_sync_tasks.process_pipeline":
@@ -79,7 +91,7 @@ def logical_job_queue(job: Job, queue: Queue | None = None) -> str:
 def job_requires_ai(job: Job, queue: Queue | None = None) -> bool:
     logical = logical_job_queue(job, queue)
     if logical in {"partner-pipeline", "partner-evaluation"}:
-        hint = getattr(job, "meta", {}).get("devfeed_ai")
+        hint = job_metadata(job).get("devfeed_ai")
         # A partner pipeline can carry assessment or transport-only work. Its
         # outbox owns this hint; missing/invalid hints must fail closed.
         return hint if type(hint) is bool else True
@@ -115,22 +127,24 @@ class AnalysisAwareWorker(Worker):
         # RQ owns this variadic constructor contract; preserve SDK forwarding.
         super().__init__(*args, **kwargs)
         queues = args[0] if args else kwargs.get("queues", [])
-        self.priority_routing = get_settings().job_queue_mode == "priority"
-        ai_kinds = (
-            (*AI_QUEUES, "partner-evaluation", "partner-pipeline")
-            if self.priority_routing
-            else AI_QUEUES
-        )
-        ai_queues = {configured_queue(name) for name in ai_kinds}
-        self.codex_readiness = (
-            CodexReadiness()
-            if any(queue.name in AI_QUEUES or queue.name in ai_queues for queue in queues)
-            else None
+        ai_kinds = (*AI_QUEUES, "partner-evaluation", "partner-pipeline")
+        self.ai_queue_names = {configured_queue(name) for name in ai_kinds}
+        subscriptions = {queue.name for queue in queues}
+        self.codex_readiness = CodexReadiness() if subscriptions & self.ai_queue_names else None
+        self.requires_job_admission = any(
+            self.mixed_capabilities(name, ai_kinds) for name in subscriptions
         )
         self.scan_offsets: dict[str, int] = {}
         self.analysis_paused = False
         self.health_pid = os.getpid()
         self.next_admission_heartbeat = 0.0
+
+    @staticmethod
+    def mixed_capabilities(physical: str, ai_kinds: tuple[str, ...]) -> bool:
+        owners = {name for name in ROUTABLE_QUEUES if configured_queue(name) == physical}
+        return "partner-pipeline" in owners or bool(
+            owners & set(ai_kinds) and owners - set(ai_kinds)
+        )
 
     def _shutdown(self) -> None:
         # RQ otherwise raises StopRequested from the first signal handler while
@@ -198,7 +212,7 @@ class AnalysisAwareWorker(Worker):
         try:
             with span(
                 "process " + name,
-                context=extract_context(job.meta.get("devfeed_trace", {})),
+                context=extract_context(job_metadata(job).get("devfeed_trace", {})),
                 attributes={
                     "messaging.system": "redis",
                     "messaging.destination.name": name,
@@ -241,7 +255,7 @@ class AnalysisAwareWorker(Worker):
 
     def ai_ready(self, snapshot: AdmissionSnapshot) -> bool:
         readiness = self.codex_readiness
-        if readiness is None or not any(snapshot.pending.get(name) for name in AI_QUEUES):
+        if readiness is None or not any(snapshot.pending.get(name) for name in self.ai_queue_names):
             return False
         ready = False
         if snapshot.reason:
@@ -270,7 +284,7 @@ class AnalysisAwareWorker(Worker):
                 raise StopRequested()
             self.wait_state(WorkerStatus.SUSPENDED)
             return None
-        if self.priority_routing:
+        if self.requires_job_admission:
             return self.dequeue_priority(snapshot)
         ready = self.ai_ready(snapshot)
         if self._stop_requested:
@@ -279,10 +293,12 @@ class AnalysisAwareWorker(Worker):
         eligible = [
             queue
             for queue in ordered
-            if snapshot.pending.get(queue.name) and (queue.name not in AI_QUEUES or ready)
+            if snapshot.pending.get(queue.name) and (queue.name not in self.ai_queue_names or ready)
         ]
         if not eligible:
-            paused = self.analysis_paused and any(snapshot.pending.get(name) for name in AI_QUEUES)
+            paused = self.analysis_paused and any(
+                snapshot.pending.get(name) for name in self.ai_queue_names
+            )
             self.wait_state(WorkerStatus.SUSPENDED if paused else WorkerStatus.IDLE)
             return None
         try:
@@ -384,7 +400,7 @@ class AnalysisAwareWorker(Worker):
     def dequeue_job_and_maintain_ttl(
         self, timeout: int | None, max_idle_time: int | None = None
     ) -> tuple[Job, Queue] | None:
-        if self.codex_readiness is None and not self.priority_routing:
+        if self.codex_readiness is None and not self.requires_job_admission:
             return self.dequeue_background(timeout, max_idle_time)
         idle_since = time.monotonic()
         while not self._stop_requested:

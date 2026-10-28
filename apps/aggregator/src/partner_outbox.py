@@ -5,7 +5,6 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any, TypeVar
 
-from devfeed_core.config import get_settings
 from devfeed_core.models import PartnerEvaluation, PartnerPipelineJob
 from rq import Queue
 from sqlalchemy import Select, func, select
@@ -69,9 +68,7 @@ class PartnerOutbox:
                 ):
                     return 0
                 logical = "partner-evaluation" if model is PartnerEvaluation else "partner-pipeline"
-                queue = self.get_queue(
-                    logical if get_settings().job_queue_mode == "priority" else queue_name
-                )
+                queue = self.get_queue(logical)
                 remaining = min(requested, self.batch_size * 2 - queue.count)
                 if remaining <= 0:
                     return 0
@@ -110,11 +107,7 @@ class PartnerOutbox:
                         job_timeout=300,
                         result_ttl=0,
                         failure_ttl=60,
-                        **(
-                            {"meta": {"devfeed_ai": queue_name == "source-analysis"}}
-                            if get_settings().job_queue_mode == "priority"
-                            else {}
-                        ),
+                        meta={"devfeed_ai": queue_name == "source-analysis"},
                     )
                     job.dispatched_at = self.now
                     dispatch_logs.append({**fields(job), "queue": queue_name})

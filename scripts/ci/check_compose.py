@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def render(values: dict[str, str], *, build: bool = False, pooled: bool = False) -> dict:
+def render(values: dict[str, str], *, build: bool = False, worker_overrides: bool = False) -> dict:
     # Never read the developer's .env or inherited application credentials.
     values = {
         "DEVFEED_CLICKHOUSE_READER_PASSWORD": "fixture-only-reader-password",
@@ -46,7 +46,7 @@ def render(values: dict[str, str], *, build: bool = False, pooled: bool = False)
         env_file = Path(directory) / ".env"
         env_file.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
         command = ["docker", "compose", "--env-file", str(env_file), "-f", "compose.yaml"]
-        if pooled:
+        if worker_overrides:
             command += ["-f", "compose.workers.yaml"]
         if build:
             command += ["-f", "compose.build.yaml"]
@@ -106,9 +106,7 @@ def check() -> None:
     base = {"POSTGRES_PASSWORD": "a" * 64}
     registry_fixtures = {
         **base,
-        "COMPOSE_PROFILES": (
-            "ai,workers,legacy-workers,legacy-ai,legacy-dedicated,notifications,search,mcp"
-        ),
+        "COMPOSE_PROFILES": "ai,notifications,search,mcp",
     }
     mcp = render({**base, "COMPOSE_PROFILES": "mcp"})["services"]["mcp"]
     assert mcp["ports"][0]["host_ip"] == "127.0.0.1"
@@ -248,8 +246,6 @@ def check() -> None:
             if name in {
                 "admin-api",
                 "partner-api",
-                "worker",
-                "ingestion-worker",
                 "high-worker",
                 "default-worker",
                 "low-worker",
@@ -322,7 +318,6 @@ def check() -> None:
                 "api",
                 "partner-api",
                 "user-api",
-                "worker",
                 "high-worker",
                 "default-worker",
                 "low-worker",
@@ -358,94 +353,27 @@ def check() -> None:
     assert services["user-api"]["environment"]["DEVFEED_USER_MCP_ISSUER_URL"] == ""
     assert "chimely" in services and "chimely-db-init" in services
     assert "codex-server" not in services
-    production_workers = render({**base, "COMPOSE_PROFILES": "legacy-dedicated"})["services"]
-    assert production_workers["article-enrichment-worker"]["image"].endswith(
-        "/article-enrichment-worker:master"
-    )
-    assert production_workers["images-worker"]["image"].endswith("/images-worker:master")
-    assert production_workers["source-discovery-worker"]["image"].endswith(
-        "/source-discovery-worker:master"
-    )
-    dedicated = render(
-        {
-            **base,
-            "COMPOSE_PROFILES": "legacy-dedicated,legacy-workers",
-            "DEVFEED_ARTICLE_ANALYSIS_WORKER_REPLICAS": "8",
-            "DEVFEED_NOTIFICATIONS_WORKER_REPLICAS": "2",
-            "DEVFEED_CHIMELY_ADMIN_API_KEY": "test-admin",
-            "DEVFEED_CHIMELY_USER_API_KEY": "test-user",
-        },
+    priorities = render(
+        {**base, "DEVFEED_HIGH_WORKER_REPLICAS": "8", "DEVFEED_DEFAULT_WORKER_REPLICAS": "2"},
         build=True,
     )["services"]
-    ai_queues = {
-        "article-analysis",
-        "topic-analysis",
-        "research-verification",
-        "source-analysis",
-        "relationships",
-    }
-    background_queues = {
-        "ingestion",
-        "source-discovery",
-        "article-enrichment",
-        "source-enrichment",
-        "images",
-    }
-    assert "codex-server" not in dedicated  # An external endpoint is supported.
-    for queue in ai_queues | background_queues | {"notifications"}:
-        name = queue + "-worker"
-        assert name not in services or name == "images-worker"  # Legacy named consumers are opt-in.
-        service = dedicated[name]
-        assert service["image"] == f"devfeed/{name}:local"
-        dedicated_package = {
-            "article-enrichment-worker": "devfeed-article-enrichment-worker",
-            "images-worker": "devfeed-images-worker",
-            "source-discovery-worker": "devfeed-source-discovery-worker",
-        }.get(name)
-        if dedicated_package:
-            assert service["build"]["context"] == dedicated["api"]["build"]["context"]
-            assert service["build"]["dockerfile"] == dedicated["api"]["build"]["dockerfile"]
-            assert service["build"]["cache_from"] == dedicated["api"]["build"]["cache_from"]
-            assert (
-                service["build"]["args"]["DOCKERHUB_PREFIX"]
-                == dedicated["api"]["build"]["args"]["DOCKERHUB_PREFIX"]
-            )
-            assert (
-                service["build"]["args"]["REGISTRY_PREFIX"]
-                == dedicated["api"]["build"]["args"]["REGISTRY_PREFIX"]
-            )
-            assert "DEVFEED_WORKER_QUEUE" not in service["environment"]
-        else:
-            assert service["build"] == dedicated["api"]["build"]
-            assert service["environment"]["DEVFEED_WORKER_QUEUE"] == queue
-        expected_command = {
-            "article-enrichment-worker": ["devfeed-article-enrichment-worker"],
-            "images-worker": ["devfeed-images-worker"],
-            "source-discovery-worker": ["devfeed-source-discovery-worker"],
-        }.get(name, dedicated["worker"]["command"])
-        assert service["command"] == expected_command
-        assert service["healthcheck"] == dedicated["worker"]["healthcheck"]
-        if dedicated_package:
-            assert service["build"]["args"]["DEVFEED_PACKAGE_ARGS"] == (
-                f"--package {dedicated_package}"
-            )
-        assert service["scale"] == (
-            8 if queue == "article-analysis" else 2 if queue == "notifications" else 1
-        )
-        if queue != "notifications":
-            assert "DEVFEED_CHIMELY_ADMIN_API_KEY" not in service["environment"]
-            assert "DEVFEED_CHIMELY_USER_API_KEY" not in service["environment"]
-            assert not service.get("entrypoint")
-        else:
-            assert service["entrypoint"] == dedicated["worker"]["entrypoint"]
-            assert service["volumes"] == dedicated["worker"]["volumes"]
-        assert {v["source"] for v in service.get("volumes", [])} == (
-            {"codex-socket"}
-            if queue in ai_queues
-            else {v["source"] for v in dedicated["worker"]["volumes"]}
-            if queue == "notifications"
-            else set()
-        )
+    for queue, replicas in (("high", 8), ("default", 2), ("low", 1)):
+        service = priorities[f"{queue}-worker"]
+        assert service["image"] == f"devfeed/{queue}-worker:local"
+        assert service["build"] == priorities["api"]["build"]
+        assert service["environment"]["DEVFEED_WORKER_QUEUE"] == queue
+        assert service["scale"] == replicas
+        assert service["healthcheck"]["test"] == ["CMD", "devfeed-worker-health"]
+        assert {v["source"] for v in service["volumes"] if v["type"] == "volume"} == {
+            "chimely-worker-credentials",
+            "codex-socket",
+        }
+    images = priorities["images-worker"]
+    assert images["image"] == "devfeed/images-worker:local"
+    assert images["build"]["args"]["DEVFEED_PACKAGE_ARGS"] == "--package devfeed-images-worker"
+    assert images["command"] == ["devfeed-images-worker"]
+    assert "DEVFEED_CHIMELY_ADMIN_API_KEY" not in images["environment"]
+    assert not images.get("volumes")
     search = render(
         {
             **base,
@@ -708,66 +636,67 @@ def check() -> None:
     bundled = render(
         {
             **base,
-            "COMPOSE_PROFILES": "notifications,ai,legacy-workers,legacy-ai",
+            "COMPOSE_PROFILES": "notifications,ai",
             "CHIMELY_POSTGRES_PASSWORD": "b" * 64,
             "CHIMELY_ADMIN_EMAIL": "admin@example.test",
             "CHIMELY_ADMIN_PASSWORD": "test-bootstrap-password",
             "DEVFEED_AI_ENABLED": "true",
-            "DEVFEED_WORKER_AI_ENABLED": "false",
-            "DEVFEED_WORKER_QUEUE": "background",
             "DEVFEED_CODEX_APP_SERVER_URL": "unix:///run/codex/app-server.sock",
             "DEVFEED_CODEX_MODEL": "operator-selected",
         },
         build=True,
     )["services"]
-    assert bundled["worker"]["scale"] == 2
-    assert bundled["codex-client"]["scale"] == 1
     scaled = render(
         {
             **base,
-            "COMPOSE_PROFILES": "ai,legacy-workers,legacy-ai",
-            "DEVFEED_WORKER_REPLICAS": "10",
-            "DEVFEED_CODEX_CLIENT_REPLICAS": "10",
+            "COMPOSE_PROFILES": "ai",
+            "DEVFEED_HIGH_WORKER_REPLICAS": "10",
+            "DEVFEED_DEFAULT_WORKER_REPLICAS": "3",
+            "DEVFEED_LOW_WORKER_REPLICAS": "2",
         },
         build=True,
     )["services"]
-    # deploy.replicas alone is lost during Compose 2.38 watch service hashing.
-    assert scaled["worker"]["scale"] == scaled["codex-client"]["scale"] == 10
-    # Legacy worker AI overrides must not disable creation of analysis jobs.
-    assert bundled["worker"]["environment"]["DEVFEED_AI_ENABLED"] == "true"
-    assert bundled["worker"]["environment"]["DEVFEED_WORKER_QUEUE"] == "background"
-    assert bundled["codex-client"]["environment"]["DEVFEED_AI_ENABLED"] == "true"
-    backend_services = ("migrate", "api", "worker", "scheduler", "codex-client")
+    assert scaled["high-worker"]["scale"] == 10
+    assert scaled["default-worker"]["scale"] == 3
+    assert scaled["low-worker"]["scale"] == 2
+    backend_services = (
+        "migrate",
+        "api",
+        "high-worker",
+        "default-worker",
+        "low-worker",
+        "scheduler",
+    )
     assert len({bundled[name]["image"] for name in backend_services}) == len(backend_services)
-    assert all(bundled[name]["build"] == bundled["worker"]["build"] for name in backend_services)
-    assert bundled["codex-client"]["environment"]["DEVFEED_WORKER_QUEUE"] == "analysis"
-    for name in ("worker", "codex-client"):
-        command = " ".join(bundled[name]["command"])
-        health = " ".join(bundled[name]["healthcheck"]["test"])
+    assert all(
+        bundled[name]["build"] == bundled["high-worker"]["build"] for name in backend_services
+    )
+    for queue in ("high", "default", "low"):
+        service = bundled[f"{queue}-worker"]
+        assert service["environment"]["DEVFEED_AI_ENABLED"] == "true"
+        assert service["environment"]["DEVFEED_WORKER_QUEUE"] == queue
+        command = " ".join(service["command"])
         assert "uuid.uuid4().hex" in command
         assert "--name" in command and "--queue" in command
         assert "exec devfeed-worker --queue" in command
         assert 'runtime_marker("worker-name")' in command
-        assert health == "CMD devfeed-worker-health"
-    assert bundled["worker"]["command"] == bundled["codex-client"]["command"]
-    assert bundled["codex-client"]["depends_on"]["codex-server"]["condition"] == "service_healthy"
+        assert service["healthcheck"]["test"] == ["CMD", "devfeed-worker-health"]
+        assert not service.get("ports") and not service.get("network_mode")
+        assert "data" in service["networks"]
+    assert bundled["high-worker"]["command"] == bundled["default-worker"]["command"]
     assert not bundled["codex-server"].get("ports")
-    assert not bundled["codex-client"].get("ports")
-    assert not bundled["codex-client"].get("network_mode")
-    assert "data" in bundled["codex-client"]["networks"]
     assert {v["source"] for v in bundled["codex-server"]["volumes"]} == {
         "codex-auth",
         "codex-socket",
     }
-    assert {v["source"] for v in bundled["codex-client"]["volumes"]} == {"codex-socket"}
-    assert bundled["codex-client"]["volumes"][0]["read_only"]
     assert "data" not in bundled["codex-server"]["networks"]
     assert not bundled["codex-server"].get("environment")
     for name in (
         "api",
-        "worker",
+        "high-worker",
+        "default-worker",
+        "low-worker",
         "scheduler",
-        "codex-client",
         "admin-api",
         "user-api",
         "admin",
@@ -780,7 +709,7 @@ def check() -> None:
     admin_paths = {Path(rule["path"]).resolve() for rule in bundled["admin"]["develop"]["watch"]}
     assert ROOT / "apps/admin" in admin_paths
     assert ROOT / "package-lock.json" in admin_paths
-    for name in ("api", "worker", "scheduler", "codex-client", "admin-api"):
+    for name in ("api", "high-worker", "default-worker", "low-worker", "scheduler", "admin-api"):
         paths = {Path(rule["path"]).resolve() for rule in bundled[name]["develop"]["watch"]}
         assert ROOT / "packages/core" in paths and ROOT / "uv.lock" in paths
         assert ROOT / "packages/http" in paths

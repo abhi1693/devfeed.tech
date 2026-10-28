@@ -81,11 +81,7 @@ def test_all_worker_pools_share_lightweight_parent_probe_and_sufficient_shutdown
     if limited:
         options.update(DEVFEED_WORKER_CPUS="1.5", DEVFEED_WORKER_MEMORY_LIMIT="1g")
     services = check_compose.render(options)["services"]
-    workers = {
-        name: value
-        for name, value in services.items()
-        if name == "worker" or name == "codex-client" or name.endswith("-worker")
-    }
+    workers = {name: value for name, value in services.items() if name.endswith("-worker")}
     assert set(workers) == {"high-worker", "default-worker", "low-worker", "images-worker"}
     for name, worker in workers.items():
         assert worker["healthcheck"]["test"] == [
@@ -430,27 +426,18 @@ def test_priority_compose_reserves_each_queue_capacity_and_keeps_scoped_images(b
     services = check_compose.render(
         {
             "POSTGRES_PASSWORD": "fixture-only-password",
-            "COMPOSE_PROFILES": "workers,ai,legacy-workers,legacy-ai,legacy-dedicated",
+            "COMPOSE_PROFILES": "ai",
             "DEVFEED_JOB_QUEUE_OVERRIDES": '{"notifications":"high"}',
         },
-        pooled=True,
+        worker_overrides=True,
         build=build,
     )["services"]
-    for name in (
-        "worker",
-        "codex-client",
-        "article-analysis-worker",
-        "relationships-worker",
-        "ingestion-worker",
-        "source-discovery-worker",
-        "article-enrichment-worker",
-        "source-enrichment-worker",
-        "topic-analysis-worker",
-        "research-verification-worker",
-        "source-analysis-worker",
-        "notifications-worker",
-    ):
-        assert services[name]["scale"] == 0
+    assert {name for name in services if name.endswith("-worker")} == {
+        "high-worker",
+        "default-worker",
+        "low-worker",
+        "images-worker",
+    }
     for queue, replicas in [("high", 4), ("default", 4), ("low", 1)]:
         name = f"{queue}-worker"
         service = services[name]
@@ -483,13 +470,17 @@ def test_priority_deployments_have_independent_replica_overrides():
     assert {
         queue: services[f"{queue}-worker"]["scale"] for queue in ("high", "default", "low")
     } == {"high": 6, "default": 3, "low": 2}
-    assert "worker" not in services and "article-analysis-worker" not in services
+    assert {name for name in services if name.endswith("-worker")} == {
+        "high-worker",
+        "default-worker",
+        "low-worker",
+        "images-worker",
+    }
 
 
 def test_routing_overrides_reach_every_publisher_and_worker_without_frontend_exposure():
     options = {
         "POSTGRES_PASSWORD": "fixture-only-password",
-        "DEVFEED_JOB_QUEUE_MODE": "priority",
         "DEVFEED_JOB_QUEUE_OVERRIDES": '{"recommendations":"recommendations"}',
     }
     services = check_compose.render(options)["services"]
@@ -503,7 +494,6 @@ def test_routing_overrides_reach_every_publisher_and_worker_without_frontend_exp
         "default-worker",
         "low-worker",
     ):
-        assert services[name]["environment"]["DEVFEED_JOB_QUEUE_MODE"] == "priority"
         assert (
             services[name]["environment"]["DEVFEED_JOB_QUEUE_OVERRIDES"]
             == options["DEVFEED_JOB_QUEUE_OVERRIDES"]

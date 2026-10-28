@@ -605,7 +605,7 @@ def test_execution_policy_uses_logical_metadata_before_physical_priority(
 def priority_worker(monkeypatch, worker_factory):
     from devfeed_core.config import get_settings
 
-    monkeypatch.setattr(get_settings(), "job_queue_mode", "priority")
+    monkeypatch.setattr(get_settings(), "job_queue_overrides", {})
     build, depths = worker_factory
     depths["default"] = 1
     worker = build("default")
@@ -729,7 +729,6 @@ def test_custom_partner_pipeline_consumer_has_readiness_for_ai_assessment(
     from devfeed_core.config import get_settings
 
     settings = get_settings()
-    monkeypatch.setattr(settings, "job_queue_mode", "priority")
     monkeypatch.setattr(settings, "job_queue_overrides", {"partner-pipeline": "partner-sync"})
     build, depths = worker_factory
     depths["partner-sync"] = 1
@@ -741,3 +740,57 @@ def test_custom_partner_pipeline_consumer_has_readiness_for_ai_assessment(
     )
     assert worker.priority_admission(job, worker.queues[0], ai_blocked=False)
     worker.codex_readiness.ready.assert_called_once_with(pending=True)
+
+
+@pytest.mark.parametrize("metadata", [None, [], "invalid-metadata"])
+def test_invalid_metadata_shape_cannot_hide_a_valid_ai_handler(metadata):
+    from devfeed_core.job_definitions import JOB_DEFINITIONS
+
+    job = SimpleNamespace(
+        meta=metadata, origin="default", func_name=JOB_DEFINITIONS["analysis"].handler
+    )
+    assert analysis_worker.job_requires_ai(job)
+
+
+def test_failure_logging_does_not_decode_a_malformed_job_twice():
+    from devfeed_aggregator.worker import job_fields
+    from rq.exceptions import DeserializationError
+
+    class MalformedJob:
+        id = "failed-delivery"
+
+        @property
+        def args(self):
+            raise DeserializationError()
+
+    assert job_fields(MalformedJob()) == {
+        "job_id": "failed-delivery",
+        "rq_job_id": "failed-delivery",
+        "job_kind": None,
+    }
+
+
+def test_dedicated_image_entrypoint_uses_its_custom_exclusive_route(monkeypatch):
+    from devfeed_aggregator import worker
+    from devfeed_core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "job_queue_overrides", {"images": "image-storage"})
+    monkeypatch.setattr("sys.argv", ["devfeed-images-worker", "--burst"])
+    start = Mock(return_value=0)
+    monkeypatch.setattr(worker, "start_queue_worker", start)
+    assert worker.queue_worker_main("images", "Images worker") == 0
+    assert start.call_args.args[1] == "image-storage"
+
+
+def test_dedicated_image_entrypoint_rejects_shared_transport(monkeypatch):
+    from devfeed_aggregator import worker
+    from devfeed_core.config import get_settings
+    from devfeed_core.services import OperationConflict
+
+    monkeypatch.setattr(get_settings(), "job_queue_overrides", {})
+    monkeypatch.setattr("sys.argv", ["devfeed-source-discovery-worker", "--burst"])
+    start = Mock()
+    monkeypatch.setattr(worker, "start_queue_worker", start)
+    with pytest.raises(OperationConflict, match="exclusive"):
+        worker.queue_worker_main("source-discovery", "Discovery worker")
+    start.assert_not_called()

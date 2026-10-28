@@ -26,6 +26,7 @@ def runtime(monkeypatch):
 def existing(runtime, status, *, origin="ingestion"):
     row = Job(id="delivery-123", connection=runtime.connection, serializer=JSONSerializer)
     row.origin = origin
+    row.meta = {"devfeed_queue": origin} if origin in queues.ROUTABLE_QUEUES else {}
     row.get_status = Mock(return_value=status)
     row.delete = Mock()
     runtime.fetch.return_value = row

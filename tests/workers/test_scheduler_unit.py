@@ -154,10 +154,7 @@ def test_specialist_recovery_uses_its_own_attempts_and_preserves_completed_work(
         "relationships-only",
     ],
 )
-@pytest.mark.parametrize("routing_mode", ["legacy", "priority"])
-def test_tick_dispatches_outside_transactions_and_preserves_cleanup(
-    monkeypatch, mode, routing_mode
-):
+def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch, mode):
     from devfeed_core import polling_reconciliation
 
     monkeypatch.setattr(polling_reconciliation, "reconcile_polling", Mock(return_value=0))
@@ -182,7 +179,6 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(
     ]
     session.scalar.side_effect = [None, expired]
     settings = NS(
-        job_queue_mode=routing_mode,
         scheduler_batch_size=5,
         notifications_enabled=mode == "all",
         solver_queue_enabled=mode == "all",
@@ -289,7 +285,7 @@ def test_scheduler_heartbeat_only_advances_after_successful_cycles(
     monkeypatch.setattr(
         scheduler,
         "get_settings",
-        lambda: NS(log_level="INFO", log_format="json", job_queue_mode="legacy"),
+        lambda: NS(log_level="INFO", log_format="json"),
     )
     monkeypatch.setattr(scheduler, "configure_logging", Mock())
     monkeypatch.setattr(scheduler, "start_runtime", lambda _: telemetry)
@@ -324,7 +320,7 @@ def test_scheduler_cli_reports_failed_once_runs(monkeypatch, mode):
     monkeypatch.setattr(
         scheduler,
         "get_settings",
-        lambda: NS(log_level="INFO", log_format="json", job_queue_mode="legacy"),
+        lambda: NS(log_level="INFO", log_format="json"),
     )
     monkeypatch.setattr(scheduler, "configure_logging", Mock())
     tick, run = Mock(side_effect=RuntimeError("tick")) if mode == "failed" else Mock(), Mock()
