@@ -726,9 +726,6 @@ def check() -> None:
         assert "exec devfeed-worker --queue" in command
         assert 'runtime_marker("worker-name")' in command
         assert health == "CMD devfeed-worker-health"
-        assert bundled[name]["environment"]["DEVFEED_WORKER_HEALTH_PATH"] == (
-            "/tmp/devfeed-worker-health"
-        )
     assert bundled["worker"]["command"] == bundled["codex-client"]["command"]
     assert bundled["codex-client"]["depends_on"]["codex-server"]["condition"] == "service_healthy"
     assert not bundled["codex-server"].get("ports")

@@ -121,7 +121,7 @@ ci_imgproxy=$(docker run -d --rm --network host --memory 512m \
   ghcr.io/imgproxy/imgproxy:v4.0.15@sha256:4ec770c72bffea108ba404dc86d3be88e6bf4fd58958782770ff890cca4c7a82)
 export DEVFEED_TEST_IMGPROXY_URL="http://127.0.0.1:${ci_imgproxy_port}"
 for attempt in $(seq 1 60); do
-  if docker exec "$ci_postgres" pg_isready -U ci -d devfeed_test >/dev/null 2>&1 &&
+  if docker exec "$ci_postgres" pg_isready -h 127.0.0.1 -U ci -d devfeed_test >/dev/null 2>&1 &&
      docker exec "$ci_redis" redis-cli ping | grep -qx PONG &&
      docker exec "$ci_clickhouse" clickhouse-client --user ci \
        --password "$ci_clickhouse_password" --database devfeed_test \

@@ -1,6 +1,8 @@
 """Worker policy without Redis delivery or database transaction simulations."""
 
 from contextlib import contextmanager
+from pathlib import Path
+from stat import S_IMODE
 from types import SimpleNamespace
 from unittest.mock import Mock, call
 
@@ -348,10 +350,49 @@ def test_health_file_is_atomic_and_accounts_for_blocking_dequeue(
     clock.now = 123.5
     boot_clock = Mock(return_value=123.5)
     monkeypatch.setattr(analysis_worker.time, "clock_gettime", boot_clock)
+    replace = Path.replace
+    replacements = []
+
+    def inspect_then_replace(staged, destination):
+        assert target.read_text() == "old report"
+        assert staged.read_text() == f"{worker.health_pid} 123 {ttl}\n"
+        assert staged.parent == target.parent
+        assert S_IMODE(staged.stat().st_mode) == 0o600
+        replacements.append(staged)
+        return replace(staged, destination)
+
+    monkeypatch.setattr(Path, "replace", inspect_then_replace)
     worker.write_health()
     assert target.read_text() == f"{worker.health_pid} 123 {ttl}\n"
+    assert S_IMODE(target.stat().st_mode) == 0o600
     boot_clock.assert_called_once_with(analysis_worker.time.CLOCK_BOOTTIME)
-    assert not target.with_suffix(".tmp").exists()
+    assert len(replacements) == 1 and not replacements[0].exists()
+    assert list(tmp_path.iterdir()) == [target]
+
+
+@pytest.mark.parametrize("link_location", ["temporary", "target"])
+def test_health_publication_does_not_follow_preexisting_symlinks(
+    worker_factory, monkeypatch, clock, tmp_path, link_location
+):
+    build, _ = worker_factory
+    worker = build("images")
+    worker._state = WorkerStatus.BUSY
+    target = tmp_path / "worker-health"
+    victim = tmp_path / "unrelated-file"
+    victim.write_text("keep unrelated data")
+    link = target.with_suffix(".tmp") if link_location == "temporary" else target
+    link.symlink_to(victim)
+    monkeypatch.setenv("DEVFEED_WORKER_HEALTH_PATH", str(target))
+    clock.now = 123.5
+
+    worker.write_health()
+
+    assert victim.read_text() == "keep unrelated data"
+    assert not target.is_symlink()
+    assert target.read_text() == f"{worker.health_pid} 123 90\n"
+    assert S_IMODE(target.stat().st_mode) == 0o600
+    if link_location == "temporary":
+        assert link.is_symlink() and link.resolve() == victim
 
 
 def test_workhorse_cannot_refresh_parent_health_file(worker_factory, monkeypatch, tmp_path):

@@ -10,6 +10,7 @@ from devfeed_core.ai_capacity import cooldown_key
 from devfeed_core.analytics_producer import shutdown as drain_analytics
 from devfeed_core.config import get_settings
 from devfeed_core.quota_pacing import quota_key, snapshot_pause_reason
+from devfeed_core.runtime_files import write_runtime_marker
 from devfeed_core.telemetry import current, extract_context, span, start_runtime, stop_runtime
 from devfeed_core.worker_queues import AI_QUEUES, QUEUES
 from opentelemetry.trace import StatusCode
@@ -98,12 +99,9 @@ class AnalysisAwareWorker(Worker):
         if not path or os.getpid() != self.health_pid:
             return
         ttl = self.dequeue_timeout + 60 if self.get_state() == WorkerStatus.IDLE else 90
-        target = Path(path)
-        temporary = target.with_suffix(".tmp")
         # /proc/uptime uses the suspend-aware boot clock read by the native probe.
         stamp = int(time.clock_gettime(time.CLOCK_BOOTTIME))
-        temporary.write_text(f"{self.health_pid} {stamp} {int(ttl)}\n")
-        temporary.replace(target)
+        write_runtime_marker(Path(path), f"{self.health_pid} {stamp} {int(ttl)}\n")
 
     def execute_job(self, job, queue):
         runtime = current()

@@ -54,6 +54,18 @@ def test_clickhouse_is_opt_in_bounded_authenticated_and_cleanup_owned(owned, ana
     with services.disposable_services(analytics=analytics) as environment:
         assert environment["DEVFEED_DATABASE_URL"].endswith(":15432/devfeed_test")
         assert environment["DEVFEED_REDIS_URL"] == "redis://127.0.0.1:16379/15"
+        assert [
+            "docker",
+            "exec",
+            "owned-pg",
+            "pg_isready",
+            "-h",
+            "127.0.0.1",
+            "-U",
+            "ci",
+            "-d",
+            "devfeed_test",
+        ] in owned.probes
         assert not owned.removed
         if analytics:
             assert environment["DEVFEED_CLICKHOUSE_URL"] == "http://127.0.0.1:18123"
