@@ -1,7 +1,9 @@
 import { trace } from "@opentelemetry/api";
 import { traceHeaders } from "@devfeed/telemetry/propagation";
 import { describe, expect, it, vi } from "vitest";
-import { createServer } from "node:http";
+import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { Socket } from "node:net";
+import { channel } from "node:diagnostics_channel";
 import { once } from "node:events";
 import { routeName, redactAuthText } from "@devfeed/telemetry/privacy";
 import redactionCases from "../../../packages/telemetry/fixtures/auth-redaction-cases.json";
@@ -63,6 +65,14 @@ describe("operational telemetry", () => {
     });
     try {
       await registerTelemetry("web");
+      // Diagnostics can arrive before a request URL or method is available.
+      // Such requests must still finish accounting and use bounded fallback labels.
+      const socket = new Socket();
+      const request = new IncomingMessage(socket);
+      const responseWithoutUrl = new ServerResponse(request);
+      channel("http.server.request.start").publish({ request, response: responseWithoutUrl });
+      responseWithoutUrl.emit("finish");
+      socket.destroy();
       app.listen(0, "127.0.0.1");
       await once(app, "listening");
       const appPort = (app.address() as { port: number }).port;
@@ -117,6 +127,7 @@ describe("operational telemetry", () => {
       expect(metrics).toContain('version="9.8.7"');
       expect(metrics).not.toContain('version="0.0.8"');
       expect(metrics).toContain('route="/",status="200",service="web"} 1');
+      expect(metrics).toContain('method="OTHER",route="unmatched",status="200",service="web"} 1');
       const histogram = metrics
         .split("\n")
         .filter((line) => line.startsWith("http_server_request_duration_seconds_count{"));
