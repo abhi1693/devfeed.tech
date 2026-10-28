@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { redactAuthentication } from "../../../packages/telemetry/src/auth-privacy";
 import {
   methodName,
   normalizeBody,
@@ -319,4 +320,61 @@ it("overwrites browser-supplied app labels and controls the sampling override", 
     input.session.attributes,
   );
   expect(normalizeMeta(null, settings)).not.toHaveProperty("session");
+});
+
+it("redacts encoded callback credentials inside diagnostic URLs", () => {
+  expect(redactAuthText("relay_state=private&session_state=private")).toBe(
+    "relay_state=[REDACTED]&session_state=[REDACTED]",
+  );
+  expect(redactAuthText("%63%6F%64%65=private&topic=public")).toBe(
+    "%63%6F%64%65=[REDACTED]&topic=public",
+  );
+  expect(redactAuthText("message=%E0%A4&topic=public")).toBe("message=%E0%A4&topic=public");
+  for (const target of [
+    "https://example.com/?code=private",
+    "/callback#state=private",
+    "?token=private",
+  ]) {
+    const expected = target.replace("private", "[REDACTED]");
+    expect(redactAuthText(`redirect=${encodeURIComponent(target)}`)).toBe(
+      `redirect=${encodeURIComponent(expected)}`,
+    );
+    expect(redactAuthText(`redirect=${encodeURIComponent(encodeURIComponent(target))}`)).toBe(
+      `redirect=${encodeURIComponent(encodeURIComponent(expected))}`,
+    );
+  }
+  expect(redactAuthText("topic=type%20script&message=public")).toBe(
+    "topic=type%20script&message=public",
+  );
+  expect(redactAuthText("message=plain%invalid")).toBe("message=plain%invalid");
+  expect(redactAuthText("https://user:secret@example.com/path?topic=public")).toBe(
+    "https://[REDACTED]@example.com/path?topic=public",
+  );
+});
+
+it("bounds nested authentication diagnostics and preserves OTLP noncredential values", () => {
+  expect(redactAuthentication({ keep: "public" }, 20)).toBe("[truncated]");
+  expect(redactAuthentication({ nested: { keep: "public" } }, 19)).toEqual({
+    nested: "[truncated]",
+  });
+  expect(redactAuthentication([{ keep: "public" }], 19)).toEqual(["[truncated]"]);
+  expect(redactAuthentication({ key: "public", value: "visible" })).toEqual({
+    key: "public",
+    value: "visible",
+  });
+  expect(redactAuthentication({ key: 42, value: "visible" })).toEqual({
+    key: 42,
+    value: "visible",
+  });
+  expect(redactAuthentication({ key: "token" })).toEqual({ key: "token" });
+  expect(redactAuthText("message=public code=private")).toBe("message=public code=[REDACTED]");
+  expect(redactAuthText("v1+custom://user:secret@example.com/path")).toBe(
+    "v1+custom://[REDACTED]@example.com/path",
+  );
+  let target = "https://example.com/?code=private&topic=()!*";
+  expect(redactAuthText(`redirect=${encodeURIComponent(target)}`)).toBe(
+    "redirect=https%3A%2F%2Fexample.com%2F%3Fcode%3D%5BREDACTED%5D%26topic%3D%28%29%21%2A",
+  );
+  for (let depth = 0; depth < 6; depth += 1) target = encodeURIComponent(target);
+  expect(redactAuthText(`redirect=${target}`)).not.toContain("private");
 });
