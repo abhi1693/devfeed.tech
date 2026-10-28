@@ -16,6 +16,136 @@ smoke_module = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(smoke_module)
 
 
+def test_backend_worker_smoke_uses_priorities_and_an_explicit_override(monkeypatch):
+    from devfeed_aggregator import worker
+    from devfeed_core import config
+
+    instance = smoke_module.Smoke("candidate-backend", "backend")
+    instance.redis = "disposable-redis"
+    instance.execute = Mock()
+    instance.start = Mock(return_value=instance.prefix + "-worker")
+    instance.wait_probe = Mock()
+    instance.stop = Mock()
+    instance.inbox = Mock(return_value=(["inbox-mount"], {"DEVFEED_NOTIFICATIONS_ENABLED": "true"}))
+    launch = Mock(return_value=0)
+    monkeypatch.setattr(worker, "start_queue_worker", launch)
+    try:
+        instance.workers()
+        starts = instance.start.call_args_list
+        assert [call.kwargs["env"]["DEVFEED_WORKER_QUEUE"] for call in starts] == [
+            "high",
+            "default",
+            "low",
+            "solver",
+            "dedicated-ingestion",
+        ]
+        for index, call in enumerate(starts):
+            env = call.kwargs["env"]
+            queue = env["DEVFEED_WORKER_QUEUE"]
+            monkeypatch.setenv("DEVFEED_JOB_QUEUE_OVERRIDES", env["DEVFEED_JOB_QUEUE_OVERRIDES"])
+            settings = config.Settings()
+            monkeypatch.setattr(config, "get_settings", lambda settings=settings: settings)
+            monkeypatch.setattr("sys.argv", ["devfeed-worker", "--queue", queue])
+            assert worker.main() == 0
+            assert launch.call_args.args[1] == queue
+            assert (
+                call.args[0]
+                == smoke_module.CONTRACTS["notification-worker" if queue == "low" else "worker"][
+                    "command"
+                ]
+            )
+            assert ("DEVFEED_SOLVER_SERVICES" in env) == (queue == "solver")
+            assert ("DEVFEED_NOTIFICATIONS_ENABLED" in env) == (queue == "low")
+            assert call.kwargs["mounts"] == (["inbox-mount"] if queue == "low" else [])
+            instance.execute.assert_any_call(
+                instance.prefix + "-worker", "python", "/fleet/runtime.py", "worker", queue
+            )
+            assert settings.job_queue_overrides == (
+                {"ingestion": "dedicated-ingestion"} if index == 4 else {}
+            )
+        instance.inbox.assert_called_once_with("worker")
+    finally:
+        instance.directory.cleanup()
+
+
+@pytest.mark.parametrize(
+    "component,logical,destination",
+    [
+        ("article-enrichment-worker", "article-enrichment", "dedicated-article-enrichment"),
+        ("source-discovery-worker", "source-discovery", "dedicated-source-discovery"),
+        ("images-worker", "images", "images"),
+    ],
+)
+def test_native_dedicated_images_have_exclusive_physical_routes(
+    monkeypatch, component, logical, destination
+):
+    from devfeed_aggregator import worker
+    from devfeed_core import config
+
+    instance = smoke_module.Smoke("candidate-dedicated", component)
+    instance.redis = "disposable-redis"
+    instance.execute = Mock()
+    instance.start = Mock(return_value=instance.prefix + "-worker")
+    instance.wait_probe = Mock()
+    instance.stop = Mock()
+    launch = Mock(return_value=0)
+    monkeypatch.setattr(worker, "start_queue_worker", launch)
+    try:
+        instance.workers()
+        instance.start.assert_called_once()
+        call = instance.start.call_args
+        assert call.args[0] == smoke_module.CONTRACTS[component]["command"]
+        env = call.kwargs["env"]
+        assert env["DEVFEED_WORKER_QUEUE"] == destination
+        monkeypatch.setenv("DEVFEED_JOB_QUEUE_OVERRIDES", env["DEVFEED_JOB_QUEUE_OVERRIDES"])
+        settings = config.Settings()
+        assert settings.job_queue_overrides == (
+            {} if logical == "images" else {logical: destination}
+        )
+        monkeypatch.setattr(worker, "get_settings", lambda: settings)
+        monkeypatch.setattr("sys.argv", [call.args[0][0]])
+        assert worker.queue_worker_main(logical, "Native dedicated worker") == 0
+        assert launch.call_args.args[1] == destination
+        instance.execute.assert_any_call(
+            instance.prefix + "-worker", "python", "/fleet/runtime.py", "worker", destination
+        )
+    finally:
+        instance.directory.cleanup()
+
+
+@pytest.mark.parametrize(
+    "registered,expected,valid",
+    [
+        (["high"], "high", True),
+        (["dedicated-extraction"], "dedicated-extraction", True),
+        (["default"], "high", False),
+        (["article-enrichment-fresh", "article-enrichment"], "dedicated-extraction", False),
+    ],
+)
+def test_native_worker_probe_requires_exactly_one_expected_physical_queue(
+    monkeypatch, registered, expected, valid
+):
+    spec = importlib.util.spec_from_file_location(
+        "fleet_worker_runtime_test", REPO_ROOT / "scripts/ci/fleet_contracts/runtime.py"
+    )
+    assert spec and spec.loader
+    runtime = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runtime)
+    monkeypatch.setenv("DEVFEED_REDIS_URL", "redis://fixture.invalid:6379/15")
+    monkeypatch.setattr("redis.Redis.from_url", lambda _url: object())
+    monkeypatch.setattr(
+        "rq.Worker.all",
+        lambda **_kwargs: [
+            SimpleNamespace(name="fleet-native-test", queue_names=lambda: registered)
+        ],
+    )
+    if valid:
+        runtime.worker(expected)
+    else:
+        with pytest.raises(AssertionError):
+            runtime.worker(expected)
+
+
 @pytest.mark.parametrize("postgres_code,analytics_code", [(0, 0), (1, None), (0, 1)])
 def test_migration_hook_orders_both_schemas_and_propagates_failure(
     monkeypatch, postgres_code, analytics_code

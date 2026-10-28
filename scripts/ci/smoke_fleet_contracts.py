@@ -348,38 +348,35 @@ class Smoke:
         print(f"PASS native Fleet {key} entrypoint, readiness and schema rejection")
 
     def workers(self):
-        queues = (
-            [
-                "ingestion",
-                "analysis",
-                "article-analysis",
-                "topic-analysis",
-                "research-verification",
-                "relationships",
-                "source-analysis",
-                "source-enrichment",
-                "solver",
-                "notifications",
+        if self.component == "backend":
+            scenarios = [
+                ("high", {}),
+                ("default", {}),
+                ("low", {}),
+                ("solver", {}),
+                ("dedicated-ingestion", {"ingestion": "dedicated-ingestion"}),
             ]
-            if self.component == "backend"
-            else [
-                {
-                    "article-enrichment-worker": "article-enrichment",
-                    "images-worker": "images",
-                    "source-discovery-worker": "source-discovery",
-                }[self.component]
-            ]
-        )
-        for queue in queues:
+        else:
+            logical = {
+                "article-enrichment-worker": "article-enrichment",
+                "images-worker": "images",
+                "source-discovery-worker": "source-discovery",
+            }[self.component]
+            queue = "images" if logical == "images" else "dedicated-" + logical
+            scenarios = [(queue, {} if logical == "images" else {logical: queue})]
+        for queue, overrides in scenarios:
             self.execute(self.redis, "redis-cli", "-n", "15", "flushdb")
-            env = {"DEVFEED_WORKER_QUEUE": queue}
+            env = {
+                "DEVFEED_WORKER_QUEUE": queue,
+                "DEVFEED_JOB_QUEUE_OVERRIDES": json.dumps(overrides),
+            }
             mounts = list(getattr(self, "ca_mounts", []))
             key = "worker" if self.component == "backend" else self.component
             if queue == "solver":
                 env["DEVFEED_SOLVER_SERVICES"] = (
                     '[{"provider":"flaresolverr","url":"http://unused-solver:8191"}]'
                 )
-            if queue == "notifications":
+            if queue == "low":
                 key = "notification-worker"
                 inbox_mounts, inbox_env = self.inbox("worker")
                 mounts += inbox_mounts
@@ -387,12 +384,12 @@ class Smoke:
             name = self.start(CONTRACTS[key]["command"], env=env, mounts=mounts)
             probe = ["devfeed-worker-health"]
             self.wait_probe(name, probe)
-            self.execute(name, "python", "/fleet/runtime.py", "worker")
+            self.execute(name, "python", "/fleet/runtime.py", "worker", queue)
             self.execute(name, "python", "/fleet/runtime.py", "permissions")
             self.stop(name)
         print(
             f"PASS native Fleet {self.component} worker commands, "
-            f"queue registration and heartbeats ({len(queues)})"
+            f"queue registration and heartbeats ({len(scenarios)})"
         )
 
     def scheduler(self):
