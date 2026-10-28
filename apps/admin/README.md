@@ -7,6 +7,18 @@ Traefik ingress also redirects HTTP to HTTPS.
 
 See [configuration, authentication, service boundaries and commands](../../docs/admin.md).
 
+## Overview
+
+Only **Queue pressure** refreshes periodically after loading, using the configured
+interval while the chart is visible and the page is active. The other eleven charts
+retain their loaded result until a page reload, date-range change, or explicit retry
+or recovery action. Review and recovery is independent of the selected date range.
+
+Every chart automatically checks a preparing response until data becomes available,
+even when general refresh is disabled. Those checks stop after a non-queue chart succeeds.
+Validate with `npm run admin:test` and, after `npm run admin:build`,
+`node apps/admin/tests/browser/overview.mjs`.
+
 ## Record identities
 
 `lib/record-identities.ts` defines the identities passed from routes to API calls,

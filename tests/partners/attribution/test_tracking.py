@@ -8,11 +8,14 @@ from unittest.mock import Mock
 
 import pytest
 from devfeed_api import partner_tracking as api
-from devfeed_api.dependencies import get_session
+from devfeed_api.dependencies import get_session_factory
 from devfeed_api.main import create_app
+from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.config import Settings, get_settings
-from devfeed_core.models import PartnerDeliveryEvent, PartnerPlacementDelivery
+from devfeed_core.models import PartnerPlacementDelivery
+from devfeed_core.partner_claim_backfill import LEGACY_CLAIM_AT
 from devfeed_core.partner_tracking import (
+    DeliveryClaim,
     DeliveryReceipt,
     InactivePartnerAsset,
     PartnerTrackingTokens,
@@ -64,7 +67,7 @@ def test_tracking_is_disabled_by_default_and_rejects_short_keys():
 
 
 @pytest.mark.parametrize("kind", ["impression", "click"])
-def test_event_and_counter_use_atomic_conflicts_without_imported_totals(kind):
+def test_event_uses_operational_claim_and_no_analytics_counter(kind):
     session = Mock()
     receipt = DeliveryReceipt(uuid.uuid4(), uuid.uuid4(), datetime.now(UTC))
     account_id = uuid.uuid4()
@@ -73,22 +76,22 @@ def test_event_and_counter_use_atomic_conflicts_without_imported_totals(kind):
         SimpleNamespace(status="active"),
         SimpleNamespace(automatic=False, status="active"),
     ]
-    session.scalar.side_effect = [*fences, receipt.delivery_id]
-    assert record_delivery_event(session, receipt, kind)
-    statement = session.execute.call_args.args[0].compile(dialect=dialect())
-    assert "ON CONFLICT" in str(statement)
-    assert "partner_tracked_daily_metrics" in str(statement)
-    assert "partner_daily_metrics" not in str(statement)
-    assert statement.params["impressions"] == int(kind == "impression")
-    assert statement.params["clicks"] == int(kind == "click")
+    now = datetime.now(UTC)
+    session.scalar.side_effect = [*fences, now]
+    claim = record_delivery_event(session, receipt, kind)
+    assert claim and claim.recorded_at == now
+    statement = session.scalar.call_args.args[0].compile(dialect=dialect())
+    assert "UPDATE partner_placement_deliveries" in str(statement)
+    assert "partner_tracked_daily_metrics" not in str(statement)
     session.scalar.side_effect = [*fences, None]
-    session.execute.reset_mock()
-    assert not record_delivery_event(session, receipt, kind)
-    session.execute.assert_not_called()
+    session.get.return_value = SimpleNamespace(
+        asset_id=receipt.asset_id, impression_recorded_at=now, click_recorded_at=now
+    )
+    claim = record_delivery_event(session, receipt, kind)
+    assert not claim and claim.recorded_at == now
     session.scalar.side_effect = [None]
     with pytest.raises(InactivePartnerAsset):
         record_delivery_event(session, receipt, kind)
-    session.execute.assert_not_called()
 
 
 @pytest.fixture
@@ -99,7 +102,22 @@ def tracking_client(monkeypatch):
     monkeypatch.setattr(api, "consume_reserved_rate_limits", Mock(return_value=0))
     monkeypatch.setattr(api, "get_rate_limit_redis", Mock())
     app = create_app()
-    app.dependency_overrides[get_session] = lambda: session
+    app.dependency_overrides[get_session_factory] = lambda: lambda: nullcontext(session)
+
+    class Analytics:
+        available = True
+        ready = True
+        rows = []
+
+        async def query(self, _statement, _params):
+            return [{"source": "partner_delivery_events", "complete": int(self.ready)}]
+
+        async def insert(self, _table, rows):
+            self.rows.extend(rows)
+            if not self.available:
+                raise AnalyticsUnavailable("offline")
+
+    app.state.analytics_client = Analytics()
     yield TestClient(app), session
 
 
@@ -120,7 +138,7 @@ def test_event_failures_do_not_commit_partial_measurements(
     tracking_client, monkeypatch, mode, status
 ):
     client, session = tracking_client
-    record = Mock(return_value=True)
+    record = Mock(return_value=DeliveryClaim(datetime.now(UTC), True))
     monkeypatch.setattr(api, "record_delivery_event", record)
     if mode == "inactive":
         record.side_effect = InactivePartnerAsset()
@@ -154,7 +172,7 @@ def test_event_failures_do_not_commit_partial_measurements(
 
 def test_duplicate_events_charge_only_the_callers_abuse_budget(tracking_client, monkeypatch):
     client, session = tracking_client
-    record = Mock(return_value=False)
+    record = Mock(return_value=DeliveryClaim(datetime.now(UTC), False))
     monkeypatch.setattr(api, "record_delivery_event", record)
     response = client.post(
         "/v1/partner-tracking/events",
@@ -170,7 +188,9 @@ def test_duplicate_events_charge_only_the_callers_abuse_budget(tracking_client, 
 
 def test_impression_and_click_abuse_budgets_are_independent(tracking_client, monkeypatch):
     client, _ = tracking_client
-    monkeypatch.setattr(api, "record_delivery_event", Mock(return_value=False))
+    monkeypatch.setattr(
+        api, "record_delivery_event", Mock(return_value=DeliveryClaim(datetime.now(UTC), False))
+    )
     token = PartnerTrackingTokens(KEY).issue(uuid.uuid4())
     caller_keys = []
     for kind in ("impression", "click"):
@@ -190,7 +210,9 @@ def test_retry_after_shared_redis_failure_preserves_the_quota_reservation_identi
     tracking_client, monkeypatch
 ):
     client, session = tracking_client
-    monkeypatch.setattr(api, "record_delivery_event", Mock(return_value=True))
+    monkeypatch.setattr(
+        api, "record_delivery_event", Mock(return_value=DeliveryClaim(datetime.now(UTC), True))
+    )
     api.consume_reserved_rate_limits.side_effect = [RedisError(), 0]
     event = {"kind": "click", "receipt": PartnerTrackingTokens(KEY).issue(uuid.uuid4())}
     assert client.post("/v1/partner-tracking/events", json=event).status_code == 503
@@ -199,6 +221,42 @@ def test_retry_after_shared_redis_failure_preserves_the_quota_reservation_identi
     assert attempts[0].kwargs["reservation_key"] == attempts[1].kwargs["reservation_key"]
     session.rollback.assert_called_once_with()
     session.commit.assert_called_once_with()
+
+
+def test_retry_after_clickhouse_failure_reuses_the_committed_claim(tracking_client, monkeypatch):
+    client, session = tracking_client
+    observed = datetime.now(UTC)
+    record = Mock(side_effect=[DeliveryClaim(observed, True), DeliveryClaim(observed, False)])
+    monkeypatch.setattr(api, "record_delivery_event", record)
+    analytics = client.app.state.analytics_client
+    analytics.available = False
+    event = {"kind": "click", "receipt": PartnerTrackingTokens(KEY).issue(uuid.uuid4())}
+    assert client.post("/v1/partner-tracking/events", json=event).status_code == 503
+    analytics.available = True
+    assert client.post("/v1/partner-tracking/events", json=event).status_code == 204
+    assert analytics.rows[0] == analytics.rows[1]
+    assert session.commit.call_count == 2
+
+
+def test_historical_claims_do_not_duplicate_imported_baseline(tracking_client, monkeypatch):
+    client, _ = tracking_client
+    monkeypatch.setattr(
+        api, "record_delivery_event", Mock(return_value=DeliveryClaim(LEGACY_CLAIM_AT, False))
+    )
+    event = {"kind": "click", "receipt": PartnerTrackingTokens(KEY).issue(uuid.uuid4())}
+    assert client.post("/v1/partner-tracking/events", json=event).status_code == 204
+    assert client.app.state.analytics_client.rows == []
+
+
+def test_claim_import_readiness_is_required_before_writing(tracking_client, monkeypatch):
+    client, session = tracking_client
+    client.app.state.analytics_client.ready = False
+    record = Mock()
+    monkeypatch.setattr(api, "record_delivery_event", record)
+    event = {"kind": "click", "receipt": PartnerTrackingTokens(KEY).issue(uuid.uuid4())}
+    assert client.post("/v1/partner-tracking/events", json=event).status_code == 503
+    record.assert_not_called()
+    session.commit.assert_not_called()
 
 
 def test_unproven_events_and_oversized_bodies_never_reach_storage(tracking_client, monkeypatch):
@@ -241,31 +299,24 @@ def test_unadmitted_cleanup_does_not_issue_any_ledger_writes():
     session.execute.assert_not_called()
 
 
-@pytest.mark.parametrize("counts", [(0, 0), (2, 3)])
-def test_cleanup_returns_both_ledger_counts_and_preserves_daily_reporting_tables(counts):
+@pytest.mark.parametrize("count", [0, 3])
+def test_cleanup_prunes_only_expired_operational_claims(count):
     session, factory = Mock(spec=Session), Mock()
     session.scalar.return_value = True
-    session.execute.side_effect = [SimpleNamespace(rowcount=count) for count in counts]
+    session.execute.return_value = SimpleNamespace(rowcount=count)
     factory.begin.return_value = nullcontext(session)
-    assert prune_partner_delivery_history(factory, now=NOW, batch_size=3) == sum(counts)
-    assert [call.args[0].table.name for call in session.execute.call_args_list] == [
-        PartnerDeliveryEvent.__tablename__,
-        PartnerPlacementDelivery.__tablename__,
-    ]
+    assert prune_partner_delivery_history(factory, now=NOW, batch_size=3) == count
+    assert session.execute.call_args.args[0].table.name == PartnerPlacementDelivery.__tablename__
     session.add.assert_not_called()
 
 
-@pytest.mark.parametrize("failed_operation", [0, 1])
-def test_cleanup_propagates_repository_failure_instead_of_reporting_partial_success(
-    failed_operation,
-):
+def test_cleanup_propagates_repository_failure():
     session, factory = Mock(spec=Session), Mock()
     session.scalar.return_value = True
-    error = SQLAlchemyError("receipt ledger unavailable")
-    session.execute.side_effect = [SimpleNamespace(rowcount=2)] * failed_operation + [error]
+    error = SQLAlchemyError("receipt claims unavailable")
+    session.execute.side_effect = error
     factory.begin.return_value = nullcontext(session)
     with pytest.raises(SQLAlchemyError) as failure:
         prune_partner_delivery_history(factory, now=NOW, batch_size=3)
     assert failure.value is error
-    assert session.execute.call_count == failed_operation + 1
-    session.add.assert_not_called()
+    session.execute.assert_called_once()

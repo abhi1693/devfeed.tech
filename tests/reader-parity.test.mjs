@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createServer } from "node:http";
 import { mkdtemp, readFile, rm, writeFile, mkdir, stat, chmod, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -13,6 +14,11 @@ import {
   partnerRuntimePlan,
   partnerRuntimes,
 } from "../apps/web/tests/browser/partner-runtimes.mjs";
+import {
+  runPlacementStage,
+  waitForPlacementServer,
+  withPlacementDeliveryHeld,
+} from "../apps/web/tests/browser/partner-fixture.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -495,6 +501,167 @@ test("same-gateway caller proof checks reject the cached-first-caller bug on the
     current.set(paths[1], new Set([first, ip]));
     if (ip !== first) assert.throws(() => assertPartnerCallerProofs(current, ip), /same gateway/);
   }
+});
+
+test("placement readiness waits for the application instead of accepting an edge 502", async () => {
+  let requests = 0;
+  const server = createServer((_request, response) => {
+    response.writeHead(++requests === 1 ? 502 : 200);
+    response.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    assert.equal(
+      await waitForPlacementServer(`http://127.0.0.1:${server.address().port}`, {
+        attempts: 3,
+        delayMs: 0,
+      }),
+      true,
+    );
+    assert.equal(requests, 2);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("placement readiness retries a connection that never returns a response", async () => {
+  let requests = 0;
+  const server = createServer((_request, response) => {
+    if (++requests === 1) return;
+    response.writeHead(200);
+    response.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    assert.equal(
+      await waitForPlacementServer(`http://127.0.0.1:${server.address().port}`, {
+        attempts: 3,
+        delayMs: 0,
+        requestTimeoutMs: 250,
+      }),
+      true,
+    );
+    assert.equal(requests, 2);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("placement delivery stays blocked until the reading observation completes", async () => {
+  const delivery = { pending: null };
+  const entered = Promise.withResolvers();
+  const complete = Promise.withResolvers();
+  const value = { y: 120 };
+  let released = false;
+  let pending;
+  const observation = withPlacementDeliveryHeld(delivery, async () => {
+    pending = delivery.pending.then(() => {
+      released = true;
+    });
+    entered.resolve();
+    await complete.promise;
+    return value;
+  });
+  await entered.promise;
+  assert.equal(released, false);
+  assert.ok(delivery.pending);
+  complete.resolve();
+  assert.equal(await observation, value);
+  await pending;
+  assert.equal(released, true);
+  assert.equal(delivery.pending, null);
+});
+
+test("placement stage deadlines identify browser operations that never resolve", async () => {
+  await assert.rejects(
+    runPlacementStage("web: placement 429 response", () => new Promise(() => {}), {
+      timeoutMs: 20,
+    }),
+    /Placement stage web: placement 429 response timed out after 20ms/,
+  );
+});
+
+test("placement stage boundaries retain successful values and original assertion errors", async () => {
+  const value = { status: 429 };
+  assert.equal(await runPlacementStage("web: complete", async () => value), value);
+  const original = new assert.AssertionError({ message: "Original placement assertion" });
+  await assert.rejects(
+    runPlacementStage("web: disclosure", async () => {
+      throw original;
+    }),
+    (error) => error === original,
+  );
+});
+
+test("placement assertion failures release delivery and close active fixture connections", () => {
+  const fixtureModule = new URL("../apps/web/tests/browser/partner-fixture.mjs", import.meta.url)
+    .href;
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      `
+        import assert from "node:assert/strict";
+        import { createServer, get } from "node:http";
+        const { closePlacementFixture, withPlacementDeliveryHeld } = await import(${JSON.stringify(fixtureModule)});
+        const delivery = { pending: null };
+        const held = Promise.withResolvers();
+        const released = Promise.withResolvers();
+        const active = Promise.withResolvers();
+        const server = createServer(async (request, response) => {
+          if (request.url === "/held") {
+            held.resolve();
+            await delivery.pending;
+            response.end("released");
+            released.resolve();
+          } else {
+            active.resolve();
+            await new Promise(() => {});
+          }
+        });
+        await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+        const request = (path) => {
+          get({ hostname: "127.0.0.1", port: server.address().port, path }, (response) => {
+            response.resume();
+          }).on("error", () => {});
+        };
+        const original = new Error("Controlled placement failure");
+        let failure;
+        try {
+          await withPlacementDeliveryHeld(delivery, async () => {
+            request("/held");
+            await held.promise;
+            throw original;
+          });
+        } catch (error) {
+          failure = error;
+        } finally {
+          await released.promise;
+          assert.equal(delivery.pending, null);
+          console.log("gated request released");
+          request("/active");
+          await active.promise;
+          await closePlacementFixture(server);
+          console.log("active connection closed");
+        }
+        assert.equal(failure, original);
+        throw failure;
+      `,
+    ],
+    { cwd: root, encoding: "utf8", timeout: 5000 },
+  );
+  assert.equal(result.error, undefined);
+  assert.equal(result.signal, null);
+  assert.equal(result.status, 1);
+  assert.deepEqual(result.stdout.trim().split("\n"), [
+    "gated request released",
+    "active connection closed",
+  ]);
+  assert.match(result.stderr, /^Error: Controlled placement failure$/m);
+  assert.doesNotMatch(result.stderr, /AssertionError|ETIMEDOUT/);
 });
 
 test("runtime validation precedes resources and the original same-process three-caller assertion remains", async () => {

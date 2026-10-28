@@ -327,7 +327,7 @@ def test_scheduler_dispatches_source_profile_jobs_with_distinct_function():
 
     @contextmanager
     def begin():
-        yield session_with(job)
+        yield SimpleNamespace(scalars=lambda _: SimpleNamespace(all=lambda: [job]))
 
     queue = SimpleNamespace(enqueue=lambda *a, **kw: calls.append(a) or SimpleNamespace(id="rq-id"))
     assert (

@@ -62,7 +62,7 @@ def _process_evaluation(job_id: str, *, factory=None, assessor=None):
         job = session.scalar(
             select(PartnerEvaluation)
             .where(PartnerEvaluation.id == identifier, runnable(utcnow()))
-            .with_for_update(skip_locked=True)
+            .with_for_update()
         )
         if job is None:
             logger.debug("partner_evaluation_not_claimed")

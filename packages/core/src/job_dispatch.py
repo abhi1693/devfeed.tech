@@ -69,43 +69,138 @@ def _due_conditions(model, now):
     )
 
 
-def dispatch_lanes(factory, queue, batch: int, now: datetime, lanes: list[DispatchLane]):
-    """Publish the oldest eligible jobs across types sharing a physical queue."""
-    candidates: list[tuple[datetime, datetime, uuid.UUID, DispatchLane]] = []
-    with factory() as session:
-        for lane in lanes:
-            model = JOB_DEFINITIONS[lane.kind].model
-            condition = _lane_condition(
-                lane.kind, lane.relationships, lane.source_analysis, lane.solver
-            )
-            statement = (
-                select(model.id, model.available_at, model.created_at)
-                .where(*_due_conditions(model, now))
-                .order_by(model.available_at, model.created_at, model.id)
-                .limit(batch)
-            )
-            if condition is not None:
-                statement = statement.where(condition)
-            candidates.extend(
-                (due, created, identifier, lane)
-                for identifier, due, created in session.execute(statement)
-            )
-    counts = {lane.kind: 0 for lane in lanes}
-    for _, _, identifier, lane in sorted(candidates, key=lambda row: row[:3])[:batch]:
-        # Recheck eligibility under the durable job lock; another scheduler or
-        # worker may have claimed this candidate since the bounded read above.
-        counts[lane.kind] += dispatch_jobs(
-            factory,
-            queue,
-            1,
-            now,
-            kind=lane.kind,
-            job_id=identifier,
-            relationships=lane.relationships,
-            source_analysis=lane.source_analysis,
-            solver=lane.solver,
+class JobDispatcher:
+    """Select and publish a bounded batch under one durable transaction.
+
+    Redis publication precedes the database commit. Unique delivery identities
+    make a partially published, rolled-back batch safe to replay.
+    """
+
+    def __init__(self, factory, queue: JobQueue, now: datetime):
+        self.factory, self.queue, self.now = factory, queue, now
+
+    def _statement(self, lane: DispatchLane, *, fresh: bool | None = None):
+        condition = _lane_condition(
+            lane.kind, lane.relationships, lane.source_analysis, lane.solver
         )
-    return counts
+        definition = JOB_DEFINITIONS[lane.kind]
+        model = definition.model
+        if fresh is not None:
+            if lane.kind not in {"analysis", "article-enrichment"} or lane.solver:
+                raise ValueError("Fresh lanes only support article extraction and analysis")
+            article_model = ArticleAnalysisJob if lane.kind == "analysis" else ArticleEnrichmentJob
+            recent = fresh_article_condition(article_model)
+            recent = recent if fresh else ~recent
+            condition = and_(condition, recent) if condition is not None else recent
+        statement = (
+            select(model)
+            .where(*_due_conditions(model, self.now))
+            .order_by(model.available_at, model.created_at, model.id)
+        )
+        return statement.where(condition) if condition is not None else statement
+
+    def _publish(self, jobs):
+        logs = []
+        for kind, job, solver, source_analysis in jobs:
+            definition = JOB_DEFINITIONS[kind]
+            delivery = self.queue.enqueue(
+                definition.handler,
+                str(job.id),
+                job_timeout=max(240, definition.timeout) if solver else definition.timeout,
+                result_ttl=0,
+                failure_ttl=86400,
+                ttl=None,
+                job_id=delivery_id(
+                    f"{kind}-solver" if solver else f"{kind}-ai" if source_analysis else kind,
+                    job.id,
+                    job.available_at,
+                    job.attempts,
+                ),
+                unique=True,
+            )
+            job.dispatched_at = self.now
+            fields = definition.log_fields(job)
+            if definition.kind != "notifications":
+                fields["rq_job_id"] = delivery.id
+            logs.append((definition.event, fields))
+        return logs
+
+    @staticmethod
+    def _log(logs):
+        for event, fields in logs:
+            logger.info(event + "_dispatched", extra=fields)
+
+    def publish(self, batch, lane: DispatchLane, *, job_id=None, fresh=None) -> int:
+        statement = self._statement(lane, fresh=fresh)
+        if batch < 1:
+            return 0
+        model = JOB_DEFINITIONS[lane.kind].model
+        if job_id is not None:
+            statement = statement.where(model.id == job_id)
+        with self.factory.begin() as session:
+            jobs = session.scalars(
+                statement.options(*JOB_DEFINITIONS[lane.kind].metadata_options())
+                .limit(min(batch, 1) if job_id is not None else batch)
+                .with_for_update(skip_locked=job_id is None)
+            ).all()
+            logs = self._publish(
+                (lane.kind, job, lane.solver, lane.source_analysis) for job in jobs
+            )
+        self._log(logs)
+        return len(logs)
+
+    def publish_lanes(self, batch: int, lanes: list[DispatchLane]):
+        counts = {lane.kind: 0 for lane in lanes}
+        candidates: list[tuple[datetime, datetime, uuid.UUID, DispatchLane]] = []
+        statements = {lane: self._statement(lane) for lane in lanes}
+        if batch < 1:
+            return counts
+        with self.factory.begin() as session:
+            for lane, statement in statements.items():
+                model = JOB_DEFINITIONS[lane.kind].model
+                candidates.extend(
+                    (due, created, identifier, lane)
+                    for identifier, due, created in session.execute(
+                        statement.with_only_columns(
+                            model.id, model.available_at, model.created_at
+                        ).limit(batch)
+                    )
+                )
+            # Overlapping lanes must not publish the same durable job twice.
+            selected_by_identity: dict[
+                tuple[str, uuid.UUID], tuple[datetime, datetime, uuid.UUID, DispatchLane]
+            ] = {}
+            for row in sorted(candidates, key=lambda row: row[:3]):
+                selected_by_identity.setdefault((row[3].kind, row[2]), row)
+            selected = list(selected_by_identity.values())[:batch]
+            identifiers: dict[DispatchLane, list[uuid.UUID]] = {}
+            for _, _, identifier, lane in selected:
+                identifiers.setdefault(lane, []).append(identifier)
+            locked: dict[tuple[str, uuid.UUID], Job] = {}
+            for lane, keys in identifiers.items():
+                model = JOB_DEFINITIONS[lane.kind].model
+                jobs = session.scalars(
+                    statements[lane]
+                    .options(*JOB_DEFINITIONS[lane.kind].metadata_options())
+                    .where(model.id.in_(keys))
+                    .with_for_update(skip_locked=True)
+                ).all()
+                locked.update(((lane.kind, job.id), job) for job in jobs)
+            ready = [
+                (lane.kind, locked[(lane.kind, identifier)], lane.solver, lane.source_analysis)
+                for _, _, identifier, lane in selected
+                if (lane.kind, identifier) in locked
+            ]
+            logs = self._publish(ready)
+            for kind, *_ in ready:
+                counts[kind] += 1
+        self._log(logs)
+        return counts
+
+
+def dispatch_lanes(factory, queue, batch: int, now: datetime, lanes: list[DispatchLane]):
+    """Publish oldest eligible jobs across lanes in one bounded transaction."""
+    return JobDispatcher(factory, queue, now).publish_lanes(batch, lanes)
 
 
 def dispatch_jobs(
@@ -121,66 +216,9 @@ def dispatch_jobs(
     solver: bool = False,
     fresh: bool | None = None,
 ) -> int:
-    lane = _lane_condition(kind, relationships, source_analysis, solver)
-    definition = JOB_DEFINITIONS[kind]
-    model = definition.model
-    if fresh is not None:
-        if kind not in {"analysis", "article-enrichment"} or solver:
-            raise ValueError("Fresh lanes only support article extraction and analysis")
-        # A priority window, not an eligibility cutoff: both partitions are dispatched.
-        article_model = ArticleAnalysisJob if kind == "analysis" else ArticleEnrichmentJob
-        recent = fresh_article_condition(article_model)
-        lane = (
-            and_(lane, recent if fresh else ~recent)
-            if lane is not None
-            else (recent if fresh else ~recent)
-        )
-    dispatched = 0
-    dispatch_logs = []
-    # Keep one transaction for the bounded batch.  The previous per-job
-    # transaction made a scheduler tick pay for one PostgreSQL round trip and
-    # commit per delivery (50 analysis jobs meant 50 transactions per lane).
-    # Queue publication still happens before the durable claim is committed,
-    # and the unique delivery id makes a rollback safe to retry.
-    with factory.begin() as session:
-        for _ in range(batch):
-            statement = (
-                select(model)
-                .options(*definition.metadata_options())
-                .where(*_due_conditions(model, now))
-                .order_by(model.available_at, model.created_at, model.id)
-                .limit(1)
-                .with_for_update(skip_locked=job_id is None)
-            )
-            if job_id is not None:
-                statement = statement.where(model.id == job_id)
-            if lane is not None:
-                statement = statement.where(lane)
-            job = cast(Job | None, session.scalar(statement))
-            if job is None:
-                break
-            delivery = queue.enqueue(
-                definition.handler,
-                str(job.id),
-                job_timeout=max(240, definition.timeout) if solver else definition.timeout,
-                result_ttl=0,
-                failure_ttl=86400,
-                ttl=None,
-                job_id=delivery_id(
-                    f"{kind}-solver" if solver else f"{kind}-ai" if source_analysis else kind,
-                    job.id,
-                    job.available_at,
-                    job.attempts,
-                ),
-                unique=True,
-            )
-            job.dispatched_at = now
-            fields = definition.log_fields(job)
-            # Notifications historically have no RQ identifier in their dispatch event.
-            if definition.kind != "notifications":
-                fields["rq_job_id"] = delivery.id
-            dispatch_logs.append(fields)
-            dispatched += 1
-    for fields in dispatch_logs:
-        logger.info(definition.event + "_dispatched", extra=fields)
-    return dispatched
+    return JobDispatcher(factory, queue, now).publish(
+        batch,
+        DispatchLane(kind, relationships, source_analysis, solver),
+        job_id=job_id,
+        fresh=fresh,
+    )

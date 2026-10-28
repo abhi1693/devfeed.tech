@@ -46,6 +46,12 @@ def operator_api(*modules):
         app.include_router(module.router)
     app.dependency_overrides[require_admin] = lambda: admin
     app.dependency_overrides[dependencies.get_session] = lambda: session
+
+    @contextmanager
+    def factory():
+        yield session
+
+    app.dependency_overrides[dependencies.get_session_factory] = lambda: factory
     with TestClient(app) as client:
         yield SimpleNamespace(client=client, session=session, admin=admin, app=app)
 

@@ -9,9 +9,6 @@ it("associates workload terms with their counts in valid definition lists", () =
   render(
     <WorkloadDonut
       rows={[{ kind: "feed", label: "Feed", href: "/jobs", queued: 5, running: 2 }]}
-      queuedDelta={0}
-      runningDelta={0}
-      compared={false}
     />,
   );
   for (const [label, count] of [

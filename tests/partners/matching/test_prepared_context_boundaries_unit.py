@@ -6,7 +6,7 @@ assembly, URL policy, and live receipt guards rather than SQL selection or locks
 
 import copy
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock
 
 import pytest
@@ -231,27 +231,44 @@ def test_signed_delivery_events_require_the_exact_issued_reservation_and_current
     session = Mock(spec=Session)
     # Ownership/policy reads are already-scoped repository results, not a lock or
     # SQL eligibility simulation. Every central policy predicate remains real.
-    session.scalar.side_effect = [
-        owner.id,
-        None if guard == "busy" else owner,
-        creative,
-        value,
-        uuid.uuid4(),
-        None,
-        None,
-        receipt.delivery_id,
-    ]
+    scoped_rows = iter(
+        [
+            owner.id,
+            None if guard == "busy" else owner,
+            creative,
+            value,
+            uuid.uuid4(),
+            None,
+            None,
+            receipt.delivery_id,
+        ]
+    )
+
+    def scalar(statement):
+        if getattr(statement, "is_update", False):
+            return Clock.now(UTC)
+        return next(scoped_rows)
+
+    session.scalar.side_effect = scalar
     session.get.return_value = None if guard == "missing-reservation" else issued
     if guard == "current":
-        assert tracking.record_delivery_event(session, receipt, "impression")
-        values = session.execute.call_args.args[0].compile().params
-        assert values["asset_id"] == creative.id and values["day"] == NOW.date()
-        assert values["impressions"] == 1 and values["clicks"] == 0
+        claim = tracking.record_delivery_event(session, receipt, "impression")
+        assert claim.created and claim.recorded_at == Clock.now(UTC)
+        statement = session.scalar.call_args.args[0]
+        values = statement.compile().params
+        assert values["asset_id_1"] == creative.id
+        assert values["delivery_id_1"] == receipt.delivery_id
+        assert values["impression_recorded_at"] == Clock.now(UTC)
+        assert "impression_recorded_at IS NULL" in str(statement)
+        assert "click_recorded_at" not in str(statement)
     else:
         with pytest.raises(
             tracking.BusyPartnerAsset if guard == "busy" else tracking.InactivePartnerAsset
         ):
             tracking.record_delivery_event(session, receipt, "impression")
+        assert not any(
+            getattr(call.args[0], "is_update", False) for call in session.scalar.call_args_list
+        )
         session.execute.assert_not_called()
     session.commit.assert_not_called()
 

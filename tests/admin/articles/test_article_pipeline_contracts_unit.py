@@ -334,30 +334,6 @@ def test_card_keeps_unattributed_candidates_visible_without_offering_writes(proc
     assert card.next_check_at == article.automation_next_check_at
 
 
-def test_source_groups_prioritize_active_and_blocked_work_before_name_order():
-    groups = [
-        pipeline.PipelineSourceGroup(
-            source_id=uuid.uuid4(),
-            source_name=name,
-            total=sum(counts.values()),
-            state_counts=counts,
-        )
-        for name, counts in (
-            ("Alpha waiting", {"waiting": 2}),
-            ("Retry wait", {"retry_wait": 1}),
-            ("Blocked", {"blocked": 1}),
-            ("Zulu running", {"running": 1, "waiting": 2}),
-        )
-    ]
-    ordered = sorted(groups, key=pipeline._source_group_order)
-    assert [group.source_name for group in ordered] == [
-        "Zulu running",
-        "Blocked",
-        "Retry wait",
-        "Alpha waiting",
-    ]
-
-
 @pytest.fixture
 def operator_detail(processing_case, monkeypatch):
     article, facts = processing_case

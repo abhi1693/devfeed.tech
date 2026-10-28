@@ -1,5 +1,6 @@
 """Bounded schema fuzzing and stateful ownership checks on the real APIs."""
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -90,6 +91,30 @@ SELECTED_PATHS = sorted(
         for path in PATHS[service] | (NIGHTLY_PATHS[service] if NIGHTLY else set())
     }
 )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def native_analytics(integration_environment):
+    """Start fuzz applications after real schema migration and historical readiness."""
+    from devfeed_core.analytics import AnalyticsClient
+    from devfeed_core.analytics_migrations import upgrade_analytics
+    from devfeed_core.analytics_worker import AnalyticsImportWorker
+    from devfeed_core.config import get_settings
+
+    async def prepare():
+        settings = get_settings()
+        await upgrade_analytics(settings)
+        async with AnalyticsClient(settings) as client:
+            client.insert_settings = {"async_insert_busy_timeout_ms": 1}
+            worker = AnalyticsImportWorker(client, settings)
+            for _ in range(100):
+                await worker.once()
+                if not worker.bootstrapping:
+                    assert (await client.status())["ready"]
+                    return
+            raise AssertionError("Fuzz historical analytics preparation did not complete")
+
+    asyncio.run(prepare())
 
 
 def in_fuzz_scope(context):

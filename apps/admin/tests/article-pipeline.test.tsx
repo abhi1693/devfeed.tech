@@ -17,7 +17,7 @@ import {
   getArticlePipelineDetail,
   getArticlePipelineSourceArticles,
   retryArticlePipeline,
-  pipelineQuery,
+  articlePipelineParams,
   pipelineLabels,
   pipelineStages,
   type PipelineArticle,
@@ -201,10 +201,10 @@ function dragTransfer() {
 
 it("forwards only bounded pipeline filters to the API", () => {
   expect(
-    pipelineQuery(
+    articlePipelineParams(
       "q=Python&source_id=source-one&needs_attention=true&offset=500&limit=100&sort=title&view=pipeline",
-    ).toString(),
-  ).toBe("limit=20&q=Python&source_id=source-one&needs_attention=true");
+    ),
+  ).toEqual({ limit: 20, q: "Python", source_id: "source-one", needs_attention: true });
 });
 
 it("keeps Articles as the default and selects source grouping through the URL", async () => {
@@ -423,6 +423,45 @@ it("keeps individual retry actions when a source is expanded across column colla
   await user.click(screen.getByRole("button", { name: `Move back ${card.title}` }));
   await user.click(screen.getByRole("menuitem", { name: "Retry AI analysis" }));
   expect(retryArticlePipeline).toHaveBeenCalledWith(card.id, "analysis", 7, "test-csrf", "ai-job");
+});
+
+it("withdraws a failed source-group refresh until its current page recovers", async () => {
+  vi.useFakeTimers();
+  vi.mocked(getArticlePipeline).mockResolvedValue(groupedBoard("ready"));
+  const ready = {
+    ...card,
+    stage: "ready" as const,
+    state: "ready",
+    retry_targets: ["analysis" as const],
+  };
+  const page = { stage: "ready" as const, total: 1, items: [ready], next_cursor: null };
+  vi.mocked(getArticlePipelineSourceArticles)
+    .mockResolvedValueOnce(page)
+    .mockRejectedValueOnce(
+      new ApiError(503, "Analytics are being prepared.", {}, "analytics_preparing"),
+    )
+    .mockResolvedValue(page);
+  await act(async () => {
+    renderAdmin(
+      <RefreshSettings>
+        <ArticlePipeline query="view=pipeline&group_by=source&stage=ready" />
+      </RefreshSettings>,
+    );
+  });
+  await saveRefresh(0);
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Expand Engineering Journal articles" }));
+  });
+  expect(screen.getByRole("link", { name: card.title })).toBeTruthy();
+  expect(screen.getByRole("button", { name: `Move back ${card.title}` })).toBeTruthy();
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  expect(screen.queryByRole("link", { name: card.title })).toBeNull();
+  expect(screen.queryByRole("button", { name: `Move back ${card.title}` })).toBeNull();
+  expect(screen.getByRole("alert").textContent).toContain("Analytics are being prepared.");
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  expect(screen.getByRole("link", { name: card.title })).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(getArticlePipelineSourceArticles).toHaveBeenCalledTimes(3);
 });
 
 it("finishes a slow source request across multiple board polls without restarting it", async () => {
@@ -968,6 +1007,34 @@ it("moves an article automatically after five seconds even when general refresh 
       .closest("section")
       ?.getAttribute("aria-labelledby"),
   ).toBe("pipeline-ready");
+});
+
+it("withdraws the previous board after preparation starts and recovers automatically", async () => {
+  vi.useFakeTimers();
+  vi.mocked(getArticlePipeline)
+    .mockResolvedValueOnce(board())
+    .mockRejectedValueOnce(
+      new ApiError(503, "Analytics are being prepared.", {}, "analytics_preparing"),
+    )
+    .mockResolvedValue(board({ ...card, stage: "ready", state: "ready", blockers: [] }));
+  await act(async () => {
+    renderAdmin(
+      <RefreshSettings>
+        <ArticlePipeline query="view=pipeline" />
+      </RefreshSettings>,
+    );
+  });
+  await saveRefresh(0);
+  expect(screen.getByRole("link", { name: card.title })).toBeTruthy();
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  expect(screen.queryByRole("link", { name: card.title })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Article publication pipeline" })).toBeNull();
+  expect(screen.queryByRole("button", { name: `Move back ${card.title}` })).toBeNull();
+  expect(screen.getByRole("alert").textContent).toContain("Analytics are being prepared.");
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  expect(screen.getByRole("link", { name: card.title })).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(getArticlePipeline).toHaveBeenCalledTimes(3);
 });
 
 it("honors a slower saved interval for automatic pipeline updates", async () => {

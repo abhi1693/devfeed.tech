@@ -470,8 +470,32 @@ describe("Orval transport", () => {
       adminFetch("/v1/admin/topic-discovery/github", { method: "POST" }),
     ).rejects.toEqual(new ApiError(503));
   });
-  it.each(["report_refreshing", "report_rebuilding"])(
-    "recognizes %s without exposing server diagnostic text",
+  it.each(["/v1/admin/overview/charts/queue-pressure", "/v1/admin/article-pipeline"])(
+    "recognizes analytical preparation on %s without exposing server diagnostic text",
+    async (path) => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            Response.json(
+              { detail: { code: "analytics_preparing", message: "private diagnostic" } },
+              { status: 503 },
+            ),
+          ),
+      );
+      await expect(adminFetch(path)).rejects.toEqual(
+        new ApiError(
+          503,
+          "Analytics are being prepared. Please retry shortly.",
+          {},
+          "analytics_preparing",
+        ),
+      );
+    },
+  );
+  it.each(["report_refreshing", "report_rebuilding", "projection_initializing"])(
+    "does not recognize the retired analytical error code %s",
     async (code) => {
       vi.stubGlobal(
         "fetch",
@@ -481,32 +505,9 @@ describe("Orval transport", () => {
             Response.json({ detail: { code, message: "private diagnostic" } }, { status: 503 }),
           ),
       );
-      await expect(adminFetch("/v1/admin/overview/panels/workload")).rejects.toEqual(
-        new ApiError(503, "The saved report is being prepared. Please retry shortly.", {}, code),
-      );
+      await expect(adminFetch("/v1/admin/article-pipeline")).rejects.toEqual(new ApiError(503));
     },
   );
-  it("explains pipeline initialization without exposing server details", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          Response.json(
-            { detail: { code: "projection_initializing", message: "private diagnostic" } },
-            { status: 503 },
-          ),
-        ),
-    );
-    await expect(adminFetch("/v1/admin/article-pipeline")).rejects.toEqual(
-      new ApiError(
-        503,
-        "Pipeline views are being prepared. Please retry shortly.",
-        {},
-        "projection_initializing",
-      ),
-    );
-  });
   it("uses same-origin cookies and no cache", async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({ enabled: true }));
     vi.stubGlobal("fetch", fetcher);

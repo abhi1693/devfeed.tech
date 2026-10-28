@@ -15,27 +15,31 @@ def recommendation_dispatcher(factory, queue_factory, *, interval=1.0):
     stop = threading.Event()
 
     def run():
-        while not stop.is_set():
-            started = time.monotonic()
-            queue = None
-            try:
-                queue = queue_factory()
-                count = dispatch_recommendations(factory, queue)
-                if count:
-                    logger.info(
-                        "interactive_recommendations_dispatched",
-                        extra={
-                            "count": count,
-                            "duration_ms": round((time.monotonic() - started) * 1000),
-                        },
-                    )
-            except Exception:
-                # PostgreSQL retains due work; the main scheduler is also a fallback.
-                logger.exception("interactive_recommendations_dispatch_failed")
-            finally:
-                if queue is not None:
-                    queue.connection.close()
-            stop.wait(interval)
+        queue = None
+        try:
+            while not stop.is_set():
+                started = time.monotonic()
+                try:
+                    # This loop owns one client/pool. Redis reconnects failed
+                    # sockets; idle polls need no new Sentinel/TCP handshake.
+                    if queue is None:
+                        queue = queue_factory()
+                    count = dispatch_recommendations(factory, queue)
+                    if count:
+                        logger.info(
+                            "interactive_recommendations_dispatched",
+                            extra={
+                                "count": count,
+                                "duration_ms": round((time.monotonic() - started) * 1000),
+                            },
+                        )
+                except Exception:
+                    # Durable requests remain due for the next bounded pass.
+                    logger.exception("interactive_recommendations_dispatch_failed")
+                stop.wait(interval)
+        finally:
+            if queue is not None:
+                queue.connection.close()
 
     thread = threading.Thread(target=run, name="recommendation-dispatch", daemon=True)
     thread.start()

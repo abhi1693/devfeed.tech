@@ -22,14 +22,6 @@
         "sha256": "7a2b2ab7d5400cb429e11016c1734afb0c40d856414aab16c239e69b3919e1a2"
       },
       {
-        "path": "deployment-read-model-pipeline.yaml",
-        "sha256": "3711a77548daacd29ef0501e396b6786fa5c3c12a1bd486bcdd1e76c06624a16"
-      },
-      {
-        "path": "deployment-read-model-reports.yaml",
-        "sha256": "625bc236d3d5a49523fa490f4ef3c26efd4a9a27a3dbc31d159718a5c162ebbd"
-      },
-      {
         "path": "deployment-scheduler.yaml",
         "sha256": "690e7920067fc8e688cd97d77f6a901d4bd824bc85117a461102a4c7fa0b662d"
       },
@@ -60,10 +52,6 @@
       {
         "path": "migration-hook.yaml",
         "sha256": "08db166e78dfc7b3409a6f1cd1f7d3bf50d657bf1c71e135291393d76d067a82"
-      },
-      {
-        "path": "read-model-backfill-hook.yaml",
-        "sha256": "c171bcd3b16fe76cc883d02b786ef45d820434aa970761a7a1a93c743f33c074"
       },
       {
         "path": "deployment-web.yaml",
@@ -130,64 +118,6 @@
       ],
       "probes": {}
     },
-    "pipeline": {
-      "command": ["python", "-m", "devfeed_admin_api.projection_worker", "--kind", "pipeline"],
-      "probes": {
-        "readinessProbe": [
-          "python",
-          "-m",
-          "devfeed_admin_api.projection_worker",
-          "--healthcheck",
-          "--kind",
-          "pipeline"
-        ],
-        "startupProbe": [
-          "python",
-          "-m",
-          "devfeed_admin_api.projection_worker",
-          "--healthcheck",
-          "--kind",
-          "pipeline"
-        ],
-        "livenessProbe": [
-          "python",
-          "-m",
-          "devfeed_admin_api.projection_worker",
-          "--healthcheck",
-          "--kind",
-          "pipeline"
-        ]
-      }
-    },
-    "reports": {
-      "command": ["python", "-m", "devfeed_admin_api.projection_worker", "--kind", "reports"],
-      "probes": {
-        "readinessProbe": [
-          "python",
-          "-m",
-          "devfeed_admin_api.projection_worker",
-          "--healthcheck",
-          "--kind",
-          "reports"
-        ],
-        "startupProbe": [
-          "python",
-          "-m",
-          "devfeed_admin_api.projection_worker",
-          "--healthcheck",
-          "--kind",
-          "reports"
-        ],
-        "livenessProbe": [
-          "python",
-          "-m",
-          "devfeed_admin_api.projection_worker",
-          "--healthcheck",
-          "--kind",
-          "reports"
-        ]
-      }
-    },
     "scheduler": {
       "command": ["devfeed", "scheduler"],
       "probes": {
@@ -226,11 +156,11 @@
       "command": [
         "sh",
         "-ec",
-        "worker_name=\"$HOSTNAME-$(python -c 'import uuid; print(uuid.uuid4().hex)')\"\nprintf %s \"$worker_name\" > /tmp/devfeed-worker-name\nexec devfeed worker --queue \"$DEVFEED_WORKER_QUEUE\" --name \"$worker_name\""
+        "worker_name=\"$HOSTNAME-$(python -c 'import uuid; print(uuid.uuid4().hex)')\"\nprintf %s \"$worker_name\" > /tmp/devfeed-worker-name\nexec devfeed-worker --queue \"$DEVFEED_WORKER_QUEUE\" --name \"$worker_name\""
       ],
       "probes": {
-        "readinessProbe": ["python", "-m", "devfeed_core.worker_health"],
-        "livenessProbe": ["python", "-m", "devfeed_core.worker_health"]
+        "readinessProbe": ["devfeed-worker-health"],
+        "livenessProbe": ["devfeed-worker-health"]
       }
     },
     "notification-worker": {
@@ -240,39 +170,39 @@
         "worker",
         "sh",
         "-ec",
-        "worker_name=\"$HOSTNAME-$(python -c 'import uuid; print(uuid.uuid4().hex)')\"\nprintf %s \"$worker_name\" > /tmp/devfeed-worker-notification-name\nexec devfeed worker --queue \"$DEVFEED_WORKER_QUEUE\" --name \"$worker_name\""
+        "worker_name=\"$HOSTNAME-$(python -c 'import uuid; print(uuid.uuid4().hex)')\"\nprintf %s \"$worker_name\" > /tmp/devfeed-worker-notification-name\nexec devfeed-worker --queue \"$DEVFEED_WORKER_QUEUE\" --name \"$worker_name\""
       ],
       "probes": {
-        "readinessProbe": ["python", "-m", "devfeed_core.worker_health"],
-        "livenessProbe": ["python", "-m", "devfeed_core.worker_health"]
+        "readinessProbe": ["devfeed-worker-health"],
+        "livenessProbe": ["devfeed-worker-health"]
       }
     },
     "article-enrichment-worker": {
       "command": ["devfeed-article-enrichment-worker"],
       "probes": {
-        "readinessProbe": ["python", "-m", "devfeed_core.worker_health"],
-        "livenessProbe": ["python", "-m", "devfeed_core.worker_health"]
+        "readinessProbe": ["devfeed-worker-health"],
+        "livenessProbe": ["devfeed-worker-health"]
       }
     },
     "images-worker": {
       "command": ["devfeed-images-worker"],
       "probes": {
-        "readinessProbe": ["python", "-m", "devfeed_core.worker_health"],
-        "livenessProbe": ["python", "-m", "devfeed_core.worker_health"]
+        "readinessProbe": ["devfeed-worker-health"],
+        "livenessProbe": ["devfeed-worker-health"]
       }
     },
     "source-discovery-worker": {
       "command": ["devfeed-source-discovery-worker"],
       "probes": {
-        "readinessProbe": ["python", "-m", "devfeed_core.worker_health"],
-        "livenessProbe": ["python", "-m", "devfeed_core.worker_health"]
+        "readinessProbe": ["devfeed-worker-health"],
+        "livenessProbe": ["devfeed-worker-health"]
       }
     },
     "migrate": {
       "command": [
         "python",
         "-c",
-        "from sqlalchemy import event\nfrom devfeed_core.db import get_engine\nfrom devfeed_cli.main import run\n\ndef migration_connection(connection, _record):\n    autocommit = connection.autocommit\n    connection.autocommit = True\n    try:\n        with connection.cursor() as cursor:\n            cursor.execute(\"SET statement_timeout = '600s'\")\n            cursor.execute(\"SET lock_timeout = '30s'\")\n    finally:\n        connection.autocommit = autocommit\n\n# Run after the application's normal 30-second connect listener.\n# Only this short-lived migration process gets the larger budget.\nevent.listen(get_engine(), \"connect\", migration_connection)\nraise SystemExit(run([\"db\", \"upgrade\"]))\n"
+        "from sqlalchemy import event\nfrom devfeed_core.db import get_engine\nfrom devfeed_cli.main import run\n\ndef migration_connection(connection, _record):\n    autocommit = connection.autocommit\n    connection.autocommit = True\n    try:\n        with connection.cursor() as cursor:\n            cursor.execute(\"SET statement_timeout = '600s'\")\n            cursor.execute(\"SET lock_timeout = '30s'\")\n    finally:\n        connection.autocommit = autocommit\n\n# Run after the application's normal 30-second connect listener.\n# Only this short-lived migration process gets the larger budget.\nevent.listen(get_engine(), \"connect\", migration_connection)\nresult = run([\"db\", \"upgrade\"])\nif result:\n    raise SystemExit(result)\n\n# Schema only: complete before new producers can accept application writes.\n# The finite historical importer starts after older application processes drain.\nraise SystemExit(run([\"analytics\", \"upgrade\"]))\n"
       ],
       "probes": {}
     },
@@ -281,7 +211,7 @@
         "python",
         "-u",
         "-c",
-        "import json\nimport time\nfrom sqlalchemy.orm import sessionmaker\nfrom devfeed_core.config import get_settings\nfrom devfeed_core.db import create_database_engine\nfrom devfeed_core.models import ReportSnapshot\nfrom devfeed_core.read_models import pipeline_policy_version\nfrom devfeed_admin_api.projection_worker import run\nfrom devfeed_admin_api.overview_projection import (\n    INDEPENDENT_GROUPS, REPORT_GROUPS, refresh_overview_projections,\n    report_key, report_policy_version,\n)\nfrom devfeed_admin_api.pipeline_reads import serving_projection\n\nstarted = time.monotonic()\nsettings = get_settings()\nif not settings.read_model_database_url:\n    raise RuntimeError(\"A reserved read-model database pool is required\")\nprint(\"Starting bounded pipeline backfill\", flush=True)\nrun(drain=True, kind=\"pipeline\")\nengine = create_database_engine(settings.model_copy(update={\n    \"database_url\": settings.read_model_database_url,\n    \"database_pool_enabled\": False,\n}))\nfactory = sessionmaker(engine, expire_on_commit=False)\ntry:\n    with factory() as session:\n        generation, snapshot = serving_projection(session)\n        if (\n            generation != pipeline_policy_version()\n            or snapshot.status == \"rebuilding\"\n            or snapshot.lag_seconds is None\n            or snapshot.lag_seconds > 60\n        ):\n            raise RuntimeError(\"Pipeline policy coverage or freshness is incomplete\")\n    required = {\n        report_key(group, days)\n        for group in REPORT_GROUPS\n        for days in ((1,) if group in INDEPENDENT_GROUPS else (7, 30))\n    }\n    # Seed defaults once. A failed calculation cannot be mistaken for a complete\n    # report just because another group refreshed successfully.\n    published = refresh_overview_projections(factory, limit=100)\n    version = report_policy_version()\n    missing = []\n    with factory() as session:\n        for key in sorted(required):\n            stored = session.get(ReportSnapshot, key)\n            if stored is None or stored.policy_version != version:\n                missing.append(key)\n    if missing:\n        raise RuntimeError(f\"Default reports are incomplete: {missing}\")\n    print(json.dumps({\n        \"pipeline_generation\": generation,\n        \"report_groups\": len(REPORT_GROUPS),\n        \"default_reports\": len(required),\n        \"published_reports\": published,\n        \"duration_seconds\": round(time.monotonic() - started, 3),\n        \"cutover_ready\": True,\n    }), flush=True)\nfinally:\n    engine.dispose()\n"
+        "import asyncio\nimport json\nimport time\nfrom devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable\nfrom devfeed_core.analytics_observation import pipeline_policy_version\nfrom devfeed_core.analytics_worker import AnalyticsImportWorker\nfrom devfeed_core.config import get_settings\n\nstarted = time.monotonic()\nsettings = get_settings()\nprint(\"Preparing direct ClickHouse history and current cards\", flush=True)\n\nasync def prepare():\n    async with AnalyticsClient(settings) as client:\n        worker = AnalyticsImportWorker(client, settings)\n        while time.monotonic() - started < 90:\n            await worker.once()\n            try:\n                state = await client.status()\n            except AnalyticsUnavailable:\n                await asyncio.sleep(0.1)\n                continue\n            if state[\"ready\"] and state[\"policy\"] == pipeline_policy_version(settings):\n                print(json.dumps({\n                    \"policy\": state[\"policy\"],\n                    \"duration_seconds\": round(time.monotonic() - started, 3),\n                    \"cutover_ready\": True,\n                }), flush=True)\n                return\n            await asyncio.sleep(settings.analytics_backfill_poll_seconds)\n        raise RuntimeError(\"Direct historical or current card coverage is incomplete\")\n\nasyncio.run(prepare())\n"
       ],
       "probes": {}
     },
@@ -308,6 +238,14 @@
     },
     "web-prestop": {
       "command": ["/bin/sh", "-c", "sleep 15"]
+    },
+    "analytics-importer": {
+      "command": ["python", "-m", "devfeed_core.analytics_worker"],
+      "probes": {
+        "readinessProbe": ["python", "-m", "devfeed_core.analytics_worker", "--check"],
+        "startupProbe": ["python", "-m", "devfeed_core.analytics_worker", "--check"],
+        "livenessProbe": ["python", "-m", "devfeed_core.analytics_worker", "--check"]
+      }
     }
   }
 }

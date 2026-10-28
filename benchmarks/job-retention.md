@@ -3,14 +3,15 @@
 Issue [#298](https://github.com/abhi1693/devfeed.tech/issues/298) concerns retention
 candidate selection even when almost nothing can be pruned. The benchmark uses
 full migrated PostgreSQL 17 schemas, measuring ordinary ticks separately from
-maintenance pages and backlog recovery. The standalone Analysis retention performance workflow runs the
-comparison on a native ARM64 runner at 100,000 and 250,000 articles.
+maintenance pages and backlog recovery. The comparison is an optional local tool;
+its automated workflow has been retired. Use a native ARM64 host to measure
+100,000 and 250,000 articles.
 
 The benchmark requires PostgreSQL 17 by default to match production. Compatibility
 smoke tests select their actual supported server with `--postgres-major 17` or
 `--postgres-major 18`; a different server major is rejected before fixture seeding.
 Reports preserve the actual server major and complete version string. The
-standalone production comparison continues to use PostgreSQL 17.
+local comparison with the production PostgreSQL version uses PostgreSQL 17.
 
 Fresh read-only production counts on 24 October 2026 showed approximately
 92,394 articles, 156,004 article analysis jobs and 159,446 topic analysis jobs.
@@ -122,8 +123,8 @@ backend wait events and blocking PIDs, with elapsed timestamps and no SQL text.
 Forced checkpoint counters are recorded separately. The JSON includes PostgreSQL
 version/settings, application
 architecture, CPU count, throughput, per-call limits, CPU time and WAL bytes.
-The native CI log also records `uname` and `lscpu`. Plans and WAL are captured only
-in the disposable instance.
+Record `uname` and `lscpu` alongside native comparison reports. Plans and WAL are
+captured only in the disposable instance.
 
 To reproduce, start a dedicated PostgreSQL 17 instance, create a fresh database
 whose name ends in `_test`, install the locked workspace packages, and run:
@@ -151,7 +152,6 @@ uses `0.05` seconds and 4 KiB cadence inputs while preserving 15-second logical
 scheduler ticks to test
 state transitions quickly. The script upgrades and truncates the disposable
 database, including all application tables; give it a dedicated instance and
-superuser role for fixture preparation. Keep raw reports untracked or download
-the workflow's `retention-arm64-postgresql17` artifact. Compare a fresh production
+superuser role for fixture preparation. Keep raw reports untracked. Compare a fresh production
 statistics window only after deployment under matched workload, checking page
 logs, queue freshness, query latency, WAL, restarts and interrupted sweep recovery.

@@ -1,5 +1,6 @@
 """Native creatives keep relevance, immutable attribution and commercial policy fences."""
 
+import asyncio
 import uuid
 from datetime import timedelta
 
@@ -23,8 +24,9 @@ from devfeed_core.partner_tracking import (
     PartnerTrackingTokens,
     record_delivery_event,
 )
+from devfeed_http.partner_analytics_reporting import reporting_assets, reporting_metrics
 from devfeed_http.partner_placements import PlacementQuery
-from devfeed_http.partner_portal import CampaignInput, reporting_dashboard
+from devfeed_http.partner_portal import CampaignInput
 from pydantic import ValidationError
 from sqlalchemy import select
 
@@ -302,8 +304,22 @@ def test_format_reporting_filters_immutable_asset_rows(database, feed_catalog):
     native_account(database, feed_catalog, ["feed", "engagement"])
     with database() as session:
         account = session.get(PartnerAccount, feed_catalog["paid"])
-        report = reporting_dashboard(
-            account.id, session, account, 30, 100, 0, ad_format="engagement"
+
+        class EmptyAnalytics:
+            async def partner_daily(self, *_args, **_kwargs):
+                return []
+
+        metadata = reporting_assets(
+            session, select(PartnerAccount).where(PartnerAccount.id == account.id), "engagement"
+        )
+        report = asyncio.run(
+            reporting_metrics(
+                metadata,
+                EmptyAnalytics(),
+                30,
+                100,
+                0,
+            )
         )
         assert report["assets"]
         assert all(row["ad_format"] == "engagement" for row in report["assets"])

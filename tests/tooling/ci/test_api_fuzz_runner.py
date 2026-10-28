@@ -25,12 +25,17 @@ def runner(monkeypatch, tmp_path):
     lifecycle = []
 
     @contextmanager
-    def owned_services():
+    def owned_services(*, analytics=False):
+        assert analytics is True
         lifecycle.append("created")
         try:
             yield {
                 "DEVFEED_DATABASE_URL": "postgresql+psycopg://localhost/owned_test",
                 "DEVFEED_REDIS_URL": "redis://localhost/15",
+                "DEVFEED_CLICKHOUSE_URL": "http://localhost:18123",
+                "DEVFEED_CLICKHOUSE_DATABASE": "owned_test",
+                "DEVFEED_CLICKHOUSE_USERNAME": "ci",
+                "DEVFEED_CLICKHOUSE_PASSWORD": "owned-fuzz-secret",
             }
         finally:
             lifecycle.append("removed")
@@ -57,6 +62,9 @@ def test_runner_uses_owned_services_and_records_a_replayable_seed(
         assert kwargs["cwd"] != root
         assert kwargs["env"]["DEVFEED_TEST_DATABASE_URL"].endswith("/owned_test")
         assert kwargs["env"]["DEVFEED_TEST_REDIS_URL"].endswith("/15")
+        assert kwargs["env"]["DEVFEED_TEST_CLICKHOUSE_URL"] == "http://localhost:18123"
+        assert kwargs["env"]["DEVFEED_TEST_CLICKHOUSE_DATABASE"] == "owned_test"
+        assert kwargs["env"]["DEVFEED_TEST_CLICKHOUSE_PASSWORD"] == "owned-fuzz-secret"
         assert kwargs["env"]["DEVFEED_FUZZ_PROFILE"] == profile
         assert f"--hypothesis-seed={seed}" in command
         assert "--hypothesis-show-statistics" in command

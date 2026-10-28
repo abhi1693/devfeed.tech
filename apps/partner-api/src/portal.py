@@ -3,6 +3,8 @@
 import uuid
 from typing import Annotated
 
+from devfeed_core.analytics import AnalyticsUnavailable
+from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.models import PartnerAccount
 from devfeed_core.partner_ad_formats import AdFormat, validate_account_formats
 from devfeed_core.partner_audiences import (
@@ -13,12 +15,19 @@ from devfeed_core.partner_audiences import (
 from devfeed_core.partner_link_rel import validate_link_rel
 from devfeed_core.partner_promotions import request_promotion_enrollment
 from devfeed_core.text_search import text_search
+from devfeed_http.analytics import analytics_client
 from devfeed_http.body_limits import BodyLimitedRoute
+from devfeed_http.dependencies import run_database
 from devfeed_http.image_uploads import limit_image_upload
 from devfeed_http.operation_policies import GatewayPolicy
 from devfeed_http.partner_ad_images import (
     save_product_promotion_with_images,
     upload_product_ad_image,
+)
+from devfeed_http.partner_analytics_reporting import (
+    reporting_assets,
+    reporting_metrics,
+    require_partner_history,
 )
 from devfeed_http.partner_portal import (
     AccountOut,
@@ -37,7 +46,6 @@ from devfeed_http.partner_portal import (
     destination_preview,
     inventory_products,
     product_promotion,
-    reporting_dashboard,
 )
 from devfeed_http.partner_products import (
     ManualProductInput,
@@ -49,12 +57,12 @@ from devfeed_http.partner_products import (
     product_detail,
     update_manual_product,
 )
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from sqlalchemy import func, select
 
 from devfeed_partner_api.access import PartnerAccountAccess
 from devfeed_partner_api.auth import Partner, require_partner
-from devfeed_partner_api.dependencies import DB, get_redis
+from devfeed_partner_api.dependencies import DB, DBFactory, get_redis
 
 router = APIRouter(
     prefix="/v1/partner",
@@ -157,11 +165,20 @@ def get_account(account_id: uuid.UUID, session: DB, partner: Partner):
     return PartnerAccountAccess(session, partner).require(account_id)
 
 
+def _dashboard_metadata(session, partner, account_id, ad_format):
+    account = AccountOut.model_validate(PartnerAccountAccess(session, partner).require(account_id))
+    assets = reporting_assets(
+        session, select(PartnerAccount).where(PartnerAccount.id == account_id), ad_format
+    )
+    return account, assets
+
+
 @router.get("/accounts/{account_id}/dashboard", response_model=Dashboard)
-def dashboard(
+async def dashboard(
     account_id: uuid.UUID,
-    session: DB,
+    factory: DBFactory,
     partner: Partner,
+    request: Request,
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -169,17 +186,24 @@ def dashboard(
     order: SortOrder = Query("asc"),
     ad_format: AdFormat | None = None,
 ):
-    return reporting_dashboard(
-        account_id,
-        session,
-        PartnerAccountAccess(session, partner).require(account_id),
-        days,
-        limit,
-        offset,
-        sort=sort,
-        order=order,
-        ad_format=ad_format,
+    account, assets = await run_database(
+        factory, _dashboard_metadata, partner, account_id, ad_format
     )
+    client = analytics_client(request)
+    try:
+        await require_partner_history(client)
+        metrics = await reporting_metrics(
+            assets,
+            DirectEngagementAnalytics(client),
+            days,
+            limit,
+            offset,
+            sort=sort,
+            order=order,
+        )
+    except AnalyticsUnavailable:
+        raise HTTPException(503, "Partner analytics is being prepared") from None
+    return {"account": account, **metrics}
 
 
 @router.get(

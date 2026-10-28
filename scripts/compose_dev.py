@@ -13,7 +13,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = ["docker", "compose", "-f", "compose.yaml", "-f", "compose.build.yaml"]
-APPLICATIONS = ["admin", "admin-api", "api", "worker", "scheduler", "codex-client"]
+APPLICATIONS = [
+    "admin",
+    "admin-api",
+    "api",
+    "worker",
+    "scheduler",
+    "codex-client",
+    "analytics-importer",
+]
 IGNORED = {
     ".git",
     ".venv",
@@ -154,6 +162,8 @@ def rebuild() -> None:
         if name.endswith("-worker") and service.get("environment", {}).get("DEVFEED_WORKER_QUEUE")
     ]
     targets = ["migrate", "api", "worker", "scheduler", "admin-api", "admin", *dedicated_workers]
+    if "analytics-importer" in services:
+        targets.append("analytics-importer")
     if "codex-server" in services:
         targets.extend(("codex-server", "codex-client"))
     print("Building replacement images; current app containers keep running.", flush=True)
@@ -182,12 +192,18 @@ def rebuild() -> None:
                     flush=True,
                 )
     applications = [name for name in APPLICATIONS if name in services] + dedicated_workers
-    compose("up", "-d", "--wait", "postgres", "redis")
+    data_services = ["postgres", "redis"]
+    if "clickhouse" in services:
+        data_services.append("clickhouse")
+    compose("up", "-d", "--wait", *data_services)
     print("Stopping app processes before migration; data services remain running.", flush=True)
     compose("stop", *applications)
     compose("run", "--rm", "--no-deps", "migrate")
     # Recreate the one-off migration service too, including after a failed prior run.
     compose("up", "-d", "--wait", "--no-deps", "--force-recreate", "migrate", *applications)
+    if "ch-ui" in services:
+        # UI availability does not gate application migration or health.
+        compose("up", "-d", "--no-deps", "ch-ui")
     print("Local images are running and healthy.", flush=True)
 
 

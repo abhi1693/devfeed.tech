@@ -205,3 +205,37 @@ older binaries. Downgrade removes only the checkpoints and new indexes. It canno
 previously redacted inputs, catalogs or specialist outputs; durable job identities,
 results, accounting and failures remain. Rolling back also restores the old retention
 policy, so keep the scheduler stopped until that cost and policy are acceptable.
+
+## Direct ClickHouse analytics (0038)
+
+Revision `0038` follows deployed revision `0037`. It adds only the impression and
+click receipt timestamps needed for delivery idempotency. It creates no analytics
+queues, leases, projections or source capture triggers in PostgreSQL.
+
+Prepare the ClickHouse schema before the new application accepts writes; the
+Compose migration container performs PostgreSQL upgrade and schema-only ClickHouse
+initialization. Start the new application and workers, drain old application
+processes, then start the analytics history worker. Live application commits publish directly to
+ClickHouse while the worker imports bounded historical pages. Its temporary guards
+freeze only old analytics writes; business sources stay writable. Older analytic
+endpoints fail fast during this handoff. Short NOWAIT metadata locks retry instead
+of holding application writers for the duration of history import. The worker drops
+legacy analytic tables, functions and search counters only after ClickHouse confirms
+all history and current cards. Readiness remains false until this completes. There
+is no ongoing PostgreSQL history polling after completion.
+
+Back up ClickHouse for historical analytics. Direct application delivery is bounded
+and best effort: a crash between a business commit and its ClickHouse insert can
+lose that observation. There is no durable PostgreSQL outbox or automatic recovery
+from complete ClickHouse data loss.
+
+The earlier undeployed `0038`–`0044` draft revisions were removed. For a disposable
+development database stamped with one of those drafts, stop its old processes and
+inspect `partner_placement_deliveries` first. If both `impression_recorded_at` and
+`click_recorded_at` already exist as nullable timezone-aware timestamps from the
+former `0044`, run `uv run alembic stamp --purge 0038`. Otherwise, when neither
+column exists, run `uv run alembic stamp --purge 0037` followed by
+`uv run devfeed db upgrade`. Investigate a partial or different column layout
+before stamping it. These commands change migration metadata only or add the two
+operational columns; they retain old analytics for the automatic import. Do not
+run this development repair on a deployed database.

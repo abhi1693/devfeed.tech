@@ -4,12 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from devfeed_core.models import (
-    PartnerAccount,
-    PartnerDailyMetric,
-    PartnerMembership,
-    UserAccount,
-)
+from devfeed_core.models import PartnerAccount, PartnerMembership, UserAccount
 
 from tests.support.partner_portal import (
     ISSUER as ISSUER,
@@ -111,18 +106,16 @@ def test_account_get_is_independent_of_bounded_picker_pages_and_reordering(porta
     assert response.json()["name"] == "000 Reordered account"
 
 
-def test_totals_time_windows_and_tenant_filtering(portal_client, database):
+def test_totals_time_windows_and_tenant_filtering(portal_client, database, partner_analytics):
     client, identity = portal_client
     a, b, asset_a, asset_b = seed(database)
     today = datetime.now(UTC).date()
     with database() as session:
-        session.add_all(
+        partner_analytics.seed_many(
             [
-                PartnerDailyMetric(asset_id=asset_a, day=today, impressions=100, clicks=5),
-                PartnerDailyMetric(
-                    asset_id=asset_a, day=today - timedelta(days=7), impressions=1000, clicks=20
-                ),
-                PartnerDailyMetric(asset_id=asset_b, day=today, impressions=99999, clicks=9000),
+                dict(asset_id=asset_a, day=today, impressions=100, clicks=5),
+                dict(asset_id=asset_a, day=today - timedelta(days=7), impressions=1000, clicks=20),
+                dict(asset_id=asset_b, day=today, impressions=99999, clicks=9000),
             ]
         )
         session.commit()

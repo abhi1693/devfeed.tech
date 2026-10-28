@@ -4,24 +4,12 @@ Issue [#296](https://github.com/abhi1693/devfeed.tech/issues/296) concerns repea
 
 Manual evidence still takes precedence, regardless of the review action. Automatic evidence still requires a publish action and nonempty automation. Both kinds of evidence use each article's publication time as their inclusive cutoff; evidence may predate the reporting period. Counts include each article once, including articles with no matching evidence. The median retains its existing nonnegative-duration filter.
 
-## Reproduce
+## Historical scope
 
-Use a dedicated PostgreSQL 17 instance with a database ending in `_test`. The profiler refuses remote database hosts, connection query overrides and inherited libpq host/service overrides. `--seed` truncates articles and their dependent rows. Apply the repository's migrations to the disposable instance first, then run:
-
-```sh
-export DEVFEED_TEST_DATABASE_URL="postgresql+psycopg://profile:${DEVFEED_PROFILE_PASSWORD:?Set the disposable database password}@127.0.0.1:55496/publication_report_test"
-export DEVFEED_DATABASE_URL="$DEVFEED_TEST_DATABASE_URL"
-export DEVFEED_REDIS_URL=redis://127.0.0.1:6379/15
-uv run alembic upgrade head
-uv run python scripts/profile_publication_reports.py --seed --rows 100000 --repeats 7 --prepared \
-  --output reports/publication/100000.json
-uv run python scripts/profile_publication_reports.py --seed --rows 300000 --repeats 7 --prepared \
-  --output reports/publication/300000.json
-```
-
-Set `DEVFEED_PROFILE_PASSWORD` to the disposable instance's password before running these commands. Output must be a `.json` file beneath this checkout's `reports/publication` directory; escaping paths and redirected report directories are rejected before database access. Each saved report replaces its predecessor atomically, preserving earlier output if serialization fails.
-
-The `Publication report benchmark` workflow runs these populations on native `ubuntu-24.04-arm`, with PostgreSQL 17.11 limited to two CPUs and 3 GiB memory. It creates a fresh masked password for each job, binds the disposable database to loopback, and removes the container afterward. It runs for relevant pull requests and accepts manual dispatch. Download the `publication-report-*-arm64-*` artifacts within seven days. Each artifact includes the exact SQL, source SHA, PostgreSQL architecture/version and settings, all timing/CPU samples and complete `EXPLAIN (ANALYZE, BUFFERS, WAL, SETTINGS, FORMAT JSON)` plans. Source and report data remain separate: generated reports belong in the ignored `reports/` directory.
+These measurements describe the PostgreSQL reporting implementation before migration0038.
+That implementation and its comparison profiler have been retired. Current reporting uses
+ClickHouse; use `scripts/profile_analytics_reports.py` for bounded native diagnostics.
+The recorded results below are historical evidence, not current runtime guarantees.
 
 ## Workload and interpretation
 

@@ -5,7 +5,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 import pytest
-from devfeed_admin_api.pipeline_projection import drain_pipeline
 from devfeed_core.models import (
     ArticleImageJob,
     IngestionJob,
@@ -19,6 +18,8 @@ from devfeed_core.models import (
 from devfeed_core.source_enrichment import source_identity
 from devfeed_core.source_relevance import VERSION
 from sqlalchemy import event, func, select
+
+from tests.support.analytics_cards import card_publication as card_publication
 
 pytestmark = pytest.mark.integration
 PATH = "/v1/admin/source-pipeline"
@@ -80,7 +81,7 @@ def counts(session):
 
 
 def test_board_includes_old_pending_and_unlinked_candidates_once_without_creating_work(
-    admin_client, database
+    admin_client, database, card_publication
 ):
     with database.begin() as session:
         source = seed_source(session, "Old pending", age=365, feed=False)
@@ -89,7 +90,7 @@ def test_board_includes_old_pending_and_unlinked_candidates_once_without_creatin
         standalone = candidate_for(session, name="Legacy unlinked", age=365)
         source_id, candidate_id = source.id, standalone.id
         before = counts(session)
-    drain_pipeline(database)
+    card_publication(database)
     response = admin_client.get(PATH)
     assert response.status_code == 200, response.text
     body = response.json()
@@ -106,7 +107,9 @@ def test_board_includes_old_pending_and_unlinked_candidates_once_without_creatin
         assert counts(session) == before
 
 
-def test_board_running_priority_and_fifo_apply_before_pagination(admin_client, database):
+def test_board_running_priority_and_fifo_apply_before_pagination(
+    admin_client, database, card_publication
+):
     with database.begin() as session:
         sources = []
         for index in range(24):
@@ -125,7 +128,7 @@ def test_board_running_priority_and_fifo_apply_before_pagination(admin_client, d
             )
         )
         running_id = running.id
-    drain_pipeline(database)
+    card_publication(database)
     first = admin_client.get(PATH + "/columns/discovery?limit=2").json()
     assert first["total"] == 25 and first["next_cursor"] == 2
     assert [item["id"] for item in first["items"]] == [str(running_id), str(sources[0])]
@@ -138,7 +141,7 @@ def test_board_running_priority_and_fifo_apply_before_pagination(admin_client, d
 
 
 def test_terminal_history_excludes_old_idle_records_and_keeps_recent_activity(
-    admin_client, database
+    admin_client, database, card_publication
 ):
     with database.begin() as session:
         old = seed_source(session, "Old active", approval="approved", enabled=True, age=60)
@@ -153,7 +156,7 @@ def test_terminal_history_excludes_old_idle_records_and_keeps_recent_activity(
         )
         pending = seed_source(session, "Old pending", age=400)
         old_id, recent_id, pending_id = old.id, recent.id, pending.id
-    drain_pipeline(database)
+    card_publication(database)
     body = admin_client.get(PATH).json()
     assert {card["id"] for card in all_cards(body)} == {str(recent_id), str(pending_id)}
     cutoff = (utcnow() - timedelta(days=80)).isoformat()
@@ -161,7 +164,7 @@ def test_terminal_history_excludes_old_idle_records_and_keeps_recent_activity(
     assert str(old_id) in {card["id"] for card in all_cards(expanded)}
 
 
-def test_terminal_active_jobs_bypass_history_cutoff(admin_client, database):
+def test_terminal_active_jobs_bypass_history_cutoff(admin_client, database, card_publication):
     with database.begin() as session:
         source = seed_source(session, "Paused old work", approval="approved", age=100)
         job = SourceEnrichmentJob(
@@ -174,24 +177,24 @@ def test_terminal_active_jobs_bypass_history_cutoff(admin_client, database):
         )
         session.add(job)
         identifier = source.id
-    drain_pipeline(database)
+    card_publication(database)
     body = admin_client.get(PATH).json()
     assert str(identifier) in {card["id"] for card in all_cards(body)}
 
 
 def test_classification_crosses_batches_without_hydrating_the_whole_catalog(
-    admin_client, database, monkeypatch
+    admin_client, database, monkeypatch, card_publication
 ):
-    from devfeed_admin_api import pipeline_projection
+    from devfeed_core import analytics_card_builders
 
     batch_sizes = []
-    original = pipeline_projection.source_readiness_batch
+    original = analytics_card_builders.source_readiness_batch
 
     def record_batch(session, sources, candidates=None, **kwargs):
         batch_sizes.append(len(sources) + len(candidates or []))
         return original(session, sources, candidates, **kwargs)
 
-    monkeypatch.setattr(pipeline_projection, "source_readiness_batch", record_batch)
+    monkeypatch.setattr(analytics_card_builders, "source_readiness_batch", record_batch)
     with database.begin() as session:
         for index in range(205):
             source = seed_source(session, f"Batch publisher {index}", feed=False, age=30)
@@ -210,7 +213,7 @@ def test_classification_crosses_batches_without_hydrating_the_whole_catalog(
             )
         )
         running_id = source.id
-    drain_pipeline(database)
+    card_publication(database, batch=200)
     worker_batches = list(batch_sizes)
     batch_sizes.clear()
     response = admin_client.get(PATH + "/columns/discovery?limit=1")
@@ -221,12 +224,14 @@ def test_classification_crosses_batches_without_hydrating_the_whole_catalog(
     assert batch_sizes == []  # Serving never classifies evidence.
 
 
-def test_board_evidence_queries_are_set_based_within_a_batch(admin_client, database):
+def test_board_evidence_queries_are_set_based_within_a_batch(
+    admin_client, database, card_publication
+):
     from devfeed_core.db import get_engine
 
     with database.begin() as session:
         seed_source(session)
-    drain_pipeline(database)
+    card_publication(database)
     statements = []
 
     def record_query(_connection, _cursor, statement, *_args):
@@ -244,7 +249,7 @@ def test_board_evidence_queries_are_set_based_within_a_batch(admin_client, datab
     with database.begin() as session:
         for index in range(24):
             seed_source(session, f"Additional publisher {index}")
-    drain_pipeline(database)
+    card_publication(database)
     statements.clear()
     event.listen(engine, "before_cursor_execute", record_query)
     try:
@@ -258,7 +263,9 @@ def test_board_evidence_queries_are_set_based_within_a_batch(admin_client, datab
         event.remove(engine, "before_cursor_execute", record_query)
 
 
-def test_filters_include_exact_full_population_and_source_authority(admin_client, database):
+def test_filters_include_exact_full_population_and_source_authority(
+    admin_client, database, card_publication
+):
     with database.begin() as session:
         source = seed_source(session, "Database engineering", approval="approved", enabled=True)
         candidate = candidate_for(session, source)
@@ -267,7 +274,7 @@ def test_filters_include_exact_full_population_and_source_authority(admin_client
         aggregator.source_type = "aggregator"
         standalone = candidate_for(session, name="Database unlinked")
         ids = source.id, aggregator.id, standalone.id
-    drain_pipeline(database)
+    card_publication(database)
     publisher = admin_client.get(PATH, params={"q": "Database", "source_type": "publisher"}).json()
     cards = all_cards(publisher)
     assert {card["id"] for card in cards} == {str(ids[0]), str(ids[2])}
@@ -279,7 +286,9 @@ def test_filters_include_exact_full_population_and_source_authority(admin_client
     assert not all_cards(admin_client.get(PATH, params={"q": "no such publisher"}).json())
 
 
-def test_attention_filter_surfaces_blocked_work_without_creating_retries(admin_client, database):
+def test_attention_filter_surfaces_blocked_work_without_creating_retries(
+    admin_client, database, card_publication
+):
     with database.begin() as session:
         failed = seed_source(session, "Needs intervention")
         backoff = seed_source(session, "Waiting for retry")
@@ -304,7 +313,7 @@ def test_attention_filter_surfaces_blocked_work_without_creating_retries(admin_c
             )
         )
         identifiers = {str(failed.id), str(backoff.id)}
-    drain_pipeline(database)
+    card_publication(database)
     response = admin_client.get(PATH, params={"needs_attention": True})
     assert response.status_code == 200, response.text
     cards = all_cards(response.json())

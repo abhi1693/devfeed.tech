@@ -70,6 +70,60 @@ def test_explicit_environment_connections_are_used(monkeypatch):
     assert settings.redis_url == REDIS_URL
 
 
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "postgresql://clickhouse:8123",
+        "http://user:secret@clickhouse:8123",
+        "http://clickhouse:8123/query?password=secret",
+        "http://clickhouse:8123/#fragment",
+        "http://clickhouse:8123/path",
+    ],
+)
+def test_clickhouse_requires_a_service_origin_without_embedded_credentials(origin):
+    with pytest.raises(ValidationError) as caught:
+        Settings(
+            _env_file=None,
+            database_url=DATABASE_URL,
+            redis_url=REDIS_URL,
+            clickhouse_url=origin,
+        )
+    assert "secret" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"clickhouse_database": "devfeed; DROP TABLE events"},
+        {"clickhouse_max_threads": 0},
+        {"clickhouse_max_concurrent_queries": 0},
+        {"clickhouse_max_execution_seconds": 0},
+        {"clickhouse_max_memory_bytes": 0},
+        {"analytics_backfill_batch_size": 0},
+        {"analytics_backfill_batch_size": 1001},
+        {"analytics_poll_seconds": 0},
+        {"analytics_backfill_poll_seconds": 0},
+    ],
+)
+def test_clickhouse_and_import_budgets_reject_unbounded_configuration(values):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, database_url=DATABASE_URL, redis_url=REDIS_URL, **values)
+
+
+def test_clickhouse_password_is_redacted_and_configuration_does_not_connect():
+    settings = Settings(
+        _env_file=None,
+        database_url=DATABASE_URL,
+        redis_url=REDIS_URL,
+        clickhouse_url="https://analytics.invalid:8443/",
+        clickhouse_password="private-clickhouse-password",
+    )
+    assert settings.clickhouse_url == "https://analytics.invalid:8443"
+    assert settings.clickhouse_password.get_secret_value() == "private-clickhouse-password"
+    assert "private-clickhouse-password" not in repr(settings)
+    assert settings.clickhouse_max_memory_bytes == 256 * 1024**2
+
+
 @pytest.mark.parametrize("log_format", ["text", "json"])
 def test_logging_formats_and_normalized_level(log_format):
     settings = Settings(

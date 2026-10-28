@@ -1,12 +1,12 @@
 """Read-only inference usage report with explicitly estimated standard API prices."""
 
 import argparse
+import asyncio
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from devfeed_core.db import get_engine
-from sqlalchemy import text
+from devfeed_core.analytics import AnalyticsClient
 
 # USD / million tokens, verified 2026-09-24. This is not Codex subscription billing.
 # input, cached input, cache write, output (reasoning is already included in output).
@@ -45,6 +45,49 @@ def timestamp(value: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
+async def usage_rows(client, since, until):
+    """Group durable invocation facts from ClickHouse without reading PostgreSQL."""
+    rows = await client.query(
+        "SELECT task AS operation,if(model_is_null=1,NULL,if(model_is_empty=1,'',model)) AS model,"
+        "if(effort_is_null=1,NULL,if(effort_is_empty=1,'',effort)) AS reasoning_effort,reason,"
+        "count() AS calls,countIf(status='running') AS unfinished,"
+        "countIf(has_input_tokens=0) AS unmetered,"
+        "sum(toUInt128(web_searches)) AS web_searches,"
+        "sum(toUInt128(input_tokens)) AS `inputTokens`,"
+        "sum(toUInt128(reported_cached_input_tokens)) AS `cachedInputTokens`,"
+        "sum(toUInt128(cache_write_input_tokens)) AS `cacheWriteInputTokens`,"
+        "sum(toUInt128(output_tokens)) AS `outputTokens`,"
+        "sum(toUInt128(reasoning_tokens)) AS `reasoningOutputTokens` "
+        "FROM analytics_inference_events FINAL "
+        "WHERE started_at >= {since:DateTime64(6,'UTC')} "
+        "AND started_at < {until:DateTime64(6,'UTC')} "
+        "GROUP BY task,model,model_is_null,model_is_empty,effort,"
+        "effort_is_null,effort_is_empty,reason "
+        "ORDER BY operation,model,reasoning_effort,reason "
+        "SETTINGS optimize_move_to_prewhere_if_final=0,prefer_column_name_to_alias=1",
+        {"since": since, "until": until},
+    )
+    for row in rows:
+        for field in (
+            "calls",
+            "unfinished",
+            "unmetered",
+            "web_searches",
+            "inputTokens",
+            "cachedInputTokens",
+            "cacheWriteInputTokens",
+            "outputTokens",
+            "reasoningOutputTokens",
+        ):
+            row[field] = int(row[field])
+    return rows
+
+
+async def read_usage(since, until):
+    async with AnalyticsClient() as client:
+        return await usage_rows(client, since, until)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--since", type=timestamp, required=True)
@@ -52,35 +95,7 @@ def main():
     args = parser.parse_args()
     if args.since >= args.until:
         parser.error("--since must be before --until")
-    counters = (
-        "inputTokens",
-        "cachedInputTokens",
-        "cacheWriteInputTokens",
-        "outputTokens",
-        "reasoningOutputTokens",
-    )
-    sums = ", ".join(
-        f"coalesce(sum((tokens->>'{name}')::bigint),0) as \"{name}\"" for name in counters
-    )
-    with get_engine().connect() as connection:
-        connection.execute(text("SET TRANSACTION READ ONLY"))
-        connection.execute(text("SET LOCAL statement_timeout='15s'"))
-        rows = [
-            dict(row)
-            for row in connection.execute(
-                text(f"""
-            SELECT operation, model, reasoning_effort, reason,
-                   count(*) calls, count(*) FILTER (WHERE status='running') unfinished,
-                   count(*) FILTER (WHERE NOT (tokens ? 'inputTokens')) unmetered,
-                   sum(web_searches) web_searches, {sums}
-            FROM inference_calls
-            WHERE started_at >= :since AND started_at < :until
-            GROUP BY operation, model, reasoning_effort, reason
-            ORDER BY operation, model, reasoning_effort, reason
-        """),
-                {"since": args.since, "until": args.until},
-            ).mappings()
-        ]
+    rows = asyncio.run(read_usage(args.since, args.until))
     for row in rows:
         cost = estimated_cost(row["model"], row)
         row["api_equivalent_usd"] = str(cost) if cost is not None else None

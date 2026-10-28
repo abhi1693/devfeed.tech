@@ -4,13 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from devfeed_core.models import (
-    PartnerAccount,
-    PartnerAsset,
-    PartnerDailyMetric,
-    PartnerMembership,
-    PartnerTrackedDailyMetric,
-)
+from devfeed_core.models import PartnerAccount, PartnerAsset, PartnerMembership
 
 from tests.support.partner_portal import ISSUER
 from tests.support.partner_portal import portal_client as portal_client
@@ -30,7 +24,7 @@ ORDERS = {
 
 
 @pytest.fixture
-def report(database):
+def report(database, partner_analytics):
     today = datetime.now(UTC).date()
     with database.begin() as session:
         account = PartnerAccount(name="Visible partner", tier="bronze")
@@ -54,29 +48,26 @@ def report(database):
         )
         session.add(foreign)
         session.flush()
-        session.add_all(
+        partner_analytics.seed_many(
             [
-                PartnerDailyMetric(asset_id=assets["alpha"], day=today, impressions=100, clicks=5),
-                PartnerTrackedDailyMetric(
-                    asset_id=assets["Beta"], day=today, impressions=40, clicks=8
-                ),
-                PartnerDailyMetric(
-                    asset_id=assets["Combined"], day=today, impressions=50, clicks=4
-                ),
-                PartnerTrackedDailyMetric(
-                    asset_id=assets["Combined"], day=today, impressions=60, clicks=8
-                ),
-                PartnerTrackedDailyMetric(
-                    asset_id=assets["ZERO"], day=today, impressions=0, clicks=0
-                ),
-                PartnerDailyMetric(
+                dict(asset_id=assets["alpha"], day=today, impressions=100, clicks=5),
+                dict(asset_id=assets["Combined"], day=today, impressions=50, clicks=4),
+                dict(
                     asset_id=assets["unknown"],
                     day=today - timedelta(days=40),
                     impressions=4000,
                     clicks=4,
                 ),
-                PartnerDailyMetric(asset_id=foreign.id, day=today, impressions=99999, clicks=9999),
+                dict(asset_id=foreign.id, day=today, impressions=99999, clicks=9999),
             ]
+        )
+        partner_analytics.seed_many(
+            [
+                dict(asset_id=assets["Beta"], day=today, impressions=40, clicks=8),
+                dict(asset_id=assets["Combined"], day=today, impressions=60, clicks=8),
+                dict(asset_id=assets["ZERO"], day=today, impressions=0, clicks=0),
+            ],
+            baseline=True,
         )
         return account.id, other.id, assets, today
 
@@ -115,7 +106,7 @@ def test_every_column_sorts_combined_metrics_globally_before_pagination(
 
 @pytest.mark.parametrize("sort,order", ORDERS)
 def test_equal_primary_values_use_case_insensitive_name_then_stable_identity(
-    portal_client, database, report, sort, order
+    portal_client, database, report, sort, order, partner_analytics
 ):
     client, _ = portal_client
     account_id, _, _, today = report
@@ -132,9 +123,9 @@ def test_equal_primary_values_use_case_insensitive_name_then_stable_identity(
             ]
         )
         session.flush()
-        session.add_all(
+        partner_analytics.seed_many(
             [
-                PartnerDailyMetric(asset_id=identifier, day=today, impressions=12, clicks=1)
+                dict(asset_id=identifier, day=today, impressions=12, clicks=1)
                 for identifier in (higher_id, lower_id)
             ]
         )
@@ -167,7 +158,7 @@ def test_sorting_preserves_period_account_scope_and_default_name_order(portal_cl
 
 @pytest.mark.parametrize("order", ["asc", "desc"])
 def test_defined_zero_ctr_precedes_assets_without_a_denominator(
-    portal_client, database, report, order
+    portal_client, database, report, order, partner_analytics
 ):
     client, _ = portal_client
     account_id, _, _, today = report
@@ -177,7 +168,7 @@ def test_defined_zero_ctr_precedes_assets_without_a_denominator(
         )
         session.add(asset)
         session.flush()
-        session.add(PartnerDailyMetric(asset_id=asset.id, day=today, impressions=20, clicks=0))
+        partner_analytics.seed(asset_id=asset.id, day=today, impressions=20, clicks=0)
     result = dashboard(client, account_id, sort="ctr", order=order)
     names = [asset["name"] for asset in result["assets"]]
     assert names[-2:] == ["unknown", "ZERO"]

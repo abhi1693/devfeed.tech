@@ -150,9 +150,9 @@ def test_dispatch_uses_stable_due_delivery_identity_and_prioritizes_only_the_fir
     current = state(
         computed_at=None if first_feed else NOW - timedelta(hours=7), dispatched_at=None
     )
-    session, empty, queue = Mock(), Mock(), Mock()
-    session.scalar.return_value, empty.scalar.return_value = current, None
-    assert recommendations.dispatch_recommendations(Factory(session, empty), queue, batch=3) == 1
+    session, queue = Mock(), Mock()
+    session.scalars.return_value.all.return_value = [current]
+    assert recommendations.dispatch_recommendations(Factory(session), queue, batch=3) == 1
     assert current.dispatched_at == NOW
     queue.enqueue.assert_called_once_with(
         "devfeed_aggregator.recommendation_tasks.refresh",
@@ -170,7 +170,7 @@ def test_dispatch_uses_stable_due_delivery_identity_and_prioritizes_only_the_fir
 def test_dispatch_failure_does_not_mark_the_unsubmitted_delivery_as_dispatched():
     current = state(dispatched_at=None)
     session, queue = Mock(), Mock()
-    session.scalar.return_value = current
+    session.scalars.return_value.all.return_value = [current]
     queue.enqueue.side_effect = RuntimeError("Redis disconnected")
     with pytest.raises(RuntimeError, match="Redis disconnected"):
         recommendations.dispatch_recommendations(Factory(session), queue)
@@ -367,20 +367,27 @@ def test_first_membership_fanout_page_marks_current_accounts_dirty_and_saves_its
 
 def test_dispatch_stops_after_its_batch_even_when_more_due_accounts_exist():
     rows = [state(user_id=uuid.UUID(int=value), dispatched_at=None) for value in (101, 102, 103)]
-    sessions = [Mock(), Mock(), Mock()]
-    for session, row in zip(sessions, rows, strict=True):
-        session.scalar.return_value = row
+    session = Mock()
+    session.scalars.return_value.all.return_value = rows[:2]
     queue = Mock()
-
-    assert recommendations.dispatch_recommendations(Factory(*sessions), queue, batch=2) == 2
-
+    assert recommendations.dispatch_recommendations(Factory(session), queue, batch=2) == 2
     assert [call.args[1] for call in queue.enqueue.call_args_list] == [
         str(row.user_id) for row in rows[:2]
     ]
     assert all(row.dispatched_at == NOW for row in rows[:2])
     assert rows[2].dispatched_at is None
-    sessions[2].scalar.assert_not_called()
+    session.scalars.assert_called_once()
+    statement = session.scalars.call_args.args[0]
+    assert statement.compile().params["param_1"] == 2
+    assert "FOR UPDATE" in str(statement)
     assert len({call.kwargs["job_id"] for call in queue.enqueue.call_args_list}) == 2
+
+
+def test_zero_recommendation_batch_opens_no_database_or_queue_resources():
+    factory, queue = Mock(), Mock()
+    assert recommendations.dispatch_recommendations(factory, queue, batch=0) == 0
+    factory.begin.assert_not_called()
+    queue.enqueue.assert_not_called()
 
 
 def test_related_expansion_between_two_explicit_follows_cannot_downgrade_either_reason():

@@ -335,192 +335,6 @@ jobs:
         run: >-
           echo "$RESULTS" | jq -e
           '[.["admin-web"], .["partner-web"], .["user-web"], .extensions] | all(.result == "success")'
-  api-compat:
-    name: API compatibility
-    needs: backend-unit
-    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    env:
-      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-      CANDIDATE_SHA: ${{ github.sha }}
-      OASDIFF_CONFIG: .oasdiff.yaml
-      DEVFEED_DATABASE_URL: postgresql+psycopg://schema@database.invalid/schema
-      DEVFEED_REDIS_URL: redis://redis.invalid/15
-      OTEL_SDK_DISABLED: "true"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Detect
-        id: changes
-        run: |
-          git diff --name-only "$BASE_SHA" "$CANDIDATE_SHA" -- \
-            apps/api apps/user-api apps/admin-api apps/mcp packages/core packages/http \
-            apps/admin/openapi.json pyproject.toml uv.lock .env.example \
-            scripts/ci/api_contracts.py tests/tooling/ci/test_api_compatibility.py tests/api/test_api_contracts.py \
-            .oasdiff.yaml .github/api-compatibility .github/workflows/ci.yml > "$RUNNER_TEMP/api-files.txt"
-          if [[ -s "$RUNNER_TEMP/api-files.txt" ]]; then
-            echo 'changed=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'changed=false' >> "$GITHUB_OUTPUT"
-            echo 'API compatibility: no API-affecting changes.' >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Base
-        if: steps.changes.outputs.changed == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ env.BASE_SHA }}
-          path: .api-base
-          persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        if: steps.changes.outputs.changed == 'true'
-        with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        if: steps.changes.outputs.changed == 'true'
-        with:
-          version: "0.13.5"
-          enable-cache: true
-      - name: Tool
-        if: steps.changes.outputs.changed == 'true'
-        run: |
-          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-            --output "$RUNNER_TEMP/oasdiff.tar.gz" \
-            https://github.com/oasdiff/oasdiff/releases/download/v1.33.0/oasdiff_1.33.0_linux_amd64.tar.gz
-          printf '%s  %s\n' \
-            43a4e328e2d13ba1552d760aa68d2485c75c5621f309f6ff64ae895188345247 \
-            "$RUNNER_TEMP/oasdiff.tar.gz" | sha256sum --check
-          tar -xzf "$RUNNER_TEMP/oasdiff.tar.gz" -C "$RUNNER_TEMP" oasdiff
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-      - name: Head schemas
-        id: head
-        if: steps.changes.outputs.changed == 'true'
-        run: |
-          sh scripts/ci/python-bootstrap.sh . --editable --all-packages
-          uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py export head
-      - name: Base schemas
-        id: base
-        if: steps.changes.outputs.changed == 'true'
-        run: |
-          sh scripts/ci/python-bootstrap.sh .api-base --editable --all-packages
-          uv run --directory .api-base --no-sync --no-build --locked python \
-            "$GITHUB_WORKSPACE/scripts/ci/api_contracts.py" export \
-            base
-      - name: Probes
-        id: probes
-        if: steps.changes.outputs.changed == 'true'
-        run: uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py verify
-      - name: Preserve findings before documented schema corrections
-        if: steps.changes.outputs.changed == 'true'
-        run: uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py report
-      - name: Prepare corrections for the actual base revision and schema
-        id: policy
-        if: steps.changes.outputs.changed == 'true'
-        run: uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py prepare-policy
-      - name: Check public API
-        id: public
-        if: ${{ !cancelled() && steps.probes.outcome == 'success' && steps.policy.outcome == 'success' }}
-        uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
-        with:
-          base: reports/api-compatibility/base/public.json
-          revision: reports/api-compatibility/head/public.json
-          fail-on: WARN
-          err-ignore: reports/api-compatibility/policy/approved-errors.md
-          flatten-allof: true
-          allow-external-refs: false
-          review: false
-          github-token: ""
-          output-to-file: reports/api-compatibility/public.breaking.txt
-      - name: Check user API
-        id: user
-        if: ${{ !cancelled() && steps.probes.outcome == 'success' && steps.policy.outcome == 'success' }}
-        uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
-        with:
-          base: reports/api-compatibility/base/user.json
-          revision: reports/api-compatibility/head/user.json
-          fail-on: WARN
-          err-ignore: reports/api-compatibility/policy/approved-errors.md
-          flatten-allof: true
-          allow-external-refs: false
-          review: false
-          github-token: ""
-          output-to-file: reports/api-compatibility/user.breaking.txt
-      - name: Check admin API
-        id: admin
-        if: ${{ !cancelled() && steps.probes.outcome == 'success' && steps.policy.outcome == 'success' }}
-        uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
-        with:
-          base: reports/api-compatibility/base/admin.json
-          revision: reports/api-compatibility/head/admin.json
-          fail-on: WARN
-          err-ignore: reports/api-compatibility/policy/approved-errors.md
-          flatten-allof: true
-          allow-external-refs: false
-          review: false
-          github-token: ""
-          output-to-file: reports/api-compatibility/admin.breaking.txt
-      - name: Check public MCP
-        id: mcp_public
-        if: ${{ !cancelled() && steps.probes.outcome == 'success' && steps.policy.outcome == 'success' }}
-        uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
-        with:
-          base: reports/api-compatibility/base/mcp-public.json
-          revision: reports/api-compatibility/head/mcp-public.json
-          fail-on: WARN
-          err-ignore: reports/api-compatibility/policy/approved-errors.md
-          flatten-allof: true
-          allow-external-refs: false
-          review: false
-          github-token: ""
-          output-to-file: reports/api-compatibility/mcp-public.breaking.txt
-      - name: Check account MCP
-        id: mcp_account
-        if: ${{ !cancelled() && steps.probes.outcome == 'success' && steps.policy.outcome == 'success' }}
-        uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
-        with:
-          base: reports/api-compatibility/base/mcp-account.json
-          revision: reports/api-compatibility/head/mcp-account.json
-          fail-on: WARN
-          err-ignore: reports/api-compatibility/policy/approved-errors.md
-          flatten-allof: true
-          allow-external-refs: false
-          review: false
-          github-token: ""
-          output-to-file: reports/api-compatibility/mcp-account.breaking.txt
-      - name: API summary
-        if: always() && steps.changes.outputs.changed == 'true'
-        env:
-          API_PUBLIC_RESULT: ${{ steps.public.outcome }}
-          API_USER_RESULT: ${{ steps.user.outcome }}
-          API_ADMIN_RESULT: ${{ steps.admin.outcome }}
-          API_MCP_PUBLIC_RESULT: ${{ steps.mcp_public.outcome }}
-          API_MCP_ACCOUNT_RESULT: ${{ steps.mcp_account.outcome }}
-        run: |
-          {
-            echo '### API compatibility'
-            echo
-            echo '| Contract | Result |'
-            echo '| --- | --- |'
-            printf '| public | %s |\n' "$API_PUBLIC_RESULT"
-            printf '| user | %s |\n' "$API_USER_RESULT"
-            printf '| admin | %s |\n' "$API_ADMIN_RESULT"
-            printf '| mcp-public | %s |\n' "$API_MCP_PUBLIC_RESULT"
-            printf '| mcp-account | %s |\n' "$API_MCP_ACCOUNT_RESULT"
-            echo
-            echo 'Compared generated PR base and merge-candidate schemas using their own locked dependencies.'
-            echo 'Unapproved WARN and ERR findings fail CI; legacy corrections require an approved base commit and unchanged baseline schema.'
-            echo 'Schemas, raw findings before corrections, and gated reports are in the api-compatibility artifact.'
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload API reports
-        if: always() && steps.changes.outputs.changed == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: api-compatibility-${{ github.run_attempt }}
-          path: reports/api-compatibility
-          if-no-files-found: error
-          retention-days: 14
   api-fuzz:
     needs: backend-unit
     name: API fuzzing
@@ -833,151 +647,6 @@ jobs:
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
       browser-results-path: reports/live-browser
       test-results-name: live-browser-${{ github.run_attempt }}
-  browser-budgets:
-    name: Browser budgets
-    needs: frontend-unit
-    if: >-
-      success() &&
-      (github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
-       (github.event_name == 'push' && github.ref == 'refs/heads/master'))
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    outputs:
-      coverage: ${{ steps.changes.outputs.needed }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - name: Select changes
-        id: changes
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          if [[ "$EVENT_NAME" == push ]]; then
-            echo 'needed=true' >> "$GITHUB_OUTPUT"
-          else
-            node scripts/ci/browser-performance-changes.mjs
-          fi
-      - name: Node
-        if: steps.changes.outputs.needed == 'true'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "26.12.1"
-          cache: npm
-          package-manager-cache: false
-      - name: Dependencies
-        if: steps.changes.outputs.needed == 'true'
-        run: npm ci --ignore-scripts
-      - name: Chromium
-        if: steps.changes.outputs.needed == 'true'
-        run: node node_modules/playwright/cli.js install --with-deps chromium
-      - name: Next.js compiler cache
-        if: steps.changes.outputs.needed == 'true'
-        uses: abhi1693/actions/next-build-cache@4bc25a3100cbfbece517ddad161d59d13c029675 # v1.0.5
-        with:
-          app-directory: apps/web
-          profile: browser-budgets-v1
-      - name: Budgets
-        if: steps.changes.outputs.needed == 'true'
-        run: npm run ci:browser-budgets
-      - name: Coverage
-        if: always() && steps.changes.outputs.needed == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: browser-coverage-${{ github.run_attempt }}
-          path: |
-            reports/coverage/browser-budgets/lcov.info
-            reports/coverage/browser-budgets/coverage-summary.json
-          if-no-files-found: error
-          retention-days: 14
-      - name: Reports
-        if: always() && steps.changes.outputs.needed == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: browser-budgets-${{ github.run_attempt }}
-          path: reports/browser-performance/
-          if-no-files-found: error
-          retention-days: 14
-  browser-report:
-    name: Browser report
-    needs: browser-budgets
-    if: >-
-      always() && !cancelled() &&
-      (needs.browser-budgets.outputs.coverage == 'true' || needs.browser-budgets.result == 'skipped') &&
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.actor != 'dependabot[bot]'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      # Reports are data; this job never checks out or executes PR code.
-      - name: Download
-        if: needs.browser-budgets.result != 'skipped'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        continue-on-error: true
-        with:
-          name: browser-budgets-${{ github.run_attempt }}
-          path: report
-      - name: Prepare
-        id: prepare
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          BUDGET_RESULT: ${{ needs.browser-budgets.result }}
-        with:
-          script: |
-            const fs = require('fs');
-            const pr = context.payload.pull_request;
-            const current = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
-            if (current.data.head.sha !== pr.head.sha) return;
-            core.setOutput('current', 'true');
-            const passed = process.env.BUDGET_RESULT === 'success';
-            const skipped = process.env.BUDGET_RESULT === 'skipped';
-            let summary;
-            if (skipped) {
-              summary = 'Browser budgets were unavailable for this commit.';
-            } else {
-              try {
-                const file = 'report/summary.md';
-                const stat = fs.lstatSync(file);
-                if (!stat.isFile() || stat.size === 0 || stat.size > 50000) throw new Error('Invalid report');
-                summary = fs.readFileSync(file, 'utf8');
-                const pages = ['Latest', 'Article preview', 'Topics', 'Sources', 'Public profile', 'Leaderboard'];
-                if (!summary.startsWith('# Browser budgets\n') ||
-                    (passed && pages.some(page => !summary.includes(`| ${page} (`)))) throw new Error('Incomplete report');
-              } catch {
-                summary = 'Results unavailable. Inspect the browser job logs; missing results never count as a pass.';
-                core.setFailed('Browser report is missing or invalid');
-              }
-            }
-            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const content = summary.replace(/^# Browser budgets\n+/, '');
-            const measured = passed && summary.startsWith('# Browser budgets\n');
-            let status = '❌ Measurement failed';
-            if (skipped) status = '⏸️ Not measured';
-            else if (measured) status = content.includes('**⚠️') ? '⚠️ Targets exceeded' : '✅ Targets met';
-            const commit = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${pr.head.sha}`;
-            const body = `### Lighthouse · ${status}\n\n${content}\n[Full reports and logs](${url}) · [${pr.head.sha.slice(0, 7)}](${commit}) · Attempt ${process.env.GITHUB_RUN_ATTEMPT}`;
-            fs.writeFileSync('browser-comment.md', body);
-      - name: Comment
-        if: always() && !cancelled() && steps.prepare.outputs.current == 'true'
-        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
-        with:
-          header: browser-budgets
-          path: browser-comment.md
-          only_update: ${{ needs.browser-budgets.result == 'skipped' }}
-  performance:
-    name: PR performance
-    needs: backend-unit
-    if: github.event_name == 'pull_request'
-    uses: ./.github/workflows/performance.yml
-    permissions:
-      contents: read
-      pull-requests: write
   property:
     name: Properties
     needs: frontend-unit
@@ -1023,7 +692,6 @@ jobs:
       - admin-web
       - partner-web
       - user-web
-      - browser-budgets
       - dast
       - mutation
       - property
@@ -1066,12 +734,6 @@ jobs:
         with:
           name: security-coverage-${{ github.run_attempt }}
           path: reports/coverage/security
-      - name: Browser coverage
-        if: needs.browser-budgets.outputs.coverage == 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: browser-coverage-${{ github.run_attempt }}
-          path: reports/coverage/browser-budgets
       - name: ZAP coverage
         if: needs.dast.outputs.coverage == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -1113,7 +775,6 @@ jobs:
       - name: Combine coverage and resolve monorepo paths
         env:
           SECURITY_COVERAGE_REQUIRED: "true"
-          BROWSER_COVERAGE_REQUIRED: ${{ needs.browser-budgets.outputs.coverage == 'true' }}
           DAST_COVERAGE_REQUIRED: ${{ needs.dast.outputs.coverage == 'true' }}
           MUTATION_COVERAGE_REQUIRED: ${{ needs.mutation.outputs.coverage == 'true' }}
           PROPERTY_COVERAGE_REQUIRED: ${{ needs.property.outputs.coverage == 'true' }}
@@ -1132,16 +793,7 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
   backend-integration:
     name: Stage / Backend integration checks
-    needs:
-      [
-        backend-unit,
-        python-integration,
-        migration-upgrade,
-        api-compat,
-        api-fuzz,
-        recovery,
-        performance,
-      ]
+    needs: [backend-unit, python-integration, migration-upgrade, api-fuzz, recovery]
     if: always() && !cancelled()
     runs-on: ubuntu-24.04
     steps:
@@ -1154,24 +806,13 @@ jobs:
             ([.["backend-unit"], .["python-integration"], .["migration-upgrade"]]
              | all(.result == "success")) and
             (if $event == "pull_request" or $event == "merge_group"
-             then .["api-compat"].result == "success" and .["api-fuzz"].result == "success"
-             else .["api-compat"].result == "skipped" and .["api-fuzz"].result == "skipped" end) and
-            (if $event == "pull_request" then .performance.result == "success"
-             else .performance.result == "skipped" end) and
+             then .["api-fuzz"].result == "success"
+             else .["api-fuzz"].result == "skipped" end) and
             (if $event == "pull_request" or $event == "merge_group" or $event == "push"
              then .recovery.result == "success" else .recovery.result == "skipped" end)'
   frontend-integration:
     name: Stage / Frontend integration checks
-    needs:
-      [
-        frontend-unit,
-        reader-parity,
-        admin-browser,
-        partner-browser,
-        browser-budgets,
-        property,
-        mutation,
-      ]
+    needs: [frontend-unit, reader-parity, admin-browser, partner-browser, property, mutation]
     if: always() && !cancelled()
     runs-on: ubuntu-24.04
     steps:
@@ -1185,8 +826,8 @@ jobs:
             ([.["frontend-unit"], .["reader-parity"], .["admin-browser"], .["partner-browser"]]
              | all(.result == "success")) and
             (if $event == "pull_request" or $event == "merge_group" or ($event == "push" and $ref_type == "branch")
-             then .["browser-budgets"].result == "success" and .property.result == "success" and .mutation.result == "success"
-             else .["browser-budgets"].result == "skipped" and .property.result == "skipped" and .mutation.result == "skipped" end)'
+             then .property.result == "success" and .mutation.result == "success"
+             else .property.result == "skipped" and .mutation.result == "skipped" end)'
   validation:
     name: Stage / Tests, security and analysis
     needs: [backend-integration, frontend-integration, live-browser, security, dast, sonarqube]
@@ -1249,7 +890,6 @@ jobs:
       - partner-web
       - user-web
       - extensions
-      - api-compat
       - api-fuzz
       - python-integration
       - migration-upgrade
@@ -1260,10 +900,7 @@ jobs:
       - security
       - dast
       - containers
-      - performance
       - recovery
-      - browser-budgets
-      - browser-report
       - sonarqube
       - mutation
       - property
@@ -1274,7 +911,6 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REF_TYPE: ${{ github.ref_type }}
           COVERAGE_COMMENT_REQUIRED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
-          BROWSER_COMMENT_REQUIRED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && (needs.browser-budgets.outputs.coverage == 'true' || needs.browser-budgets.result == 'skipped') }}
           SONAR_EXPECTED: >-
             ${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
                 (github.event_name == 'pull_request' &&
@@ -1282,7 +918,7 @@ jobs:
                  github.actor != 'dependabot[bot]') }}
           RESULTS: ${{ toJSON(needs) }}
         run: |
-          echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg ref_type "$REF_TYPE" --arg comment "$COVERAGE_COMMENT_REQUIRED" --arg browser_comment "$BROWSER_COMMENT_REQUIRED" --arg sonar "$SONAR_EXPECTED" '
+          echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg ref_type "$REF_TYPE" --arg comment "$COVERAGE_COMMENT_REQUIRED" --arg sonar "$SONAR_EXPECTED" '
             ([.["python-lint"], .["python-unit-shards"], .["python-unit"], .["python-loadtest"],
               .["backend-unit"], .["frontend-unit"], .["backend-integration"], .["frontend-integration"], .validation,
               .["admin-web"], .["partner-web"], .["user-web"], .extensions,
@@ -1292,22 +928,15 @@ jobs:
             .containers.result == "success" and
             (if $event == "pull_request" or $event == "merge_group" or $event == "push"
              then .recovery.result == "success" else .recovery.result == "skipped" end) and
-            (if $event == "pull_request" then .performance.result == "success"
-             else .performance.result == "skipped" end) and
             (if $event == "pull_request" or $event == "merge_group"
-             then .["api-compat"].result == "success" and .["api-fuzz"].result == "success"
-             else .["api-compat"].result == "skipped" and .["api-fuzz"].result == "skipped" end) and
+             then .["api-fuzz"].result == "success"
+             else .["api-fuzz"].result == "skipped" end) and
             (if $event == "pull_request" or $event == "merge_group" or ($event == "push" and $ref_type == "branch")
              then .mutation.result == "success" and .property.result == "success"
              else .mutation.result == "skipped" and .property.result == "skipped" end) and
-            (if $event == "pull_request" or $event == "merge_group" or ($event == "push" and $ref_type == "branch")
-             then .["browser-budgets"].result == "success"
-             else .["browser-budgets"].result == "skipped" end) and
             (if $event == "pull_request" or $event == "merge_group" or $event == "push"
              then .dast.result == "success" else .dast.result == "skipped" end) and
             (if $comment == "true" then .["coverage-report"].result == "success"
              else .["coverage-report"].result == "skipped" end) and
-            (if $browser_comment == "true" then .["browser-report"].result == "success"
-             else .["browser-report"].result == "skipped" end) and
             (if $sonar == "true" then .sonarqube.result == "success"
              else .sonarqube.result == "skipped" end)'

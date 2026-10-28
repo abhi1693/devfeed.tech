@@ -16,6 +16,21 @@ from tests.support.paths import REPO_ROOT
 
 
 @pytest.mark.integration
+def test_seed_replaces_business_fixture_without_analytics_control_tables(database):
+    from devfeed_core.db import get_engine
+    from devfeed_core.models import Article, ArticleAnalysisJob
+    from sqlalchemy import func, select
+
+    for size in (2, 3):
+        job_retention_benchmark.seed(get_engine(), articles=size, payload_bytes=8)
+        with database() as session:
+            assert session.scalar(select(func.count()).select_from(Article)) == size
+            assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) > size
+            assert session.scalar(text("SELECT to_regclass('analytics_pipeline_state')")) is None
+            assert session.scalar(text("SELECT to_regclass('analytics_ingest_events')")) is None
+
+
+@pytest.mark.integration
 def test_benchmark_runs_both_histories_to_convergence_with_real_plans_and_ingestion(
     database, monkeypatch, tmp_path
 ):

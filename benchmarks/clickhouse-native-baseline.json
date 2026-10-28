@@ -1,0 +1,971 @@
+{
+  "commit": "f60ed15e",
+  "at": "2026-10-26T08:11:13.685889+00:00",
+  "scale": 0.1,
+  "limits": {
+    "clickhouse_max_threads": 2,
+    "clickhouse_max_concurrent_queries": 2,
+    "clickhouse_max_execution_seconds": 20,
+    "clickhouse_max_memory_bytes": 536870912,
+    "analytics_batch_size": 1000,
+    "analytics_backfill_batch_size": 1000,
+    "analytics_poll_seconds": 1.0,
+    "analytics_backfill_poll_seconds": 1.0
+  },
+  "fixture_counts": {
+    "articles": 15000,
+    "article_analysis_jobs": 20000,
+    "article_enrichment_jobs": 15000,
+    "article_image_jobs": 15000,
+    "article_reviews": 30000,
+    "article_origins": 15100,
+    "ingestion_jobs": 15000,
+    "article_contents": 10000,
+    "topics": 500,
+    "tags": 6000,
+    "inference_calls": 40000,
+    "sources": 200,
+    "source_candidates": 100,
+    "partner_assets": 50,
+    "partner_tracked_daily_metrics": 100,
+    "article_topics": 50000,
+    "article_tags": 100000,
+    "active_articles": 3000
+  },
+  "seed": {
+    "seconds": 33.514,
+    "history_bytes_per_analysis": 64,
+    "seeded_at": "2026-10-26T08:11:13.699300+00:00"
+  },
+  "default_first10_cycles_seconds": [
+    0.14236773800075753, 0.09646521699869481, 0.09887888099910924, 0.10385536099965975,
+    0.09829442699992796, 0.1045413659994665, 0.11631060299987439, 0.1017719940009556,
+    0.10247637400061649, 0.1581038959993748
+  ],
+  "backfill": {
+    "cycles": 245,
+    "seconds_without_service_sleep": 22.60545355999966,
+    "first10_default_seconds": 1.123065856998437,
+    "last_cycles_fastflush_seconds": 21.48135259701303,
+    "configured_service_sleep_seconds": 245.0,
+    "median_cycle_seconds": 0.09673754300092696
+  },
+  "reports": {
+    "1:adoption": {
+      "tag": "dfbench_507aeb9d_1_adoption",
+      "median_ms": 9.419713000170304,
+      "max_ms": 11.71249499930127,
+      "query_count": 3,
+      "payload_bytes": 906
+    },
+    "1:daily": {
+      "tag": "dfbench_507aeb9d_1_daily",
+      "median_ms": 21.16620099877764,
+      "max_ms": 21.396000000095228,
+      "query_count": 18,
+      "payload_bytes": 1063
+    },
+    "1:decisions": {
+      "tag": "dfbench_507aeb9d_1_decisions",
+      "median_ms": 23.68499600015639,
+      "max_ms": 24.451817998851766,
+      "query_count": 12,
+      "payload_bytes": 2023
+    },
+    "1:inference": {
+      "tag": "dfbench_507aeb9d_1_inference",
+      "median_ms": 18.440963000102784,
+      "max_ms": 19.88322400029574,
+      "query_count": 15,
+      "payload_bytes": 2434
+    },
+    "1:job-tokens": {
+      "tag": "dfbench_507aeb9d_1_job_tokens",
+      "median_ms": 17.021683999701054,
+      "max_ms": 19.594772000345984,
+      "query_count": 3,
+      "payload_bytes": 2156
+    },
+    "1:personalization": {
+      "tag": "dfbench_507aeb9d_1_personalization",
+      "median_ms": 33.132759999716654,
+      "max_ms": 34.074647999659646,
+      "query_count": 9,
+      "payload_bytes": 906
+    },
+    "1:popular-articles": {
+      "tag": "dfbench_507aeb9d_1_popular_articles",
+      "median_ms": 36.74659999887808,
+      "max_ms": 37.54729399952339,
+      "query_count": 21,
+      "payload_bytes": 1066
+    },
+    "1:processing": {
+      "tag": "dfbench_507aeb9d_1_processing",
+      "median_ms": 33.53436699944723,
+      "max_ms": 37.779891999889514,
+      "query_count": 3,
+      "payload_bytes": 2063
+    },
+    "1:publication-automation": {
+      "tag": "dfbench_507aeb9d_1_publication_automation",
+      "median_ms": 34.30670099987765,
+      "max_ms": 38.49913399972138,
+      "query_count": 3,
+      "payload_bytes": 2023
+    },
+    "1:publication-time": {
+      "tag": "dfbench_507aeb9d_1_publication_time",
+      "median_ms": 20.122869000260835,
+      "max_ms": 20.56641099989065,
+      "query_count": 21,
+      "payload_bytes": 1068
+    },
+    "1:sources": {
+      "tag": "dfbench_507aeb9d_1_sources",
+      "median_ms": 39.50545299994701,
+      "max_ms": 41.659369999251794,
+      "query_count": 6,
+      "payload_bytes": 3640
+    },
+    "1:throughput": {
+      "tag": "dfbench_507aeb9d_1_throughput",
+      "median_ms": 17.939453000508365,
+      "max_ms": 33.066177000364405,
+      "query_count": 6,
+      "payload_bytes": 4437
+    },
+    "1:topic-coverage": {
+      "tag": "dfbench_507aeb9d_1_topic_coverage",
+      "median_ms": 26.271422999343486,
+      "max_ms": 38.94014000070456,
+      "query_count": 3,
+      "payload_bytes": 906
+    },
+    "30:adoption": {
+      "tag": "dfbench_507aeb9d_30_adoption",
+      "median_ms": 8.077204000073834,
+      "max_ms": 8.242189000156941,
+      "query_count": 3,
+      "payload_bytes": 907
+    },
+    "30:daily": {
+      "tag": "dfbench_507aeb9d_30_daily",
+      "median_ms": 16.180343000087305,
+      "max_ms": 18.503993000194896,
+      "query_count": 18,
+      "payload_bytes": 6245
+    },
+    "30:decisions": {
+      "tag": "dfbench_507aeb9d_30_decisions",
+      "median_ms": 18.876234000344994,
+      "max_ms": 19.077454999205656,
+      "query_count": 12,
+      "payload_bytes": 2024
+    },
+    "30:inference": {
+      "tag": "dfbench_507aeb9d_30_inference",
+      "median_ms": 20.136034001552616,
+      "max_ms": 22.238943000047584,
+      "query_count": 15,
+      "payload_bytes": 21990
+    },
+    "30:job-tokens": {
+      "tag": "dfbench_507aeb9d_30_job_tokens",
+      "median_ms": 16.906266999285435,
+      "max_ms": 17.127474000517395,
+      "query_count": 3,
+      "payload_bytes": 5811
+    },
+    "30:personalization": {
+      "tag": "dfbench_507aeb9d_30_personalization",
+      "median_ms": 29.533422999520553,
+      "max_ms": 30.820439000308397,
+      "query_count": 9,
+      "payload_bytes": 907
+    },
+    "30:popular-articles": {
+      "tag": "dfbench_507aeb9d_30_popular_articles",
+      "median_ms": 36.631975999625865,
+      "max_ms": 37.96031500132813,
+      "query_count": 21,
+      "payload_bytes": 6246
+    },
+    "30:processing": {
+      "tag": "dfbench_507aeb9d_30_processing",
+      "median_ms": 35.201898999730474,
+      "max_ms": 38.37533300065843,
+      "query_count": 3,
+      "payload_bytes": 2067
+    },
+    "30:publication-automation": {
+      "tag": "dfbench_507aeb9d_30_publication_automation",
+      "median_ms": 42.57133300052374,
+      "max_ms": 43.26718000083929,
+      "query_count": 3,
+      "payload_bytes": 2036
+    },
+    "30:publication-time": {
+      "tag": "dfbench_507aeb9d_30_publication_time",
+      "median_ms": 24.54857700104185,
+      "max_ms": 25.447166999583715,
+      "query_count": 21,
+      "payload_bytes": 6255
+    },
+    "30:sources": {
+      "tag": "dfbench_507aeb9d_30_sources",
+      "median_ms": 50.11310000008962,
+      "max_ms": 51.86578999928315,
+      "query_count": 6,
+      "payload_bytes": 3666
+    },
+    "30:throughput": {
+      "tag": "dfbench_507aeb9d_30_throughput",
+      "median_ms": 17.71949400063022,
+      "max_ms": 21.73771199886687,
+      "query_count": 6,
+      "payload_bytes": 4438
+    },
+    "30:topic-coverage": {
+      "tag": "dfbench_507aeb9d_30_topic_coverage",
+      "median_ms": 26.499763000174426,
+      "max_ms": 36.39169699999911,
+      "query_count": 3,
+      "payload_bytes": 907
+    },
+    "90:adoption": {
+      "tag": "dfbench_507aeb9d_90_adoption",
+      "median_ms": 8.882271000402397,
+      "max_ms": 8.963647998825763,
+      "query_count": 3,
+      "payload_bytes": 907
+    },
+    "90:daily": {
+      "tag": "dfbench_507aeb9d_90_daily",
+      "median_ms": 15.558842000245932,
+      "max_ms": 17.936978001671378,
+      "query_count": 18,
+      "payload_bytes": 16506
+    },
+    "90:decisions": {
+      "tag": "dfbench_507aeb9d_90_decisions",
+      "median_ms": 18.24906500041834,
+      "max_ms": 21.148502999494667,
+      "query_count": 12,
+      "payload_bytes": 2024
+    },
+    "90:inference": {
+      "tag": "dfbench_507aeb9d_90_inference",
+      "median_ms": 36.36003700012225,
+      "max_ms": 38.96412200083432,
+      "query_count": 15,
+      "payload_bytes": 62455
+    },
+    "90:job-tokens": {
+      "tag": "dfbench_507aeb9d_90_job_tokens",
+      "median_ms": 17.234688999451464,
+      "max_ms": 17.586052001206554,
+      "query_count": 3,
+      "payload_bytes": 13371
+    },
+    "90:personalization": {
+      "tag": "dfbench_507aeb9d_90_personalization",
+      "median_ms": 28.929396001331042,
+      "max_ms": 29.993349000505987,
+      "query_count": 9,
+      "payload_bytes": 907
+    },
+    "90:popular-articles": {
+      "tag": "dfbench_507aeb9d_90_popular_articles",
+      "median_ms": 30.058328999075457,
+      "max_ms": 34.59723500054679,
+      "query_count": 21,
+      "payload_bytes": 6246
+    },
+    "90:processing": {
+      "tag": "dfbench_507aeb9d_90_processing",
+      "median_ms": 30.008253999767476,
+      "max_ms": 30.218969000998186,
+      "query_count": 3,
+      "payload_bytes": 2068
+    },
+    "90:publication-automation": {
+      "tag": "dfbench_507aeb9d_90_publication_automation",
+      "median_ms": 36.02470199984964,
+      "max_ms": 36.75502899932326,
+      "query_count": 3,
+      "payload_bytes": 2036
+    },
+    "90:publication-time": {
+      "tag": "dfbench_507aeb9d_90_publication_time",
+      "median_ms": 23.13103000051342,
+      "max_ms": 25.018690999786486,
+      "query_count": 21,
+      "payload_bytes": 16516
+    },
+    "90:sources": {
+      "tag": "dfbench_507aeb9d_90_sources",
+      "median_ms": 41.19353600071918,
+      "max_ms": 47.645057000409,
+      "query_count": 6,
+      "payload_bytes": 3662
+    },
+    "90:throughput": {
+      "tag": "dfbench_507aeb9d_90_throughput",
+      "median_ms": 16.69233800021175,
+      "max_ms": 18.512271999497898,
+      "query_count": 6,
+      "payload_bytes": 4438
+    },
+    "90:topic-coverage": {
+      "tag": "dfbench_507aeb9d_90_topic_coverage",
+      "median_ms": 29.53420799894957,
+      "max_ms": 39.23345200018957,
+      "query_count": 3,
+      "payload_bytes": 907
+    }
+  },
+  "query_costs": [
+    {
+      "tag": "dfbench_507aeb9d_30_topic_coverage",
+      "samples": 3,
+      "duration_ms": 90,
+      "read_rows": 66875,
+      "read_bytes": 4842400,
+      "peak_memory_bytes": 26079862,
+      "max_query_ms": 38
+    },
+    {
+      "tag": "dfbench_507aeb9d_30_publication_automation",
+      "samples": 3,
+      "duration_ms": 122,
+      "read_rows": 315000,
+      "read_bytes": 19875720,
+      "peak_memory_bytes": 13276427,
+      "max_query_ms": 42
+    },
+    {
+      "tag": "dfbench_507aeb9d_30_adoption",
+      "samples": 3,
+      "duration_ms": 20,
+      "read_rows": 0,
+      "read_bytes": 0,
+      "peak_memory_bytes": 7866862,
+      "max_query_ms": 7
+    },
+    {
+      "tag": "dfbench_507aeb9d_30_processing",
+      "samples": 3,
+      "duration_ms": 105,
+      "read_rows": 195600,
+      "read_bytes": 4260399,
+      "peak_memory_bytes": 10605996,
+      "max_query_ms": 37
+    },
+    {
+      "tag": "dfbench_507aeb9d_90_adoption",
+      "samples": 3,
+      "duration_ms": 22,
+      "read_rows": 0,
+      "read_bytes": 0,
+      "peak_memory_bytes": 7866862,
+      "max_query_ms": 8
+    },
+    {
+      "tag": "dfbench_507aeb9d_90_processing",
+      "samples": 3,
+      "duration_ms": 87,
+      "read_rows": 195600,
+      "read_bytes": 4260399,
+      "peak_memory_bytes": 10605996,
+      "max_query_ms": 29
+    },
+    {
+      "tag": "dfbench_507aeb9d_1_publication_time",
+      "samples": 21,
+      "duration_ms": 88,
+      "read_rows": 225000,
+      "read_bytes": 2880465,
+      "peak_memory_bytes": 9147612,
+      "max_query_ms": 9
+    },
+    {
+      "tag": "dfbench_507aeb9d_1_decisions",
+      "samples": 12,
+      "duration_ms": 105,
+      "read_rows": 0,
+      "read_bytes": 0,
+      "peak_memory_bytes": 9984289,
+      "max_query_ms": 12
+    },
+    {
+      "tag": "dfbench_507aeb9d_90_personalization",
+      "samples": 9,
+      "duration_ms": 157,
+      "read_rows": 0,
+      "read_bytes": 0,
+      "peak_memory_bytes": 11218725,
+      "max_query_ms": 27
+    },
+    {
+      "tag": "dfbench_507aeb9d_1_sources",
+      "samples": 6,
+      "duration_ms": 218,
+      "read_rows": 211600,
+      "read_bytes": 13986116,
+      "peak_memory_bytes": 21203974,
+      "max_query_ms": 45
+    },
+    {
+      "tag": "dfbench_507aeb9d_90_decisions",
+      "samples": 12,
+      "duration_ms": 92,
+      "read_rows": 0,
+      "read_bytes": 0,
+      "peak_memory_bytes": 9984289,
+      "max_query_ms": 11
+    },
+    {
+      "tag": "dfbench_507aeb9d_1_personalization",
+      "samples": 9,
+      "duration_ms": 174,
+      "read_rows": 0,
+      "read_bytes": 0,
+      "peak_memory_bytes": 11218341,
+      "max_query_ms": 30
+    },
+    {
+      "tag": "dfbench_507aeb9d_90_popular_articles",
+      "samples": 21,
+      "duration_ms": 110,
+      "read_rows": 180000,
+      "read_bytes": 2070465,
+      "peak_memory_bytes": 12485147,
+      "max_query_ms": 14
+    },
+    {
+      "tag": "dfbench_507aeb9d_1_inference",
+      "samples": 15,
+      "duration_ms": 81,
+      "read_rows": 240000,
+      "read_bytes": 19391994,
+      "peak_memory_bytes": 8226175,
+      "max_query_ms": 16
+    },
+    {
+      "tag": "dfbench_507aeb9d_30_publication_time",
+      "samples": 21,
+      "duration_ms": 105,
+      "read_rows": 225000,
+      "read_bytes": 2880465,
+      "peak_memory_bytes": 9146328,
+      "max_query_ms": 12
+    },
+    {
+      "tag": "dfbench_507aeb9d_30_decisions",
+      "samples": 12,
+      "duration_ms": 89,
+      "read_rows": 0,
+      "read_bytes": 0,
+      "peak_memory_bytes": 9984225,
+      "max_query_ms": 10
+    },
+    {
+      "tag": "dfbench_507aeb9d_90_sources",
+      "samples": 6,
+      "duration_ms": 239,
+      "read_rows": 211600,
+      "read_bytes": 13986116,
+      "peak_memory_bytes": 21203974,
+      "max_query_ms": 47
+    },
+    {
+      "tag": "dfbench_507aeb9d_90_publication_automation",
+      "samples": 3,
+      "duration_ms": 106,
+      "read_rows": 315000,
+      "read_bytes": 19875720,
+      "peak_memory_bytes": 13276427,
+      "max_query_ms": 36
+    },
+    {
+      "tag": "dfbench_507aeb9d_1_popular_articles",
+      "samples": 21,
+      "duration_ms": 131,
+      "read_rows": 180000,
+      "read_bytes": 2070465,
+      "peak_memory_bytes": 12485147,
+      "max_query_ms": 17
+    },
+    {
+      "tag": "dfbench_507aeb9d_90_daily",
+      "samples": 18,
+      "duration_ms": 70,
+      "read_rows": 180000,
+      "read_bytes": 2070465,
+      "peak_memory_bytes": 9145248,
+      "max_query_ms": 11
+    },
+    {
+      "tag": "dfbench_507aeb9d_1_topic_coverage",
+      "samples": 3,
+      "duration_ms": 89,
+      "read_rows": 66875,
+      "read_bytes": 4842400,
+      "peak_memory_bytes": 26079862,
+      "max_query_ms": 39
+    },
+    {
+      "tag": "dfbench_507aeb9d_30_sources",
+      "samples": 6,
+      "duration_ms": 262,
+      "read_rows": 211600,
+      "read_bytes": 13986116,
+      "peak_memory_bytes": 21203782,
+      "max_query_ms": 51
+    },
+    {
+      "tag": "dfbench_507aeb9d_1_adoption",
+      "samples": 3,
+      "duration_ms": 25,
+      "read_rows": 0,
+      "read_bytes": 0,
+      "peak_memory_bytes": 7866926,
+      "max_query_ms": 10
+    },
+    {
+      "tag": "dfbench_507aeb9d_90_throughput",
+      "samples": 6,
+      "duration_ms": 90,
+      "read_rows": 165000,
+      "read_bytes": 2747295,
+      "peak_memory_bytes": 10385807,
+      "max_query_ms": 18
+    },
+    {
+      "tag": "dfbench_507aeb9d_30_personalization",
+      "samples": 9,
+      "duration_ms": 163,
+      "read_rows": 0,
+      "read_bytes": 0,
+      "peak_memory_bytes": 11217701,
+      "max_query_ms": 27
+    },
+    {
+      "tag": "dfbench_507aeb9d_30_throughput",
+      "samples": 6,
+      "duration_ms": 96,
+      "read_rows": 165000,
+      "read_bytes": 2747295,
+      "peak_memory_bytes": 10386255,
+      "max_query_ms": 20
+    },
+    {
+      "tag": "dfbench_507aeb9d_90_topic_coverage",
+      "samples": 3,
+      "duration_ms": 94,
+      "read_rows": 66875,
+      "read_bytes": 4842400,
+      "peak_memory_bytes": 26079862,
+      "max_query_ms": 40
+    },
+    {
+      "tag": "dfbench_507aeb9d_1_publication_automation",
+      "samples": 3,
+      "duration_ms": 103,
+      "read_rows": 315000,
+      "read_bytes": 19875720,
+      "peak_memory_bytes": 11801035,
+      "max_query_ms": 37
+    },
+    {
+      "tag": "dfbench_507aeb9d_1_processing",
+      "samples": 3,
+      "duration_ms": 102,
+      "read_rows": 195600,
+      "read_bytes": 4260399,
+      "peak_memory_bytes": 10605996,
+      "max_query_ms": 37
+    },
+    {
+      "tag": "dfbench_507aeb9d_90_inference",
+      "samples": 15,
+      "duration_ms": 141,
+      "read_rows": 240000,
+      "read_bytes": 19391994,
+      "peak_memory_bytes": 8226175,
+      "max_query_ms": 37
+    },
+    {
+      "tag": "dfbench_507aeb9d_30_inference",
+      "samples": 15,
+      "duration_ms": 86,
+      "read_rows": 240000,
+      "read_bytes": 19391994,
+      "peak_memory_bytes": 8226079,
+      "max_query_ms": 20
+    },
+    {
+      "tag": "dfbench_507aeb9d_1_daily",
+      "samples": 18,
+      "duration_ms": 95,
+      "read_rows": 180000,
+      "read_bytes": 2070465,
+      "peak_memory_bytes": 9148316,
+      "max_query_ms": 13
+    },
+    {
+      "tag": "dfbench_507aeb9d_30_job_tokens",
+      "samples": 3,
+      "duration_ms": 46,
+      "read_rows": 60000,
+      "read_bytes": 8460915,
+      "peak_memory_bytes": 8852819,
+      "max_query_ms": 16
+    },
+    {
+      "tag": "dfbench_507aeb9d_90_job_tokens",
+      "samples": 3,
+      "duration_ms": 47,
+      "read_rows": 60000,
+      "read_bytes": 8460915,
+      "peak_memory_bytes": 8852659,
+      "max_query_ms": 16
+    },
+    {
+      "tag": "dfbench_507aeb9d_1_job_tokens",
+      "samples": 3,
+      "duration_ms": 50,
+      "read_rows": 60000,
+      "read_bytes": 8460915,
+      "peak_memory_bytes": 8852659,
+      "max_query_ms": 18
+    },
+    {
+      "tag": "dfbench_507aeb9d_30_popular_articles",
+      "samples": 21,
+      "duration_ms": 130,
+      "read_rows": 180000,
+      "read_bytes": 2070465,
+      "peak_memory_bytes": 12485147,
+      "max_query_ms": 16
+    },
+    {
+      "tag": "dfbench_507aeb9d_30_daily",
+      "samples": 18,
+      "duration_ms": 71,
+      "read_rows": 180000,
+      "read_bytes": 2070465,
+      "peak_memory_bytes": 9146808,
+      "max_query_ms": 10
+    },
+    {
+      "tag": "dfbench_507aeb9d_1_throughput",
+      "samples": 6,
+      "duration_ms": 96,
+      "read_rows": 165000,
+      "read_bytes": 2747295,
+      "peak_memory_bytes": 10386063,
+      "max_query_ms": 32
+    },
+    {
+      "tag": "dfbench_507aeb9d_90_publication_time",
+      "samples": 21,
+      "duration_ms": 99,
+      "read_rows": 225000,
+      "read_bytes": 2880465,
+      "peak_memory_bytes": 9144992,
+      "max_query_ms": 11
+    }
+  ],
+  "ch_tables": [
+    {
+      "table": "article_topics_versions",
+      "row_total": 50375,
+      "disk_bytes": 1020812,
+      "parts": 1
+    },
+    {
+      "table": "inference_calls_versions",
+      "row_total": 40000,
+      "disk_bytes": 2679521,
+      "parts": 2
+    },
+    {
+      "table": "article_reviews_versions",
+      "row_total": 30000,
+      "disk_bytes": 2350877,
+      "parts": 4
+    },
+    {
+      "table": "article_analysis_jobs_versions",
+      "row_total": 20000,
+      "disk_bytes": 885371,
+      "parts": 5
+    },
+    {
+      "table": "article_origins_versions",
+      "row_total": 15100,
+      "disk_bytes": 1191871,
+      "parts": 1
+    },
+    {
+      "table": "article_enrichment_jobs_versions",
+      "row_total": 15000,
+      "disk_bytes": 662153,
+      "parts": 5
+    },
+    {
+      "table": "ingestion_jobs_versions",
+      "row_total": 15000,
+      "disk_bytes": 824611,
+      "parts": 5
+    },
+    {
+      "table": "article_image_jobs_versions",
+      "row_total": 15000,
+      "disk_bytes": 563167,
+      "parts": 5
+    },
+    {
+      "table": "articles_versions",
+      "row_total": 15000,
+      "disk_bytes": 672241,
+      "parts": 5
+    },
+    {
+      "table": "topics_versions",
+      "row_total": 500,
+      "disk_bytes": 24650,
+      "parts": 1
+    },
+    {
+      "table": "sources_versions",
+      "row_total": 200,
+      "disk_bytes": 14913,
+      "parts": 1
+    },
+    {
+      "table": "source_enrichment_jobs_versions",
+      "row_total": 200,
+      "disk_bytes": 17989,
+      "parts": 1
+    },
+    {
+      "table": "_analytics_status",
+      "row_total": 2,
+      "disk_bytes": 3029,
+      "parts": 2
+    }
+  ],
+  "pg_trigger": {
+    "rows_per_update": 1000,
+    "repeats": 8,
+    "modes": {
+      "disabled": {
+        "median_ms": 17.307000000000002,
+        "min_ms": 14.77,
+        "median_wal_bytes": 564020.0,
+        "sample": {
+          "execution_ms": 16.359,
+          "wal_bytes": 573048,
+          "outbox_rows": 0,
+          "outbox_record_bytes": 0.0,
+          "triggers": []
+        }
+      },
+      "inactive": {
+        "median_ms": 19.538,
+        "min_ms": 17.045,
+        "median_wal_bytes": 561896.0,
+        "sample": {
+          "execution_ms": 17.59,
+          "wal_bytes": 562880,
+          "outbox_rows": 0,
+          "outbox_record_bytes": 0.0,
+          "triggers": [
+            {
+              "Trigger Name": "analytics_capture",
+              "Relation": "inference_calls",
+              "Time": 2.837,
+              "Calls": 1000
+            }
+          ]
+        }
+      },
+      "capture": {
+        "median_ms": 39.189499999999995,
+        "min_ms": 35.946,
+        "median_wal_bytes": 1268020.0,
+        "sample": {
+          "execution_ms": 37.489,
+          "wal_bytes": 1273752,
+          "outbox_rows": 1000,
+          "outbox_record_bytes": 464.888,
+          "triggers": [
+            {
+              "Trigger Name": "analytics_capture",
+              "Relation": "inference_calls",
+              "Time": 21.086,
+              "Calls": 1000
+            }
+          ]
+        }
+      }
+    }
+  },
+  "inference_growth": [
+    {
+      "rows": 1000000,
+      "reports": {
+        "1": {
+          "tag": "dfgrowth_3263991b_1000000_1",
+          "median_ms": 102.82298799938872,
+          "max_ms": 114.1427009988547
+        },
+        "30": {
+          "tag": "dfgrowth_3263991b_1000000_30",
+          "median_ms": 142.62026500000502,
+          "max_ms": 144.18914700036112
+        },
+        "90": {
+          "tag": "dfgrowth_3263991b_1000000_90",
+          "median_ms": 231.621286000518,
+          "max_ms": 245.8107160000509
+        }
+      }
+    },
+    {
+      "rows": 2000000,
+      "reports": {
+        "1": {
+          "tag": "dfgrowth_3263991b_2000000_1",
+          "median_ms": 192.01455099937448,
+          "max_ms": 197.4433939994924
+        },
+        "30": {
+          "tag": "dfgrowth_3263991b_2000000_30",
+          "median_ms": 276.97253299993463,
+          "max_ms": 277.6791279993631
+        },
+        "90": {
+          "tag": "dfgrowth_3263991b_2000000_90",
+          "median_ms": 424.5144540000183,
+          "max_ms": 428.58131999855686
+        }
+      }
+    }
+  ],
+  "illustrative_daily_rollup": {
+    "build_ms": 612.7466279995133,
+    "reports": {
+      "1": {
+        "tag": "dfgrowth_3263991b_rollup_1",
+        "median_ms": 3.6710450003738515,
+        "result_rows": 2
+      },
+      "30": {
+        "tag": "dfgrowth_3263991b_rollup_30",
+        "median_ms": 3.9807539997127606,
+        "result_rows": 89
+      },
+      "90": {
+        "tag": "dfgrowth_3263991b_rollup_90",
+        "median_ms": 3.8075480006227735,
+        "result_rows": 269
+      }
+    }
+  },
+  "growth_query_costs": [
+    {
+      "tag": "dfgrowth_3263991b_2000000_90",
+      "samples": 15,
+      "duration_ms": 1595,
+      "read_rows": 12000000,
+      "read_bytes": 815759994,
+      "peak_memory_bytes": 22453194,
+      "max_query_ms": 426
+    },
+    {
+      "tag": "dfgrowth_3263991b_rollup_90",
+      "samples": 3,
+      "duration_ms": 6,
+      "read_rows": 1818,
+      "read_bytes": 133338,
+      "peak_memory_bytes": 7614387,
+      "max_query_ms": 2
+    },
+    {
+      "tag": "dfgrowth_3263991b_2000000_1",
+      "samples": 15,
+      "duration_ms": 905,
+      "read_rows": 12000000,
+      "read_bytes": 815759994,
+      "peak_memory_bytes": 19866175,
+      "max_query_ms": 196
+    },
+    {
+      "tag": "dfgrowth_3263991b_2000000_30",
+      "samples": 15,
+      "duration_ms": 1153,
+      "read_rows": 12000000,
+      "read_bytes": 815759994,
+      "peak_memory_bytes": 19913180,
+      "max_query_ms": 276
+    },
+    {
+      "tag": "dfgrowth_3263991b_rollup_1",
+      "samples": 3,
+      "duration_ms": 8,
+      "read_rows": 1818,
+      "read_bytes": 133338,
+      "peak_memory_bytes": 7632710,
+      "max_query_ms": 3
+    },
+    {
+      "tag": "dfgrowth_3263991b_rollup_30",
+      "samples": 3,
+      "duration_ms": 8,
+      "read_rows": 1818,
+      "read_bytes": 133338,
+      "peak_memory_bytes": 7627527,
+      "max_query_ms": 3
+    },
+    {
+      "tag": "dfgrowth_3263991b_1000000_1",
+      "samples": 15,
+      "duration_ms": 477,
+      "read_rows": 6000000,
+      "read_bytes": 407759994,
+      "peak_memory_bytes": 17333535,
+      "max_query_ms": 108
+    },
+    {
+      "tag": "dfgrowth_3263991b_1000000_30",
+      "samples": 15,
+      "duration_ms": 586,
+      "read_rows": 6000000,
+      "read_bytes": 407759994,
+      "peak_memory_bytes": 17333535,
+      "max_query_ms": 142
+    },
+    {
+      "tag": "dfgrowth_3263991b_1000000_90",
+      "samples": 15,
+      "duration_ms": 855,
+      "read_rows": 6000000,
+      "read_bytes": 407759994,
+      "peak_memory_bytes": 17333695,
+      "max_query_ms": 242
+    }
+  ],
+  "environment": {
+    "clickhouse_version": "26.8.35.10",
+    "clickhouse_connect_version": "1.11.0",
+    "clickhouse_cpus": 2,
+    "clickhouse_memory_bytes": 2147483648,
+    "postgres_memory_bytes": 536870912,
+    "scope": "synthetic isolated local fixtures; warm repeated queries; no production data",
+    "query_cost_totals": "Totals across three report repetitions, peak_query memory is max of individual statements."
+  }
+}

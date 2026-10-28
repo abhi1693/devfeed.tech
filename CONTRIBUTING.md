@@ -28,16 +28,16 @@ commits, screenshots and issue reports. Use test accounts and disposable data.
 
 ## Find the right place
 
-| Area | Location |
-| --- | --- |
-| Public reader app | `apps/web` |
-| Administration app | `apps/admin` |
-| Public, user and admin APIs | `apps/{api,user-api,admin-api}/src` |
+| Area                           | Location                                  |
+| ------------------------------ | ----------------------------------------- |
+| Public reader app              | `apps/web`                                |
+| Administration app             | `apps/admin`                              |
+| Public, user and admin APIs    | `apps/{api,user-api,admin-api}/src`       |
 | Workers, notifications and CLI | `apps/{aggregator,notifications,cli}/src` |
-| Shared backend and HTTP code | `packages/core/src`, `packages/http/src` |
-| Shared UI and theme | `packages/ui`, `packages/theme` |
-| Database migrations | `migrations/versions` |
-| Backend and frontend tests | `tests`, `apps/{web,admin}/tests` |
+| Shared backend and HTTP code   | `packages/core/src`, `packages/http/src`  |
+| Shared UI and theme            | `packages/ui`, `packages/theme`           |
+| Database migrations            | `migrations/versions`                     |
+| Backend and frontend tests     | `tests`, `apps/{web,admin}/tests`         |
 
 Read [AGENTS.md](AGENTS.md) for repository conventions. Edit Python files under
 `src/`, not generated editable-install links. Regenerate the admin API client
@@ -120,7 +120,7 @@ Integration tests require explicit `DEVFEED_TEST_DATABASE_URL` and
 Redis must use database **15**. These tests truncate tables and flush Redis: never
 point them at development data you want to keep or a production service. Search
 integration tests also require disposable Typesense. See the
-[CI guide](docs/ci.md) and [search guide](docs/search.md) for the service setup and
+[CI guide](.github/CI.md) and [search guide](docs/search.md) for the service setup and
 performance checks. A skipped integration test is not a passing verification.
 
 ## Open a pull request

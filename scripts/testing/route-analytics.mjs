@@ -23,6 +23,8 @@ export async function checkExtensionRouteAnalytics(page, destination, events) {
       path: `/articles/direct-article?tracking=${query}`,
       label: "/articles",
       heading: "Shared reader components in every new tab",
+      // Background feed cards reuse this title as h2 headings.
+      headingLevel: 1,
     },
     {
       path: `/topics/javascript/news?q=${query}`,
@@ -47,10 +49,13 @@ export async function checkExtensionRouteAnalytics(page, destination, events) {
     if (!initialView) await page.waitForTimeout(20);
   }
   assert.deepEqual(initialView?.event.params, { page_path: "/" }, "initial homepage view");
-  for (const { path, label, heading } of routes) {
+  for (const { path, label, heading, headingLevel } of routes) {
     const before = events.length;
     await page.goto(destination(path));
-    if (heading) await page.getByRole("heading", { name: heading, exact: true }).waitFor();
+    if (heading)
+      await page
+        .getByRole("heading", { name: heading, exact: true, level: headingLevel })
+        .waitFor();
     let pageView;
     for (let attempt = 0; attempt < 150 && !pageView; attempt++) {
       pageView = events.slice(before).find((value) => value.event.name === "page_view");

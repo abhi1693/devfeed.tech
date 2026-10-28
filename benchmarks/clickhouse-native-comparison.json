@@ -1,0 +1,510 @@
+{
+  "candidate_at": "2026-10-26T09:48:18.705313+00:00",
+  "baseline_commit": "f60ed15e",
+  "resource_limits": {
+    "container_cpus": 2,
+    "container_memory_bytes": 2147483648,
+    "query_memory_bytes": 268435456,
+    "query_threads": 2
+  },
+  "fixture": "Exact retained synthetic baseline inference facts from disposable devfeed_test; no production data",
+  "measurements": {
+    "typed_ingest_and_canonical_mv": {
+      "wall_ms": 38590.68177999143,
+      "statements": 91
+    },
+    "initial_dirty_queue": {
+      "wall_ms": 268.11978299883776,
+      "keys": 8761
+    },
+    "production_bootstrap": {
+      "wall_ms": 45952.69799699963,
+      "cycles": 274,
+      "compactions": 12,
+      "max_cohorts_per_cycle": 32,
+      "configured_bootstrap_sleep_seconds_not_measured": 27.400000000000002
+    }
+  },
+  "row_counts": [
+    {
+      "facts": 2000000,
+      "state_rows": 2000000,
+      "hourly_groups": 10201,
+      "hourly_manifests": 8761
+    }
+  ],
+  "bootstrap_totals": [
+    {
+      "calls": 2000000,
+      "input_tokens": 2169984000,
+      "output_tokens": 245980000
+    }
+  ],
+  "reports": {
+    "1": {
+      "complete": true,
+      "backend": "clickhouse",
+      "days": 1,
+      "concurrency": 1,
+      "queries": 10,
+      "metadata_queries": 3,
+      "max_queries": 20,
+      "elapsed_ms": 47.520969001197955,
+      "reports": {
+        "inference": {
+          "samples": 5,
+          "median_ms": 8.853038001689129,
+          "max_ms": 12.513808000221616,
+          "max_response_bytes": 2881
+        }
+      },
+      "query_costs": [
+        {
+          "section": "inference",
+          "queries": 10,
+          "total_query_duration_ms": 67,
+          "read_rows": 630,
+          "read_bytes": 51990,
+          "peak_query_memory_bytes": 8072163
+        }
+      ]
+    },
+    "30": {
+      "complete": true,
+      "backend": "clickhouse",
+      "days": 30,
+      "concurrency": 1,
+      "queries": 10,
+      "metadata_queries": 3,
+      "max_queries": 20,
+      "elapsed_ms": 93.71373300018604,
+      "reports": {
+        "inference": {
+          "samples": 5,
+          "median_ms": 18.43796899993322,
+          "max_ms": 19.769990001805127,
+          "max_response_bytes": 8179
+        }
+      },
+      "query_costs": [
+        {
+          "section": "inference",
+          "queries": 10,
+          "total_query_duration_ms": 145,
+          "read_rows": 107590,
+          "read_bytes": 3803420,
+          "peak_query_memory_bytes": 10805414
+        }
+      ]
+    },
+    "90": {
+      "complete": true,
+      "backend": "clickhouse",
+      "days": 90,
+      "concurrency": 1,
+      "queries": 10,
+      "metadata_queries": 3,
+      "max_queries": 20,
+      "elapsed_ms": 167.5394289995893,
+      "reports": {
+        "inference": {
+          "samples": 5,
+          "median_ms": 33.000023002387024,
+          "max_ms": 34.55388300062623,
+          "max_response_bytes": 21686
+        }
+      },
+      "query_costs": [
+        {
+          "section": "inference",
+          "queries": 10,
+          "total_query_duration_ms": 240,
+          "read_rows": 120190,
+          "read_bytes": 5479475,
+          "peak_query_memory_bytes": 19335266
+        }
+      ]
+    }
+  },
+  "bootstrap_query_costs": [
+    {
+      "phase": "production_bootstrap",
+      "statements": 870,
+      "query_duration_ms": 42009,
+      "read_rows": 9890880,
+      "read_bytes": 1172004803,
+      "written_rows": 34747,
+      "written_bytes": 4141109,
+      "peak_memory_bytes": 66208402,
+      "cpu_microseconds": 25472765
+    },
+    {
+      "phase": "typed_ingest_and_canonical_mv",
+      "statements": 91,
+      "query_duration_ms": 38417,
+      "read_rows": 5612816,
+      "read_bytes": 1183391107,
+      "written_rows": 4000000,
+      "written_bytes": 381760161,
+      "peak_memory_bytes": 66342091,
+      "cpu_microseconds": 22070814
+    }
+  ],
+  "comparison": {
+    "1": {
+      "baseline": {
+        "median_ms": 192.01455099937448,
+        "queries_per_report": 5,
+        "read_rows_per_report": 4000000.0,
+        "read_bytes_per_report": 271919998.0,
+        "peak_query_memory_bytes": 19866175
+      },
+      "candidate": {
+        "median_ms": 8.853038001689129,
+        "queries_per_report": 2,
+        "read_rows_per_report": 126.0,
+        "read_bytes_per_report": 10398.0,
+        "peak_query_memory_bytes": 8072163
+      },
+      "latency_ratio_baseline_over_candidate": 21.689114060364226,
+      "read_bytes_ratio_baseline_over_candidate": 26151.182727447587
+    },
+    "30": {
+      "baseline": {
+        "median_ms": 276.97253299993463,
+        "queries_per_report": 5,
+        "read_rows_per_report": 4000000.0,
+        "read_bytes_per_report": 271919998.0,
+        "peak_query_memory_bytes": 19913180
+      },
+      "candidate": {
+        "median_ms": 18.43796899993322,
+        "queries_per_report": 2,
+        "read_rows_per_report": 21518.0,
+        "read_bytes_per_report": 760684.0,
+        "peak_query_memory_bytes": 10805414
+      },
+      "latency_ratio_baseline_over_candidate": 15.021856962713073,
+      "read_bytes_ratio_baseline_over_candidate": 357.4677500775618
+    },
+    "90": {
+      "baseline": {
+        "median_ms": 424.5144540000183,
+        "queries_per_report": 5,
+        "read_rows_per_report": 4000000.0,
+        "read_bytes_per_report": 271919998.0,
+        "peak_query_memory_bytes": 22453194
+      },
+      "candidate": {
+        "median_ms": 33.000023002387024,
+        "queries_per_report": 2,
+        "read_rows_per_report": 24038.0,
+        "read_bytes_per_report": 1095895.0,
+        "peak_query_memory_bytes": 19335266
+      },
+      "latency_ratio_baseline_over_candidate": 12.864065396842646,
+      "read_bytes_ratio_baseline_over_candidate": 248.12595914754607
+    }
+  },
+  "postgres_capture_costs": {
+    "inference_1000": {
+      "repeats": 8,
+      "modes": {
+        "disabled": {
+          "median_ms": 10.523,
+          "min_ms": 7.769,
+          "median_wal_bytes": 561856.0,
+          "sample": {
+            "execution_ms": 12.417,
+            "wal_bytes": 567880,
+            "analytical_events": 0,
+            "record_bytes": 0.0,
+            "before_record_bytes": 0.0,
+            "triggers": []
+          }
+        },
+        "inactive": {
+          "median_ms": 12.6995,
+          "min_ms": 10.904,
+          "median_wal_bytes": 559916.0,
+          "sample": {
+            "execution_ms": 13.555,
+            "wal_bytes": 557848,
+            "analytical_events": 0,
+            "record_bytes": 0.0,
+            "before_record_bytes": 0.0,
+            "triggers": [
+              {
+                "Trigger Name": "analytics_capture",
+                "Relation": "inference_calls",
+                "Time": 3.086,
+                "Calls": 1000
+              }
+            ]
+          }
+        },
+        "capture": {
+          "median_ms": 35.852000000000004,
+          "min_ms": 34.305,
+          "median_wal_bytes": 1789744.0,
+          "sample": {
+            "execution_ms": 34.598,
+            "wal_bytes": 1786000,
+            "analytical_events": 1000,
+            "record_bytes": 490.835,
+            "before_record_bytes": 490.835,
+            "triggers": [
+              {
+                "Trigger Name": "analytics_capture",
+                "Relation": "inference_calls",
+                "Time": 24.872,
+                "Calls": 1000
+              }
+            ]
+          }
+        }
+      }
+    },
+    "recommendation_generation": {
+      "repeats": 8,
+      "modes": {
+        "inactive": {
+          "median_ms": 0.075,
+          "min_ms": 0.069,
+          "median_wal_bytes": 96.0,
+          "sample": {
+            "execution_ms": 0.07,
+            "wal_bytes": 96,
+            "analytical_events": 0,
+            "record_bytes": 0.0,
+            "before_record_bytes": 0.0,
+            "triggers": [
+              {
+                "Trigger Name": "analytics_capture",
+                "Relation": "user_recommendation_states",
+                "Time": 0.026,
+                "Calls": 1
+              }
+            ]
+          }
+        },
+        "capture": {
+          "median_ms": 0.1855,
+          "min_ms": 0.152,
+          "median_wal_bytes": 880.0,
+          "sample": {
+            "execution_ms": 0.152,
+            "wal_bytes": 880,
+            "analytical_events": 1,
+            "record_bytes": 266.0,
+            "before_record_bytes": 266.0,
+            "triggers": [
+              {
+                "Trigger Name": "analytics_capture",
+                "Relation": "user_recommendation_states",
+                "Time": 0.105,
+                "Calls": 1
+              }
+            ]
+          }
+        }
+      }
+    },
+    "recommendation_edges_500": {
+      "repeats": 8,
+      "modes": {
+        "inactive": {
+          "median_ms": 12.622499999999999,
+          "min_ms": 12.254,
+          "median_wal_bytes": 208524.0,
+          "sample": {
+            "execution_ms": 17.483,
+            "wal_bytes": 212808,
+            "analytical_events": 0,
+            "record_bytes": 0.0,
+            "before_record_bytes": 0.0,
+            "triggers": [
+              {
+                "Trigger Name": "RI_ConstraintTrigger_c_158151",
+                "Constraint Name": "user_recommendations_article_id_fkey",
+                "Relation": "user_recommendations",
+                "Time": 4.733,
+                "Calls": 500
+              },
+              {
+                "Trigger Name": "RI_ConstraintTrigger_c_158156",
+                "Constraint Name": "user_recommendations_user_id_fkey",
+                "Relation": "user_recommendations",
+                "Time": 4.484,
+                "Calls": 500
+              }
+            ]
+          }
+        },
+        "capture": {
+          "median_ms": 14.168,
+          "min_ms": 12.554,
+          "median_wal_bytes": 208064.0,
+          "sample": {
+            "execution_ms": 15.264999999999999,
+            "wal_bytes": 209112,
+            "analytical_events": 0,
+            "record_bytes": 0.0,
+            "before_record_bytes": 0.0,
+            "triggers": [
+              {
+                "Trigger Name": "RI_ConstraintTrigger_c_158151",
+                "Constraint Name": "user_recommendations_article_id_fkey",
+                "Relation": "user_recommendations",
+                "Time": 5.473,
+                "Calls": 500
+              },
+              {
+                "Trigger Name": "RI_ConstraintTrigger_c_158156",
+                "Constraint Name": "user_recommendations_user_id_fkey",
+                "Relation": "user_recommendations",
+                "Time": 4.979,
+                "Calls": 500
+              }
+            ]
+          }
+        }
+      }
+    },
+    "recommendation_refresh_500": {
+      "repeats": 8,
+      "modes": {
+        "inactive": {
+          "median_ms": 13.2745,
+          "min_ms": 12.603,
+          "median_wal_bytes": 209504.0,
+          "sample": {
+            "execution_ms": 18.124,
+            "wal_bytes": 307232,
+            "analytical_events": 0,
+            "record_bytes": 0.0,
+            "before_record_bytes": 0.0,
+            "triggers": [
+              {
+                "Trigger Name": "RI_ConstraintTrigger_c_158151",
+                "Constraint Name": "user_recommendations_article_id_fkey",
+                "Relation": "user_recommendations",
+                "Time": 5.65,
+                "Calls": 500
+              },
+              {
+                "Trigger Name": "RI_ConstraintTrigger_c_158156",
+                "Constraint Name": "user_recommendations_user_id_fkey",
+                "Relation": "user_recommendations",
+                "Time": 5.219,
+                "Calls": 500
+              },
+              {
+                "Trigger Name": "analytics_capture",
+                "Relation": "user_recommendation_states",
+                "Time": 0.023,
+                "Calls": 1
+              }
+            ]
+          }
+        },
+        "capture": {
+          "median_ms": 12.9495,
+          "min_ms": 12.489,
+          "median_wal_bytes": 209092.0,
+          "sample": {
+            "execution_ms": 12.682,
+            "wal_bytes": 219120,
+            "analytical_events": 1,
+            "record_bytes": 266.0,
+            "before_record_bytes": 266.0,
+            "triggers": [
+              {
+                "Trigger Name": "RI_ConstraintTrigger_c_158151",
+                "Constraint Name": "user_recommendations_article_id_fkey",
+                "Relation": "user_recommendations",
+                "Time": 4.645,
+                "Calls": 500
+              },
+              {
+                "Trigger Name": "RI_ConstraintTrigger_c_158156",
+                "Constraint Name": "user_recommendations_user_id_fkey",
+                "Relation": "user_recommendations",
+                "Time": 4.027,
+                "Calls": 500
+              },
+              {
+                "Trigger Name": "analytics_capture",
+                "Relation": "user_recommendation_states",
+                "Time": 0.087,
+                "Calls": 1
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "method_notes": [
+    "Warm synthetic local measurements on the same isolated 2 CPU / 2 GiB ClickHouse server.",
+    "Exactly the same two million retained inference facts as baseline f60ed15e; source copied server-side, no production data.",
+    "Baseline uses three repetitions, candidate five. Costs are totals in reports/query_costs and normalized per repetition in comparison.",
+    "The new section returns totals, time series, task/model/effort breakdowns and approximate p50/p95; the old report contract differs.",
+    "Initial raw+canonical ingestion uses 91 bounded source primary-key ranges, per-query memory 256 MiB; no Python two-million-row JSON transfer.",
+    "Production bootstrap uses real RollupPublisher.refresh_one batch32 plus fenced PostgreSQL acknowledgements and 12 atomic compactions.",
+    "The fixture injects all initial dirty keys with one bounded UNNEST call. Service-loop sleeps and full PG-to-CH export are not included in measured bootstrap work.",
+    "Larger all-history and seven-day fixture aggregation attempts hit the 256 MiB cap. The successful production builder uses at most 32 hourly cohorts; daily coverage uses one day.",
+    "PostgreSQL trials use a fresh isolated database, eight alternating rolled-back trials. New trigger overhead must be compared within each control population; old/new absolute trigger timings are not paired.",
+    "Separate 16-shard audience gauge fixture: 32 synthetic account/feed observations, three alternating rounds, durable async acknowledgements unchanged; 2.170897s sequential versus0.140220s batched median (15.482x),16 queries/32 inserts versus1 query/2 inserts. This does not measure historical report latency."
+  ],
+  "gauge_batch_latency": {
+    "shards": 16,
+    "rounds": [
+      {
+        "sequential_seconds": 2.0652111859926663,
+        "batch_seconds": 0.1407757839988335,
+        "sequential_native_calls": {
+          "queries": 16,
+          "inserts": 32
+        },
+        "batch_native_calls": {
+          "queries": 1,
+          "inserts": 2
+        }
+      },
+      {
+        "sequential_seconds": 2.190500152992172,
+        "batch_seconds": 0.13099662400054513,
+        "sequential_native_calls": {
+          "queries": 16,
+          "inserts": 32
+        },
+        "batch_native_calls": {
+          "queries": 1,
+          "inserts": 2
+        }
+      },
+      {
+        "sequential_seconds": 2.170897027001047,
+        "batch_seconds": 0.14022032400316675,
+        "sequential_native_calls": {
+          "queries": 16,
+          "inserts": 32
+        },
+        "batch_native_calls": {
+          "queries": 1,
+          "inserts": 2
+        }
+      }
+    ],
+    "sequential_median_seconds": 2.170897027001047,
+    "batch_median_seconds": 0.14022032400316675,
+    "memory_limit_bytes": 268435456,
+    "threads": 2,
+    "durable_async_insert": true,
+    "insert_settings": {},
+    "speedup": 15.482042581445034,
+    "fixture": "Synthetic 32 account/feed observations across 16 audience shards; independent of the two-million-fact inference fixture.",
+    "method": "Three alternating warm local rounds; sum of individual sequential refresh calls versus one batch refresh; fixture preparation and enqueue time excluded; durable asynchronous insert acknowledgements unchanged."
+  }
+}

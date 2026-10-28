@@ -154,6 +154,7 @@ def database(integration_environment, monkeypatch, rss_bytes):
     # Keep publisher preflight deterministic; tests can override individual failures.
     from devfeed_aggregator import source_tasks
     from devfeed_api.dependencies import get_redis
+    from devfeed_core import analytics_producer
     from devfeed_core.feeds import validation
     from devfeed_core.feeds.fetcher import FetchResult
 
@@ -164,11 +165,23 @@ def database(integration_environment, monkeypatch, rss_bytes):
     # Trusted submissions also queue profile jobs. Worker tests must not contact
     # live websites; profile-specific tests replace this stub with their scenario.
     monkeypatch.setattr(source_tasks, "lookup_profile", lambda *args: ({}, None))
+    # Tests opt into real ClickHouse delivery explicitly. Ordinary source tests
+    # must not start a background network publisher after each fixture commit.
+    monkeypatch.setattr(analytics_producer, "submit", lambda changes: None)
 
     get_redis.cache_clear()
     # Only the explicitly configured, name-checked test database is modified.
     with get_engine().begin() as connection:
-        names = ", ".join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
+        # Direct analytics are stored in ClickHouse; source fixtures have no
+        # PostgreSQL capture queues, leases, cursors or reporting snapshots.
+        present = set(
+            connection.execute(
+                text("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+            ).scalars()
+        )
+        names = ", ".join(
+            f'"{table.name}"' for table in Base.metadata.sorted_tables if table.name in present
+        )
         connection.execute(text(f"TRUNCATE TABLE {names} CASCADE"))
         # Migration 0037 creates durable cadence rows. Restore their initial
         # state after truncation, as a newly provisioned database would have.
@@ -200,13 +213,11 @@ def admin_client(database):
     # flow and unauthorized access are covered separately in test_admin_auth.py.
     from devfeed_admin_api.auth import AdminIdentity, require_admin
     from devfeed_admin_api.main import create_app
-    from devfeed_admin_api.overview import session_factory as reporting_sessions
     from fastapi.testclient import TestClient
 
     app = create_app()
     # Keep ordinary SQL-budget tests on the instrumented disposable engine.
     # Dedicated reporting isolation is exercised by the concurrency tests.
-    app.dependency_overrides[reporting_sessions] = lambda: database
     app.dependency_overrides[require_admin] = lambda: AdminIdentity(
         subject="integration-admin",
         issuer="https://identity.example",

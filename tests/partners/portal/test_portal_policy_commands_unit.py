@@ -4,9 +4,7 @@ These tests inspect requested writes and returned documents. SQL catalog ownersh
 aggregation, conflict handling and query ordering remain integration contracts.
 """
 
-import uuid
 from datetime import timedelta
-from types import SimpleNamespace as NS
 from unittest.mock import Mock
 
 import pytest
@@ -20,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from tests.partners.catalog.test_catalog_commands_unit import policy
 from tests.support.partner_accounts import account
-from tests.support.partner_matching import NOW, product, result
+from tests.support.partner_matching import product
 from tests.support.source_readiness import configuration
 
 
@@ -213,64 +211,3 @@ def test_grouped_policy_page_presents_only_current_revision_image_state(status):
     [output] = portal.list_product_promotions(session, owner.id)
     assert output.ad_image_status == status and output.product_id == value.id
     session.scalar.assert_not_called()
-
-
-@pytest.mark.parametrize("measured", [False, True])
-def test_reporting_composes_complete_aggregates_and_distinguishes_unmeasured_zero(measured):
-    owner, value, session = account(), product(), Mock(spec=Session)
-    asset_id = uuid.uuid4()
-    report_day = portal.datetime.now(portal.UTC).date()
-    rows = [
-        {
-            "id": asset_id,
-            "account_id": owner.id,
-            "account_name": owner.name,
-            "product_id": value.id,
-            "name": value.name,
-            "kind": "ad",
-            "status": "active",
-            "automatic": True,
-            "aggregated": True,
-            "ad_format": "feed",
-            "ad_formats": ["feed", "engagement"],
-            "campaign_id": None,
-            "article_id": None,
-            "impressions": 200 if measured else None,
-            "clicks": 5 if measured else None,
-            "measured_days": 1 if measured else None,
-        }
-    ]
-    session.execute.side_effect = [
-        NS(one=lambda: (200, 5, 1, NOW) if measured else (None, None, 0, None)),
-        result([("feed", 120, 3, 1), ("engagement", 80, 2, 1)] if measured else []),
-        NS(
-            mappings=lambda: result(
-                [{"day": report_day, "impressions": 200, "clicks": 5}] if measured else []
-            )
-        ),
-        NS(mappings=lambda: result(rows)),
-    ]
-    session.scalar.return_value = 1
-    output = portal.reporting_dashboard(
-        owner.id,
-        session,
-        owner,
-        days=7,
-        limit=1,
-        offset=0,
-        sort="ctr",
-        order="desc",
-        ad_format=None,
-    )
-    assert output["account"] is owner and output["asset_total"] == 1
-    assert output["end"] - output["start"] == timedelta(days=6)
-    assert output["totals"] == {
-        "impressions": 200 if measured else 0,
-        "clicks": 5 if measured else 0,
-        "ctr": 2.5 if measured else None,
-        "measured_days": int(measured),
-    }
-    assert output["assets"][0]["ctr"] == (2.5 if measured else None)
-    assert output["assets"][0]["ad_formats"] == ["feed", "engagement"]
-    assert len(output["format_totals"]) == (2 if measured else 0)
-    session.add.assert_not_called()

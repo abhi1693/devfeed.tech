@@ -2,6 +2,7 @@
 
 import json
 import uuid
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
@@ -105,7 +106,7 @@ def test_receipts_are_bound_to_canonical_query_kind_result_key_and_expiry():
 @pytest.fixture
 def click_api(monkeypatch):
     from devfeed_api import search
-    from devfeed_api.dependencies import get_session
+    from devfeed_api.dependencies import get_session, get_session_factory
     from devfeed_api.main import create_app
     from devfeed_core.config import get_settings
 
@@ -121,6 +122,7 @@ def click_api(monkeypatch):
     session = SimpleNamespace(execute=execute, commit=lambda: calls["commits"].append(True))
     app = create_app()
     app.dependency_overrides[get_session] = lambda: session
+    app.dependency_overrides[get_session_factory] = lambda: lambda: nullcontext(session)
 
     def records(session, kind, ids):
         calls["records"].append((kind, ids))
@@ -136,6 +138,11 @@ def click_api(monkeypatch):
     monkeypatch.setattr(
         search, "record_successful_query", lambda s, q: calls["aggregates"].append(q)
     )
+
+    async def record(_self, digest, **_kwargs):
+        assert digest == search.query_hash("python sql")
+
+    monkeypatch.setattr(search.SearchSuggestionAnalytics, "record", record)
     monkeypatch.setattr(search, "get_rate_limit_redis", lambda: SimpleNamespace(eval=eval_limit))
     body = {
         "query": "Python SQL",

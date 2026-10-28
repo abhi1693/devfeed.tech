@@ -20,7 +20,6 @@ from devfeed_admin_api.main import create_app
 from devfeed_http import oidc as oidc_protocol
 from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError
-from sqlalchemy.orm import sessionmaker
 
 ISSUER = "https://identity.example"
 ORIGIN = "https://admin.example"
@@ -567,7 +566,7 @@ def test_role_failures_do_not_create_sessions(oidc_app, roles):
     oidc_app.claims[ROLE_CLAIM] = roles
     assert complete(oidc_app).headers["location"].endswith("error=access_denied")
     assert not any(":session:" in key for key in oidc_app.store.values)
-    assert oidc_app.client.get("/v1/admin/overview").status_code == 401
+    assert oidc_app.client.get("/v1/admin/overview/charts/attention").status_code == 401
 
 
 def test_userinfo_can_supply_subject_matched_role_grants(oidc_app):
@@ -600,7 +599,11 @@ def test_every_protected_request_checks_session_role(oidc_app):
     record = json.loads(raw)
     record["roles"] = ["user"]
     oidc_app.store.values[key] = (json.dumps(record).encode(), expiry)
-    for path in ("/v1/admin/auth/me", "/v1/admin/overview", "/v1/admin/ingestion/jobs"):
+    for path in (
+        "/v1/admin/auth/me",
+        "/v1/admin/overview/charts/attention",
+        "/v1/admin/ingestion/jobs",
+    ):
         assert oidc_app.client.get(path).status_code == 403
 
 
@@ -684,7 +687,7 @@ def test_csrf_protects_logout_and_taxonomy_writes(oidc_app, headers):
 
 def test_cached_private_endpoints_still_require_authentication(oidc_app):
     for path in (
-        "/v1/admin/overview",
+        "/v1/admin/overview/charts/attention",
         "/v1/admin/ingestion/jobs",
         "/v1/admin/topics",
         "/v1/admin/topic-relationship-proposals",
@@ -716,7 +719,7 @@ def test_unconfigured_admin_is_closed_and_public_api_is_independent(oidc_app):
         "enabled": False,
         "providers": [],
     }
-    assert oidc_app.client.get("/v1/admin/overview").status_code == 503
+    assert oidc_app.client.get("/v1/admin/overview/charts/attention").status_code == 503
     schema = public_app().openapi()
     assert not any("/admin" in path or "/ingestion" in path for path in schema["paths"])
     assert set(schema["paths"]["/v1/topics"]) == {"get"}
@@ -799,46 +802,46 @@ def test_expired_login_and_session_are_rejected(oidc_app):
 
 
 def test_authenticated_overview_returns_private_snapshot(oidc_app, monkeypatch):
-    from devfeed_admin_api import overview, overview_projection
+    from devfeed_admin_api import overview
+    from devfeed_admin_api.overview_sections import (
+        OperationsSection,
+        OverviewSectionReport,
+        ReviewQueue,
+    )
 
     complete(oidc_app)
-    snapshot = overview.AdminOverview(
+    snapshot = OverviewSectionReport(
         generated_at="2026-09-09T12:00:00Z",
-        days=30,
-        articles=12,
-        articles_pending_review=7,
-        articles_published=2,
-        sources=5,
-        sources_pending_review=1,
-        sources_active=3,
-        sources_failing=1,
-        topics=4,
-        topics_active=2,
-        topic_proposals_pending=3,
-        relationship_proposals_pending=1,
-        activity=[],
-        top_topics=[],
-        analysis=overview.OverviewAnalysis(queued=0, running=0, succeeded=0, failed=0),
+        days=1,
+        data=OperationsSection(reviews=[ReviewQueue(kind="articles", count=7)], source_failures=1),
     )
     calls = []
 
-    def metrics(session, days):
-        calls.append(days)
-        return snapshot.model_copy(update={"days": days})
+    async def metrics(group, window):
+        assert group == "operations"
+        calls.append(window.key)
+        return snapshot.model_copy(update={"days": window.days})
 
-    monkeypatch.setattr(
-        overview_projection, "read_report", lambda sessions, group, days, model: metrics(None, days)
+    oidc_app.client.app.dependency_overrides[overview.get_analytics] = lambda: SimpleNamespace(
+        section=metrics
     )
-    oidc_app.client.app.dependency_overrides[overview.session_factory] = lambda: sessionmaker()
-    for query, days in (("", 30), ("?days=7", 7)):
-        response = oidc_app.client.get(f"/v1/admin/overview{query}")
+    for query in ("", "?from=now-6d/d&to=now"):
+        response = oidc_app.client.get(f"/v1/admin/overview/charts/attention{query}")
         assert response.status_code == 200
-        assert response.json() == {**snapshot.model_dump(mode="json"), "days": days}
+        payload = response.json()
+        assert payload["chart"] == "attention" and payload["days"] == 1
+        assert payload["data"]["reviews"][0]["count"] == 7
+        assert "section" not in payload["data"]
         assert response.headers["cache-control"] == "no-store"
-    assert calls == [30, 7]
-    for value in ("0", "91", "-1", "1.5", "all"):
-        assert oidc_app.client.get(f"/v1/admin/overview?days={value}").status_code == 422
-    assert calls == [30, 7]
+    assert calls == ["current", "current"]
+    for value in ("now-3661d", "P7D", "-1", "1.5", "all"):
+        assert (
+            oidc_app.client.get(
+                f"/v1/admin/overview/charts/publication-rate?from={value}&to=now"
+            ).status_code
+            == 422
+        )
+    assert calls == ["current", "current"]
 
 
 def test_secure_cookie_and_origin_configuration_is_explicit():

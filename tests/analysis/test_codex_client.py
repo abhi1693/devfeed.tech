@@ -13,7 +13,11 @@ def usage_records(monkeypatch):
     from devfeed_aggregator import codex_client
 
     records = []
-    monkeypatch.setattr(codex_client, "record_call", records.append)
+
+    async def record(value, *, client):
+        records.append(value)
+
+    monkeypatch.setattr(codex_client, "record_call", record)
     return records
 
 

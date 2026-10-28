@@ -1,9 +1,10 @@
 """Scoped partner read adapters preserve account authority, bounded pages and public DTOs."""
 
+import asyncio
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from devfeed_admin_api import partner_accounts as accounts
@@ -67,7 +68,7 @@ def test_global_operator_catalog_reads_forward_only_the_explicit_picker_scope(mo
 
 
 @pytest.mark.parametrize("missing", [False, True])
-@pytest.mark.parametrize("read", ["articles", "audience", "creative", "destination", "dashboard"])
+@pytest.mark.parametrize("read", ["articles", "audience", "creative", "destination"])
 def test_operator_account_reads_resolve_current_account_before_using_shared_services(
     monkeypatch, missing, read
 ):
@@ -310,8 +311,11 @@ def test_campaign_page_keeps_total_and_zero_measurements_distinct_from_absent_pa
     saved = campaign(owner, created_at=NOW - timedelta(days=1))
     session.scalars.return_value.all.return_value = [] if empty else [saved]
     session.scalar.return_value = 1
-    session.execute.return_value = []
-    page = CampaignService(session, owner).page(limit=1, offset=1 if empty else 0)
+    session.execute.return_value.all.return_value = []
+    analytics = Mock()
+    analytics.partner_summary = AsyncMock(return_value=[])
+    metadata = CampaignService(session, owner).page(limit=1, offset=1 if empty else 0)
+    page = {"items": asyncio.run(metadata.reports(analytics)), "total": metadata.total}
     assert page["total"] == 1
     if empty:
         assert page["items"] == []
@@ -372,3 +376,67 @@ def test_archived_direct_product_inventory_retains_editable_history_without_comm
     assert not row.active and not row.manual_active and not row.commercial_approved
     assert row.status == "withdrawn" and row.approval_source is None
     session.commit.assert_not_called()
+
+
+@pytest.mark.parametrize("surface", ["admin", "account", "workspace"])
+def test_dashboard_metadata_session_is_closed_before_native_analytics(monkeypatch, surface):
+    import threading
+
+    from devfeed_partner_api import workspace
+
+    async def run():
+        loop_thread = threading.get_ident()
+        events = []
+        owner = account()
+        target = {"admin": accounts, "account": portal, "workspace": workspace}[surface]
+
+        class Session:
+            def __init__(self):
+                self.owner = threading.get_ident()
+                assert self.owner != loop_thread
+                events.append("create")
+
+            def __enter__(self):
+                assert self.owner == threading.get_ident()
+                events.append("open")
+                return self
+
+            def __exit__(self, *_args):
+                assert self.owner == threading.get_ident()
+                events.append("close")
+
+        def metadata(session, *_args):
+            assert session.owner == threading.get_ident()
+            events.append("metadata")
+            return ([], 1) if surface == "workspace" else (owner, [])
+
+        async def ready(_client):
+            assert events == ["create", "open", "metadata", "close"]
+            events.append("clickhouse")
+
+        async def metrics(assets, _analytics, *_args, **_kwargs):
+            assert assets == [] and events[-1] == "clickhouse"
+            return {"assets": []}
+
+        monkeypatch.setattr(target, "_dashboard_metadata", metadata)
+        monkeypatch.setattr(target, "require_partner_history", ready)
+        monkeypatch.setattr(target, "reporting_metrics", metrics)
+        request = SimpleNamespace(
+            app=SimpleNamespace(
+                state=SimpleNamespace(
+                    analytics=SimpleNamespace(client=object()),
+                    analytics_client=object(),
+                )
+            )
+        )
+        options = dict(factory=Session, request=request, days=30, limit=5, offset=0, ad_format=None)
+        if surface == "admin":
+            result = await target.dashboard(account_id=owner.id, admin=object(), **options)
+        else:
+            result = await target.dashboard(
+                account_id=owner.id, partner=object(), sort="name", order="asc", **options
+            )
+        assert result["assets"] == []
+        assert events == ["create", "open", "metadata", "close", "clickhouse"]
+
+    asyncio.run(run())

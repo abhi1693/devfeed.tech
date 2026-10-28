@@ -12,11 +12,9 @@ from devfeed_core.models import (
     ArticleTopic,
     PartnerAccount,
     PartnerAsset,
-    PartnerDailyMetric,
     PartnerManualProduct,
     PartnerProduct,
     PartnerProductPromotion,
-    PartnerTrackedDailyMetric,
     Topic,
 )
 from devfeed_core.partner_ad_formats import (
@@ -74,20 +72,14 @@ from pydantic import (
     model_validator,
 )
 from sqlalchemy import (
-    Numeric,
-    String,
-    Uuid,
     and_,
-    any_,
     case,
-    cast,
     func,
     literal,
     or_,
     select,
-    union_all,
 )
-from sqlalchemy.dialects.postgresql import aggregate_order_by, array, insert
+from sqlalchemy.dialects.postgresql import insert
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
@@ -601,280 +593,6 @@ def totals(impressions, clicks, measured_days):
         "clicks": clicks,
         "ctr": clicks / impressions * 100 if impressions else None,
         "measured_days": int(measured_days or 0),
-    }
-
-
-def reporting_dashboard(
-    account_id: uuid.UUID,
-    session,
-    account,
-    days=30,
-    limit=100,
-    offset=0,
-    *,
-    sort: AssetSort = "name",
-    order: SortOrder = "asc",
-    ad_format: AdFormat | None = None,
-):
-    return {
-        "account": account,
-        **reporting_metrics(
-            session,
-            select(PartnerAccount).where(PartnerAccount.id == account_id),
-            days,
-            limit,
-            offset,
-            sort=sort,
-            order=order,
-            ad_format=ad_format,
-        ),
-    }
-
-
-def reporting_metrics(
-    session,
-    accounts_query,
-    days=30,
-    limit=100,
-    offset=0,
-    *,
-    sort: WorkspaceAssetSort = "name",
-    order: SortOrder = "asc",
-    ad_format: AdFormat | None = None,
-):
-    """Aggregate the complete SQL account scope before sorting or paging rows."""
-    accounts = (
-        accounts_query.with_only_columns(
-            PartnerAccount.id.label("account_id"), PartnerAccount.name.label("account_name")
-        )
-        .order_by(None)
-        .cte("report_accounts")
-    )
-    end = datetime.now(UTC).date()
-    start = end - timedelta(days=days - 1)
-    metrics = union_all(
-        *[
-            select(model.asset_id, model.day, model.impressions, model.clicks, model.updated_at)
-            .join(PartnerAsset)
-            .where(
-                PartnerAsset.account_id.in_(select(accounts.c.account_id)),
-                model.day.between(start, end),
-                *([PartnerAsset.ad_format == ad_format] if ad_format is not None else []),
-            )
-            for model in (PartnerDailyMetric, PartnerTrackedDailyMetric)
-        ]
-    ).subquery()
-    summary = session.execute(
-        select(
-            func.sum(metrics.c.impressions),
-            func.sum(metrics.c.clicks),
-            func.count(func.distinct(metrics.c.day)),
-            func.max(metrics.c.updated_at),
-        )
-    ).one()
-    format_totals = session.execute(
-        select(
-            PartnerAsset.ad_format,
-            func.sum(metrics.c.impressions),
-            func.sum(metrics.c.clicks),
-            func.count(func.distinct(metrics.c.day)),
-        )
-        .join(PartnerAsset, PartnerAsset.id == metrics.c.asset_id)
-        .group_by(PartnerAsset.ad_format)
-        .order_by(PartnerAsset.ad_format)
-    ).all()
-    trend = (
-        session.execute(
-            select(
-                metrics.c.day,
-                func.sum(metrics.c.impressions).label("impressions"),
-                func.sum(metrics.c.clicks).label("clicks"),
-            )
-            .group_by(metrics.c.day)
-            .order_by(metrics.c.day)
-        )
-        .mappings()
-        .all()
-    )
-    # Ledger identities stay immutable. Reporting follows merged canonical product
-    # identities, then combines every format before sorting or paginating products.
-    # The visited path and bound also make malformed legacy alias chains finite.
-    scoped_assets = (
-        select(PartnerAsset, accounts.c.account_name)
-        .join(accounts, accounts.c.account_id == PartnerAsset.account_id)
-        .where(
-            *([PartnerAsset.ad_format == ad_format] if ad_format is not None else []),
-        )
-        .cte("report_assets")
-    )
-    identities = (
-        select(
-            PartnerProduct.id.label("original_id"),
-            PartnerProduct.id.label("canonical_id"),
-            PartnerProduct.merged_into_id,
-            array([PartnerProduct.id]).label("path"),
-            literal(0).label("depth"),
-        )
-        .where(PartnerProduct.id.in_(select(scoped_assets.c.product_id)))
-        .cte("report_identity", recursive=True)
-    )
-    parent = PartnerProduct.__table__.alias("report_parent")
-    identities = identities.union_all(
-        select(
-            identities.c.original_id,
-            parent.c.id,
-            parent.c.merged_into_id,
-            identities.c.path + array([parent.c.id]),
-            identities.c.depth + 1,
-        )
-        .join(parent, parent.c.id == identities.c.merged_into_id)
-        .where(identities.c.depth < 32, parent.c.id != any_(identities.c.path))
-    )
-    resolved = (
-        select(identities.c.original_id, identities.c.canonical_id)
-        .distinct(identities.c.original_id)
-        .order_by(identities.c.original_id, identities.c.depth.desc())
-        .subquery()
-    )
-    product = PartnerProduct.__table__.alias("report_product")
-    canonical_id = func.coalesce(resolved.c.canonical_id, scoped_assets.c.product_id)
-    product_group = case(
-        (canonical_id.is_not(None), literal("product:") + cast(canonical_id, String)),
-        else_=literal("asset:") + cast(scoped_assets.c.id, String),
-    )
-    group_key = (
-        literal("account:")
-        + cast(scoped_assets.c.account_id, String)
-        + literal(":")
-        + product_group
-    )
-    collection = (
-        select(
-            scoped_assets,
-            canonical_id.label("canonical_product_id"),
-            product.c.name.label("product_name"),
-            group_key.label("group_key"),
-        )
-        .select_from(scoped_assets)
-        .outerjoin(resolved, resolved.c.original_id == scoped_assets.c.product_id)
-        .outerjoin(product, product.c.id == canonical_id)
-        .subquery()
-    )
-    grouped = (
-        select(
-            collection.c.group_key,
-            cast(func.min(cast(collection.c.account_id, String)), Uuid).label("account_id"),
-            func.min(collection.c.account_name).label("account_name"),
-            cast(func.min(cast(collection.c.id, String)), Uuid).label("id"),
-            cast(func.min(cast(collection.c.canonical_product_id, String)), Uuid).label(
-                "product_id"
-            ),
-            func.coalesce(func.min(collection.c.product_name), func.min(collection.c.name)).label(
-                "name"
-            ),
-            case((func.bool_or(collection.c.kind == "ad"), "ad"), else_="product").label("kind"),
-            case(
-                (func.bool_or(collection.c.status == "active"), "active"),
-                (func.bool_or(collection.c.status == "paused"), "paused"),
-                (func.bool_or(collection.c.status == "draft"), "draft"),
-                else_="ended",
-            ).label("status"),
-            func.bool_and(collection.c.automatic).label("automatic"),
-            (func.count() > 1).label("aggregated"),
-            case(
-                (func.count() == 1, cast(func.min(cast(collection.c.campaign_id, String)), Uuid)),
-                else_=None,
-            ).label("campaign_id"),
-            case(
-                (func.count() == 1, cast(func.min(cast(collection.c.article_id, String)), Uuid)),
-                else_=None,
-            ).label("article_id"),
-            func.min(collection.c.ad_format).label("ad_format"),
-            func.array_agg(
-                aggregate_order_by(collection.c.ad_format.distinct(), collection.c.ad_format)
-            ).label("ad_formats"),
-        )
-        .group_by(collection.c.group_key)
-        .subquery()
-    )
-    product_metrics = (
-        select(
-            collection.c.group_key,
-            func.sum(metrics.c.impressions).label("impressions"),
-            func.sum(metrics.c.clicks).label("clicks"),
-            func.count(func.distinct(metrics.c.day)).label("measured_days"),
-        )
-        .select_from(metrics)
-        .join(collection, collection.c.id == metrics.c.asset_id)
-        .group_by(collection.c.group_key)
-        .subquery()
-    )
-    # Sort the complete reporting set before paging. Missing measurements and an
-    # undefined CTR remain last in either direction, distinct from measured zero.
-    sort_value = {
-        "name": func.lower(grouped.c.name),
-        "account": func.lower(grouped.c.account_name),
-        "impressions": product_metrics.c.impressions,
-        "clicks": product_metrics.c.clicks,
-        "ctr": cast(product_metrics.c.clicks, Numeric)
-        / func.nullif(product_metrics.c.impressions, 0),
-    }[sort]
-    ordering = [(sort_value.desc() if order == "desc" else sort_value.asc()).nulls_last()]
-    if sort != "name":
-        ordering.append(func.lower(grouped.c.name).asc())
-    if sort != "account":
-        ordering.append(func.lower(grouped.c.account_name).asc())
-    ordering.append(grouped.c.id.asc())
-    rows = (
-        session.execute(
-            select(
-                grouped,
-                product_metrics.c.impressions,
-                product_metrics.c.clicks,
-                product_metrics.c.measured_days,
-            )
-            .outerjoin(product_metrics, grouped.c.group_key == product_metrics.c.group_key)
-            .order_by(*ordering)
-            .limit(limit)
-            .offset(offset)
-        )
-        .mappings()
-        .all()
-    )
-    return {
-        "start": start,
-        "end": end,
-        "totals": totals(*summary[:3]),
-        "format_totals": [
-            dict(ad_format=kind, **totals(*values)) for kind, *values in format_totals
-        ],
-        "last_updated_at": summary[3],
-        "trend": trend,
-        "assets": [
-            {
-                **{
-                    key: row[key]
-                    for key in (
-                        "id",
-                        "account_id",
-                        "account_name",
-                        "product_id",
-                        "name",
-                        "kind",
-                        "status",
-                        "automatic",
-                        "aggregated",
-                        "ad_format",
-                        "ad_formats",
-                        "campaign_id",
-                        "article_id",
-                    )
-                },
-                **totals(row["impressions"], row["clicks"], row["measured_days"]),
-            }
-            for row in rows
-        ],
-        "asset_total": session.scalar(select(func.count()).select_from(grouped)),
     }
 
 

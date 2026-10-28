@@ -1,109 +1,28 @@
 """Chart reads must not build the aggregate dashboard or block unrelated panels."""
 
-import threading
-from typing import get_args
+import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
-from devfeed_admin_api import overview
-from devfeed_admin_api.auth import require_admin
-from devfeed_admin_api.overview_panel_data import GROUPS, PanelName, panel_data
 from devfeed_core.models import (
     Article,
     ArticleContent,
     ArticleEnrichmentJob,
     ArticleOrigin,
     Source,
-    utcnow,
 )
 
 pytestmark = pytest.mark.integration
 
 
-def test_every_panel_loads_only_a_published_group(database, admin_client, monkeypatch):
-    from devfeed_admin_api.overview_projection import report_key
+@pytest.fixture
+def overview_cutover_database(integration_environment, monkeypatch):
+    from tests.support.legacy_migrations import database_at_revision
 
-    from tests.admin.reporting.projections.test_overview_projections import save_panel
-
-    monkeypatch.setattr(
-        overview, "overview_metrics", lambda *_: pytest.fail("aggregate loader called")
-    )
-    seen = set()
-    for panel in get_args(PanelName):
-        key = report_key(GROUPS.get(panel, panel), 7)
-        if key not in seen:
-            save_panel(database, *key)
-            seen.add(key)
-        response = admin_client.get(f"/v1/admin/overview/panels/{panel}?days=7")
-        assert response.status_code == 200, (panel, response.text)
-        assert response.json()["days"] == 7
-        assert response.headers["cache-control"] == "no-store"
-    assert admin_client.get("/v1/admin/overview/panels/unknown").status_code == 422
-    assert admin_client.get("/v1/admin/overview/panels/readers?days=0").status_code == 422
-
-
-def test_slow_publisher_does_not_block_another_chart_or_health(database, admin_client, monkeypatch):
-    from concurrent.futures import ThreadPoolExecutor
-
-    from devfeed_admin_api import overview_processing
-    from devfeed_admin_api import overview_projection as projections
-    from devfeed_admin_api.overview_panel_data import OverviewPanel
-
-    from tests.admin.reporting.projections.test_overview_projections import save_panel
-
-    entered, release = threading.Event(), threading.Event()
-    save_panel(database, "sources", 30)
-    with database.begin() as session:
-        projections.request_refresh(session, "blockers", 1, utcnow())
-
-    def slow(factory, group, days, now):
-        entered.set()
-        assert release.wait(8)
-        return OverviewPanel(generated_at=now, days=days)
-
-    monkeypatch.setattr(projections, "calculate_report", slow)
-    monkeypatch.setattr(overview_processing, "refresh_processing_facts", lambda *_: False)
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        worker = pool.submit(
-            projections.refresh_overview_projections, database, limit=1, seed=False
-        )
-        try:
-            assert entered.wait(3)
-            assert admin_client.get("/v1/admin/overview/panels/blockers").status_code == 503
-            assert admin_client.get("/v1/admin/overview/panels/sources").status_code == 200
-            assert admin_client.get("/health/live").status_code == 200
-        finally:
-            release.set()
-            assert worker.result(timeout=5) == 1
-    assert admin_client.get("/v1/admin/overview/panels/blockers").status_code == 200
-
-
-def test_charts_share_daily_documents_and_keep_ranges_independent(database, admin_client):
-    from devfeed_core.models import ReportRefresh
-
-    from tests.admin.reporting.projections.test_overview_projections import save_panel
-
-    save_panel(database, "daily", 7)
-    for chart in ("publications", "readers", "click-depth"):
-        assert admin_client.get(f"/v1/admin/overview/panels/{chart}?days=7").status_code == 200
-    assert admin_client.get("/v1/admin/overview/panels/readers?days=30").status_code == 503
-    with database() as session:
-        assert session.get(ReportRefresh, ("daily", 30)) is not None
-        assert session.get(ReportRefresh, ("daily", 7)) is None
-
-
-def test_panel_authentication_precedes_saved_response(database, admin_client, monkeypatch):
-    from devfeed_admin_api import auth
-
-    from tests.admin.reporting.projections.test_overview_projections import save_panel
-
-    save_panel(database, "daily", 30)
-    monkeypatch.setattr(auth, "require_config", lambda: None)
-    assert admin_client.get("/v1/admin/overview/panels/readers").status_code == 200
-    override = admin_client.app.dependency_overrides.pop(require_admin)
-    try:
-        assert admin_client.get("/v1/admin/overview/panels/readers").status_code == 401
-    finally:
-        admin_client.app.dependency_overrides[require_admin] = override
+    # Each scenario owns its schema, independently of whether another integration
+    # test already completed the finite historical import in the shared test DB.
+    with database_at_revision(monkeypatch, "head") as database:
+        yield database
 
 
 def test_pending_extraction_is_distinguished_from_unavailable_text(database):
@@ -183,7 +102,7 @@ def test_pending_extraction_is_distinguished_from_unavailable_text(database):
     with database() as session:
         from devfeed_admin_api.automation import automation_blockers
 
-        result = automation_blockers(session)
+        result = automation_blockers(session, [article.id for article in articles])
     counts = {x.code: x.count for x in result}
     assert counts["source_ineligible"] == 0
     assert counts["awaiting_enrichment"] == 1
@@ -191,18 +110,60 @@ def test_pending_extraction_is_distinguished_from_unavailable_text(database):
     assert counts["enrichment_failed"] == 1
 
 
-def test_panels_use_only_their_small_data_source(database, monkeypatch):
-    from devfeed_admin_api import overview_panel_data, overview_projection
+@pytest.mark.parametrize("chart", ["attention", "publication-rate"])
+@pytest.mark.parametrize(
+    "cutover_complete", [False, True], ids=["import-pending", "import-complete"]
+)
+@pytest.mark.parametrize(
+    "query", ["days=7", "start=2025-01-01", "end=2025-02-01", "range=P0D", "range=P367D"]
+)
+def test_removed_or_invalid_range_protocols_are_rejected_before_recording_demand(
+    overview_cutover_database, admin_client, monkeypatch, chart, query, cutover_complete
+):
+    from devfeed_core.analytics_cutover import LegacyAnalyticsCutover
+    from devfeed_core.analytics_import_runner import postgres_connections
+    from devfeed_core.config import get_settings
+    from devfeed_core.db import get_engine
+    from sqlalchemy import event, text
 
-    monkeypatch.setattr(
-        overview_projection,
-        "projected_blockers",
-        lambda *_: pytest.fail("unrelated blockers query"),
-    )
-    monkeypatch.setattr(
-        overview_panel_data, "inference_charts", lambda *_: pytest.fail("unrelated inference query")
-    )
+    database = overview_cutover_database
+    with database.begin() as session:
+        session.execute(
+            text("INSERT INTO report_refreshes(\"group\", days) VALUES ('publishing',7)")
+        )
+
+    async def prepare_cutover():
+        async with postgres_connections(get_settings().database_url)() as connection:
+            cutover = LegacyAnalyticsCutover()
+            await cutover.freeze(connection)
+            if cutover_complete:
+                await cutover.cleanup(connection)
+
+    asyncio.run(prepare_cutover())
     with database() as session:
-        result = panel_data(session, GROUPS["readers"], 7, utcnow())
-    assert len(result.insights.reader_activity) == 7
-    assert result.automation is None
+        relation = session.scalar(text("SELECT to_regclass('report_refreshes')"))
+        assert relation == (None if cutover_complete else "report_refreshes")
+        previous_demand = (
+            session.execute(text("SELECT * FROM report_refreshes")).all() if relation else []
+        )
+
+    section = AsyncMock(side_effect=AssertionError("Invalid chart ranges must not query analytics"))
+    monkeypatch.setattr(admin_client.app.state.analytics, "section", section)
+    statements = []
+
+    def record_statement(connection, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    engine = get_engine()
+    event.listen(engine, "before_cursor_execute", record_statement)
+    try:
+        response = admin_client.get(f"/v1/admin/overview/charts/{chart}?{query}")
+    finally:
+        event.remove(engine, "before_cursor_execute", record_statement)
+    assert response.status_code == 422
+    section.assert_not_called()
+    assert statements == []
+    with database() as session:
+        assert session.scalar(text("SELECT to_regclass('report_refreshes')")) == relation
+        if relation:
+            assert session.execute(text("SELECT * FROM report_refreshes")).all() == previous_demand

@@ -15,9 +15,11 @@ from devfeed_core.polling_reconciliation import reconcile_polling
 from sqlalchemy import func, select
 
 from tests.sources.test_adaptive_polling import NOW
+from tests.support import legacy_migrations
 from tests.support.paths import REPO_ROOT
 
 pytestmark = pytest.mark.integration
+migration_database = legacy_migrations.migration_database
 
 
 @pytest.fixture(autouse=True)
@@ -196,7 +198,8 @@ def test_operator_mode_and_effective_gate(database, admin_client, capsys, monkey
         assert source.next_fetch_at == NOW + timedelta(hours=11)
 
 
-def test_migration_preserves_configured_interval_and_job_data(database):
+def test_migration_preserves_configured_interval_and_job_data(migration_database):
+    database = migration_database
 
     from alembic import command
     from alembic.config import Config

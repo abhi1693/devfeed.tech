@@ -1,173 +1,429 @@
-import type { AdminOverview } from "@/lib/api/generated/models";
+import type { OverviewChartReport } from "@/lib/api/generated/models";
+import { dateRangeBounds, defaultDateRange } from "@devfeed/ui/date-range-picker";
 
-export const emptyOverview: AdminOverview = {
-  generated_at: "2026-09-09T12:00:00Z",
-  days: 30,
-  articles: 0,
-  articles_pending_review: 0,
-  articles_published: 0,
-  sources: 0,
-  sources_pending_review: 0,
-  sources_active: 0,
-  sources_failing: 0,
-  topics: 0,
-  topics_active: 0,
-  topic_proposals_pending: 0,
-  relationship_proposals_pending: 0,
-  activity: [],
-  analysis_activity: [],
-  top_topics: [],
-  analysis: { queued: 0, running: 0, succeeded: 0, failed: 0 },
-  insights: {
-    publications: { current: 0, previous: 0 },
-    opens: { current: 0, previous: null },
-    accounts: { current: 0, previous: 0 },
-    publication_seconds: { current: null, previous: null },
-    reader_activity: [],
-    top_articles_days: 30,
-    personalization: {},
-    processing: [],
+/** Match the public date contract while retaining each chart's typed test facts. */
+export function reportForRange<T extends OverviewChartReport>(
+  report: T,
+  range: { from?: string | null; to?: string | null } = defaultDateRange,
+): T {
+  if (report.chart === "attention")
+    return { ...report, days: 1, start: null, end: null, granularity: null };
+  const bounds = dateRangeBounds({ from: range.from ?? undefined, to: range.to ?? undefined });
+  if (!bounds) throw new Error(`Invalid test report range: ${JSON.stringify(range)}`);
+  const days = (Date.parse(bounds.end) - Date.parse(bounds.start)) / 86_400_000 + 1;
+  return {
+    ...report,
+    ...bounds,
+    days,
+    granularity: days <= 7 ? "hour" : days <= 90 ? "day" : days <= 366 ? "week" : "month",
+  };
+}
+
+export const charts = [
+  "attention",
+  "publication-rate",
+  "publication-latency",
+  "audience-activity",
+  "personalization",
+  "queue-pressure",
+  "throughput",
+  "job-outcomes",
+  "ai-activity",
+  "ai-breakdown",
+  "source-output",
+  "topic-coverage",
+] as const;
+export type ChartName = (typeof charts)[number];
+type ChartReports = { [K in ChartName]: Extract<OverviewChartReport, { chart: K }> };
+
+export const emptyCharts: ChartReports = {
+  attention: {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "attention",
+    data: {
+      reviews: [],
+      blockers: [],
+    },
+  },
+  "publication-rate": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "publication-rate",
+    data: {
+      summary: {},
+      activity: [],
+    },
+  },
+  "publication-latency": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "publication-latency",
+    data: {
+      summary: {},
+      activity: [],
+    },
+  },
+  "audience-activity": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "audience-activity",
+    data: {
+      activity: [],
+    },
+  },
+  personalization: {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "personalization",
+    data: {
+      personalization: {},
+    },
+  },
+  "queue-pressure": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "queue-pressure",
+    data: {
+      queues: [],
+    },
+  },
+  throughput: {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "throughput",
+    data: {
+      throughput: [],
+    },
+  },
+  "job-outcomes": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "job-outcomes",
+    data: {
+      outcomes: [],
+    },
+  },
+  "ai-activity": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "ai-activity",
+    data: {
+      summary: {},
+      activity: [],
+    },
+  },
+  "ai-breakdown": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "ai-breakdown",
+    data: {
+      tasks: [],
+      models: [],
+      efforts: [],
+    },
+  },
+  "source-output": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "source-output",
+    data: {
+      sources: [],
+    },
+  },
+  "topic-coverage": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "topic-coverage",
+    data: {
+      topics: [],
+    },
   },
 };
-export const populatedOverview: AdminOverview = {
-  ...emptyOverview,
-  articles: 1248,
-  articles_published: 832,
-  articles_pending_review: 216,
-  sources: 48,
-  sources_active: 42,
-  sources_pending_review: 3,
-  sources_failing: 1,
-  topics: 64,
-  topics_active: 58,
-  topic_proposals_pending: 24,
-  relationship_proposals_pending: 6,
-  analysis: { queued: 18, running: 2, succeeded: 364, failed: 3 },
-  activity: [
-    { date: "2026-09-08", added: 42, published: 27 },
-    { date: "2026-09-09", added: 18, published: 12 },
-  ],
-  analysis_activity: [
-    { date: "2026-09-08", succeeded: 180, failed: 2 },
-    { date: "2026-09-09", succeeded: 184, failed: 1 },
-  ],
-  top_topics: [
-    { id: "topic-1", name: "TypeScript", articles: 124 },
-    { id: "topic-2", name: "Artificial intelligence", articles: 98 },
-  ],
-  automation: {
-    blockers: [],
-    published_in_window: 39,
-    published_without_intervention: 30,
-    automatic_publication_percent: 76.9,
-    median_ingestion_to_publication_seconds: 3600,
-    analysis_tokens: 3700,
-    analysis_duration_ms: 25000,
-    usage_reported_runs: 8,
-    usage_unreported_runs: 1,
-    token_activity: [
-      {
-        date: "2026-09-08",
-        article_analysis: 1000,
-        topic_analysis: 2000,
-        research_verification: 300,
-        reported_runs: 6,
-        unreported_runs: 0,
-      },
-      {
-        date: "2026-09-09",
-        article_analysis: 0,
-        topic_analysis: 400,
-        research_verification: 0,
-        reported_runs: 2,
-        unreported_runs: 1,
-      },
-    ],
-  },
-  insights: {
-    ...emptyOverview.insights,
-    publications: { current: 39, previous: 30 },
-    opens: { current: 320, previous: 200 },
-    accounts: { current: 12, previous: 8 },
-    publication_seconds: { current: 3600, previous: 7200 },
-    publication_p90_seconds: 14400,
-    reader_activity: [
-      {
-        date: "2026-09-08",
-        added: 42,
-        published: 27,
-        opens: 200,
-        readers: 80,
-        multi_article_readers: 20,
-        accounts: 8,
-        content_types: { article: 20, tutorial: 7 },
-        median_publication_seconds: 3000,
-      },
-      {
-        date: "2026-09-09",
-        added: 18,
-        published: 12,
-        opens: 120,
-        readers: 40,
-        multi_article_readers: 15,
-        accounts: 4,
-        content_types: { article: 12 },
-        median_publication_seconds: 4000,
-      },
-    ],
-    personalization: {
-      ready: 10,
-      pending: 2,
-      refreshing: 1,
-      not_needed: 3,
-      overdue: 1,
-      empty_with_interests: 1,
-      issues: [
+
+export const populatedCharts: ChartReports = {
+  attention: {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "attention",
+    data: {
+      full_automation: false,
+      reviews: [
         {
-          id: "user-1",
-          name: "Ada",
-          issue: "Refresh overdue",
-          next_refresh_at: "2026-09-08T12:00:00Z",
+          kind: "articles",
+          count: 4,
+        },
+        {
+          kind: "sources",
+          count: 2,
+        },
+        {
+          kind: "topics",
+          count: 3,
+        },
+        {
+          kind: "relationships",
+          count: 1,
         },
       ],
-      reasons: [{ reason: "followed_source", users: 4, recommendations: 20 }],
+      source_failures: 2,
+      blockers: [
+        {
+          code: "analysis_failed",
+          label: "Failed analysis",
+          count: 2,
+          action: "analyze",
+          targets: [
+            {
+              id: "article-1",
+              title: "Routing guide",
+              kind: "article",
+              revision: 7,
+            },
+          ],
+        },
+      ],
     },
-    top_articles: [{ id: "article-1", title: "TypeScript guide", opens: 20, likes: 5 }],
-    coverage: [
-      {
-        id: "topic-1",
-        name: "Python",
-        logo_url: null,
-        followers: 8,
-        inferred_users: 3,
-        publications: 0,
-        last_published_at: null,
+  },
+  "publication-rate": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "publication-rate",
+    data: {
+      summary: {
+        published: 42,
+        automatic_percent: 83.3,
       },
-    ],
-    source_publications_total: 15,
-    adoption: { accounts: 16, liking: 7, following_topics: 10, following_sources: 5 },
-    source_performance: [
-      {
-        id: "source-1",
-        name: "Example publisher",
-        logo_url: null,
-        discovered: 20,
-        published: 15,
-        followers: 5,
-        fetch_failures: 1,
-        consecutive_failures: 1,
-        last_success_at: null,
+      activity: [
+        {
+          bucket: "2026-10-26T00:00:00Z",
+          published: 42,
+          automated: 35,
+        },
+      ],
+    },
+  },
+  "publication-latency": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "publication-latency",
+    data: {
+      summary: {
+        p50_seconds: 60,
+        p95_seconds: 240,
       },
-    ],
-    processing: [
-      {
-        kind: "analysis",
-        queued: 18,
-        running: 2,
-        completed: 364,
-        failed: 3,
-        oldest_queued_at: "2026-09-08T12:00:00Z",
+      activity: [
+        {
+          bucket: "2026-10-26T00:00:00Z",
+          p50_seconds: 60,
+          p95_seconds: 240,
+        },
+      ],
+    },
+  },
+  "audience-activity": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "audience-activity",
+    data: {
+      activity: [
+        {
+          bucket: "2026-10-26T00:00:00Z",
+          opens: 100,
+          estimated_readers: 52,
+          new_accounts: 4,
+        },
+      ],
+    },
+  },
+  personalization: {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "personalization",
+    data: {
+      personalization: {
+        ready: 8,
+        refreshing: 2,
+        expired: 1,
+        pending: 1,
+        not_needed: 3,
+        overdue: 1,
       },
-    ],
+    },
+  },
+  "queue-pressure": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "queue-pressure",
+    data: {
+      queues: [
+        {
+          kind: "ingestion",
+          queued: 4,
+          running: 1,
+        },
+        {
+          kind: "article_enrichment",
+          queued: 2,
+          running: 0,
+        },
+        {
+          kind: "article_image",
+          queued: 7,
+          running: 2,
+        },
+        {
+          kind: "source_enrichment",
+          queued: 1,
+          running: 0,
+        },
+        {
+          kind: "analysis",
+          queued: 9000,
+          running: 2,
+        },
+        {
+          kind: "topic_analysis",
+          queued: 20,
+          running: 1,
+        },
+        {
+          kind: "research_verification",
+          queued: 2,
+          running: 0,
+        },
+        {
+          kind: "notification",
+          queued: 0,
+          running: 2,
+        },
+      ],
+    },
+  },
+  throughput: {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "throughput",
+    data: {
+      throughput: [
+        {
+          bucket: "2026-10-26T00:00:00Z",
+          articles_published: 42,
+          article_analyses: 50,
+          topic_decisions: 4,
+        },
+      ],
+    },
+  },
+  "job-outcomes": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "job-outcomes",
+    data: {
+      outcomes: [
+        {
+          kind: "analysis",
+          completed: 50,
+          failed: 2,
+          p50_seconds: 10,
+          p95_seconds: 25,
+        },
+      ],
+    },
+  },
+  "ai-activity": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "ai-activity",
+    data: {
+      summary: {
+        calls: 8,
+        failed: 1,
+        unreported: 2,
+        input_tokens: 1800,
+        output_tokens: 400,
+        cached_input_tokens: 200,
+        reasoning_tokens: 100,
+        web_searches: 3,
+      },
+      activity: [
+        {
+          bucket: "2026-10-26T00:00:00Z",
+          calls: 8,
+          failed: 1,
+          unreported: 2,
+          input_tokens: 1800,
+          output_tokens: 400,
+          cached_input_tokens: 200,
+          reasoning_tokens: 100,
+          web_searches: 3,
+          p50_ms: 2000,
+          p95_ms: 8000,
+        },
+      ],
+    },
+  },
+  "ai-breakdown": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "ai-breakdown",
+    data: {
+      tasks: [
+        {
+          name: "Article analysis",
+          calls: 8,
+          input_tokens: 1800,
+          output_tokens: 400,
+        },
+      ],
+      models: [
+        {
+          name: "Model A",
+          calls: 8,
+          input_tokens: 1800,
+          output_tokens: 400,
+        },
+      ],
+      efforts: [
+        {
+          name: "Low",
+          calls: 8,
+          input_tokens: 1800,
+          output_tokens: 400,
+        },
+      ],
+    },
+  },
+  "source-output": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "source-output",
+    data: {
+      sources: [
+        {
+          id: "source-1",
+          name: "Publisher",
+          publications: 42,
+          consecutive_failures: 2,
+        },
+      ],
+      source_publications_total: 60,
+    },
+  },
+  "topic-coverage": {
+    generated_at: "2026-10-26T12:00:00Z",
+    days: 30,
+    chart: "topic-coverage",
+    data: {
+      topics: [
+        {
+          id: "topic-1",
+          name: "Python",
+          followers: 8,
+          inferred_users: 2,
+          publications: 30,
+        },
+      ],
+    },
   },
 };

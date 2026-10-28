@@ -25,7 +25,7 @@ import {
   adminArticleReview,
   adminArticlePipelineDetail,
   adminAuthSsoLogout,
-  adminOverviewPanel,
+  adminOverviewChart,
   adminSourceFetch,
   adminSourceReview,
   adminSourcePipelineDetail,
@@ -58,7 +58,7 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminSourceFetch: vi.fn(),
   adminArticleClassify: vi.fn(),
   adminAuthSsoLogout: vi.fn(),
-  adminOverviewPanel: vi.fn(),
+  adminOverviewChart: vi.fn(),
   adminSourcePipelineDetail: vi.fn(),
 }));
 const article = {
@@ -84,7 +84,7 @@ const admin = {
   expires_at: 4102444800,
   csrf_token: "test-csrf",
 };
-import { emptyOverview as overview } from "./fixtures/overview";
+import { emptyCharts } from "./fixtures/overview";
 function withAdmin(children: ReactNode) {
   return render(
     <AdminSession
@@ -490,9 +490,13 @@ describe("workflow feedback", () => {
     );
   });
   it("does not toast successful independent overview chart reads", async () => {
-    vi.mocked(adminOverviewPanel).mockResolvedValue(overview);
-    render(<Overview initialDays={30} />);
-    await waitFor(() => expect(adminOverviewPanel).toHaveBeenCalledTimes(33));
+    vi.mocked(adminOverviewChart).mockImplementation(async (section) => emptyCharts[section]);
+    render(
+      <AdminSession admin={admin}>
+        <Overview initialRange={{ from: "now-29d/d", to: "now" }} />
+      </AdminSession>,
+    );
+    await waitFor(() => expect(adminOverviewChart).toHaveBeenCalledTimes(12));
     expect(toast.success).not.toHaveBeenCalled();
   });
 });

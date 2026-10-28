@@ -1,0 +1,16 @@
+<clickhouse>
+    <!-- Shared server limits apply across API replicas and the native exporter. -->
+    <max_server_memory_usage from_env="DEVFEED_CLICKHOUSE_SERVER_MAX_MEMORY_BYTES" />
+    <max_concurrent_queries from_env="DEVFEED_CLICKHOUSE_SERVER_MAX_QUERIES" />
+    <max_concurrent_select_queries from_env="DEVFEED_CLICKHOUSE_SERVER_MAX_SELECTS" />
+    <max_concurrent_insert_queries from_env="DEVFEED_CLICKHOUSE_SERVER_MAX_INSERTS" />
+    <mark_cache_size>134217728</mark_cache_size>
+    <uncompressed_cache_size>33554432</uncompressed_cache_size>
+    <background_pool_size>2</background_pool_size>
+    <background_merges_mutations_concurrency_ratio>2</background_merges_mutations_concurrency_ratio>
+    <merge_tree>
+        <number_of_free_entries_in_pool_to_execute_mutation>2</number_of_free_entries_in_pool_to_execute_mutation>
+        <number_of_free_entries_in_pool_to_lower_max_size_of_merge>2</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+        <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>2</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+    </merge_tree>
+</clickhouse>

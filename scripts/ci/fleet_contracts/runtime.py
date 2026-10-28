@@ -14,9 +14,9 @@ import uuid
 from pathlib import Path
 
 from devfeed_core.db import get_engine
-from devfeed_core.models import Article, Base, ReadModelEvent, UserAccount
+from devfeed_core.models import Article, Base, UserAccount
 from devfeed_core.version import SCHEMA_REVISION
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 ARTICLE = uuid.UUID("00000000-0000-4000-8000-000000000001")
@@ -61,9 +61,7 @@ def metadata_setup():
             text("INSERT INTO alembic_version VALUES (:revision)"), {"revision": SCHEMA_REVISION}
         )
     seed()
-    with Session(get_engine()) as session, session.begin():
-        session.add(ReadModelEvent(kind="policy"))
-    print("Metadata-only disposable runtime schema; this does not prove Alembic migration")
+    print("Metadata-only disposable business schema; this does not prove Alembic migration")
 
 
 def retained():
@@ -73,52 +71,38 @@ def retained():
         assert session.get(UserAccount, USER).profile == {"bio": "Retained fixture profile"}
 
 
-def projection():
-    from devfeed_admin_api.overview_projection import (
-        INDEPENDENT_GROUPS,
-        REPORT_GROUPS,
-        report_key,
-        report_policy_version,
-    )
-    from devfeed_admin_api.pipeline_reads import serving_projection
-    from devfeed_core.models import PipelineProjection, ReportSnapshot
-    from devfeed_core.read_models import pipeline_policy_version
+def current_cards():
+    import asyncio
 
-    with Session(get_engine()) as session:
-        generation, snapshot = serving_projection(session)
-        assert generation == pipeline_policy_version()
-        assert snapshot.status != "rebuilding"
-        assert snapshot.lag_seconds is not None and snapshot.lag_seconds <= 60
-        article = session.scalar(
-            select(PipelineProjection).where(
-                PipelineProjection.policy_version == generation,
-                PipelineProjection.kind == "article",
-                PipelineProjection.entity_id == ARTICLE,
+    from devfeed_core.analytics import AnalyticsClient
+    from devfeed_core.analytics_observation import pipeline_policy_version
+
+    async def check():
+        async with AnalyticsClient() as client:
+            status = await client.status()
+            assert status["ready"] and status["policy"] == pipeline_policy_version()
+            rows = await client.query(
+                "SELECT payload FROM analytics_card_canonical FINAL "
+                "WHERE policy={policy:String} AND kind='article' "
+                "AND entity_id={id:UUID} AND NOT deleted",
+                {"policy": status["policy"], "id": str(ARTICLE)},
             )
-        )
-        assert article is not None and article.payload["title"] == TITLE
-        required = {
-            report_key(group, days)
-            for group in REPORT_GROUPS
-            for days in ((1,) if group in INDEPENDENT_GROUPS else (7, 30))
-        }
-        assert len(REPORT_GROUPS) == 16 and len(required) == 27
-        for key in required:
-            report = session.get(ReportSnapshot, key)
-            assert report is not None and report.policy_version == report_policy_version()
+            assert len(rows) == 1 and json.loads(rows[0]["payload"])["title"] == TITLE
+
+    asyncio.run(check())
     retained()
-    print("Native backfill retained records and published all 27 current report snapshots")
+    print("Direct analytics import retained records and published current ClickHouse cards")
 
 
-def heartbeat(kind):
-    from devfeed_admin_api.projection_worker import heartbeat_marker
+def heartbeat():
+    from devfeed_core.runtime_files import runtime_marker
 
-    marker = heartbeat_marker(kind)
+    marker = runtime_marker("analytics-worker")
     assert marker.is_file() and marker.stat().st_uid == 10001
     assert marker.parent.stat().st_mode & 0o777 == 0o700
     assert marker.stat().st_mode & 0o777 == 0o600
-    assert 0 <= time.time() - marker.stat().st_mtime < 60
-    os.utime(marker, (1, 1))
+    assert 0 <= time.time() - float(marker.read_text()) < 120
+    marker.write_text("1")
 
 
 def permissions():
@@ -189,10 +173,10 @@ if __name__ == "__main__":
         seed()
     elif action == "retained":
         retained()
-    elif action == "projection":
-        projection()
+    elif action == "current-cards":
+        current_cards()
     elif action == "heartbeat":
-        heartbeat(sys.argv[2])
+        heartbeat()
     elif action == "permissions":
         permissions()
     elif action == "ca":

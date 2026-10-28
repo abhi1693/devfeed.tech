@@ -35,6 +35,7 @@
     "./date-format": "./src/date-format.ts",
     "./retry-button": "./src/retry-button.tsx",
     "./date-picker": "./src/date-picker.tsx",
+    "./date-range-picker": "./src/date-range-picker.tsx",
     "./sign-in": "./src/sign-in.tsx",
     "./sign-in-feedback": "./src/sign-in-feedback.ts",
     "./use-debounced-image-preview": "./src/use-debounced-image-preview.ts",

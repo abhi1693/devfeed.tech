@@ -4,11 +4,13 @@ Services supply validated domain results. The session double does not emulate
 database filtering, locking, transactions, or object-storage compensation.
 """
 
+import asyncio
 import copy
 import uuid
 from contextlib import contextmanager
 from io import BytesIO
-from unittest.mock import Mock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from cryptography.fernet import Fernet
@@ -105,32 +107,68 @@ def test_campaign_adapters_keep_account_scope_explicit_settings_and_commit_order
     body = CampaignInput.model_validate(
         report.model_dump(exclude={"id", "account_id", "managed", "impressions", "clicks", "ctr"})
     )
-    service = Mock()
-    service.page.return_value = {"items": [report], "total": 3}
-    service.get.return_value = report
-    service.save.return_value = saved
+    active = False
 
-    def reports(rows):
-        session.commit.assert_called_once_with()
-        assert rows == [saved]
+    @contextmanager
+    def factory():
+        nonlocal active
+        assert not active
+        active = True
+        try:
+            yield session
+        finally:
+            active = False
+
+    analytics, client = object(), object()
+    metadata = SimpleNamespace(total=3)
+
+    async def reports(measured):
+        assert not active, "PostgreSQL session held during analytics I/O"
+        assert measured is analytics
+        assert session.commit.call_count == int(command == "update")
         return [report]
 
-    service.reports.side_effect = reports
+    metadata.reports = AsyncMock(side_effect=reports)
+    service = Mock()
+    service.page.return_value = metadata
+    service.get.return_value = metadata
+    service.metadata.return_value = metadata
+    service.save.return_value = saved
     construct = Mock(return_value=service)
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(analytics=SimpleNamespace(client=client)))
+    )
+    monkeypatch.setattr(accounts, "require_partner_history", AsyncMock())
+    store = Mock(return_value=analytics)
+    monkeypatch.setattr(accounts, "DirectEngagementAnalytics", store)
     monkeypatch.setattr(accounts, "CampaignService", construct)
     if command == "list":
-        output = accounts.campaigns(owner.id, session, identity(), limit=1, offset=2)
+        output = asyncio.run(
+            accounts.campaigns(owner.id, factory, identity(), request, limit=1, offset=2)
+        )
         assert output == {"items": [report], "total": 3}
         service.page.assert_called_once_with(limit=1, offset=2)
     elif command == "get":
-        assert accounts.campaign(owner.id, saved.id, session, identity()) is report
+        assert (
+            asyncio.run(accounts.campaign(owner.id, saved.id, factory, identity(), request))
+            is report
+        )
         service.get.assert_called_once_with(saved.id)
     elif command == "create":
         assert accounts.create_campaign(owner.id, body, session, identity()) is saved
         service.save.assert_called_once_with(body)
     else:
-        assert accounts.update_campaign(owner.id, saved.id, body, session, identity()) is report
+        assert (
+            asyncio.run(
+                accounts.update_campaign(owner.id, saved.id, body, factory, identity(), request)
+            )
+            is report
+        )
         service.save.assert_called_once_with(body, campaign_id=saved.id)
+        service.metadata.assert_called_once_with([saved])
+    if command != "create":
+        metadata.reports.assert_awaited_once_with(analytics)
+        store.assert_called_once_with(client)
     construct.assert_called_once_with(session, owner)
     access.assert_called_once_with(
         session, identity(), owner.id, **({"lock": True} if command in {"create", "update"} else {})

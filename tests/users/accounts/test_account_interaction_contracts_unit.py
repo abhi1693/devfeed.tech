@@ -6,10 +6,10 @@ hourly uniqueness, counters, reading-day transactions, and Redis atomicity are n
 
 import hashlib
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from devfeed_user_api import bookmarks, dependencies, engagement, oidc, open_limits
@@ -27,6 +27,28 @@ from tests.support.reader_context import stories as stories
 from tests.support.reader_context import user
 
 NOW = datetime(2026, 10, 22, 12, 34, tzinfo=UTC)
+
+
+class FakeAnalyticsClient:
+    def __init__(self):
+        self.inserts = []
+
+    async def query(self, statement, parameters=None):
+        if "analytics_article_open_cutover" in statement:
+            return [
+                {
+                    "entries": 1,
+                    "earliest": NOW.replace(minute=0).isoformat(),
+                    "latest": NOW.replace(minute=0).isoformat(),
+                    "ready": 1,
+                }
+            ]
+        if "analytics_article_open_baseline" in statement:
+            return [{"article_id": str(identity), "opens": 4} for identity in parameters["ids"]]
+        return []
+
+    async def insert(self, table, rows):
+        self.inserts.append((table, rows))
 
 
 @pytest.fixture
@@ -47,21 +69,21 @@ def api(monkeypatch):
     monkeypatch.setattr(engagement, "limit_open_requests", limits)
     monkeypatch.setattr(engagement, "record_reading_day", reading_day)
     projection = Mock(
-        return_value=[
-            engagement.EngagementOut(
-                article_id=article_id, likes=3, opens=4, liked=False, bookmarked=False
-            )
-        ]
+        return_value=[{"article_id": article_id, "likes": 3, "liked": False, "bookmarked": False}]
     )
     monkeypatch.setattr(engagement, "engagement_rows", projection)
     session = Mock(spec=Session)
     session.scalar.return_value = article_id
     app = FastAPI()
+    app.state.analytics_client = FakeAnalyticsClient()
     app.include_router(engagement.router)
     app.include_router(bookmarks.router)
     app.dependency_overrides[require_user] = lambda: user
     app.dependency_overrides[engagement.optional_user] = lambda: None
     app.dependency_overrides[dependencies.get_session] = lambda: session
+    app.dependency_overrides[dependencies.get_session_factory] = lambda: (
+        lambda: nullcontext(session)
+    )
     with TestClient(app, base_url=settings.base_url) as client:
         yield SimpleNamespace(
             owner=owner,
@@ -74,6 +96,7 @@ def api(monkeypatch):
             limits=limits,
             reading_day=reading_day,
             projection=projection,
+            analytics=app.state.analytics_client,
         )
 
 
@@ -116,9 +139,7 @@ def test_new_bookmark_cannot_bypass_the_visible_article_read(api):
 @pytest.mark.parametrize("liked", [False, True])
 def test_like_commands_use_the_owned_identity_and_return_the_service_projection(api, liked):
     api.projection.return_value = [
-        engagement.EngagementOut(
-            article_id=api.article_id, likes=3, opens=4, liked=liked, bookmarked=True
-        )
+        {"article_id": api.article_id, "likes": 3, "liked": liked, "bookmarked": True}
     ]
 
     response = api.client.put(f"/v1/user/articles/{api.article_id}/like", json={"liked": liked})
@@ -182,14 +203,19 @@ def test_original_article_click_hashes_identity_and_forwards_only_new_open_inten
     identity = "user:" + str(api.owner) if signed_in else "visitor:" + visitor
     digest = hashlib.sha256(identity.encode()).hexdigest()
     api.limits.assert_called_once_with(api.article_id, digest, anonymous=not signed_in)
-    assert api.session.execute.call_count == int(recorded)
+    assert api.session.execute.call_count == 0
+    assert len(api.analytics.inserts) == 1
+    table, rows = api.analytics.inserts[0]
+    assert table == "analytics_article_opens"
+    assert rows[0]["article_id"] == str(api.article_id)
+    assert rows[0]["viewer_key"] == digest
     if signed_in:
         api.reading_day.assert_called_once_with(api.session, api.owner, api.article_id, NOW)
     else:
         api.reading_day.assert_not_called()
     assert "set-cookie" not in response.headers
     assert visitor not in response.text and str(api.owner) not in response.text
-    api.session.commit.assert_called_once()
+    assert api.session.commit.call_count == int(signed_in)
 
 
 def test_new_anonymous_click_receives_only_an_opaque_secure_visitor_cookie(api):
@@ -309,9 +335,13 @@ def test_open_budget_failures_are_actionable_without_dependency_details(monkeypa
 @contextmanager
 def read_api(viewer=None):
     app, session = FastAPI(), Mock(spec=Session)
+    app.state.analytics_client = FakeAnalyticsClient()
     app.include_router(engagement.router)
     app.dependency_overrides[engagement.optional_user] = lambda: viewer
     app.dependency_overrides[dependencies.get_session] = lambda: session
+    app.dependency_overrides[dependencies.get_session_factory] = lambda: (
+        lambda: nullcontext(session)
+    )
     with TestClient(app) as client:
         yield SimpleNamespace(client=client, session=session)
 
@@ -324,7 +354,6 @@ def test_engagement_projection_returns_counts_and_owned_flags_without_personal_i
     selected = {
         "article_id": identifier,
         "likes": 3,
-        "opens": 4,
         "liked": signed_in,
         "bookmarked": signed_in,
     }
@@ -332,7 +361,7 @@ def test_engagement_projection_returns_counts_and_owned_flags_without_personal_i
         api.session.execute.return_value.mappings.return_value = [selected]
         response = api.client.get("/v1/user/engagement", params={"article_id": str(identifier)})
         assert response.status_code == 200
-        assert response.json() == [{**selected, "article_id": str(identifier)}]
+        assert response.json() == [{**selected, "article_id": str(identifier), "opens": 4}]
         assert set(response.json()[0]) == set(engagement.EngagementOut.model_fields)
         api.session.execute.assert_called_once()
         api.session.commit.assert_not_called()
@@ -346,8 +375,16 @@ def test_engagement_projection_returns_counts_and_owned_flags_without_personal_i
 def test_trending_lookahead_returns_only_the_requested_page_and_stops_at_the_supported_cursor_bound(
     stories, offset, empty, next_cursor
 ):
-    with read_api() as api:
-        api.session.scalars.return_value = [] if empty else stories
+    from devfeed_core.schemas import ArticleOut, FeedPage
+
+    page = FeedPage(
+        items=[] if empty else ArticleOut.from_articles([stories[0]]),
+        next_cursor=str(offset + 1) if not empty and offset < 1_000_000 else None,
+    )
+    with (
+        read_api() as api,
+        patch.object(engagement, "trending_page", AsyncMock(return_value=page)) as ranked,
+    ):
         response = api.client.get("/v1/user/trending", params={"cursor": offset, "limit": 1})
         assert response.status_code == 200, response.text
         output = response.json()
@@ -355,5 +392,162 @@ def test_trending_lookahead_returns_only_the_requested_page_and_stops_at_the_sup
         assert output["next_cursor"] == next_cursor
         if not empty:
             assert "classification_provenance" not in output["items"][0]
-        api.session.scalars.assert_called_once()
+        ranked.assert_awaited_once()
         api.session.commit.assert_not_called()
+
+
+def test_concurrent_analytics_routes_close_each_worker_session_before_clickhouse(monkeypatch):
+    import asyncio
+    import threading
+    from contextlib import asynccontextmanager
+    from contextvars import ContextVar
+
+    import httpx
+    from devfeed_user_api import trending
+
+    scope = ContextVar("analytics_request")
+    started, release = threading.Event(), threading.Event()
+    active, phases = {}, []
+    state_lock = threading.Lock()
+    article = published_article(1)
+    viewer = user()
+    settings = Settings(_env_file=None, base_url="http://reader.test", cookie_secure=False)
+    monkeypatch.setattr(engagement, "get_settings", lambda: settings)
+
+    async def scenario():
+        loop_thread = threading.get_ident()
+
+        class WorkerSession:
+            def __init__(self):
+                self.owner, self.request = threading.get_ident(), scope.get()
+                self.closed = False
+                assert self.owner != loop_thread
+                with state_lock:
+                    active[self.request] = active.get(self.request, 0) + 1
+
+            def __enter__(self):
+                assert threading.get_ident() == self.owner
+                return self
+
+            def __exit__(self, *_args):
+                assert threading.get_ident() == self.owner
+                self.closed = True
+                with state_lock:
+                    active[self.request] -= 1
+
+            def phase(self, name):
+                assert threading.get_ident() == self.owner and not self.closed
+                started.set()
+                assert release.wait(2), "The event loop could not serve the independent probe"
+                phases.append((self.request, name))
+
+            def scalar(self, _statement):
+                self.phase("visibility")
+                return article.id
+
+            def execute(self, _statement):
+                self.phase("write")
+
+            def commit(self):
+                self.phase("commit")
+
+        class Client(FakeAnalyticsClient):
+            def __init__(self):
+                super().__init__()
+                self.slot = asyncio.Semaphore(1)
+
+            def assert_closed(self):
+                with state_lock:
+                    assert active.get(scope.get(), 0) == 0
+
+            async def query(self, statement, parameters=None, **_kwargs):
+                self.assert_closed()
+                await asyncio.sleep(0.001)
+                if "visible_articles AS v" in statement:
+                    return [{"article_id": str(article.id)}]
+                return await super().query(statement, parameters)
+
+            async def insert(self, table, rows):
+                self.assert_closed()
+                await asyncio.sleep(0.001)
+                await super().insert(table, rows)
+
+            @asynccontextmanager
+            async def external_query_slot(self):
+                async with self.slot:
+                    yield
+
+        def rows(session, identities, _viewer):
+            session.phase("engagement")
+            return [{"article_id": identities[0], "likes": 0, "liked": False, "bookmarked": False}]
+
+        def authorize(session, *_args):
+            session.phase("authorize")
+
+        def metadata(session, _since):
+            session.phase("ranking")
+            return b"x" * 32
+
+        def articles(session, _identities):
+            session.phase("articles")
+            return [article]
+
+        monkeypatch.setattr(engagement, "engagement_rows", rows)
+        monkeypatch.setattr(engagement, "_authorize_open", authorize)
+        monkeypatch.setattr(trending, "_ranking_metadata", metadata)
+        monkeypatch.setattr(trending, "_articles", articles)
+        app = FastAPI()
+        app.state.analytics_client = Client()
+        app.include_router(engagement.router)
+        app.dependency_overrides[dependencies.get_session_factory] = lambda: WorkerSession
+        app.dependency_overrides[require_user] = lambda: viewer
+        app.dependency_overrides[engagement.optional_user] = lambda: None
+
+        @app.get("/independent-probe")
+        async def probe():
+            return {"ready": True}
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url=settings.base_url
+        ) as client:
+
+            async def request(index):
+                token = scope.set(index)
+                try:
+                    path = f"/v1/user/articles/{article.id}"
+                    if index % 4 == 0:
+                        return await client.get(
+                            "/v1/user/engagement", params={"article_id": str(article.id)}
+                        )
+                    if index % 4 == 1:
+                        return await client.put(path + "/like", json={"liked": True})
+                    if index % 4 == 2:
+                        return await client.post(
+                            path + "/open", headers={"Origin": settings.base_url}
+                        )
+                    return await client.get("/v1/user/trending")
+                finally:
+                    scope.reset(token)
+
+            pending = [asyncio.create_task(request(index)) for index in range(16)]
+            try:
+                assert await asyncio.to_thread(started.wait, 1)
+                response = await asyncio.wait_for(client.get("/independent-probe"), timeout=0.25)
+                assert response.json() == {"ready": True}
+                assert any(not task.done() for task in pending)
+            finally:
+                release.set()
+            responses = await asyncio.gather(*pending)
+            assert all(response.status_code == 200 for response in responses)
+        assert len(active) == 16 and set(active.values()) == {0}
+        assert {name for _, name in phases} >= {
+            "visibility",
+            "write",
+            "commit",
+            "engagement",
+            "authorize",
+            "ranking",
+            "articles",
+        }
+
+    asyncio.run(scenario())

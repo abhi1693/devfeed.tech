@@ -74,9 +74,15 @@ def pause_reason(connection, *, settings=None, now=None):
     settings = settings or get_settings()
     if not settings.ai_quota_pacing_enabled:
         return None
+    return snapshot_pause_reason(connection.get(quota_key()), settings=settings, now=now)
+
+
+def snapshot_pause_reason(raw, *, settings, now=None):
+    """Validate the same allowance when a caller batches its Redis reads."""
+    if not settings.ai_quota_pacing_enabled:
+        return None
     now = time.time() if now is None else now
     try:
-        raw = connection.get(quota_key())
         snapshot = json.loads(raw) if raw else None
         if not snapshot or not 0 <= now - snapshot["checked_at"] <= FRESH_SECONDS:
             return "codex_quota_unavailable"

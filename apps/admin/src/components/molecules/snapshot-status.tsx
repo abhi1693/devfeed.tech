@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { runWhenPageActive } from "@devfeed/ui/page-activity";
-import type { ReadModelSnapshot } from "@/lib/api/generated/models";
+import type { AnalyticsSnapshot } from "@/lib/api/generated/models";
 import { DateTime } from "./date-time";
 
 export function SnapshotStatus({
@@ -11,7 +11,7 @@ export function SnapshotStatus({
   maxAgeSeconds = 60,
   active = true,
 }: {
-  snapshot?: ReadModelSnapshot | null;
+  snapshot?: AnalyticsSnapshot | null;
   checkedAt?: string | null;
   maxAgeSeconds?: number;
   active?: boolean;
@@ -42,9 +42,7 @@ export function SnapshotStatus({
   const label = {
     fresh: "Updated",
     stale: "Stale data · Last updated",
-    refreshing: "Updating saved data · Last updated",
     catching_up: "Catalog catching up · Last updated",
-    rebuilding: "Rebuilding saved data · Last updated",
   }[status];
   return (
     <p

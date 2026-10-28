@@ -91,16 +91,23 @@ if [[ "$suite" = unit ]]; then exit 0; fi
 ci_postgres=""
 ci_redis=""
 ci_imgproxy=""
+ci_clickhouse=""
 cleanup() {
   if [[ -n "$ci_postgres" ]]; then docker rm -f "$ci_postgres" >/dev/null; fi
   if [[ -n "$ci_redis" ]]; then docker rm -f "$ci_redis" >/dev/null; fi
   if [[ -n "$ci_imgproxy" ]]; then docker rm -f "$ci_imgproxy" >/dev/null; fi
+  if [[ -n "$ci_clickhouse" ]]; then docker rm -f "$ci_clickhouse" >/dev/null; fi
 }
 trap cleanup EXIT
 ci_postgres=$(docker run -d --rm -p 127.0.0.1::5432 \
   -e POSTGRES_USER=ci -e POSTGRES_PASSWORD=ci -e POSTGRES_DB=devfeed_test \
   postgres:18-alpine)
 ci_redis=$(docker run -d --rm -p 127.0.0.1::6379 redis:8-alpine)
+ci_clickhouse_password=$(python3 -c 'import secrets; print(secrets.token_hex(24))')
+ci_clickhouse=$(docker run -d --rm --cpus 2 --memory 2g -p 127.0.0.1::8123 \
+  -e CLICKHOUSE_USER=ci -e "CLICKHOUSE_PASSWORD=${ci_clickhouse_password}" \
+  -e CLICKHOUSE_DB=devfeed_test -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1 \
+  clickhouse/clickhouse-server:26.8-alpine@sha256:7d2c6c7af374dfaacd6d7aec3403aa43cee5ea334cb2d82400bd3dfa6f62f697)
 # Contract fixtures serve originals on loopback. Host networking is confined to
 # this disposable renderer, bound to loopback with test-only signing credentials.
 ci_imgproxy_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
@@ -114,8 +121,11 @@ ci_imgproxy=$(docker run -d --rm --network host --memory 512m \
   ghcr.io/imgproxy/imgproxy:v4.0.15@sha256:4ec770c72bffea108ba404dc86d3be88e6bf4fd58958782770ff890cca4c7a82)
 export DEVFEED_TEST_IMGPROXY_URL="http://127.0.0.1:${ci_imgproxy_port}"
 for attempt in $(seq 1 60); do
-  if docker exec "$ci_postgres" pg_isready -U ci -d devfeed_test >/dev/null 2>&1 &&
+  if docker exec "$ci_postgres" pg_isready -h 127.0.0.1 -U ci -d devfeed_test >/dev/null 2>&1 &&
      docker exec "$ci_redis" redis-cli ping | grep -qx PONG &&
+     docker exec "$ci_clickhouse" clickhouse-client --user ci \
+       --password "$ci_clickhouse_password" --database devfeed_test \
+       --query 'SELECT 1' >/dev/null 2>&1 &&
      curl --fail --silent --max-time 2 "$DEVFEED_TEST_IMGPROXY_URL/health" >/dev/null; then break; fi
   if [[ "$attempt" -eq 60 ]]; then
     echo 'Disposable test services did not become ready' >&2
@@ -125,8 +135,13 @@ for attempt in $(seq 1 60); do
 done
 ci_pg_port=$(docker port "$ci_postgres" 5432/tcp | cut -d: -f2)
 ci_redis_port=$(docker port "$ci_redis" 6379/tcp | cut -d: -f2)
+ci_clickhouse_port=$(docker port "$ci_clickhouse" 8123/tcp | cut -d: -f2)
 export DEVFEED_TEST_DATABASE_URL="postgresql+psycopg://ci:ci@127.0.0.1:${ci_pg_port}/devfeed_test"
 export DEVFEED_TEST_REDIS_URL="redis://127.0.0.1:${ci_redis_port}/15"
+export DEVFEED_TEST_CLICKHOUSE_URL="http://127.0.0.1:${ci_clickhouse_port}"
+export DEVFEED_TEST_CLICKHOUSE_DATABASE=devfeed_test
+export DEVFEED_TEST_CLICKHOUSE_USERNAME=ci
+export DEVFEED_TEST_CLICKHOUSE_PASSWORD="$ci_clickhouse_password"
 # CI has Linux Docker networking and explicitly owns the fault-test resources.
 # Exercise recovery here; the report gate correctly rejects skipped integration tests.
 report="reports/python-integration-${shard_index}.xml"

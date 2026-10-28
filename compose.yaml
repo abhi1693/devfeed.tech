@@ -16,8 +16,7 @@ x-runtime: &runtime
       max-size: 10m
       max-file: "3"
 
-x-core-environment: &core-environment
-  # Use a hex password so it is safe inside this connection URL.
+x-core-environment: &core-environment # Use a hex password so it is safe inside this connection URL.
   DEVFEED_DATABASE_URL: ${DEVFEED_DATABASE_URL:-postgresql+psycopg://devfeed:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/devfeed}
   DEVFEED_REDIS_URL: ${DEVFEED_REDIS_URL:-redis://redis:6379/0}
   DEVFEED_SITEMAP_REFRESH_SECONDS: ${DEVFEED_SITEMAP_REFRESH_SECONDS:-900}
@@ -96,8 +95,45 @@ x-chimely-environment: &chimely-environment
   DEVFEED_CHIMELY_ADMIN_ENVIRONMENT:
   DEVFEED_CHIMELY_USER_ENVIRONMENT: ${DEVFEED_CHIMELY_USER_ENVIRONMENT:-devfeed-users}
 
-x-host-access: &host-access
-  # Also support host services on Docker Engine for Linux.
+# Analytical readers and producers receive role-scoped ClickHouse credentials.
+x-clickhouse-environment: &clickhouse-environment
+  DEVFEED_CLICKHOUSE_URL: ${DEVFEED_CLICKHOUSE_URL:-http://clickhouse:8123}
+  DEVFEED_CLICKHOUSE_DATABASE: ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}
+  DEVFEED_CLICKHOUSE_USERNAME: ${DEVFEED_CLICKHOUSE_USERNAME:-devfeed}
+  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}}
+  DEVFEED_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS: ${DEVFEED_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS:-3}
+  DEVFEED_CLICKHOUSE_TIMEOUT_SECONDS: ${DEVFEED_CLICKHOUSE_TIMEOUT_SECONDS:-30}
+  DEVFEED_CLICKHOUSE_MAX_THREADS: ${DEVFEED_CLICKHOUSE_MAX_THREADS:-2}
+  DEVFEED_CLICKHOUSE_MAX_CONCURRENT_QUERIES: ${DEVFEED_CLICKHOUSE_MAX_CONCURRENT_QUERIES:-2}
+  DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS: ${DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS:-20}
+  DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES:-268435456}
+
+x-clickhouse-public: &clickhouse-public
+  <<: *clickhouse-environment
+  DEVFEED_CLICKHOUSE_USERNAME: devfeed_public
+  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD:?Set DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD in .env}
+
+x-clickhouse-user: &clickhouse-user
+  <<: *clickhouse-environment
+  DEVFEED_CLICKHOUSE_USERNAME: devfeed_user
+  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_USER_PASSWORD:?Set DEVFEED_CLICKHOUSE_USER_PASSWORD in .env}
+
+x-clickhouse-partner: &clickhouse-partner
+  <<: *clickhouse-environment
+  DEVFEED_CLICKHOUSE_USERNAME: devfeed_partner
+  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_PARTNER_PASSWORD:?Set DEVFEED_CLICKHOUSE_PARTNER_PASSWORD in .env}
+
+x-clickhouse-admin: &clickhouse-admin
+  <<: *clickhouse-environment
+  DEVFEED_CLICKHOUSE_USERNAME: devfeed_admin
+  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_ADMIN_PASSWORD:?Set DEVFEED_CLICKHOUSE_ADMIN_PASSWORD in .env}
+
+x-clickhouse-worker: &clickhouse-worker
+  <<: *clickhouse-environment
+  DEVFEED_CLICKHOUSE_USERNAME: devfeed_worker
+  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_WORKER_PASSWORD:?Set DEVFEED_CLICKHOUSE_WORKER_PASSWORD in .env}
+
+x-host-access: &host-access # Also support host services on Docker Engine for Linux.
   extra_hosts:
     - "host.docker.internal:host-gateway"
 
@@ -121,7 +157,12 @@ x-healthcheck: &healthcheck
   retries: 3
   start_period: 30s
 
+# Zero retains the current uncapped local defaults; size each pool from observed peaks.
 x-worker-runtime: &worker-runtime
+  cpus: ${DEVFEED_WORKER_CPUS:-0}
+  mem_limit: ${DEVFEED_WORKER_MEMORY_LIMIT:-0}
+  # Article analysis can run for 1,500 seconds, then drain bounded telemetry/delivery.
+  stop_grace_period: 26m
   # A container keeps its hostname across restarts. RQ registrations can outlive
   # an interrupted process, so give every startup its own identity.
   command:
@@ -130,16 +171,18 @@ x-worker-runtime: &worker-runtime
     - |
       worker_name="$$HOSTNAME-$$(python -c 'import uuid; print(uuid.uuid4().hex)')"
       python -c 'import sys; from devfeed_core.runtime_files import runtime_marker, write_runtime_marker; write_runtime_marker(runtime_marker("worker-name"), sys.argv[1])' "$$worker_name"
-      exec devfeed worker --queue "$${DEVFEED_WORKER_QUEUE:-all}" --name "$$worker_name"
+      exec devfeed-worker --queue "$${DEVFEED_WORKER_QUEUE:-all}" --name "$$worker_name"
   healthcheck:
     <<: *healthcheck
-    test: [CMD, python, -c, "import os; from devfeed_core.runtime_files import runtime_marker; from redis import Redis; name = runtime_marker('worker-name').read_text().strip(); r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert name and r.exists('rq:worker:' + name) and not r.hexists('rq:worker:' + name, 'death')"]
+    test: [CMD, devfeed-worker-health]
+
+x-worker-environment: &worker-environment
+  DEVFEED_WORKER_HEALTH_PATH: /tmp/devfeed-worker-health
 
 x-dedicated-worker: &dedicated-worker
   <<: [*backend, *worker-runtime]
   profiles: [workers]
   depends_on: *ready
-  stop_grace_period: 10m
 
 services:
   postgres:
@@ -159,10 +202,117 @@ services:
       test: [CMD, pg_isready, -U, devfeed, -d, devfeed]
       interval: 5s
 
+  clickhouse:
+    image: ${DEVFEED_CLICKHOUSE_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/}clickhouse/clickhouse-server:26.8-alpine@sha256:7d2c6c7af374dfaacd6d7aec3403aa43cee5ea334cb2d82400bd3dfa6f62f697}
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}
+      CLICKHOUSE_USER: ${DEVFEED_CLICKHOUSE_USERNAME:-devfeed}
+      CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      DEVFEED_CLICKHOUSE_READER_PASSWORD: ${DEVFEED_CLICKHOUSE_READER_PASSWORD:?Set a distinct DEVFEED_CLICKHOUSE_READER_PASSWORD in .env}
+      DEVFEED_CLICKHOUSE_READER_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.*
+      DEVFEED_CLICKHOUSE_INGEST_PASSWORD: ${DEVFEED_CLICKHOUSE_INGEST_PASSWORD:?Set a distinct DEVFEED_CLICKHOUSE_INGEST_PASSWORD in .env}
+      DEVFEED_CLICKHOUSE_INGEST_GRANT: GRANT SELECT, INSERT, CREATE TABLE, CREATE VIEW, DROP TABLE, DROP VIEW, ALTER TABLE, SYSTEM MERGES ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.*
+      DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD: ${DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD:?Set DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD in .env}
+      DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_PARTNER_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_partner_events
+      DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_SEARCH_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_search_events
+      DEVFEED_CLICKHOUSE_PUBLIC_PIPELINE_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_pipeline_events
+      DEVFEED_CLICKHOUSE_PUBLIC_CARDS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_card_canonical
+      DEVFEED_CLICKHOUSE_PUBLIC_PROGRESS_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_backfill_progress
+      DEVFEED_CLICKHOUSE_USER_PASSWORD: ${DEVFEED_CLICKHOUSE_USER_PASSWORD:?Set DEVFEED_CLICKHOUSE_USER_PASSWORD in .env}
+      DEVFEED_CLICKHOUSE_USER_OPENS_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_article_opens
+      DEVFEED_CLICKHOUSE_USER_EVENTS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_user_events
+      DEVFEED_CLICKHOUSE_USER_LIFETIME_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_open_lifetime
+      DEVFEED_CLICKHOUSE_USER_BASELINE_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_article_open_baseline
+      DEVFEED_CLICKHOUSE_USER_CUTOVER_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_article_open_cutover
+      DEVFEED_CLICKHOUSE_PARTNER_PASSWORD: ${DEVFEED_CLICKHOUSE_PARTNER_PASSWORD:?Set DEVFEED_CLICKHOUSE_PARTNER_PASSWORD in .env}
+      DEVFEED_CLICKHOUSE_PARTNER_EVENTS_PARTNER_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_partner_events
+      DEVFEED_CLICKHOUSE_PARTNER_PROGRESS_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_backfill_progress
+      DEVFEED_CLICKHOUSE_ADMIN_PASSWORD: ${DEVFEED_CLICKHOUSE_ADMIN_PASSWORD:?Set DEVFEED_CLICKHOUSE_ADMIN_PASSWORD in .env}
+      DEVFEED_CLICKHOUSE_ADMIN_ALL_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.*
+      DEVFEED_CLICKHOUSE_ADMIN_PIPELINE_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_pipeline_events
+      DEVFEED_CLICKHOUSE_ADMIN_USER_EVENTS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_user_events
+      DEVFEED_CLICKHOUSE_ADMIN_CARDS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_card_canonical
+      DEVFEED_CLICKHOUSE_ADMIN_EVENTS_PARTNER_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_partner_events
+      DEVFEED_CLICKHOUSE_WORKER_PASSWORD: ${DEVFEED_CLICKHOUSE_WORKER_PASSWORD:?Set DEVFEED_CLICKHOUSE_WORKER_PASSWORD in .env}
+      DEVFEED_CLICKHOUSE_WORKER_INFERENCE_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_inference_events
+      DEVFEED_CLICKHOUSE_WORKER_PIPELINE_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_pipeline_events
+      DEVFEED_CLICKHOUSE_WORKER_USER_EVENTS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_user_events
+      DEVFEED_CLICKHOUSE_WORKER_CARDS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_card_canonical
+      DEVFEED_CLICKHOUSE_WORKER_PROGRESS_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_backfill_progress
+      DEVFEED_CLICKHOUSE_MAX_THREADS: ${DEVFEED_CLICKHOUSE_MAX_THREADS:-2}
+      DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS: ${DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS:-20}
+      DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES:-268435456}
+      DEVFEED_CLICKHOUSE_READER_MAX_QUERIES: ${DEVFEED_CLICKHOUSE_READER_MAX_QUERIES:-2}
+      DEVFEED_CLICKHOUSE_READER_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_READER_MAX_MEMORY_BYTES:-536870912}
+      DEVFEED_CLICKHOUSE_INGEST_MAX_QUERIES: ${DEVFEED_CLICKHOUSE_INGEST_MAX_QUERIES:-3}
+      DEVFEED_CLICKHOUSE_INGEST_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_INGEST_MAX_MEMORY_BYTES:-402653184}
+      DEVFEED_CLICKHOUSE_SERVER_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_SERVER_MAX_MEMORY_BYTES:-1610612736}
+      DEVFEED_CLICKHOUSE_SERVER_MAX_QUERIES: ${DEVFEED_CLICKHOUSE_SERVER_MAX_QUERIES:-6}
+      DEVFEED_CLICKHOUSE_SERVER_MAX_SELECTS: ${DEVFEED_CLICKHOUSE_SERVER_MAX_SELECTS:-3}
+      DEVFEED_CLICKHOUSE_SERVER_MAX_INSERTS: ${DEVFEED_CLICKHOUSE_SERVER_MAX_INSERTS:-2}
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+      - ./infra/clickhouse/resources.xml:/etc/clickhouse-server/config.d/devfeed-resources.xml:ro
+      - ./infra/clickhouse/users.xml:/etc/clickhouse-server/users.d/devfeed-analytics.xml:ro
+    networks: [data]
+    cpus: ${DEVFEED_CLICKHOUSE_CPUS:-2}
+    mem_limit: ${DEVFEED_CLICKHOUSE_MEMORY_LIMIT:-2g}
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    healthcheck:
+      <<: *healthcheck
+      test:
+        [
+          CMD-SHELL,
+          'clickhouse-client --host 127.0.0.1 --user devfeed_ingest --password "$$DEVFEED_CLICKHOUSE_INGEST_PASSWORD" --database "$$CLICKHOUSE_DB" --query "SELECT 1" >/dev/null',
+        ]
+      interval: 5s
+      start_period: 60s
+
+  ch-ui:
+    <<: *runtime
+    image: ${DEVFEED_CH_UI_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/caioricciuti/ch-ui:v2.31.0@sha256:4a51a2c1754ad8866dd50a073a4f388216b3d1fdcd58e9d531dbb065e3d1dfeb}
+    # The pinned image runs as chui (100:101); keep its PID in a private runtime mount.
+    user: "100:101"
+    command: [--pid-file, /run/ch-ui/ch-ui-server.pid]
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+      - /run/ch-ui:size=1m,mode=0700,uid=100,gid=101
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      PORT: "4000"
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CONNECTION_NAME: DevFeed analytics
+      DATABASE_PATH: /app/data/ch-ui.db
+      APP_URL: ${DEVFEED_CH_UI_URL:-http://localhost:${DEVFEED_CH_UI_PORT:-4000}}
+      APP_SECRET_KEY: ${DEVFEED_CH_UI_SECRET_KEY:-}
+      ALLOWED_ORIGINS: ${DEVFEED_CH_UI_URL:-http://localhost:${DEVFEED_CH_UI_PORT:-4000}}
+      ALLOW_LOGIN_URL: "false"
+      TRUSTED_PROXIES: none
+    volumes:
+      - ch-ui-data:/app/data
+    # Host port publishing needs the normal network; database traffic stays on data.
+    networks: [default, data]
+    ports:
+      - target: 4000
+        published: "${DEVFEED_CH_UI_PORT:-4000}"
+        host_ip: "${DEVFEED_CH_UI_BIND_IP:-${DEVFEED_BIND_IP:-0.0.0.0}}"
+    cpus: ${DEVFEED_CH_UI_CPUS:-0.5}
+    mem_limit: ${DEVFEED_CH_UI_MEMORY_LIMIT:-512m}
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:4000/health]
+
   redis:
     image: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}redis:8-alpine@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
     restart: unless-stopped
-    command: [redis-server, --appendonly, "yes", --appendfsync, everysec, --maxmemory-policy, noeviction]
+    command:
+      [redis-server, --appendonly, "yes", --appendfsync, everysec, --maxmemory-policy, noeviction]
     volumes:
       - redis-data:/data
     networks: [data]
@@ -174,17 +324,26 @@ services:
   migrate:
     <<: *backend
     restart: "no"
-    command: [devfeed, db, upgrade]
+    command:
+      - sh
+      - -ec
+      - devfeed db upgrade && exec devfeed analytics upgrade
+    environment:
+      <<: [*core-environment, *clickhouse-environment]
+      DEVFEED_CLICKHOUSE_USERNAME: devfeed_ingest
+      DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_INGEST_PASSWORD:?Set a distinct DEVFEED_CLICKHOUSE_INGEST_PASSWORD in .env}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      clickhouse:
+        condition: service_healthy
 
   api:
     <<: *backend
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-public]
       DEVFEED_SEARCH_ENABLED: ${DEVFEED_SEARCH_ENABLED:-false}
       DEVFEED_SEARCH_URL: ${DEVFEED_SEARCH_URL:-http://typesense:8108}
       DEVFEED_SEARCH_QUERY_KEY: ${DEVFEED_SEARCH_QUERY_KEY:-}
@@ -198,7 +357,13 @@ services:
         host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).close()"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).close()",
+        ]
 
   mcp:
     <<: *runtime
@@ -224,7 +389,13 @@ services:
         host_ip: "${DEVFEED_MCP_BIND_IP:-127.0.0.1}"
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health/ready', timeout=12).close()"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health/ready', timeout=12).close()",
+        ]
       timeout: 15s
 
   typesense:
@@ -239,7 +410,13 @@ services:
     networks: [data]
     healthcheck:
       <<: *healthcheck
-      test: [CMD, bash, -ec, "exec 3<>/dev/tcp/127.0.0.1/8108; printf 'GET /health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]"]
+      test:
+        [
+          CMD,
+          bash,
+          -ec,
+          "exec 3<>/dev/tcp/127.0.0.1/8108; printf 'GET /health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3; read -r status <&3; [[ $$status == *' 200 '* ]]",
+        ]
 
   search-setup:
     <<: *backend
@@ -282,7 +459,13 @@ services:
         condition: service_healthy
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -c, "import time; from devfeed_core.runtime_files import runtime_marker; assert time.time() - float(runtime_marker('search-heartbeat').read_text()) < 120"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import time; from devfeed_core.runtime_files import runtime_marker; assert time.time() - float(runtime_marker('search-heartbeat').read_text()) < 120",
+        ]
 
   worker:
     <<: [*backend, *worker-runtime]
@@ -294,7 +477,7 @@ services:
     scale: ${DEVFEED_WORKER_REPLICAS:-2}
     # Keep AI enabled so ingestion queues analysis, even with a dedicated consumer.
     environment:
-      <<: [*core-environment, *chimely-environment]
+      <<: [*core-environment, *chimely-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: ${DEVFEED_WORKER_QUEUE:-all}
       DEVFEED_PARTNER_CREDENTIAL_KEY:
       # Only delivery workers need Chimely management API keys.
@@ -304,8 +487,6 @@ services:
       <<: *ready
       chimely-provision:
         condition: service_completed_successfully
-    # Give an in-flight RQ job time to finish before Docker sends SIGKILL.
-    stop_grace_period: 10m
 
   scheduler:
     <<: *backend
@@ -313,37 +494,36 @@ services:
     command: [devfeed, scheduler]
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -c, "import os; from redis import Redis; r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert r.exists('devfeed:scheduler:heartbeat')"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import os; from redis import Redis; r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert r.exists('devfeed:scheduler:heartbeat')",
+        ]
 
-  pipeline-projector:
-    <<: [*runtime, *host-access]
-    image: ${DEVFEED_ADMIN_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/admin-api:master}
-    command: [python, -m, devfeed_admin_api.projection_worker, --kind, pipeline]
-    depends_on: *ready
-    networks: [default, data]
+  analytics-importer:
+    <<: *backend
+    command: [python, -m, devfeed_core.analytics_worker]
+    depends_on:
+      <<: *ready
+      clickhouse:
+        condition: service_healthy
     environment:
-      <<: *core-environment
-      DEVFEED_READ_MODEL_DATABASE_URL:
-      DEVFEED_READ_MODEL_BATCH_SIZE: ${DEVFEED_READ_MODEL_BATCH_SIZE:-200}
-      DEVFEED_READ_MODEL_POLL_SECONDS: ${DEVFEED_READ_MODEL_POLL_SECONDS:-1}
+      <<: [*core-environment, *clickhouse-environment]
+      # Separate user budgets reserve ingestion capacity across every reader replica.
+      DEVFEED_CLICKHOUSE_USERNAME: devfeed_ingest
+      DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_INGEST_PASSWORD:?Set a distinct DEVFEED_CLICKHOUSE_INGEST_PASSWORD in .env}
+      DEVFEED_ANALYTICS_BACKFILL_BATCH_SIZE: ${DEVFEED_ANALYTICS_BACKFILL_BATCH_SIZE:-1000}
+      DEVFEED_ANALYTICS_POLL_SECONDS: ${DEVFEED_ANALYTICS_POLL_SECONDS:-1}
+      DEVFEED_ANALYTICS_BACKFILL_POLL_SECONDS: ${DEVFEED_ANALYTICS_BACKFILL_POLL_SECONDS:-0.1}
+    cpus: ${DEVFEED_ANALYTICS_IMPORTER_CPUS:-0.5}
+    mem_limit: ${DEVFEED_ANALYTICS_IMPORTER_MEMORY_LIMIT:-512m}
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -m, devfeed_admin_api.projection_worker, --healthcheck, --kind, pipeline]
-      start_period: 180s
-
-  report-projector:
-    <<: [*runtime, *host-access]
-    image: ${DEVFEED_ADMIN_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/admin-api:master}
-    command: [python, -m, devfeed_admin_api.projection_worker, --kind, reports]
-    depends_on: *ready
-    networks: [default, data]
-    environment:
-      <<: *core-environment
-      DEVFEED_READ_MODEL_DATABASE_URL:
-      DEVFEED_READ_MODEL_POLL_SECONDS: ${DEVFEED_READ_MODEL_POLL_SECONDS:-1}
-    healthcheck:
-      <<: *healthcheck
-      test: [CMD, python, -m, devfeed_admin_api.projection_worker, --healthcheck, --kind, reports]
+      test: [CMD, python, -m, devfeed_core.analytics_worker, --check]
+      # Module startup under the importer's half-CPU budget can exceed five seconds.
+      timeout: 10s
       start_period: 180s
 
   admin-api:
@@ -351,7 +531,17 @@ services:
     image: ${DEVFEED_ADMIN_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/admin-api:master}
     entrypoint: [python, /opt/devfeed/chimely-consumer.py, admin]
     # An explicit command retains the image startup when Compose replaces ENTRYPOINT.
-    command: [uvicorn, devfeed_admin_api.main:app, --host, 0.0.0.0, --port, "8001", --no-proxy-headers, --no-access-log]
+    command:
+      [
+        uvicorn,
+        devfeed_admin_api.main:app,
+        --host,
+        0.0.0.0,
+        --port,
+        "8001",
+        --no-proxy-headers,
+        --no-access-log,
+      ]
     depends_on:
       <<: *ready
       chimely-provision:
@@ -364,7 +554,7 @@ services:
       - ./infra/chimely/consumer.py:/opt/devfeed/chimely-consumer.py:ro
       - chimely-admin-credentials:/run/devfeed-chimely:ro
     environment:
-      <<: [*core-environment, *chimely-environment]
+      <<: [*core-environment, *chimely-environment, *clickhouse-admin]
       # The inbox API uses its HMAC secret, never the management API key.
       DEVFEED_CHIMELY_ADMIN_HMAC_SECRET:
       DEVFEED_PARTNER_CREDENTIAL_KEY:
@@ -395,7 +585,13 @@ services:
       DEVFEED_ADMIN_SESSION_TTL_SECONDS:
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=3).close()"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=3).close()",
+        ]
 
   partner-api:
     <<: [*runtime, *host-access]
@@ -403,7 +599,7 @@ services:
     depends_on: *ready
     networks: [default, data]
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-partner]
       DEVFEED_PARTNER_BASE_URL: ${DEVFEED_PARTNER_BASE_URL:-http://localhost:${DEVFEED_PARTNER_PORT:-3002}}
       DEVFEED_PARTNER_COOKIE_SECURE: ${DEVFEED_PARTNER_COOKIE_SECURE:-false}
       DEVFEED_PARTNER_CREDENTIAL_KEY:
@@ -431,13 +627,29 @@ services:
       DEVFEED_PARTNER_SESSION_TTL_SECONDS:
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/health/ready', timeout=3).close()"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/health/ready', timeout=3).close()",
+        ]
 
   user-api:
     <<: [*runtime, *host-access]
     image: ${DEVFEED_USER_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/user-api:master}
     entrypoint: [python, /opt/devfeed/chimely-consumer.py, user]
-    command: [uvicorn, devfeed_user_api.main:app, --host, 0.0.0.0, --port, "8002", --no-proxy-headers, --no-access-log]
+    command:
+      [
+        uvicorn,
+        devfeed_user_api.main:app,
+        --host,
+        0.0.0.0,
+        --port,
+        "8002",
+        --no-proxy-headers,
+        --no-access-log,
+      ]
     depends_on:
       <<: *ready
       chimely-provision:
@@ -447,7 +659,7 @@ services:
       - chimely-user-credentials:/run/devfeed-chimely:ro
     networks: [default, data]
     environment:
-      <<: *chimely-environment
+      <<: [*chimely-environment, *clickhouse-user]
       DEVFEED_NOTIFICATIONS_ENABLED:
       DEVFEED_CHIMELY_USER_HMAC_SECRET:
       # Only user inbox signing, persistence and user identity settings.
@@ -489,7 +701,13 @@ services:
       DEVFEED_USER_OIDC_ORGANIZATION_CLAIM:
     healthcheck:
       <<: *healthcheck
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health/ready', timeout=3).close()"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health/ready', timeout=3).close()",
+        ]
 
   web:
     <<: *runtime
@@ -519,7 +737,13 @@ services:
         host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
     healthcheck:
       <<: *healthcheck
-      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000', {signal: AbortSignal.timeout(10000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000', {signal: AbortSignal.timeout(10000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
       timeout: 12s
 
   admin:
@@ -539,7 +763,13 @@ services:
         host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
     healthcheck:
       <<: *healthcheck
-      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/login', {signal: AbortSignal.timeout(3000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000/login', {signal: AbortSignal.timeout(3000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
 
   partner:
     <<: *runtime
@@ -558,7 +788,13 @@ services:
         host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
     healthcheck:
       <<: *healthcheck
-      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/login', {signal: AbortSignal.timeout(3000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000/login', {signal: AbortSignal.timeout(3000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
 
   chimely-db-init:
     <<: *runtime
@@ -605,7 +841,13 @@ services:
         host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
     healthcheck:
       <<: *healthcheck
-      test: [CMD, bash, -ec, "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /readyz HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3; read -r status <&3; [[ \"$$status\" == *' 200 '* ]]"]
+      test:
+        [
+          CMD,
+          bash,
+          -ec,
+          "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /readyz HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3; read -r status <&3; [[ \"$$status\" == *' 200 '* ]]",
+        ]
       interval: 5s
 
   chimely-provision:
@@ -660,7 +902,7 @@ services:
     profiles: [ai]
     scale: ${DEVFEED_CODEX_CLIENT_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: analysis
     depends_on:
       <<: *ready
@@ -669,13 +911,12 @@ services:
     # Only the socket is shared; sign-in credentials remain in the server volume.
     volumes:
       - codex-socket:/run/codex:ro
-    stop_grace_period: 3m
 
   article-analysis-worker:
     <<: *dedicated-worker
     scale: ${DEVFEED_ARTICLE_ANALYSIS_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: article-analysis
     volumes:
       - codex-socket:/run/codex:ro
@@ -684,7 +925,7 @@ services:
     <<: *dedicated-worker
     scale: ${DEVFEED_TOPIC_ANALYSIS_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: topic-analysis
     volumes:
       - codex-socket:/run/codex:ro
@@ -693,7 +934,7 @@ services:
     <<: *dedicated-worker
     scale: ${DEVFEED_RESEARCH_VERIFICATION_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: research-verification
     volumes:
       - codex-socket:/run/codex:ro
@@ -702,7 +943,7 @@ services:
     <<: *dedicated-worker
     scale: ${DEVFEED_SOURCE_ANALYSIS_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: source-analysis
     volumes:
       - codex-socket:/run/codex:ro
@@ -713,13 +954,13 @@ services:
     command: [devfeed-source-discovery-worker]
     scale: ${DEVFEED_SOURCE_DISCOVERY_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
 
   relationships-worker:
     <<: *dedicated-worker
     scale: ${DEVFEED_RELATIONSHIPS_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: relationships
     volumes:
       - codex-socket:/run/codex:ro
@@ -728,7 +969,7 @@ services:
     <<: *dedicated-worker
     scale: ${DEVFEED_INGESTION_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: ingestion
       DEVFEED_PARTNER_CREDENTIAL_KEY:
 
@@ -738,13 +979,13 @@ services:
     command: [devfeed-article-enrichment-worker]
     scale: ${DEVFEED_ARTICLE_ENRICHMENT_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
 
   source-enrichment-worker:
     <<: *dedicated-worker
     scale: ${DEVFEED_SOURCE_ENRICHMENT_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: source-enrichment
 
   images-worker:
@@ -754,7 +995,7 @@ services:
     profiles: [workers, images]
     scale: ${DEVFEED_IMAGES_WORKER_REPLICAS:-1}
     environment:
-      <<: *core-environment
+      <<: [*core-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_IMAGE_STORAGE_ENDPOINT:
       DEVFEED_IMAGE_STORAGE_BUCKET:
       DEVFEED_IMAGE_STORAGE_ACCESS_KEY:
@@ -804,7 +1045,7 @@ services:
     # Service-level scale survives Compose 2.38 watch rebuilds; deploy.replicas does not.
     scale: ${DEVFEED_NOTIFICATIONS_WORKER_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *chimely-environment]
+      <<: [*core-environment, *chimely-environment, *clickhouse-worker, *worker-environment]
       DEVFEED_WORKER_QUEUE: notifications
       # Only delivery workers need Chimely management API keys.
       DEVFEED_CHIMELY_ADMIN_API_KEY:
@@ -813,8 +1054,6 @@ services:
       <<: *ready
       chimely-provision:
         condition: service_completed_successfully
-    # Give an in-flight RQ job time to finish before Docker sends SIGKILL.
-    stop_grace_period: 10m
 
 networks:
   default:
@@ -822,6 +1061,9 @@ networks:
     internal: true
 
 volumes:
+  ch-ui-data:
+  clickhouse-data:
+  clickhouse-logs:
   search-data:
   postgres-data:
   redis-data:

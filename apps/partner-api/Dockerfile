@@ -8,7 +8,8 @@ WORKDIR /app
 
 FROM python-base AS builder
 COPY --from=uv /uv /usr/local/bin/uv
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+# Select the cached native lz4 wheel; --no-build still prohibits builds during sync.
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_NO_BINARY_PACKAGE=lz4
 COPY pyproject.toml uv.lock .python-version ./
 COPY packages/core/pyproject.toml packages/core/pyproject.toml
 COPY packages/http/pyproject.toml packages/http/pyproject.toml
@@ -24,8 +25,15 @@ COPY apps/search-indexer/pyproject.toml apps/search-indexer/pyproject.toml
 COPY apps/article-enrichment-worker/pyproject.toml apps/article-enrichment-worker/pyproject.toml
 COPY apps/images-worker/pyproject.toml apps/images-worker/pyproject.toml
 COPY apps/source-discovery-worker/pyproject.toml apps/source-discovery-worker/pyproject.toml
+COPY scripts/ci/cache-musl-lz4.sh /usr/local/bin/devfeed-cache-musl-lz4
 # This dependency layer survives application-source changes. The cache mount
 # accelerates local rebuilds; the shared workflow exports layers to GHCR/GHA.
+# PyPI has no native musllinux lz4 wheel. Build this one hash-locked extension
+# into uv's native cache; all dependency syncs remain source-build prohibited.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    apk add --no-cache --virtual .devfeed-lz4-build build-base \
+    && sh /usr/local/bin/devfeed-cache-musl-lz4 uv.lock \
+    && apk del .devfeed-lz4-build
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable --no-install-workspace --no-build --package devfeed-partner-api
 COPY packages/core packages/core

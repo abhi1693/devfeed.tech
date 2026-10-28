@@ -9,8 +9,10 @@ from sqlalchemy import insert, text, update
 from sqlalchemy.exc import IntegrityError
 
 from tests.api.test_public_search_integration import seed
+from tests.support import legacy_migrations
 
 pytestmark = pytest.mark.integration
+migration_database = legacy_migrations.migration_database
 
 
 def values(name):
@@ -110,7 +112,8 @@ def test_hexadecimal_source_name_is_resolved_as_a_slug(client, database):
     assert client.get("/v1/sources/" + "a" * 32).json()["id"] == identifier
 
 
-def test_existing_sources_backfill_preserves_article_links_and_reindexes(database):
+def test_existing_sources_backfill_preserves_article_links_and_reindexes(migration_database):
+    database = migration_database
     from alembic import command
     from alembic.config import Config
     from devfeed_core.db import get_engine

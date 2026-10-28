@@ -1,7 +1,9 @@
 """Large supervised catalogs stay usable without overflowing inference input."""
 
 import json
+import random
 import uuid
+from itertools import islice
 from types import SimpleNamespace
 
 import pytest
@@ -478,3 +480,155 @@ def test_full_topic_candidate_quota_still_allows_independently_ranked_tag_eviden
         [taxonomy["topics"][0]["id"]],
         [taxonomy["tags"][0]["id"]],
     ]
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_sparse_candidate_order_matches_full_score_sort_for_ties_categories_and_zeroes(seed):
+    randomizer = random.Random(seed)
+    taxonomy = {"topics": [], "tags": []}
+    for number in range(60):
+        field = randomizer.choice(("topics", "tags"))
+        taxonomy[field].append(
+            entry(
+                randomizer.choice(("Angular", "angular", "C++", "Écosystème", "Zulu")),
+                id=str(uuid.UUID(int=number + 1)),
+            )
+        )
+    prepared = analysis._PreparedCatalog(taxonomy)
+    scores = [randomizer.choice((0, 0, 0, 0.25, 1, 1, 7)) for _ in prepared.entries]
+    expected = sorted(range(len(scores)), key=lambda i: (-scores[i], *prepared.sort_keys[i]))
+    assert list(prepared.ranked(scores)) == expected
+    assert list(prepared.ranked([0] * len(scores))) == sorted(
+        range(len(scores)),
+        key=prepared.sort_keys.__getitem__,
+    )
+
+
+def test_sparse_ranking_does_not_sort_the_zero_score_catalogue_for_each_article():
+    taxonomy = {"topics": [entry(f"Subject {index:05}") for index in range(2000)], "tags": []}
+    prepared = analysis._PreparedCatalog(taxonomy)
+
+    class TrackedKeys(list):
+        def __init__(self, values):
+            super().__init__(values)
+            self.reads = 0
+
+        def __getitem__(self, index):
+            self.reads += 1
+            return super().__getitem__(index)
+
+    prepared.sort_keys = TrackedKeys(prepared.sort_keys)
+    scores = [0] * len(prepared.entries)
+    scores[-1] = 1
+    assert list(islice(prepared.ranked(scores), 3)) == [1999, 0, 1]
+    assert prepared.sort_keys.reads == 1
+
+
+def test_prepared_catalogue_owns_terms_without_filling_the_global_vocabulary_cache():
+    taxonomy = {
+        "topics": [entry(f"Prepared vocabulary {index}") for index in range(100)],
+        "tags": [entry("Other identity")],
+    }
+    before = analysis.candidate_terms.cache_info()
+    prepared = analysis._PreparedCatalog(taxonomy)
+    assert analysis.candidate_terms.cache_info() == before
+    snapshot = {"title": "Prepared vocabulary 99 and Other identity"}
+    root, frequency, postings = prepared.indexes
+    scores = analysis._candidate_scores(root, frequency, postings, len(prepared.entries), snapshot)
+    entries = [item for _, item in prepared.entries]
+    assert scores == analysis.candidate_scores(entries, snapshot)
+    assert analysis.candidate_terms.cache_info().currsize >= before.currsize
+
+
+def test_candidate_indexes_accept_streamed_term_groups_and_descriptions():
+    terms = [(frozenset({" c++ "}), frozenset()), (frozenset({" python "}), frozenset())]
+    assert analysis.candidate_index(iter(terms)) == analysis.candidate_index(terms)
+    descriptions = [("Python concurrency", None), (None, "Python containers")]
+    assert analysis.candidate_description_index(iter(descriptions)) == (
+        {"python": 2, "concurrency": 1, "containers": 1},
+        {"python": [0, 1], "concurrency": [0], "containers": [1]},
+    )
+
+
+def test_prepared_prompt_memoization_bounds_entries_and_rebuilds_evicted_values_exactly():
+    taxonomy = {"topics": [entry(f"Prompt {i}") for i in range(2200)], "tags": []}
+    prepared = analysis._PreparedCatalog(taxonomy)
+    first = prepared.prompt_item(0)
+    for index in range(len(prepared.entries)):
+        value, size = prepared.prompt_item(index)
+        assert value == analysis._prompt_catalog_item(taxonomy["topics"][index])
+        assert size == len(json.dumps(value, ensure_ascii=False).encode()) + 2
+    assert len(prepared.prompt_items) == analysis.CANDIDATE_PROMPT_CACHE_ENTRIES
+    assert prepared.prompt_bytes == sum(size for _, size in prepared.prompt_items.values())
+    assert prepared.prompt_bytes <= analysis.CANDIDATE_PROMPT_CACHE_BYTES
+    assert 0 not in prepared.prompt_items
+    assert prepared.prompt_item(0) == first
+
+
+def test_retained_ranking_bounds_prompt_bytes_and_results_across_different_articles(monkeypatch):
+    monkeypatch.setattr(analysis, "CANDIDATE_PROMPT_CACHE_ENTRIES", 8)
+    monkeypatch.setattr(analysis, "CANDIDATE_PROMPT_CACHE_BYTES", 1024)
+    settings = configuration(analysis_max_candidates=1, analysis_fallback_candidates=0)
+    monkeypatch.setattr(analysis, "get_settings", lambda: settings)
+    taxonomy = {
+        "topics": [entry(f"Subject {i}", aliases=["語" * 150]) for i in range(200)],
+        "tags": [],
+    }
+    retained = []
+    for index in range(200):
+        with analysis.reuse_candidates(retained=retained):
+            result = analysis.analysis_candidates(taxonomy, {"title": f"Subject {index}"})
+        assert result["topics"] == [analysis._prompt_catalog_item(taxonomy["topics"][index])]
+        prepared = retained[0]
+        assert len(prepared.prompt_items) <= 8
+        assert prepared.prompt_bytes <= 1024
+        assert len(prepared.results) <= 8
+    assert 0 not in retained[0].prompt_items
+    oversized = analysis._PreparedCatalog(
+        {"topics": [entry("Large", aliases=["x" * 2000])], "tags": []}
+    )
+    assert oversized.prompt_item(0)[0]["aliases"] == ["x" * 2000]
+    assert not oversized.prompt_items and oversized.prompt_bytes == 0
+
+
+def test_catalogue_equivalence_checks_do_not_repopulate_global_term_cache(monkeypatch):
+    monkeypatch.setattr(
+        analysis,
+        "get_settings",
+        lambda: configuration(
+            analysis_max_candidates=2,
+            analysis_fallback_candidates=1,
+        ),
+    )
+    previous = {"topics": [entry("Zulu old fallback")], "tags": []}
+    job = SimpleNamespace(
+        catalog_hash=analysis.snapshot_hash(previous), catalog_snapshot=previous, result={}
+    )
+    taxonomy = {"topics": [entry("Alpha new fallback"), previous["topics"][0]], "tags": []}
+    before = analysis.candidate_terms.cache_info()
+    with analysis.reuse_candidates():
+        assert analysis.analysis_catalog_current(job, taxonomy, {"title": "No matched identity"})
+    assert analysis.candidate_terms.cache_info() == before
+
+
+def test_replacing_prepared_generation_releases_old_indexes_before_new_allocation(monkeypatch):
+    import weakref
+
+    references = []
+    original = analysis._PreparedCatalog
+
+    class TrackedCatalog(original):
+        def __init__(self, taxonomy):
+            assert not references or references[-1]() is None
+            super().__init__(taxonomy)
+            references.append(weakref.ref(self))
+
+    monkeypatch.setattr(analysis, "_PreparedCatalog", TrackedCatalog)
+    retained = []
+    for generation in range(3):
+        with analysis.reuse_candidates(retained=retained):
+            assert analysis.analysis_candidates(
+                {"topics": [entry(f"Generation {generation}")], "tags": []},
+                {"title": f"Generation {generation}"},
+            )["topics"]
+    assert len(references) == 3

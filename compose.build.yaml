@@ -71,6 +71,10 @@ services:
     <<: *backend-build
     image: devfeed/scheduler:local
     develop: *backend-develop
+  analytics-importer:
+    <<: *backend-build
+    image: devfeed/analytics-importer:local
+    develop: *backend-develop
   codex-client:
     <<: *backend-build
     image: devfeed/codex-client:local
@@ -134,18 +138,6 @@ services:
     <<: *backend-build
     image: devfeed/notifications-worker:local
     develop: *backend-develop
-  pipeline-projector:
-    image: devfeed/admin-api:local
-    build:
-      context: .
-      dockerfile: apps/admin-api/Dockerfile
-      args: *backend-build-args
-  report-projector:
-    image: devfeed/admin-api:local
-    build:
-      context: .
-      dockerfile: apps/admin-api/Dockerfile
-      args: *backend-build-args
   admin-api:
     image: devfeed/admin-api:local
     build:

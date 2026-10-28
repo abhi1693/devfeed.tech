@@ -44,6 +44,7 @@ let editorialRevision = 7;
 let retryQueued = false;
 let publishedToFeedAt = null;
 let sourceGroupingDemo = false;
+let analyticsPreparing = false;
 const otherSourceId = "77777777-7777-4777-8777-777777777777";
 const pipelineReads = [];
 const jobGenerations = { enrichment: 0, analysis: 0, images: 0 };
@@ -316,6 +317,13 @@ function article() {
 }
 const fixture = createServer(async (req, res) => {
   const url = new URL(req.url, "http://fixture");
+  if (analyticsPreparing && req.method === "GET" && url.pathname === "/v1/admin/article-pipeline") {
+    res.writeHead(503, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({ detail: { code: "analytics_preparing", message: "Private diagnostic" } }),
+    );
+    return;
+  }
   requests.push(`${req.method} ${url.pathname}`);
   if (req.method === "GET" && url.pathname.startsWith("/v1/admin/article-pipeline"))
     pipelineReads.push({ path: url.pathname, query: Object.fromEntries(url.searchParams) });
@@ -1101,6 +1109,21 @@ try {
   );
   await focusCard.waitFor();
   assert.equal(await imagesColumn.getByRole("group").count(), 0);
+  await page.bringToFront();
+  assert.ok(await page.locator("article[data-board-item-id]").count());
+  analyticsPreparing = true;
+  await page
+    .getByRole("region", { name: "Article publication pipeline" })
+    .waitFor({ state: "detached" });
+  await page
+    .getByText("Analytics are being prepared. Please retry shortly.", { exact: true })
+    .first()
+    .waitFor();
+  assert.equal(await page.locator("article[data-board-item-id]").count(), 0);
+  assert.equal(await page.getByText("Private diagnostic", { exact: true }).count(), 0);
+  analyticsPreparing = false;
+  await page.getByRole("region", { name: "Article publication pipeline" }).waitFor();
+  assert.ok(await page.locator("article[data-board-item-id]").count());
   assert.deepEqual(errors, []);
   await writeFile(
     `${destination}/summary.json`,
@@ -1121,6 +1144,7 @@ try {
           showAllPreservesCollapse: true,
         },
         automaticStageUpdates: true,
+        preparationWithdrawsPreviousBoardAndRecoversAutomatically: true,
         automaticReviewRevisionUpdates: true,
         minimalCards: true,
         retryActions: posts.filter((post) => post.path.endsWith("/pipeline/retry")),

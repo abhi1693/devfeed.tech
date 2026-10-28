@@ -60,9 +60,20 @@ class Settings(BaseSettings):
         return self
 
     database_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-    read_model_database_url: str | None = None
-    read_model_batch_size: int = Field(default=200, ge=1, le=1000)
-    read_model_poll_seconds: float = Field(default=1, ge=0.1, le=60)
+    # Historical reporting is independent of the transactional PostgreSQL pool.
+    clickhouse_url: str = "http://localhost:8123"
+    clickhouse_database: str = Field(default="devfeed", pattern=r"^[a-zA-Z_][a-zA-Z0-9_]{0,62}$")
+    clickhouse_username: str = Field(default="devfeed", min_length=1, max_length=128)
+    clickhouse_password: SecretStr = SecretStr("")
+    clickhouse_connect_timeout_seconds: float = Field(default=3, gt=0, le=30)
+    clickhouse_timeout_seconds: float = Field(default=30, gt=0, le=300)
+    clickhouse_max_threads: int = Field(default=2, ge=1, le=16)
+    clickhouse_max_concurrent_queries: int = Field(default=2, ge=1, le=16)
+    clickhouse_max_execution_seconds: int = Field(default=20, ge=1, le=120)
+    clickhouse_max_memory_bytes: int = Field(default=268435456, ge=16777216, le=17179869184)
+    analytics_backfill_batch_size: int = Field(default=1000, ge=1, le=1000)
+    analytics_poll_seconds: float = Field(default=1, ge=0.1, le=60)
+    analytics_backfill_poll_seconds: float = Field(default=0.1, ge=0.1, le=60)
     redis_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     partner_credential_key: SecretStr | None = None
 
@@ -173,6 +184,11 @@ class Settings(BaseSettings):
     @field_validator("search_url")
     @classmethod
     def validate_search_url(cls, value):
+        return SolverService.validate_url(value)
+
+    @field_validator("clickhouse_url")
+    @classmethod
+    def validate_clickhouse_url(cls, value):
         return SolverService.validate_url(value)
 
     cache_enabled: bool = True

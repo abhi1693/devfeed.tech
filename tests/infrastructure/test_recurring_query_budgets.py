@@ -4,16 +4,14 @@ import json
 import os
 import statistics
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from devfeed_admin_api.automation import _publication_automation_query, publication_automation
 from devfeed_core.db import get_engine
 from devfeed_core.models import (
     Article,
     ArticleOrigin,
-    ArticleReview,
     ArticleTag,
     ArticleTopic,
     Source,
@@ -35,21 +33,6 @@ PREVIOUS_TAG_COUNT = text("""
         WHERE at.tag_id=t.id AND a.publication_status='published' AND a.review_status='approved'
         AND EXISTS (SELECT 1 FROM article_origins o JOIN sources s ON s.id=o.source_id
                     WHERE o.article_id=a.id AND s.approval_status='approved'))
-""")
-PREVIOUS_PUBLICATION_REPORT = text("""
-    WITH publications AS (
-        SELECT id,published_to_feed_at,discovered_at FROM articles
-        WHERE published_to_feed_at>=:start AND published_to_feed_at<=:now)
-    SELECT count(*), count(*) FILTER (WHERE r.automatic AND NOT r.manual),
-        percentile_cont(0.5) WITHIN GROUP (
-            ORDER BY EXTRACT(epoch FROM p.published_to_feed_at-p.discovered_at))
-        FILTER (WHERE p.published_to_feed_at>=p.discovered_at)
-    FROM publications p LEFT JOIN (
-        SELECT article_id, bool_or(action='publish' AND automation!='{}'::jsonb) automatic,
-            bool_or(automation='{}'::jsonb) manual
-        FROM article_reviews r JOIN publications p ON p.id=r.article_id
-        WHERE r.created_at<=p.published_to_feed_at GROUP BY article_id
-    ) r ON r.article_id=p.id
 """)
 
 
@@ -158,91 +141,6 @@ def test_visible_counts_preserve_visibility_and_distinct_destinations(database):
         disabled.approval_status = "rejected"
         session.flush()
         assert _visible_counts(session) == dict(articles=0, topics=0, sources=0, tags=0)
-
-
-@pytest.mark.parametrize(
-    ("reviews", "autonomous"),
-    [
-        ([], 0),
-        ([("approve", {"policy": "test"}, -1)], 0),
-        ([("publish", {}, -1)], 0),
-        ([("publish", {"policy": "test"}, 1)], 0),
-        ([("publish", {"policy": "test"}, 0)], 1),
-        ([("publish", {"policy": "test"}, -1), ("approve", {}, -2)], 0),
-        ([("publish", {"policy": "test"}, -1), ("approve", {}, 0)], 0),
-        ([("publish", {"policy": "test"}, -1), ("approve", {}, 1)], 1),
-        ([("publish", {"policy": "test"}, -2), ("publish", {"policy": "test"}, -1)], 1),
-    ],
-)
-def test_publication_review_flags_preserve_intervention_and_cutoff(database, reviews, autonomous):
-    with database.begin() as session:
-        article = Article(
-            title="Synthetic publication",
-            canonical_url="https://article.test/1",
-            url_hash="1",
-            discovered_at=NOW - timedelta(minutes=10),
-            published_to_feed_at=NOW,
-        )
-        session.add(article)
-        session.flush()
-        session.add_all(
-            [
-                ArticleReview(
-                    article_id=article.id,
-                    action=action,
-                    revision=i,
-                    automation=automation,
-                    created_at=NOW + timedelta(seconds=offset),
-                )
-                for i, (action, automation, offset) in enumerate(reviews)
-            ]
-        )
-        session.flush()
-        assert publication_automation(session, NOW - timedelta(days=1), NOW) == dict(
-            published_in_window=1,
-            published_without_intervention=autonomous,
-            automatic_publication_percent=100.0 if autonomous else 0.0,
-            median_ingestion_to_publication_seconds=600.0,
-        )
-
-
-def test_publication_window_boundaries_empty_windows_and_nonnegative_median(database):
-    with database.begin() as session:
-        start = NOW - timedelta(days=1)
-        for i, (published, delay) in enumerate(
-            [
-                (None, 0),
-                (start - timedelta(microseconds=1), 600),
-                (start, 120),
-                (NOW, 480),
-                (NOW + timedelta(microseconds=1), 600),
-                (NOW, -10),
-            ]
-        ):
-            session.add(
-                Article(
-                    title=f"Publication {i}",
-                    canonical_url=f"https://article.test/{i}",
-                    url_hash=str(i),
-                    published_to_feed_at=published,
-                    discovered_at=(published or NOW) - timedelta(seconds=delay),
-                )
-            )
-        session.flush()
-        assert publication_automation(session, start, NOW) == dict(
-            published_in_window=3,
-            published_without_intervention=0,
-            automatic_publication_percent=0.0,
-            median_ingestion_to_publication_seconds=300.0,
-        )
-        assert publication_automation(
-            session, NOW + timedelta(days=1), NOW + timedelta(days=2)
-        ) == dict(
-            published_in_window=0,
-            published_without_intervention=0,
-            automatic_publication_percent=None,
-            median_ingestion_to_publication_seconds=None,
-        )
 
 
 @pytest.fixture
@@ -381,21 +279,5 @@ def test_recurring_query_plans_bound_spills_at_production_scale(recurring_query_
         )
         assert reports["tags"]["result"] == [34074]
         assert reports["tags"]["after_plan"]["Plan"]["Temp Written Blocks"] == 0
-        for days in (1, 7, 30, 90):
-            parameters = {"start": NOW - timedelta(days=days), "now": NOW}
-            report = profile_pair(
-                connection,
-                PREVIOUS_PUBLICATION_REPORT,
-                _publication_automation_query(parameters["start"], NOW),
-                parameters,
-            )
-            reports[f"publication_{days}d"] = report
-            before_temp = report["before_plan"]["Plan"]["Temp Written Blocks"]
-            after_temp = report["after_plan"]["Plan"]["Temp Written Blocks"]
-            assert after_temp <= 1024  # 8 MB, including the shared publication CTE.
-            if days >= 30 and before_temp:
-                assert after_temp < before_temp * 0.15
-            if days >= 30:
-                assert report["result"] == [55730, 53933, 600.0]
     if target := os.environ.get("DEVFEED_RECURRING_PROFILE_REPORT"):
         Path(target).write_text(json.dumps(reports, indent=2) + "\n")

@@ -1,10 +1,18 @@
 """Sentinel discovery must retain isolation and use managed data connections."""
 
+import asyncio
+from unittest.mock import AsyncMock
+
 import pytest
 from devfeed_core import cache
 from devfeed_core.config import Settings
-from devfeed_core.redis import create_redis
+from devfeed_core.redis import create_async_redis, create_redis
 from pydantic import ValidationError
+from redis.asyncio.connection import SSLConnection as AsyncSSLConnection
+from redis.asyncio.sentinel import (
+    SentinelConnectionPool as AsyncSentinelConnectionPool,
+)
+from redis.asyncio.sentinel import SentinelManagedSSLConnection as AsyncSentinelManagedSSLConnection
 from redis.sentinel import SentinelConnectionPool, SentinelManagedSSLConnection
 
 
@@ -23,6 +31,73 @@ def test_direct_connection_retains_database_and_timeout():
         assert client.connection_pool.connection_kwargs["db"] == 10
         assert client.connection_pool.connection_kwargs["socket_timeout"] == 0.2
         assert not client.connection_pool.maint_notifications_enabled()
+
+
+def test_async_direct_connection_retains_database_and_timeout():
+    async def check():
+        client = create_async_redis(settings(), socket_timeout=0.2)
+        try:
+            pool = client.connection_pool
+            assert not isinstance(pool, AsyncSentinelConnectionPool)
+            assert pool.connection_kwargs["db"] == 10
+            assert pool.connection_kwargs["socket_timeout"] == 0.2
+        finally:
+            await client.aclose()
+
+    asyncio.run(check())
+
+
+def test_async_sentinel_rejects_settings_with_missing_master():
+    invalid = settings().model_copy(update={"redis_sentinel_nodes": [("sentinel", 26379)]})
+    with pytest.raises(ValueError, match="requires a master name"):
+        create_async_redis(invalid)
+
+
+def test_async_sentinel_uses_tls_credentials_follows_primary_and_closes_discovery(monkeypatch):
+    config = settings(
+        redis_url="rediss://data-user:data-pass@ignored:6379/10",
+        redis_sentinel_nodes=[("sentinel-a", 26379), ("sentinel-b", 26379)],
+        redis_sentinel_master="valkey",
+        redis_sentinel_username="discovery-user",
+        redis_sentinel_password="discovery-pass",
+        redis_sentinel_ssl=True,
+    )
+
+    async def check():
+        client = create_async_redis(config, socket_timeout=0.2)
+        pool = client.connection_pool
+        assert isinstance(pool, AsyncSentinelConnectionPool)
+        assert pool.is_master and pool.service_name == "valkey"
+        assert pool.connection_class is AsyncSentinelManagedSSLConnection
+        assert pool.connection_kwargs["db"] == 10
+        assert pool.connection_kwargs["username"] == "data-user"
+        assert pool.connection_kwargs["password"] == "data-pass"
+        assert "host" not in pool.connection_kwargs and "port" not in pool.connection_kwargs
+        nodes = pool.sentinel_manager.sentinels
+        assert len(nodes) == 2
+        for node in nodes:
+            options = node.connection_pool.connection_kwargs
+            assert options["username"] == "discovery-user"
+            assert options["password"] == "discovery-pass"
+            assert options["socket_timeout"] == 0.2
+            assert node.connection_pool.connection_class is AsyncSSLConnection
+        discover = AsyncMock(side_effect=[("first", 6379), ("second", 6379)])
+        disconnect = AsyncMock()
+        monkeypatch.setattr(pool.sentinel_manager, "discover_master", discover)
+        monkeypatch.setattr(pool, "disconnect", disconnect)
+        assert await pool.get_master_address() == ("first", 6379)
+        assert await pool.get_master_address() == ("second", 6379)
+        assert disconnect.await_count == 2
+        assert all(
+            call.kwargs == {"inuse_connections": False} for call in disconnect.await_args_list
+        )
+        for node in nodes:
+            monkeypatch.setattr(node, "aclose", AsyncMock())
+        await client.aclose()
+        for node in nodes:
+            node.aclose.assert_awaited_once()
+
+    asyncio.run(check())
 
 
 def test_feed_sequence_pool_bounds_sentinel_discovery_and_data_without_nested_retries(monkeypatch):

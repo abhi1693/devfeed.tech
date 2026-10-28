@@ -6,6 +6,7 @@ from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontext
 from dataclasses import dataclass
 from typing import Annotated
 
+from devfeed_core.analytics_producer import shutdown as drain_analytics
 from devfeed_core.config import Settings
 from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import SCHEMA_REVISION
@@ -43,6 +44,7 @@ class HTTPService:
             stack.callback(self.logger.info, event_prefix + "_stopped")
             stack.push_async_callback(run_in_threadpool, stop_runtime, runtime)
             stack.push_async_callback(run_in_threadpool, self.close_clients)
+            stack.push_async_callback(run_in_threadpool, drain_analytics)
             self.logger.info(event_prefix + "_started")
             if self.resources is not None:
                 await stack.enter_async_context(self.resources(app))

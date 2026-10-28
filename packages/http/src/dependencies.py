@@ -7,6 +7,7 @@ from devfeed_core.config import Settings
 from devfeed_core.redis import create_redis
 from redis import Redis
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.concurrency import run_in_threadpool
 
 
 def session_dependency(factory: Callable[[], sessionmaker[Session]]):
@@ -23,3 +24,13 @@ def redis_dependency(settings: Callable[[], Settings]):
         return create_redis(settings())
 
     return get_redis
+
+
+async def run_database(factory, operation, *args):
+    """Create, use and close a source session within one request worker."""
+
+    def read():
+        with factory() as session:
+            return operation(session, *args)
+
+    return await run_in_threadpool(read)

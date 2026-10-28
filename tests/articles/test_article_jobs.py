@@ -287,7 +287,7 @@ def test_scheduler_dispatches_and_recovers_article_jobs():
 
     @contextmanager
     def begin():
-        yield session_with(current)
+        yield SimpleNamespace(scalars=lambda _: SimpleNamespace(all=lambda: [current]))
 
     queue = SimpleNamespace(
         enqueue=lambda *a, **kw: calls.append((a, kw)) or SimpleNamespace(id="rq-id")

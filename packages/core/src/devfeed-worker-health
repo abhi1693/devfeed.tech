@@ -1,0 +1,25 @@
+#!/bin/sh
+# Confirm a live parent and its last acknowledged heartbeat without starting Python.
+health_path=${DEVFEED_WORKER_HEALTH_PATH:-}
+[ -n "$health_path" ] || exit 1
+{
+    IFS=' ' read -r health_pid health_at health_ttl health_extra || exit 1
+    [ -z "$health_extra" ] || exit 1
+    if IFS= read -r health_tail || [ -n "$health_tail" ]; then
+        exit 1
+    fi
+} 2>/dev/null < "$health_path" || exit 1
+
+for health_value in "$health_pid" "$health_at" "$health_ttl"; do
+    case "$health_value" in
+        ''|*[!0-9]*|0[0-9]*) exit 1 ;;
+    esac
+    [ "${#health_value}" -le 10 ] || exit 1
+done
+[ "$health_pid" -gt 0 ] && [ "$health_ttl" -gt 0 ] || exit 1
+
+IFS=' ' read -r health_now health_idle < /proc/uptime || exit 1
+health_now=${health_now%%.*}
+[ "$health_at" -le "$health_now" ] || exit 1
+[ "$((health_now - health_at))" -le "$health_ttl" ] || exit 1
+kill -0 "$health_pid" 2>/dev/null || exit 1

@@ -6,14 +6,11 @@ from datetime import timedelta
 from time import sleep
 
 import pytest
-from devfeed_api.main import create_app
 from devfeed_core.models import (
     PartnerAsset,
     PartnerCampaign,
-    PartnerDeliveryEvent,
     PartnerMembership,
     PartnerPlacementDelivery,
-    PartnerTrackedDailyMetric,
     utcnow,
 )
 from devfeed_core.partner_tracking import PartnerTrackingTokens
@@ -54,22 +51,13 @@ def assert_counts(database, token, *, clicks, impressions):
     receipt = PartnerTrackingTokens(KEY).verify(token)
     assert receipt is not None
     with database() as session:
-        metric = session.get(
-            PartnerTrackedDailyMetric, (receipt.asset_id, receipt.issued_at.date())
-        )
-        if not clicks and not impressions:
-            assert metric is None
-        else:
-            assert metric is not None
-            assert (metric.clicks, metric.impressions) == (clicks, impressions)
-        assert (
-            session.scalar(
-                select(func.count())
-                .select_from(PartnerDeliveryEvent)
-                .where(PartnerDeliveryEvent.asset_id == receipt.asset_id)
+        rows = session.scalars(
+            select(PartnerPlacementDelivery).where(
+                PartnerPlacementDelivery.asset_id == receipt.asset_id
             )
-            == clicks + impressions
-        )
+        ).all()
+        assert sum(row.click_recorded_at is not None for row in rows) == clicks
+        assert sum(row.impression_recorded_at is not None for row in rows) == impressions
 
 
 @pytest.mark.parametrize("ad_format", FORMATS)
@@ -254,12 +242,13 @@ def test_concurrent_replayed_clicks_from_different_callers_count_once(
 ):
     item = issue(client, configure(database, feed_catalog, ad_format))
     token = item["receipt"]
-    app = create_app()
+    app = client.app
 
     def click(index):
         # These transports share one running service, rather than starting and
         # stopping its lifespan (and closing shared Redis pools) in every thread.
         caller = TestClient(app, client=(f"198.51.100.{index + 1}", 51000 + index))
+        caller.portal = client.portal
         try:
             for attempt in range(20):
                 response = caller.post(EVENTS, json={"receipt": token, "kind": "click"})
@@ -306,7 +295,14 @@ def test_fresh_receipt_harvesting_cannot_bypass_issuance_budget_with_forwarded_i
         assert response.status_code == 429
         assert int(response.headers["retry-after"]) > 0
     with database() as session:
-        assert session.scalar(select(func.sum(PartnerTrackedDailyMetric.clicks))) == 60
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(PartnerPlacementDelivery)
+                .where(PartnerPlacementDelivery.click_recorded_at.is_not(None))
+            )
+            == 60
+        )
         # Issuance, rather than click submission, reserves funded capacity.
         campaign = session.get(PartnerCampaign, feed_catalog["campaign"])
         assert campaign.daily_impression_limit == 100

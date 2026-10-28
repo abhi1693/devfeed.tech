@@ -1,6 +1,7 @@
 """Immutable snapshots keyed by transactional PostgreSQL revisions, never a TTL decision."""
 
 import json
+from collections.abc import Callable
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 
@@ -11,16 +12,29 @@ from devfeed_core.config import get_settings
 from devfeed_core.models import CatalogRevision
 
 _snapshots: ContextVar[dict | None] = ContextVar("catalog_snapshots", default=None)
+_invalidator: ContextVar[Callable[[], None] | None] = ContextVar(
+    "catalog_snapshot_invalidator", default=None
+)
 
 
 @contextmanager
-def reuse_snapshots():
-    """Reuse one snapshot per projection during a tick, always checking PostgreSQL."""
-    token = _snapshots.set({})
+def reuse_snapshots(*, retained=None, on_invalidate=None):
+    """Reuse revision-validated snapshots within a scope or a bounded owner cache."""
+    token = _snapshots.set({} if retained is None else retained)
+    invalidator_token = _invalidator.set(on_invalidate)
     try:
         yield
     finally:
         _snapshots.reset(token)
+        _invalidator.reset(invalidator_token)
+
+
+def _forget(values, slot):
+    if values is not None and slot in values:
+        del values[slot]
+        invalidate = _invalidator.get()
+        if invalidate is not None:
+            invalidate()
 
 
 def _revisions(session, names):
@@ -59,12 +73,16 @@ def snapshot(session, names, loader):
         return loader()
     session.flush()
     before = _revisions(session, names)
-    if len(before) != len(names):
-        return loader()
     slot = (session.get_bind(), tuple(sorted(names)))
+    if len(before) != len(names):
+        _forget(values, slot)
+        return loader()
     if values is not None and slot in values and values[slot][0] == before:
         record_cache_read("catalog", "hit")
         return values[slot][1]
+    # Retained prepared indexes can be much larger than a catalog. Release the
+    # old generation before allocating its replacement, including missing keys.
+    _forget(values, slot)
     if not enabled:
         record_cache_read("catalog", "bypass", "disabled")
         value = loader()

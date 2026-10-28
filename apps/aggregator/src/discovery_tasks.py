@@ -1,11 +1,15 @@
 """Background discovery for admin-requested imports; approval is never automatic."""
 
 import uuid
+from contextlib import ExitStack
+from datetime import timedelta
 
 from devfeed_core import discovery
 from devfeed_core.config import get_settings
+from devfeed_core.jobs import REDISPATCH_SECONDS
 from devfeed_core.models import SourceDiscoveryJob, utcnow
-from sqlalchemy import case, or_, select, true
+from sqlalchemy import case, or_, select, true, tuple_
+from sqlalchemy.orm import load_only
 
 from devfeed_aggregator.queue import get_queue
 
@@ -30,64 +34,97 @@ def process_candidate(job_id: str):
     )
 
 
-def dispatch_discovery(factory, limit=10):
-    now = utcnow()
-    with factory() as session:
-        jobs = list(
-            session.execute(
-                select(SourceDiscoveryJob.id, SourceDiscoveryJob.stage)
-                .where(
-                    SourceDiscoveryJob.result["background"].as_boolean().is_(True),
-                    SourceDiscoveryJob.stage != "assess"
-                    if not get_settings().ai_enabled
-                    else true(),
-                    or_(
-                        (SourceDiscoveryJob.status == "queued")
-                        & (SourceDiscoveryJob.available_at <= now),
-                        (SourceDiscoveryJob.status == "running")
-                        & (SourceDiscoveryJob.lease_until < now),
-                    ),
-                )
-                .order_by(
-                    case((SourceDiscoveryJob.stage == "assess", 0), else_=1),
-                    SourceDiscoveryJob.available_at,
-                )
-                .limit(limit)
+class DiscoveryDispatcher:
+    """Publish a bounded discovery batch without rechecking an already queued prefix."""
+
+    def __init__(self, factory, now):
+        self.factory, self.now = factory, now
+
+    def _statement(self):
+        model = SourceDiscoveryJob
+        return (
+            select(model)
+            .where(
+                model.result["background"].as_boolean().is_(True),
+                model.stage != "assess" if not get_settings().ai_enabled else true(),
+                or_(
+                    (model.status == "queued") & (model.available_at <= self.now),
+                    (model.status == "running") & (model.lease_until < self.now),
+                ),
+                or_(
+                    model.dispatched_at.is_(None),
+                    model.dispatched_at < self.now - timedelta(seconds=REDISPATCH_SECONDS),
+                    # A newly due retry or explicit request has a later deadline
+                    # than its previous publication, so it need not wait for repair.
+                    (model.status == "queued") & (model.available_at > model.dispatched_at),
+                ),
+            )
+            .order_by(
+                case((model.stage == "assess", 0), else_=1),
+                model.available_at,
+                model.created_at,
+                model.id,
             )
         )
-    dispatched = 0
-    for job_id, stage in jobs:
-        if stage == "assess" and not get_settings().ai_enabled:
-            continue
-        queue_name = "source-analysis" if stage == "assess" else "source-discovery"
-        queue = get_queue(queue_name)
-        # Version crawl delivery IDs so old ingestion-queue deliveries can drain.
-        delivery_id = (
-            f"source-discovery-{job_id}" if stage == "assess" else f"source-discovery-v2-{job_id}"
-        )
-        try:
-            with factory.begin() as session:
-                job = session.scalar(
-                    select(SourceDiscoveryJob)
-                    .where(SourceDiscoveryJob.id == job_id)
+
+    def publish(self, limit):
+        if limit < 1:
+            raise ValueError("Discovery publication limit must be positive")
+        model = SourceDiscoveryJob
+        with self.factory() as session:
+            candidates = list(
+                session.execute(
+                    self._statement().with_only_columns(model.id, model.stage).limit(limit)
+                )
+            )
+        if not get_settings().ai_enabled:
+            candidates = [
+                (identifier, stage) for identifier, stage in candidates if stage != "assess"
+            ]
+        if not candidates:
+            return 0
+        with ExitStack() as stack:
+            queues = {}
+            for _, stage in candidates:
+                name = "source-analysis" if stage == "assess" else "source-discovery"
+                if name not in queues:
+                    queues[name] = get_queue(name)
+                    stack.callback(queues[name].connection.close)
+            with self.factory.begin() as session:
+                jobs = session.scalars(
+                    self._statement()
+                    # The queue resources were selected before the row lock.
+                    # A changed stage must be admitted through its new queue on
+                    # the next pass rather than using a stale route.
+                    .where(tuple_(model.id, model.stage).in_(candidates))
+                    .options(
+                        load_only(
+                            model.id,
+                            model.stage,
+                            model.status,
+                            model.available_at,
+                            model.lease_until,
+                            model.dispatched_at,
+                        )
+                    )
                     .with_for_update(skip_locked=True)
-                )
-                if job is None or (
-                    not (job.status == "queued" and job.available_at <= now)
-                    and not (job.status == "running" and job.lease_until and job.lease_until < now)
-                ):
-                    continue
-                queue.enqueue(
-                    "devfeed_aggregator.discovery_tasks.process_candidate",
-                    str(job_id),
-                    job_id=delivery_id,
-                    unique=True,
-                    job_timeout=300,
-                    result_ttl=0,
-                    failure_ttl=3600,
-                )
-                job.dispatched_at = now
-                dispatched += 1
-        finally:
-            queue.connection.close()
-    return dispatched
+                ).all()
+                for job in jobs:
+                    name = "source-analysis" if job.stage == "assess" else "source-discovery"
+                    queues[name].enqueue(
+                        "devfeed_aggregator.discovery_tasks.process_candidate",
+                        str(job.id),
+                        job_id=f"source-discovery-{job.id}"
+                        if job.stage == "assess"
+                        else f"source-discovery-v2-{job.id}",
+                        unique=True,
+                        job_timeout=300,
+                        result_ttl=0,
+                        failure_ttl=3600,
+                    )
+                    job.dispatched_at = self.now
+                return len(jobs)
+
+
+def dispatch_discovery(factory, limit=10):
+    return DiscoveryDispatcher(factory, utcnow()).publish(limit)

@@ -40,3 +40,39 @@ def test_refill_progresses_without_a_main_scheduler_cycle(database, monkeypatch)
     finally:
         queue.connection.close()
     schedule.assert_not_called()
+
+
+def test_idle_partner_refill_uses_no_redis_and_one_database_probe(database):
+    from devfeed_aggregator.partner_outbox import PartnerOutbox
+    from devfeed_core.models import PartnerPipelineJob, utcnow
+    from sqlalchemy import event, select
+
+    with database() as session:
+        engine = session.get_bind()
+    statements = []
+
+    def observe(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", observe)
+    lookup = Mock(side_effect=AssertionError("An empty lane must not open Redis"))
+    try:
+        outbox = PartnerOutbox(database, lookup, batch_size=25, now=utcnow())
+        assert (
+            outbox.publish(
+                "ingestion",
+                select(PartnerPipelineJob).where(PartnerPipelineJob.status == "queued"),
+                model=PartnerPipelineJob,
+                handler="devfeed_aggregator.partner_sync_tasks.process_pipeline",
+                delivery_id=lambda job: str(job.id),
+                event="partner_pipeline_dispatched",
+                fields=lambda job: {"job_id": str(job.id)},
+            )
+            == 0
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+    assert len(statements) == 1 and "EXISTS" in statements[0]
+    assert "pg_try_advisory" not in statements[0]
+    lookup.assert_not_called()

@@ -187,6 +187,10 @@ class JobStore:
         self.statements.append(statement)
         return self.job
 
+    def scalars(self, statement):
+        self.statements.append(statement)
+        return SimpleNamespace(all=lambda: [self.job])
+
 
 @pytest.fixture
 def delivery_setup(monkeypatch):

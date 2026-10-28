@@ -1,7 +1,6 @@
 """Durable admission accounting; failed or interrupted calls cannot regain budget."""
 
 from copy import deepcopy
-from datetime import timedelta
 
 from sqlalchemy import func, select
 
@@ -232,8 +231,7 @@ def actionable_topic_backlog(session) -> bool:
 
 
 def relationship_allowance(session) -> bool:
-    from devfeed_core.models import InferenceCall
-
+    """Check operational policy before the final ClickHouse quota reservation."""
     settings = get_settings()
     if settings.ai_quota_pacing_enabled:
         from devfeed_core.quota_pacing import current_pause_reason
@@ -243,30 +241,54 @@ def relationship_allowance(session) -> bool:
         return True
     if settings.relationship_pause_for_topic_backlog and actionable_topic_backlog(session):
         return False
-    # Reserve through actual running calls as well as completed ones. The worker
-    # serializes admission using an advisory lock before transport begins.
-    calls = session.scalar(
-        select(func.count())
-        .select_from(InferenceCall)
-        .where(
-            InferenceCall.operation.in_(["relationship_research", "relationship_verification"]),
-            InferenceCall.started_at >= utcnow() - timedelta(days=1),
-        )
-    )
-    return calls < settings.relationship_daily_call_budget
+    # Exact admission is serialized immediately before transport. This cheap
+    # preflight avoids querying analytics while holding a business transaction.
+    return settings.relationship_daily_call_budget > 0
 
 
-def admit_relationship_call(values: dict) -> bool:
-    """Atomic, fail-closed reservation, independent of best-effort usage telemetry."""
+def _relationship_policy_allowed() -> bool:
     from devfeed_core.db import session_factory
-    from devfeed_core.models import InferenceCall
 
     with session_factory().begin() as session:
-        session.execute(select(func.pg_advisory_xact_lock(0x444652, 0)))
-        if not relationship_allowance(session):
+        return relationship_allowance(session)
+
+
+async def admit_relationship_call(values: dict, *, settings, client) -> bool:
+    """Reserve the invocation directly in ClickHouse under a short PG lock."""
+    import asyncio
+    from contextlib import asynccontextmanager
+
+    import psycopg
+
+    from devfeed_core.analytics import AnalyticsUnavailable
+    from devfeed_core.analytics_inference_store import InferenceStore, RelationshipQuota
+
+    if not await asyncio.to_thread(_relationship_policy_allowed):
+        return False
+    store = InferenceStore(client)
+    try:
+        if settings.ai_quota_pacing_enabled:
+            await store.write([values])
+            return True
+        ready = await client.query(
+            "SELECT complete FROM analytics_backfill_progress FINAL "
+            "WHERE import_id={import_id:String} AND source={source:String}",
+            {"import_id": "direct-v1", "source": "inference_calls"},
+        )
+        if len(ready) != 1 or int(ready[0]["complete"]) != 1:
             return False
-        session.add(InferenceCall(**values))
-    return True
+
+        @asynccontextmanager
+        async def connect():
+            dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+            async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as connection:
+                yield connection
+
+        return await RelationshipQuota(store, connect).admit(
+            values, settings.relationship_daily_call_budget
+        )
+    except (AnalyticsUnavailable, psycopg.Error, TimeoutError, KeyError, TypeError, ValueError):
+        return False
 
 
 def grant_budget(session, proposal_id, *, calls: int, tokens: int, note: str, actor: str) -> dict:

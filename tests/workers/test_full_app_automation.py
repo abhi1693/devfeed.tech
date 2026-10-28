@@ -227,7 +227,9 @@ def test_dashboard_explains_blocked_articles_with_existing_primary_topics(
             session.add(enrichment)
             finish_job(enrichment, "enriched", utcnow())
         session.flush()
-        groups = {group.code: group for group in automation_blockers(session)}
+        groups = {
+            group.code: group for group in automation_blockers(session, article_ids=[article.id])
+        }
         assert groups[code].count == 1
         assert groups["editorial_review"].count == 0
 

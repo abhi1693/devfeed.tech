@@ -181,13 +181,13 @@ def test_priority_reserves_oldest_slot_and_uses_only_eligible_article_demand(dat
 
 
 @pytest.mark.integration
-def test_throughput_does_not_count_deferred_analyses_as_useful_completion(database, monkeypatch):
-    from devfeed_core import pipeline_metrics
+def test_throughput_does_not_count_deferred_analyses_as_useful_completion(database):
     from devfeed_core.models import Article, ArticleAnalysisJob
     from sqlalchemy import text
 
+    from tests.support import analytics
+
     now = utcnow()
-    monkeypatch.setattr(pipeline_metrics, "observe_capacity", lambda: {"observed": False})
     with database.begin() as session:
         article = Article(
             title="Published",
@@ -212,13 +212,13 @@ def test_throughput_does_not_count_deferred_analyses_as_useful_completion(databa
             )
     with database() as session:
         session.execute(text("SET LOCAL TIME ZONE 'Asia/Kolkata'"))
-        result = pipeline_metrics.pipeline_throughput(session, now)
-    assert sum(h.articles_published for h in result.hours) == 1
-    assert sum(h.article_analyses for h in result.hours) == 1
-    assert sum(h.topic_decisions for h in result.hours) == 0
-    assert len(result.hours) == 24
-    assert not result.capacity_observed and result.topic_workers is None
-    assert result.queues[0].completed == 2  # Transport completion is separately labelled.
+        result = analytics.load_section(session, "processing", 1, now).data
+    assert sum(bucket.articles_published for bucket in result.throughput) == 1
+    assert sum(bucket.article_analyses for bucket in result.throughput) == 1
+    assert sum(bucket.topic_decisions for bucket in result.throughput) == 0
+    assert len(result.throughput) == now.hour + 1
+    analyses = next(row for row in result.outcomes if row.kind == "analysis")
+    assert analyses.completed == 2 and analyses.failed == 0
 
 
 def test_capacity_reports_busy_shared_workers_without_changing_admission(monkeypatch):

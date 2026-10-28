@@ -7,10 +7,8 @@ import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-from sqlalchemy.dialects.postgresql import insert
-
-from devfeed_core.db import get_engine
-from devfeed_core.models import InferenceCall
+from devfeed_core.analytics import AnalyticsClient
+from devfeed_core.analytics_inference_store import InferenceStore
 
 logger = logging.getLogger(__name__)
 _context: ContextVar[dict | None] = ContextVar("inference_usage_context", default=None)
@@ -35,34 +33,10 @@ def request_hash(prompt: str, schema: dict) -> str:
     ).hexdigest()
 
 
-def record_call(values: dict) -> None:
-    # Usage persistence must not turn a successful inference into a costly retry.
-    # Failures are explicit in logs; no prompts, responses or credentials are retained.
+async def record_call(values: dict, *, client: AnalyticsClient) -> None:
+    """Persist content-free usage without causing successful paid work to retry."""
     try:
-        with get_engine().begin() as connection:
-            from sqlalchemy import text
-
-            connection.execute(text("SET LOCAL statement_timeout='3s'"))
-            connection.execute(text("SET LOCAL lock_timeout='1s'"))
-            statement = insert(InferenceCall).values(**values)
-            connection.execute(
-                statement.on_conflict_do_update(
-                    index_elements=[InferenceCall.id],
-                    set_={
-                        key: getattr(statement.excluded, key)
-                        for key in (
-                            "finished_at",
-                            "reasoning_effort",
-                            "status",
-                            "tokens",
-                            "web_searches",
-                            "duration_ms",
-                        )
-                    },
-                    where=(InferenceCall.status == "running")
-                    & (statement.excluded.status != "running"),
-                )
-            )
+        await InferenceStore(client).write([values])
     except Exception:
         logger.error(
             "inference_usage_persistence_failed", extra={"inference_id": str(values["id"])}

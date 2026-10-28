@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from devfeed_core.config import get_settings
 from devfeed_core.models import Article, ArticleOrigin, SearchQueryStat, Source
-from devfeed_core.search_suggestions import approved_suggestions, query_hash
+from devfeed_core.search_suggestions import query_hash
 from pydantic import SecretStr
 from sqlalchemy import func, select
 
@@ -19,6 +19,12 @@ def test_verified_search_clicks_are_bounded_and_still_require_moderation(
     from devfeed_api import search
 
     get_settings().search_query_key = SecretStr("disposable-query-key")
+    observed = []
+
+    async def record(_self, digest, **_kwargs):
+        observed.append(digest)
+
+    monkeypatch.setattr(search.SearchSuggestionAnalytics, "record", record)
     with database.begin() as session:
         source = Source(
             name="Search fixture",
@@ -70,10 +76,10 @@ def test_verified_search_clicks_are_bounded_and_still_require_moderation(
     assert limited.status_code == 429 and 1 <= int(limited.headers["retry-after"]) <= 60
     with database.begin() as session:
         row = session.get(SearchQueryStat, query_hash("c++ sql"))
-        assert row.query == "c++ sql" and row.successful_count == 20
+        assert row.query == "c++ sql"
         assert row.status == "pending"
         assert session.scalar(select(func.count()).select_from(SearchQueryStat)) == 1
-        assert approved_suggestions(session, "c++", limit=5, minimum=1) == []
+        assert observed == [query_hash("c++ sql")] * 20
         # Even an unexpired receipt loses permission when the article is unpublished.
         session.get(Article, article_id).publication_status = "unpublished"
     # A different canonical query has a fresh per-query budget, so the visibility
@@ -86,3 +92,4 @@ def test_verified_search_clicks_are_bounded_and_still_require_moderation(
     assert client.post("/v1/search/analytics/click", json=event).status_code == 403
     with database() as session:
         assert session.scalar(select(func.count()).select_from(SearchQueryStat)) == 1
+    assert observed == [query_hash("c++ sql")] * 20

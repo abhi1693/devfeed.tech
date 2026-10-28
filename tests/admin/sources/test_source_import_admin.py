@@ -216,7 +216,7 @@ def test_scheduler_dispatches_only_admin_requests(database):
         [publisher_hint("https://admin.example/")], "admin", background=True
     )
     assert dispatch_discovery(database) == 1
-    assert dispatch_discovery(database) == 1
+    assert dispatch_discovery(database) == 0
     queue = get_queue("source-discovery")
     ingestion_queue = get_queue()
     try:
@@ -416,3 +416,192 @@ def test_sources_list_combines_pending_imports_and_sources(admin_client, databas
     with database() as session:
         assert session.get(Source, uuid.UUID(beta["id"])) is None
         assert session.scalar(select(SourceCandidate).where(SourceCandidate.name == "Beta")) is None
+
+
+def test_discovery_dispatch_progresses_past_an_already_published_prefix(database):
+    from devfeed_aggregator.discovery_tasks import dispatch_discovery
+    from devfeed_aggregator.queue import get_queue
+    from devfeed_core.models import SourceCandidate
+
+    with database.begin() as session:
+        for index in range(15):
+            candidate = SourceCandidate(
+                name=str(index), identity_url=f"https://discovery-prefix-{index}.example/"
+            )
+            session.add(candidate)
+            session.flush()
+            discovery.enqueue(session, candidate.id, background=True)
+    queue = get_queue("source-discovery")
+    try:
+        assert dispatch_discovery(database, limit=10) == 10
+        original = queue.job_ids
+        assert dispatch_discovery(database, limit=10) == 5
+        assert queue.job_ids[:10] == original
+        assert queue.count == 15
+        assert dispatch_discovery(database, limit=10) == 0
+    finally:
+        queue.connection.close()
+
+
+@pytest.mark.parametrize("state", ["missing_hash", "orphaned_hash", "intermediate"])
+def test_discovery_recovery_repairs_lost_delivery_without_duplicating_inflight_work(
+    database, state
+):
+    from datetime import timedelta
+
+    from devfeed_aggregator.discovery_tasks import dispatch_discovery
+    from devfeed_aggregator.queue import get_queue
+    from devfeed_core.models import SourceCandidate, utcnow
+
+    with database.begin() as session:
+        candidate = SourceCandidate(name="Recovery", identity_url="https://recovery.example/")
+        session.add(candidate)
+        session.flush()
+        discovery.enqueue(session, candidate.id, background=True)
+        job = session.scalar(
+            select(SourceDiscoveryJob).where(SourceDiscoveryJob.candidate_id == candidate.id)
+        )
+        identifier = job.id
+    queue = get_queue("source-discovery")
+    try:
+        assert dispatch_discovery(database) == 1
+        delivery = queue.jobs[0]
+        if state == "intermediate":
+            queue.connection.lmove(queue.key, queue.key + ":intermediate", "LEFT", "RIGHT")
+        else:
+            queue.connection.lrem(queue.key, 0, delivery.id)
+            if state == "missing_hash":
+                queue.connection.delete(delivery.key)
+        with database.begin() as session:
+            session.get(SourceDiscoveryJob, identifier).dispatched_at = utcnow() - timedelta(
+                minutes=6
+            )
+        assert dispatch_discovery(database) == 1
+        if state == "intermediate":
+            assert queue.job_ids == []
+            assert queue.connection.lrange(queue.key + ":intermediate", 0, -1) == [
+                delivery.id.encode()
+            ]
+        else:
+            assert queue.job_ids == [delivery.id]
+        assert dispatch_discovery(database) == 0
+    finally:
+        queue.connection.close()
+
+
+def test_newly_due_discovery_retry_does_not_wait_for_transport_repair_interval(database):
+    from datetime import timedelta
+
+    from devfeed_aggregator.discovery_tasks import dispatch_discovery
+    from devfeed_aggregator.queue import get_queue
+    from devfeed_core.models import SourceCandidate, utcnow
+
+    with database.begin() as session:
+        candidate = SourceCandidate(name="Retry", identity_url="https://retry-now.example/")
+        session.add(candidate)
+        session.flush()
+        discovery.enqueue(session, candidate.id, background=True)
+        job = session.scalar(
+            select(SourceDiscoveryJob).where(SourceDiscoveryJob.candidate_id == candidate.id)
+        )
+        job.available_at = utcnow() - timedelta(seconds=1)
+        job.dispatched_at = utcnow() - timedelta(minutes=1)
+    queue = get_queue("source-discovery")
+    try:
+        assert dispatch_discovery(database) == 1
+        assert queue.count == 1
+        assert dispatch_discovery(database) == 0
+    finally:
+        queue.connection.close()
+
+
+def test_discovery_partial_publication_retries_the_whole_batch_without_duplicate_deliveries(
+    database, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from devfeed_aggregator import discovery_tasks
+    from devfeed_aggregator.queue import get_queue
+    from devfeed_core.models import SourceCandidate
+
+    with database.begin() as session:
+        for index in range(3):
+            candidate = SourceCandidate(
+                name=str(index), identity_url=f"https://discovery-replay-{index}.example/"
+            )
+            session.add(candidate)
+            session.flush()
+            discovery.enqueue(session, candidate.id, background=True)
+    queue = get_queue("source-discovery")
+    publications = []
+
+    def interrupted(*args, **kwargs):
+        publications.append(args)
+        if len(publications) == 2:
+            raise RuntimeError("Redis publication interrupted")
+        return queue.enqueue(*args, **kwargs)
+
+    monkeypatch.setattr(
+        discovery_tasks,
+        "get_queue",
+        lambda name: SimpleNamespace(enqueue=interrupted, connection=queue.connection),
+    )
+    try:
+        with pytest.raises(RuntimeError, match="interrupted"):
+            discovery_tasks.dispatch_discovery(database)
+        first_delivery = queue.job_ids
+        assert len(first_delivery) == 1
+        with database() as session:
+            assert all(
+                job.dispatched_at is None for job in session.scalars(select(SourceDiscoveryJob))
+            )
+        monkeypatch.setattr(discovery_tasks, "get_queue", get_queue)
+        assert discovery_tasks.dispatch_discovery(database) == 3
+        assert queue.job_ids[:1] == first_delivery
+        assert queue.count == 3
+    finally:
+        queue.connection.close()
+
+
+@pytest.mark.parametrize("original,changed", [("discover", "assess"), ("assess", "discover")])
+def test_discovery_stage_change_between_selection_and_lock_uses_the_next_pass(
+    database, monkeypatch, original, changed
+):
+    from devfeed_aggregator import discovery_tasks
+    from devfeed_aggregator.queue import get_queue
+    from devfeed_core.models import SourceCandidate
+
+    monkeypatch.setattr(get_settings(), "ai_enabled", True)
+    with database.begin() as session:
+        candidate = SourceCandidate(name="Changed lane", identity_url="https://stage-race.example/")
+        session.add(candidate)
+        session.flush()
+        discovery.enqueue(session, candidate.id, original, background=True)
+        identifier = session.scalar(select(SourceDiscoveryJob.id))
+
+    changed_once = False
+
+    def move_after_selection(queue_name):
+        nonlocal changed_once
+        assert not changed_once
+        changed_once = True
+        with database.begin() as session:
+            session.get(SourceDiscoveryJob, identifier).stage = changed
+        return get_queue(queue_name)
+
+    monkeypatch.setattr(discovery_tasks, "get_queue", move_after_selection)
+    assert discovery_tasks.dispatch_discovery(database) == 0
+    with database() as session:
+        assert session.get(SourceDiscoveryJob, identifier).dispatched_at is None
+    monkeypatch.setattr(discovery_tasks, "get_queue", get_queue)
+    assert discovery_tasks.dispatch_discovery(database) == 1
+    expected = "source-analysis" if changed == "assess" else "source-discovery"
+    other = "source-discovery" if changed == "assess" else "source-analysis"
+    selected, skipped = get_queue(expected), get_queue(other)
+    try:
+        assert selected.count == 1 and skipped.count == 0
+        prefix = "source-discovery" if changed == "assess" else "source-discovery-v2"
+        assert selected.job_ids == [f"{prefix}-{identifier}"]
+    finally:
+        selected.connection.close()
+        skipped.connection.close()

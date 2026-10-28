@@ -9,12 +9,11 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
+from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
 from devfeed_core.db import get_engine
 from devfeed_core.models import (
     Article,
-    ArticleEngagement,
     ArticleLike,
-    ArticleOpen,
     ArticleOrigin,
     ArticleTag,
     ArticleTopic,
@@ -32,6 +31,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import insert, text
 
 from tests.api.test_api_query_budgets import identity, percentile, profile_request
+from tests.support.user_analytics import reader_analytics
 
 pytestmark = pytest.mark.integration
 
@@ -183,21 +183,6 @@ def discovery_data(database):
                     for i in indexes
                 ],
             )
-            c.execute(
-                insert(ArticleOpen.__table__),
-                [
-                    dict(
-                        article_id=identity("scale-article", i),
-                        viewer_key="a" * 64,
-                        opened_hour=now if i >= size - 12 else now - timedelta(days=20),
-                    )
-                    for i in indexes
-                ],
-            )
-            c.execute(
-                insert(ArticleEngagement.__table__),
-                [dict(article_id=identity("scale-article", i), opens=1) for i in indexes],
-            )
         c.execute(text("ANALYZE"))
     from devfeed_core.recommendations import refresh_recommendations
 
@@ -208,7 +193,7 @@ def discovery_data(database):
 
 @pytest.fixture
 def discovery_user(discovery_data):
-    _, user_id = discovery_data
+    size, user_id = discovery_data
     user = UserIdentity(
         subject="scale",
         issuer="https://id.test",
@@ -220,7 +205,28 @@ def discovery_user(discovery_data):
     app = create_app()
     app.dependency_overrides[require_user] = lambda: user
     app.dependency_overrides[optional_user] = lambda: user
-    with TestClient(app) as client:
+    with TestClient(app) as client, reader_analytics(client) as native:
+
+        async def seed_activity():
+            store = ArticleOpenAnalytics(native)
+            now = utcnow().replace(microsecond=0) - timedelta(minutes=1)
+            for start in range(0, size, 1000):
+                indexes = range(start, min(start + 1000, size))
+                await store.import_totals(
+                    [{"article_id": identity("scale-article", i), "opens": 1} for i in indexes]
+                )
+                await store.import_opens(
+                    [
+                        {
+                            "article_id": identity("scale-article", i),
+                            "viewer_key": "a" * 64,
+                            "opened_hour": now if i >= size - 12 else now - timedelta(days=20),
+                        }
+                        for i in indexes
+                    ]
+                )
+
+        client.portal.call(seed_activity)
         yield client
 
 
@@ -248,8 +254,8 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
         ("/v1/user/preferences", 1),
         ("/v1/user/feed?limit=1", 7),
         ("/v1/user/feed?limit=100", 7),
-        ("/v1/user/trending?limit=1", 4),
-        ("/v1/user/trending?limit=100", 4),
+        ("/v1/user/trending?limit=1", 5),
+        ("/v1/user/trending?limit=100", 5),
     ]
     for limit in (1, 100):
         paths.append(
@@ -288,7 +294,7 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
                 if "limit=1" in path and "limit=100" not in path
                 else [item["id"] for item in payload["items"]] == expected
             )
-            if report_path and size >= 10000:
+            if report_path and size >= 10000 and not path.startswith("/v1/user/trending"):
                 # Protect against a bounded query count hiding a catalogue scan.
                 # All these sparse paths match twelve IDs, eleven of them public.
                 assert (

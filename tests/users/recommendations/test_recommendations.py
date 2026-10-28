@@ -26,6 +26,7 @@ from devfeed_core.recommendations import (
 )
 from sqlalchemy import delete, func, insert, select, update
 
+from tests.support.user_analytics import direct_client as direct_client
 from tests.support.user_personalization import user_data as user_data
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("candidate_query_strategy")]
@@ -421,7 +422,7 @@ def test_orphaned_recommendation_delivery_returns_to_real_queue(user_data, datab
 
 
 @pytest.mark.parametrize("liked", [True, False])
-def test_likes_wait_for_schedule_and_preserve_cursor(user_data, database, liked):
+def test_likes_wait_for_schedule_and_preserve_cursor(user_data, database, liked, direct_client):
     client, user, topics = prepare(user_data, database)
     previous = client.get("/v1/user/feed?limit=1").json()
     article_id = uuid.UUID(previous["items"][0]["id"])
@@ -919,3 +920,228 @@ def test_source_candidates_deduplicate_origins_before_the_per_follow_limit(datab
         result = recommendations.ranked_candidates(session, user_id, now, 8, ["article"], ["en"])
     assert [row["article_id"] for row in result] == expected
     assert all(row["reason"] == "followed_source" for row in result)
+
+
+def test_recommendation_dispatch_uses_one_locked_batch_and_recovers_partial_publication(
+    database, monkeypatch
+):
+    from unittest.mock import Mock
+
+    from devfeed_aggregator.queue import get_queue
+    from devfeed_core import analytics_producer
+    from devfeed_core.models import Topic, UserAccount
+    from sqlalchemy import event
+
+    monkeypatch.setattr(analytics_producer, "submit", lambda changes: None)
+    now = utcnow()
+    topic = uuid.uuid4()
+    users = [uuid.uuid4() for _ in range(26)]
+    with database.begin() as session:
+        session.add(
+            Topic(id=topic, name="Dispatch topic", slug="dispatch-topic", kind="technology")
+        )
+        session.add_all(
+            UserAccount(
+                id=identity,
+                issuer="https://dispatch.example.test",
+                subject=str(identity),
+                organization_id="dispatch",
+            )
+            for identity in users
+        )
+        session.flush()
+        session.execute(
+            insert(UserTopic), [{"user_id": identity, "topic_id": topic} for identity in users]
+        )
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        session.execute(
+            pg_insert(UserRecommendationState).on_conflict_do_nothing(),
+            [{"user_id": identity, "next_refresh_at": now} for identity in users],
+        )
+        session.execute(
+            update(UserRecommendationState)
+            .where(UserRecommendationState.user_id.in_(users))
+            .values(next_refresh_at=now, dispatched_at=None)
+        )
+    with database() as session:
+        engine = session.get_bind()
+    counts = {"select": 0, "commit": 0}
+
+    def observe(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            counts["select"] += 1
+
+    def committed(_connection):
+        counts["commit"] += 1
+
+    queue = get_queue()
+    enqueue = queue.enqueue
+    attempts = 0
+
+    def interrupt(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 2:
+            raise RuntimeError("Publication interrupted")
+        return enqueue(*args, **kwargs)
+
+    queue.enqueue = Mock(side_effect=interrupt)
+    try:
+        with pytest.raises(RuntimeError, match="Publication interrupted"):
+            dispatch_recommendations(database, queue, batch=25)
+        with database() as session:
+            assert (
+                session.scalar(
+                    select(func.count())
+                    .select_from(UserRecommendationState)
+                    .where(
+                        UserRecommendationState.user_id.in_(users),
+                        UserRecommendationState.dispatched_at.is_not(None),
+                    )
+                )
+                == 0
+            )
+        assert queue.count == 1
+        queue.enqueue = enqueue
+        event.listen(engine, "before_cursor_execute", observe)
+        event.listen(engine, "commit", committed)
+        try:
+            assert dispatch_recommendations(database, queue, batch=25) == 25
+        finally:
+            event.remove(engine, "before_cursor_execute", observe)
+            event.remove(engine, "commit", committed)
+        assert counts == {"select": 2, "commit": 1}
+        assert queue.count == 25  # The interrupted delivery has the same durable identity.
+        assert dispatch_recommendations(database, queue, batch=25) == 1
+        assert queue.count == 26
+    finally:
+        queue.connection.close()
+
+
+def test_fast_recommendation_delivery_waits_for_its_publisher_to_commit(database):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from devfeed_core.models import Topic, UserAccount
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from tests.support.database_waits import RowLockWait
+
+    user, topic = uuid.uuid4(), uuid.uuid4()
+    now = utcnow()
+    with database.begin() as session:
+        session.add(
+            Topic(
+                id=topic,
+                name="Immediate feed",
+                slug="immediate-feed",
+                kind="technology",
+                status="active",
+            )
+        )
+        session.add(
+            UserAccount(
+                id=user, issuer="https://claim.example", subject=str(user), organization_id="claim"
+            )
+        )
+        session.flush()
+        session.add(UserTopic(user_id=user, topic_id=topic))
+        session.execute(
+            pg_insert(UserRecommendationState)
+            .values(user_id=user, next_refresh_at=now)
+            .on_conflict_do_nothing()
+        )
+        session.flush()
+        state = session.get(UserRecommendationState, user)
+        state.next_refresh_at, state.dispatched_at = now, None
+    consumers = []
+    with (
+        ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="recommendation-fast-consumer"
+        ) as pool,
+        RowLockWait(
+            database,
+            thread_prefix="recommendation-fast-consumer",
+            table="user_recommendation_states",
+        ) as claim,
+    ):
+
+        def enqueue(_handler, user_id, **_kwargs):
+            consumer = pool.submit(refresh_recommendations, database, user_id)
+            consumers.append(consumer)
+            claim.assert_blocked(consumer)
+
+        assert dispatch_recommendations(database, SimpleNamespace(enqueue=enqueue), batch=25) == 1
+        assert consumers[0].result(timeout=5) == 0
+    with database() as session:
+        state = session.get(UserRecommendationState, user)
+        assert state.computed_at is not None and state.generation is not None
+        assert state.dispatched_at is None
+        assert state.next_refresh_at > state.computed_at
+
+
+def test_competing_recommendation_workers_recheck_due_state_after_the_lock(database, monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from unittest.mock import Mock
+
+    from devfeed_core import recommendations
+    from devfeed_core.models import Topic, UserAccount
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from tests.support.database_waits import RowLockWait
+
+    user, topic = uuid.uuid4(), uuid.uuid4()
+    with database.begin() as session:
+        session.add(
+            Topic(
+                id=topic,
+                name="Concurrent feed",
+                slug="concurrent-feed",
+                kind="technology",
+                status="active",
+            )
+        )
+        session.add(
+            UserAccount(
+                id=user, issuer="https://claim.example", subject=str(user), organization_id="claim"
+            )
+        )
+        session.flush()
+        session.add(UserTopic(user_id=user, topic_id=topic))
+        session.execute(
+            pg_insert(UserRecommendationState)
+            .values(user_id=user, next_refresh_at=utcnow())
+            .on_conflict_do_nothing()
+        )
+    ranking_started, release_ranking = threading.Event(), threading.Event()
+    ranked = recommendations.ranked_candidates
+    publication = Mock(wraps=recommendations.publish_generation)
+
+    def rank(*args, **kwargs):
+        ranking_started.set()
+        assert release_ranking.wait(timeout=3)
+        return ranked(*args, **kwargs)
+
+    ranking = Mock(side_effect=rank)
+    monkeypatch.setattr(recommendations, "ranked_candidates", ranking)
+    monkeypatch.setattr(recommendations, "publish_generation", publication)
+    with (
+        ThreadPoolExecutor(max_workers=2, thread_name_prefix="recommendation-competing") as pool,
+        RowLockWait(
+            database, thread_prefix="recommendation-competing_1", table="user_recommendation_states"
+        ) as claim,
+    ):
+        first = pool.submit(refresh_recommendations, database, user)
+        assert ranking_started.wait(timeout=2)
+        second = pool.submit(refresh_recommendations, database, user)
+        try:
+            claim.assert_blocked(second)
+        finally:
+            release_ranking.set()
+        assert first.result(timeout=5) == second.result(timeout=5) == 0
+    ranking.assert_called_once()
+    publication.assert_called_once()
+    with database() as session:
+        state = session.get(UserRecommendationState, user)
+        assert state.computed_at is not None and state.next_refresh_at > utcnow()

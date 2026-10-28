@@ -10,6 +10,7 @@ from devfeed_core.logging import configure_logging
 from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import SCHEMA_REVISION, __version__
 from devfeed_http.admission import AdmissionMiddleware
+from devfeed_http.analytics import analytics_resources
 from devfeed_http.errors import register_error_handlers
 from devfeed_http.health import readiness_response
 from devfeed_http.logging import RequestLoggingMiddleware
@@ -36,7 +37,8 @@ async def lifespan(app):
     telemetry = start_runtime("partner-api")
     logger.info("partner_api_started")
     try:
-        yield
+        async with analytics_resources(app):
+            yield
     finally:
         await run_in_threadpool(close_clients)
         await run_in_threadpool(stop_runtime, telemetry)

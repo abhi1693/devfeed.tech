@@ -23,6 +23,7 @@ import {
   type SourcePipelineBoard,
 } from "@/lib/source-pipeline";
 import { getRecord, listRecords } from "@/lib/resource-api";
+import { ApiError } from "@/lib/api/client";
 import {
   adminSourcePipeline,
   adminSourcePipelineAdvance,
@@ -236,6 +237,34 @@ it("automatically moves source stages every five seconds when ordinary refresh i
       ?.getAttribute("data-board-stage"),
   ).toBe("branding");
   expect(screen.queryByRole("button", { name: /Refresh/ })).toBeNull();
+});
+
+it("withdraws the previous source board on preparation and recovers automatically", async () => {
+  vi.useFakeTimers();
+  vi.mocked(getSourcePipeline)
+    .mockResolvedValueOnce(board())
+    .mockRejectedValueOnce(
+      new ApiError(503, "Analytics are being prepared.", {}, "analytics_preparing"),
+    )
+    .mockResolvedValue(board({ ...item, stage: "branding", state: "waiting" }));
+  await act(async () => {
+    renderAdmin(
+      <RefreshSettings>
+        <SourcePipeline query="view=pipeline" />
+      </RefreshSettings>,
+    );
+  });
+  await saveRefresh(0);
+  expect(screen.getByRole("link", { name: item.name })).toBeTruthy();
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  expect(screen.queryByRole("link", { name: item.name })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Source lifecycle pipeline" })).toBeNull();
+  expect(screen.queryByRole("button", { name: `Actions for ${item.name}` })).toBeNull();
+  expect(screen.getByRole("alert").textContent).toContain("Analytics are being prepared.");
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  expect(screen.getByRole("link", { name: item.name })).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(getSourcePipeline).toHaveBeenCalledTimes(3);
 });
 
 it("keeps source navigation and retries keyboard accessible without a container tab stop", async () => {

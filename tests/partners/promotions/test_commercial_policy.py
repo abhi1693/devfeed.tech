@@ -10,11 +10,10 @@ from devfeed_core.models import (
     PartnerAsset,
     PartnerCampaign,
     PartnerConnection,
-    PartnerDeliveryEvent,
     PartnerListing,
+    PartnerPlacementDelivery,
     PartnerProduct,
     PartnerProductPromotion,
-    PartnerTrackedDailyMetric,
     utcnow,
 )
 from devfeed_core.partner_placements import deliver_placements
@@ -645,5 +644,14 @@ def test_existing_campaign_rechecks_current_entitlement_and_format_for_delivery_
     with database.begin() as session, pytest.raises(InactivePartnerAsset):
         record_delivery_event(session, receipt, "click")
     with database() as session:
-        assert session.scalar(select(func.count()).select_from(PartnerDeliveryEvent)) == 0
-        assert session.scalar(select(func.count()).select_from(PartnerTrackedDailyMetric)) == 0
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(PartnerPlacementDelivery)
+                .where(
+                    PartnerPlacementDelivery.impression_recorded_at.is_not(None)
+                    | PartnerPlacementDelivery.click_recorded_at.is_not(None)
+                )
+            )
+            == 0
+        )

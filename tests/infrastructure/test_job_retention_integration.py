@@ -21,11 +21,13 @@ from devfeed_core.models import (
 from sqlalchemy import event, select, text
 from sqlalchemy.exc import IntegrityError, InternalError
 
+from tests.support import legacy_migrations
 from tests.support.paths import REPO_ROOT
 from tests.support.source_readiness import configuration
 from tests.support.taxonomy_command_helpers import relationship_proposal
 
 pytestmark = pytest.mark.integration
+migration_database = legacy_migrations.migration_database
 
 
 @pytest.fixture
@@ -466,7 +468,10 @@ def test_parent_review_lock_allows_concurrent_ingestion_to_link_an_existing_arti
         assert session.get(ArticleAnalysisJob, oldest).input_snapshot == {}
 
 
-def test_migration_roundtrip_restores_cadence_rows_and_valid_partial_indexes(database):
+def test_migration_roundtrip_restores_cadence_rows_and_valid_partial_indexes(
+    migration_database,
+):
+    database = migration_database
     config = Config(str(REPO_ROOT / "alembic.ini"))
     try:
         command.downgrade(config, "0036")
@@ -496,8 +501,9 @@ def test_migration_roundtrip_restores_cadence_rows_and_valid_partial_indexes(dat
 
 
 def test_migration_retry_repairs_an_invalid_concurrent_index_and_preserves_checkpoint(
-    database, retention
+    migration_database, retention
 ):
+    database = migration_database
     config = Config(str(REPO_ROOT / "alembic.ini"))
     index_name = "ix_article_analysis_jobs_article_id_retained_success"
     engine = database.kw["bind"]

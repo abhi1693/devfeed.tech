@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Select, type SelectOption, type SelectProps } from "@/components/molecules/select";
+import { ChartChoice } from "@/components/molecules/overview-chart";
 
 const options = [
   { value: "a", label: "Alpha" },
@@ -48,6 +49,47 @@ function Example({
   );
 }
 afterEach(cleanup);
+
+it("uses the shared chart selector with labeled keyboard and pointer changes", async () => {
+  const user = userEvent.setup();
+  const changed = vi.fn();
+  function ChartExample() {
+    const [value, setValue] = useState("tokens");
+    return (
+      <ChartChoice
+        label="AI activity metric"
+        value={value}
+        options={[
+          ["tokens", "Tokens"],
+          ["calls", "Calls and failures"],
+          ["searches", "Web searches"],
+        ]}
+        onChange={(value) => {
+          changed(value);
+          setValue(value);
+        }}
+      />
+    );
+  }
+  render(<ChartExample />);
+  const trigger = screen.getByRole("combobox", { name: "AI activity metric" });
+  expect(trigger.tagName).toBe("BUTTON");
+  expect(trigger.textContent).toBe("Tokens");
+  trigger.focus();
+  await user.keyboard("{ArrowDown}");
+  expect(screen.getAllByRole("option")).toHaveLength(3);
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("option", { name: "Tokens" })),
+  );
+  await user.keyboard("{ArrowDown}{Enter}");
+  expect(trigger.textContent).toBe("Calls and failures");
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+  await user.click(trigger);
+  await user.click(screen.getByRole("option", { name: "Web searches" }));
+  expect(trigger.textContent).toBe("Web searches");
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  expect(changed.mock.calls).toEqual([["calls"], ["searches"]]);
+});
 
 it("opens a styled list without search, focuses the selected option, and restores focus on selection", async () => {
   const user = userEvent.setup();

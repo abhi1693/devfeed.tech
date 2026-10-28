@@ -1,7 +1,8 @@
 """Worker policy without Redis delivery or database transaction simulations."""
 
-import json
 from contextlib import contextmanager
+from pathlib import Path
+from stat import S_IMODE
 from types import SimpleNamespace
 from unittest.mock import Mock, call
 
@@ -23,7 +24,14 @@ def clock(monkeypatch):
         value.now += seconds
 
     monkeypatch.setattr(
-        analysis_worker, "time", SimpleNamespace(monotonic=lambda: value.now, sleep=sleep)
+        analysis_worker,
+        "time",
+        SimpleNamespace(
+            monotonic=lambda: value.now,
+            sleep=sleep,
+            clock_gettime=lambda clock: value.now,
+            CLOCK_BOOTTIME=7,
+        ),
     )
     return value
 
@@ -33,12 +41,9 @@ def worker_factory(monkeypatch):
     """Real RQ objects; only Redis reads/writes and the Codex RPC are boundaries."""
     connection = Redis(host="redis.invalid", db=15)
     depths = {}
-    monkeypatch.setattr(Queue, "count", property(lambda queue: depths.get(queue.name, 0)))
     monkeypatch.setattr(
         codex_client, "CodexClient", Mock(return_value=Mock(readiness=lambda: None))
     )
-    monkeypatch.setattr(analysis_worker, "pause_reason", lambda _: None)
-    monkeypatch.setattr(analysis_worker, "cooldown_remaining", lambda _: 0)
 
     def build(*names):
         queues = [Queue(name, connection=connection) for name in names]
@@ -50,6 +55,9 @@ def worker_factory(monkeypatch):
         worker.procline = Mock()
         worker.heartbeat = Mock()
         worker.run_maintenance_tasks = Mock()
+        worker.admission_snapshot = lambda: analysis_worker.AdmissionSnapshot(
+            {name: bool(depths.get(name)) for name in names}
+        )
         return worker
 
     yield build, depths
@@ -75,26 +83,18 @@ def test_readiness_backs_off_outages_but_rechecks_each_pending_delivery(clock, m
     assert readiness.reason == "codex_unavailable" and rpc.call_count == 4
 
 
-@pytest.mark.parametrize("barrier", ["quota", "capacity", "unavailable"])
+@pytest.mark.parametrize("barrier", ["quota", "capacity"])
 def test_shared_ai_barriers_leave_background_queues_eligible(
     worker_factory, monkeypatch, clock, barrier
 ):
     build, depths = worker_factory
     worker = build("article-analysis", "ingestion", "notifications")
     depths["article-analysis"] = 2
+    depths.update(ingestion=1, notifications=1)
     probe = Mock(side_effect=AssertionError("Codex must not be probed during a shared pause"))
     worker.codex_readiness.ready = probe
-    if barrier == "quota":
-        monkeypatch.setattr(analysis_worker, "pause_reason", lambda _: "quota_budget_exhausted")
-        reason = "quota_budget_exhausted"
-    elif barrier == "capacity":
-        monkeypatch.setattr(analysis_worker, "cooldown_remaining", lambda _: 30)
-        reason = "provider_capacity_cooldown"
-    else:
-        monkeypatch.setattr(
-            analysis_worker, "pause_reason", Mock(side_effect=RedisError("offline"))
-        )
-        reason = "capacity_check_unavailable"
+    reason = "quota_budget_exhausted" if barrier == "quota" else "provider_capacity_cooldown"
+    worker.admission_snapshot = lambda: analysis_worker.AdmissionSnapshot(depths, reason)
     selected = []
 
     def consume(instance, timeout, max_idle_time=None):
@@ -118,7 +118,7 @@ def test_only_nonempty_ready_ai_lanes_are_exposed_to_nonblocking_consumer(
 ):
     build, depths = worker_factory
     worker = build("topic-analysis", "article-analysis", "images")
-    depths.update({"article-analysis": 1, "topic-analysis": 0})
+    depths.update({"article-analysis": 1, "topic-analysis": 0, "images": 1})
     worker.analysis_paused = True
     worker.codex_readiness.ready = Mock(return_value=True)
     selected = []
@@ -139,33 +139,32 @@ def test_only_nonempty_ready_ai_lanes_are_exposed_to_nonblocking_consumer(
     assert "analysis_queue_resumed" in caplog.messages
 
 
-@pytest.mark.parametrize(
-    "ready,state", [(True, WorkerStatus.IDLE), (False, WorkerStatus.SUSPENDED)]
-)
+@pytest.mark.parametrize("previously_paused", [False, True])
 def test_empty_dedicated_worker_heartbeats_and_exits_burst_without_dequeue(
-    worker_factory, monkeypatch, clock, ready, state
+    worker_factory, monkeypatch, clock, previously_paused
 ):
     build, _ = worker_factory
     worker = build("source-analysis")
-    worker.codex_readiness.ready = Mock(return_value=ready)
+    worker.analysis_paused = previously_paused
+    worker.codex_readiness.ready = Mock(side_effect=AssertionError("No AI work needs admission"))
     consume = Mock(side_effect=AssertionError("No eligible queue to consume"))
     monkeypatch.setattr(Worker, "dequeue_job_and_maintain_ttl", consume)
 
     assert worker.dequeue_job_and_maintain_ttl(timeout=None) is None
-    assert worker.get_state() == state
-    worker.codex_readiness.ready.assert_called_once_with(pending=False)
-    worker.heartbeat.assert_called_once_with()
+    assert worker.get_state() == WorkerStatus.IDLE
+    worker.codex_readiness.ready.assert_not_called()
     worker.run_maintenance_tasks.assert_called_once_with()
     assert clock.sleeps == []
 
 
 def test_paused_polling_honors_fractional_idle_budget(worker_factory, clock):
-    build, _ = worker_factory
+    build, depths = worker_factory
     worker = build("research-verification")
+    depths["research-verification"] = 1
     worker.codex_readiness.ready = Mock(return_value=False)
     assert worker.dequeue_job_and_maintain_ttl(timeout=30, max_idle_time=2.25) is None
     assert clock.sleeps == [1, 1, 0.25]
-    assert worker.heartbeat.call_count == 4
+    assert worker.set_state.call_count == 1
 
 
 def test_shutdown_during_readiness_cannot_start_a_job(worker_factory, monkeypatch, clock):
@@ -205,7 +204,137 @@ def test_background_worker_preserves_rq_blocking_parameters(worker_factory, monk
     consume = Mock(return_value=("image-job", worker.queues[0]))
     monkeypatch.setattr(Worker, "dequeue_job_and_maintain_ttl", consume)
     assert worker.dequeue_job_and_maintain_ttl(15, max_idle_time=90)[0] == "image-job"
-    consume.assert_called_once_with(15, 90)
+    consume.assert_called_once_with(10, 10)
+
+
+def test_background_dequeue_rechecks_stop_between_bounded_blocking_calls(
+    worker_factory, monkeypatch, clock
+):
+    build, _ = worker_factory
+    worker = build("ingestion")
+    calls = []
+
+    def consume(instance, timeout, max_idle_time):
+        calls.append((timeout, max_idle_time))
+        clock.now += max_idle_time
+        return None
+
+    monkeypatch.setattr(Worker, "dequeue_job_and_maintain_ttl", consume)
+    assert worker.dequeue_job_and_maintain_ttl(75, max_idle_time=22.5) is None
+    assert calls == [(10, 10), (10, 10), (2.5, 2.5)]
+    worker._shutdown()
+    assert worker.dequeue_job_and_maintain_ttl(75) is None
+    assert len(calls) == 3
+
+
+def test_burst_background_dequeue_retains_nonblocking_rq_contract(worker_factory, monkeypatch):
+    build, _ = worker_factory
+    worker = build("ingestion")
+    consume = Mock(return_value=None)
+    monkeypatch.setattr(Worker, "dequeue_job_and_maintain_ttl", consume)
+    assert worker.dequeue_job_and_maintain_ttl(None, max_idle_time=20) is None
+    consume.assert_called_once_with(None, 20)
+
+
+def test_idle_ai_workers_skip_stock_dequeue_and_provider_connections(worker_factory, clock):
+    build, _ = worker_factory
+    worker = build("article-analysis", "relationships")
+    worker.codex_readiness.ready = Mock(side_effect=AssertionError("No pending inference"))
+    assert worker.dequeue_job_and_maintain_ttl(30, max_idle_time=3.25) is None
+    worker.codex_readiness.ready.assert_not_called()
+    assert clock.sleeps == [1, 1, 1, 0.25]
+    worker.set_state.assert_called_once_with(WorkerStatus.IDLE)
+
+
+def test_redis_inspection_failure_never_consumes_or_refreshes_health(
+    worker_factory, monkeypatch, clock
+):
+    build, depths = worker_factory
+    worker = build("article-analysis", "ingestion")
+    depths.update({"article-analysis": 1, "ingestion": 1})
+    worker.admission_snapshot = Mock(side_effect=RedisError("offline"))
+    consume = Mock(side_effect=AssertionError("No confirmed admission"))
+    monkeypatch.setattr(Worker, "dequeue_job_and_maintain_ttl", consume)
+    worker.write_health = Mock()
+    assert worker.dequeue_job_and_maintain_ttl(30, max_idle_time=2) is None
+    consume.assert_not_called()
+    worker.write_health.assert_not_called()
+    worker.set_state.assert_not_called()
+    worker.codex_readiness.ready = Mock()
+    worker._stop_requested = True
+    assert worker.dequeue_job_and_maintain_ttl(30) is None
+    worker.codex_readiness.ready.assert_not_called()
+
+
+@pytest.mark.parametrize("burst", [False, True])
+def test_rq_suspension_blocks_every_queue_without_provider_admission(
+    worker_factory, monkeypatch, clock, burst
+):
+    from rq.exceptions import StopRequested
+
+    build, _ = worker_factory
+    worker = build("article-analysis", "ingestion")
+    worker.admission_snapshot = lambda: analysis_worker.AdmissionSnapshot(
+        {"article-analysis": True, "ingestion": True}, suspended=True
+    )
+    worker.codex_readiness.ready = Mock(side_effect=AssertionError("RQ suspended"))
+    consume = Mock()
+    monkeypatch.setattr(Worker, "dequeue_job_and_maintain_ttl", consume)
+    if burst:
+        with pytest.raises(StopRequested):
+            worker.dequeue_job_and_maintain_ttl(None)
+    else:
+        assert worker.dequeue_job_and_maintain_ttl(10, max_idle_time=1) is None
+        worker.set_state.assert_called_once_with(WorkerStatus.SUSPENDED)
+    consume.assert_not_called()
+
+
+def test_global_rq_suspension_stops_after_warm_shutdown(worker_factory, monkeypatch, clock):
+    build, _ = worker_factory
+    worker = build("article-analysis", "ingestion")
+    worker.admission_snapshot = lambda: analysis_worker.AdmissionSnapshot(
+        {"article-analysis": True, "ingestion": True}, suspended=True
+    )
+    worker.codex_readiness.ready = Mock(side_effect=AssertionError("RQ suspended"))
+    monkeypatch.setattr(analysis_worker.time, "sleep", lambda _: worker._shutdown())
+    assert worker.dequeue_job_and_maintain_ttl(75) is None
+    assert worker._stop_requested
+    worker.set_state.assert_called_once_with(WorkerStatus.SUSPENDED)
+    worker.codex_readiness.ready.assert_not_called()
+
+
+def test_admission_batches_queue_barriers_and_confirmed_heartbeats(
+    worker_factory, clock, monkeypatch
+):
+    build, _ = worker_factory
+    worker = build("article-analysis", "ingestion")
+    pipe = Mock()
+    worker.connection = Mock()
+    worker.connection.pipeline.return_value.__enter__ = Mock(return_value=pipe)
+    worker.connection.pipeline.return_value.__exit__ = Mock(return_value=False)
+    worker.write_health = Mock()
+    monkeypatch.setattr(analysis_worker, "snapshot_pause_reason", lambda *_args, **_kwargs: None)
+    pipe.execute.return_value = [1, True, 2, 0, None, 300, 0]
+    inspect = analysis_worker.AnalysisAwareWorker.admission_snapshot
+    first = inspect(worker)
+    assert first.pending == {"article-analysis": True, "ingestion": False}
+    assert first.reason == "provider_capacity_cooldown" and not first.suspended
+    worker.connection.pipeline.assert_called_once_with(transaction=False)
+    assert pipe.llen.call_args_list == [call(queue.key) for queue in worker.queues]
+    worker.heartbeat.assert_called_once_with(pipeline=pipe)
+    worker.write_health.assert_called_once_with()
+    clock.now = 29
+    pipe.execute.return_value = [0, 1, None, -2, 1]
+    second = inspect(worker)
+    assert second.pending == {"article-analysis": False, "ingestion": True}
+    assert second.reason is None and second.suspended
+    assert worker.heartbeat.call_count == worker.write_health.call_count == 1
+    clock.now = 30
+    pipe.execute.side_effect = RedisError("connection lost")
+    with pytest.raises(RedisError):
+        inspect(worker)
+    assert worker.write_health.call_count == 1
+    assert worker.next_admission_heartbeat == 30
 
 
 @pytest.mark.parametrize("state,ttl", [(WorkerStatus.IDLE, 165), (WorkerStatus.BUSY, 90)])
@@ -215,13 +344,55 @@ def test_health_file_is_atomic_and_accounts_for_blocking_dequeue(
     build, _ = worker_factory
     worker = build("images")
     worker._state = state
-    target = tmp_path / "worker.json"
+    target = tmp_path / "worker-health"
     target.write_text("old report")
     monkeypatch.setenv("DEVFEED_WORKER_HEALTH_PATH", str(target))
     clock.now = 123.5
+    boot_clock = Mock(return_value=123.5)
+    monkeypatch.setattr(analysis_worker.time, "clock_gettime", boot_clock)
+    replace = Path.replace
+    replacements = []
+
+    def inspect_then_replace(staged, destination):
+        assert target.read_text() == "old report"
+        assert staged.read_text() == f"{worker.health_pid} 123 {ttl}\n"
+        assert staged.parent == target.parent
+        assert S_IMODE(staged.stat().st_mode) == 0o600
+        replacements.append(staged)
+        return replace(staged, destination)
+
+    monkeypatch.setattr(Path, "replace", inspect_then_replace)
     worker.write_health()
-    assert json.loads(target.read_text()) == {"pid": worker.health_pid, "at": 123.5, "ttl": ttl}
-    assert not target.with_suffix(".tmp").exists()
+    assert target.read_text() == f"{worker.health_pid} 123 {ttl}\n"
+    assert S_IMODE(target.stat().st_mode) == 0o600
+    boot_clock.assert_called_once_with(analysis_worker.time.CLOCK_BOOTTIME)
+    assert len(replacements) == 1 and not replacements[0].exists()
+    assert list(tmp_path.iterdir()) == [target]
+
+
+@pytest.mark.parametrize("link_location", ["temporary", "target"])
+def test_health_publication_does_not_follow_preexisting_symlinks(
+    worker_factory, monkeypatch, clock, tmp_path, link_location
+):
+    build, _ = worker_factory
+    worker = build("images")
+    worker._state = WorkerStatus.BUSY
+    target = tmp_path / "worker-health"
+    victim = tmp_path / "unrelated-file"
+    victim.write_text("keep unrelated data")
+    link = target.with_suffix(".tmp") if link_location == "temporary" else target
+    link.symlink_to(victim)
+    monkeypatch.setenv("DEVFEED_WORKER_HEALTH_PATH", str(target))
+    clock.now = 123.5
+
+    worker.write_health()
+
+    assert victim.read_text() == "keep unrelated data"
+    assert not target.is_symlink()
+    assert target.read_text() == f"{worker.health_pid} 123 90\n"
+    assert S_IMODE(target.stat().st_mode) == 0o600
+    if link_location == "temporary":
+        assert link.is_symlink() and link.resolve() == victim
 
 
 def test_workhorse_cannot_refresh_parent_health_file(worker_factory, monkeypatch, tmp_path):
@@ -304,6 +475,8 @@ def test_workhorse_owns_telemetry_lifetime_and_reports_failed_execution(
 
     monkeypatch.setattr(analysis_worker, "start_runtime", start)
     monkeypatch.setattr(analysis_worker, "stop_runtime", stop)
+    drained = Mock()
+    monkeypatch.setattr(analysis_worker, "drain_analytics", drained)
     monkeypatch.setattr(analysis_worker, "span", process_span)
     monkeypatch.setattr(analysis_worker, "extract_context", lambda carrier: ("context", carrier))
     monkeypatch.setattr(
@@ -320,6 +493,7 @@ def test_workhorse_owns_telemetry_lifetime_and_reports_failed_execution(
     else:
         assert worker.perform_job(job, worker.queues[0]) is result
     start.assert_called_once_with("worker-images", serve_metrics=False)
+    drained.assert_called_once_with()
     stop.assert_called_once_with(runtime)
     assert observed["name"] == "process images"
     assert observed["context"] == ("context", {"traceparent": "parent"})
@@ -328,3 +502,79 @@ def test_workhorse_owns_telemetry_lifetime_and_reports_failed_execution(
         execution_span.set_status.assert_called_once_with(StatusCode.ERROR)
     else:
         execution_span.set_status.assert_not_called()
+
+
+@pytest.mark.parametrize("state", [WorkerStatus.IDLE, WorkerStatus.SUSPENDED, WorkerStatus.BUSY])
+@pytest.mark.parametrize("pipelined", [False, True])
+@pytest.mark.parametrize("unavailable", [False, True])
+def test_warm_shutdown_cancels_only_failed_nonbusy_heartbeat_exchanges(
+    worker_factory, monkeypatch, state, pipelined, unavailable
+):
+    from redis.exceptions import ConnectionError as RedisConnectionError
+    from rq.exceptions import StopRequested
+
+    build, _ = worker_factory
+    worker = build("ingestion")
+    worker._state = state
+    worker._shutdown()
+    heartbeat = Mock(side_effect=RedisConnectionError("unreachable") if unavailable else None)
+    monkeypatch.setattr(Worker, "heartbeat", heartbeat)
+    worker.write_health = Mock()
+    pipeline = object() if pipelined else None
+    failure = (
+        StopRequested
+        if unavailable and state != WorkerStatus.BUSY and not pipelined
+        else RedisConnectionError
+        if unavailable
+        else None
+    )
+    if failure:
+        with pytest.raises(failure):
+            analysis_worker.AnalysisAwareWorker.heartbeat(worker, pipeline=pipeline)
+        worker.write_health.assert_not_called()
+    else:
+        analysis_worker.AnalysisAwareWorker.heartbeat(worker, pipeline=pipeline)
+        assert worker.write_health.call_count == int(not pipelined)
+    heartbeat.assert_called_once_with(timeout=None, pipeline=pipeline)
+
+
+@pytest.mark.parametrize("stopping", [False, True])
+def test_heartbeat_never_masks_protocol_errors_or_unrequested_connection_failures(
+    worker_factory, monkeypatch, stopping
+):
+    from redis.exceptions import ConnectionError as RedisConnectionError
+    from redis.exceptions import ResponseError
+
+    build, _ = worker_factory
+    worker = build("ingestion")
+    worker._state = WorkerStatus.IDLE
+    worker._stop_requested = stopping
+    failures = [ResponseError("protocol failure")]
+    if not stopping:
+        failures.append(RedisConnectionError("network failure"))
+    for error in failures:
+        monkeypatch.setattr(Worker, "heartbeat", Mock(side_effect=error))
+        with pytest.raises(type(error), match=str(error)):
+            analysis_worker.AnalysisAwareWorker.heartbeat(worker)
+
+
+@pytest.mark.parametrize("requested", [False, True])
+def test_background_dequeue_translates_only_its_own_safe_shutdown(
+    worker_factory, monkeypatch, requested
+):
+    from rq.exceptions import StopRequested
+
+    build, _ = worker_factory
+    worker = build("ingestion")
+
+    def interrupted(*args):
+        if requested:
+            worker._shutdown()
+        raise StopRequested()
+
+    monkeypatch.setattr(Worker, "dequeue_job_and_maintain_ttl", interrupted)
+    if requested:
+        assert worker.dequeue_job_and_maintain_ttl(75) is None
+    else:
+        with pytest.raises(StopRequested):
+            worker.dequeue_job_and_maintain_ttl(75)

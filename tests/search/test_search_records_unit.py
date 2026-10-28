@@ -167,32 +167,15 @@ def test_invalid_search_queries_never_write_aggregates(query):
     session.execute.assert_not_called()
 
 
-def test_aggregate_write_has_only_normalized_query_and_count_fields():
+def test_query_metadata_write_excludes_analytical_counts_and_identity_fields():
     session = Mock()
     digest = search_suggestions.record_successful_query(session, "  Ｐython ")
     assert digest == search_suggestions.query_hash("python")
     values = session.execute.call_args.args[0].compile().params
     assert values["query"] == "python" and values["query_hash"] == digest
-    assert values["successful_count"] == 1
+    assert not {"successful_count", "first_seen_at", "last_seen_at"}.intersection(values)
+    assert "DO NOTHING" in str(session.execute.call_args.args[0].compile())
     assert not {"user_id", "ip", "session_id"}.intersection(values)
-
-
-@pytest.mark.parametrize("prefix", ["", " \t "])
-def test_empty_suggestion_prefix_avoids_database_reads(prefix):
-    session = Mock()
-    assert search_suggestions.approved_suggestions(session, prefix, limit=5, minimum=2) == []
-    session.scalars.assert_not_called()
-
-
-def test_suggestions_escape_literal_wildcards_and_retain_the_volume_limit():
-    session = Mock()
-    session.scalars.return_value = ["python_%", "python_guide"]
-    assert search_suggestions.approved_suggestions(session, " PYTHON_% ", limit=5, minimum=2) == [
-        "python_%",
-        "python_guide",
-    ]
-    values = session.scalars.call_args.args[0].compile().params
-    assert "python/_/%" in values.values() and 5 in values.values() and 2 in values.values()
 
 
 @pytest.mark.parametrize("digest", ["x" * 64, "A" * 64, "a" * 63, "a" * 65])

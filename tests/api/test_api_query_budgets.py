@@ -27,7 +27,6 @@ from devfeed_core.models import (
     ArticleReview,
     ArticleTag,
     ArticleTopic,
-    InferenceCall,
     Source,
     Tag,
     Topic,
@@ -38,9 +37,25 @@ from devfeed_core.models import (
 )
 from sqlalchemy import event, insert, text
 
-from tests.admin.reporting.projections.test_overview_projections import save_overview
+from tests.support.analytics_cards import card_publication as card_publication
+from tests.support.overview import publish_section
 
 pytestmark = pytest.mark.integration
+
+CHART_FIELDS = {
+    "attention": {"full_automation", "reviews", "source_failures", "blockers"},
+    "publication-rate": {"summary", "activity"},
+    "publication-latency": {"summary", "activity"},
+    "audience-activity": {"activity"},
+    "personalization": {"personalization"},
+    "queue-pressure": {"queues"},
+    "throughput": {"throughput"},
+    "job-outcomes": {"outcomes"},
+    "ai-activity": {"summary", "activity"},
+    "ai-breakdown": {"tasks", "models", "efforts"},
+    "source-output": {"sources", "source_publications_total"},
+    "topic-coverage": {"topics"},
+}
 
 
 def identity(kind, index):
@@ -257,9 +272,8 @@ def profile_data(database):
                 for i in range(size)
             ],
         )
-        connection.execute(
-            insert(InferenceCall.__table__),
-            [
+        database.analytics_observations = {
+            "inference": [
                 dict(
                     id=identity("inference", i),
                     started_at=now - timedelta(days=i % 30),
@@ -280,7 +294,7 @@ def profile_data(database):
                 )
                 for i in range(size * 5)
             ],
-        )
+        }
         connection.execute(text("ANALYZE"))
     return size
 
@@ -323,14 +337,14 @@ def cases():
     yield "/v1/admin/topic-proposals?limit=100&offset=100", 3
     yield "/v1/sources?limit=500", 1
     # Published JSON and bounded refresh-demand metadata; reports are built off-request.
-    yield "/v1/admin/overview?days=30", 4
+    yield "/v1/admin/overview/charts/attention?from=now-29d/d&to=now", 4
 
 
 def percentile(values, fraction):
     return round(sorted(values)[math.ceil(len(values) * fraction) - 1], 3)
 
 
-def profile_request(http, path, budget, repeats=1, *, plans=False):
+def profile_request(http, path, budget, repeats=1, *, plans=False, expected_status=200):
     engine = get_engine()
     elapsed, db_elapsed, counts, statements = [], [], [], []
 
@@ -348,14 +362,20 @@ def profile_request(http, path, budget, repeats=1, *, plans=False):
             started = time.perf_counter()
             response = http.get(path)
             elapsed.append(1000 * (time.perf_counter() - started))
-            assert response.status_code == 200, (path, response.text)
+            assert response.status_code == expected_status, (path, response.text)
             counts.append(len(statements))
             db_elapsed.append(1000 * sum(row[2] for row in statements))
             assert len(statements) <= budget, (path, len(statements), budget)
-            if path.startswith("/v1/admin/overview"):
+            if path.startswith("/v1/admin/overview/charts/attention"):
                 assert all(
                     "article_contents" not in sql and "article_analysis_jobs" not in sql
                     for sql, _, _ in statements
+                ), path
+            if path.startswith("/v1/admin/overview/"):
+                assert all(
+                    table not in sql.casefold()
+                    for sql, _, _ in statements
+                    for table in ("from articles ", "from inference_calls", "from article_contents")
                 ), path
             if path.startswith(("/v1/feed", "/v1/articles/", "/v1/user/feed", "/v1/user/trending")):
                 assert all("classification_provenance" not in sql for sql, _, _ in statements), path
@@ -390,13 +410,10 @@ def profile_request(http, path, budget, repeats=1, *, plans=False):
     return row, response.json()
 
 
-def test_populated_api_query_budgets(profile_data, database, client, admin_client, monkeypatch):
-    from devfeed_admin_api.pipeline_projection import drain_pipeline
-
-    # A healthy dependent report requires the current, completed pipeline too.
-    # Without it, serving the saved payload correctly adds coalesced rebuild demand.
-    drain_pipeline(database)
-    save_overview(database)
+def test_populated_api_query_budgets(
+    profile_data, database, client, admin_client, monkeypatch, card_publication
+):
+    publish_section(card_publication)
     report_path = os.environ.get("DEVFEED_PROFILE_REPORT")
     repeats = int(os.environ.get("DEVFEED_PROFILE_REPEATS", "1"))
     assert 1 <= repeats <= 100
@@ -406,9 +423,9 @@ def test_populated_api_query_budgets(profile_data, database, client, admin_clien
         http = admin_client if path.startswith("/v1/admin/") else client
         warm = http.get(path)
         assert warm.status_code == 200, (path, warm.text)
-        if path.startswith("/v1/admin/overview"):
+        if path.startswith("/v1/admin/overview/charts/attention"):
             assert warm.json()["snapshot"]["status"] == "fresh"
-            metrics = warm.json()["automation"]
+            metrics = warm.json()["data"]
             blockers = {blocker["code"]: blocker for blocker in metrics["blockers"]}
             expected_groups = {
                 "insufficient_text": 0,
@@ -453,7 +470,7 @@ def test_populated_api_query_budgets(profile_data, database, client, admin_clien
         concurrency = int(os.environ.get("DEVFEED_PROFILE_CONCURRENCY", "8"))
         assert 1 <= concurrency <= 16
         workload = [
-            "/v1/admin/overview",
+            "/v1/admin/overview/charts/attention",
             "/v1/admin/articles?limit=100",
             "/v1/admin/jobs/ai-analysis?limit=100",
             "/v1/admin/topic-proposals?limit=100",
@@ -495,22 +512,9 @@ def test_populated_api_query_budgets(profile_data, database, client, admin_clien
         )
 
 
-def test_populated_overview_rebuild_demand_query_budget(profile_data, database, admin_client):
-    from devfeed_core.models import ReportRefresh
-    from sqlalchemy import func, select
-
-    saved = save_overview(database)
-    # Keep the populated article/job history, but omit the pipeline dependency.
-    # Each poll may coalesce demand; it must never rebuild or scan evidence on GET.
-    _, result = profile_request(admin_client, "/v1/admin/overview?days=30", 5, repeats=3)
-    assert result["snapshot"]["status"] == "rebuilding"
-    assert result["automation"] == saved.model_dump(mode="json")["automation"]
-    with database() as session:
-        assert session.scalar(select(func.count()).select_from(ReportRefresh)) == 1
-        assert session.get(ReportRefresh, ("overview", 30)) is not None
-
-
-def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_client):
+def test_blocker_text_threshold_and_overlapping_latest_results(
+    database, admin_client, card_publication
+):
     from types import SimpleNamespace
 
     from devfeed_core.editorial import meaningful_text
@@ -624,10 +628,10 @@ def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_c
             ),
             key=lambda row: row.id,
         )
-    save_overview(database)
-    response = admin_client.get("/v1/admin/overview")
+    publish_section(card_publication)
+    response = admin_client.get("/v1/admin/overview/charts/attention")
     assert response.status_code == 200, response.text
-    blockers = {b["code"]: b for b in response.json()["automation"]["blockers"]}
+    blockers = {b["code"]: b for b in response.json()["data"]["blockers"]}
     unreadable = [r for r in expected if not r.readable]
     assert blockers["insufficient_text"]["count"] == len(unreadable)
     assert [(r["id"], r["revision"]) for r in blockers["insufficient_text"]["targets"]] == [

@@ -1,16 +1,12 @@
 """Recovery commands keep editorial gates; reporting composes already aggregated facts."""
 
 import uuid
-from datetime import timedelta
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from devfeed_admin_api import automation, overview_projection
-from devfeed_core.inference_metrics import InferenceCharts
+from devfeed_admin_api import automation
+from devfeed_core import analytics_blockers
 from devfeed_core.models import ArticleAnalysisJob, ArticleEnrichmentJob
-from devfeed_core.pipeline_metrics import PipelineThroughput
-from devfeed_core.topic_decision_metrics import TopicDecisionMetrics
 
 from tests.support.admin_editorial import operator_api
 from tests.support.article_readiness import processing_case as processing_case
@@ -160,7 +156,7 @@ def test_compact_blockers_keep_overlapping_causes_and_original_recovery_actions(
             cause("analysis_failed", "analyze", [first, second]),
         ]
     )
-    monkeypatch.setattr(automation, "automation_blockers", reader)
+    monkeypatch.setattr(analytics_blockers, "automation_blockers", reader)
     session = object()
     result = automation.automation_blocker_rows(session, [first, second])
     assert result == {
@@ -180,227 +176,14 @@ def test_compact_blockers_keep_overlapping_causes_and_original_recovery_actions(
 
 
 @pytest.mark.parametrize("count", [0, 201])
-def test_compact_blocker_projection_skips_empty_batches_and_rejects_unbounded_work(
+def test_compact_blocker_classification_skips_empty_batches_and_rejects_unbounded_work(
     monkeypatch, count
 ):
     reader = Mock()
-    monkeypatch.setattr(automation, "automation_blockers", reader)
+    monkeypatch.setattr(analytics_blockers, "automation_blockers", reader)
     if count:
         with pytest.raises(ValueError, match="at most 200"):
             automation.automation_blocker_rows(object(), [uuid.uuid4() for _ in range(count)])
     else:
         assert automation.automation_blocker_rows(object(), []) == {}
     reader.assert_not_called()
-
-
-def test_completed_token_series_keeps_idle_days_and_combines_all_three_job_kinds():
-    rows = [
-        {
-            "date": (NOW - timedelta(days=2)).date(),
-            "kind": "article_analysis",
-            "tokens": 100,
-            "reported": 1,
-            "unreported": 1,
-            "duration": 200,
-        },
-        {
-            "date": NOW.date(),
-            "kind": "topic_analysis",
-            "tokens": 30,
-            "reported": 1,
-            "unreported": 0,
-            "duration": 50,
-        },
-        {
-            "date": NOW.date(),
-            "kind": "research_verification",
-            "tokens": 20,
-            "reported": 1,
-            "unreported": 0,
-            "duration": 25,
-        },
-    ]
-    session = SimpleNamespace(execute=lambda _: SimpleNamespace(mappings=lambda: rows))
-    points, duration = automation.analysis_token_activity(session, NOW - timedelta(days=2), NOW)
-    assert [point.date for point in points] == [
-        str((NOW - timedelta(days=2)).date()),
-        str((NOW - timedelta(days=1)).date()),
-        str(NOW.date()),
-    ]
-    assert points[0].article_analysis == 100 and points[0].unreported_runs == 1
-    assert points[1].article_analysis == points[1].topic_analysis == points[1].reported_runs == 0
-    assert points[2].topic_analysis == 30 and points[2].research_verification == 20
-    assert points[2].reported_runs == 2 and duration == 275
-
-
-def test_completed_token_query_streams_bounded_usage_with_once_per_row_validation():
-    from sqlalchemy.dialects import postgresql
-
-    statements = []
-
-    def execute(statement):
-        statements.append(statement)
-        return SimpleNamespace(mappings=lambda: [])
-
-    automation.analysis_token_activity(
-        SimpleNamespace(execute=execute), NOW - timedelta(days=7), NOW
-    )
-    assert len(statements) == 1
-    for branch in statements[0].selects:
-        usage = branch.get_final_froms()[0]
-        raw_usage = usage.element.get_final_froms()[0]
-        # Keep the computed date visible across both projection boundaries;
-        # grouping a timestamp expression loses its daily cardinality estimate.
-        projected_day = branch.selected_columns["date"].element
-        assert getattr(projected_day, "table", None) is usage
-        assert getattr(usage.element.selected_columns["date"], "table", None) is raw_usage
-        assert len(usage.c) == len(raw_usage.c) == 3
-        assert "finished_at" not in usage.c and "finished_at" not in raw_usage.c
-        assert "raw_tokens" not in usage.c
-    sql = str(statements[0].compile(dialect=postgresql.dialect()))
-    # Literal OFFSET 0 fences preserve both streaming projections in generic
-    # plans, without introducing a materialized working set or runtime limits.
-    assert sql.count("OFFSET 0") == 6
-    assert "MATERIALIZED" not in sql
-    for table in ("article_analysis_jobs", "topic_analysis_jobs", "research_verification_jobs"):
-        assert sql.count(f"{table}.usage ->>") == 1
-        assert f"{table}.finished_at >=" in sql
-        assert f"{table}.finished_at <=" in sql
-        assert f"{table}.status IN" in sql
-    assert sql.count("left(") == 3
-    assert sql.count("CASE WHEN") == 3
-
-
-@pytest.mark.parametrize(
-    "published,automatic,median,percent",
-    [(0, 0, None, None), (4, 0, None, 0.0), (3, 2, 120.0, 66.7), (6, 1, 0.0, 16.7)],
-)
-def test_publication_metrics_distinguish_empty_history_from_zero_automatic_publication(
-    published, automatic, median, percent
-):
-    session = SimpleNamespace(
-        execute=lambda _: SimpleNamespace(one=lambda: (published, automatic, median))
-    )
-    assert automation.publication_automation(session, NOW - timedelta(days=7), NOW) == {
-        "published_in_window": published,
-        "published_without_intervention": automatic,
-        "automatic_publication_percent": percent,
-        "median_ingestion_to_publication_seconds": median,
-    }
-
-
-def test_publication_query_keeps_narrow_review_probes_out_of_aggregate_filters():
-    from sqlalchemy.dialects import postgresql
-    from sqlalchemy.sql import visitors
-    from sqlalchemy.sql.elements import FunctionFilter
-    from sqlalchemy.sql.selectable import Exists, Select
-
-    start = NOW - timedelta(days=7)
-    statement = automation._publication_automation_query(start, NOW)
-    compiled = statement.compile(dialect=postgresql.dialect())
-    sql = str(compiled)
-    # WHERE EXISTS can become semi/anti joins; EXISTS inside aggregate FILTER
-    # forces repeated per-publication subplans and recreates buffer amplification.
-    aggregate_filters = [
-        clause for clause in visitors.iterate(statement) if isinstance(clause, FunctionFilter)
-    ]
-    assert aggregate_filters
-    assert all(
-        not any(isinstance(clause, Exists) for clause in visitors.iterate(aggregate.criterion))
-        for aggregate in aggregate_filters
-    )
-    assert "article_reviews.action = 'publish'" in sql
-    assert "article_reviews.automation != '{}'::jsonb" in sql
-    assert "article_reviews.automation = '{}'::jsonb" in sql
-    assert start in compiled.params.values() and NOW in compiled.params.values()
-    review_projections = [
-        column.key
-        for select in visitors.iterate(statement)
-        if isinstance(select, Select)
-        for column in select.selected_columns
-        if getattr(getattr(column, "table", None), "name", None) == "article_reviews"
-    ]
-    assert review_projections and set(review_projections) == {"article_id"}
-
-
-def test_publication_window_remains_planner_visible_in_cached_prepared_queries():
-    from sqlalchemy import DateTime
-    from sqlalchemy.dialects import postgresql
-    from sqlalchemy.sql import visitors
-    from sqlalchemy.sql.elements import BindParameter
-
-    start = NOW - timedelta(days=7)
-    statement = automation._publication_automation_query(start, NOW)
-    other = automation._publication_automation_query(start - timedelta(days=1), NOW)
-    assert statement._generate_cache_key().key == other._generate_cache_key().key
-    bounds = [
-        clause
-        for clause in visitors.iterate(statement)
-        if isinstance(clause, BindParameter) and clause.literal_execute
-    ]
-    assert {bound.value for bound in bounds} == {start, NOW}
-    assert all(isinstance(bound.type, DateTime) and bound.type.timezone for bound in bounds)
-    rendered = statement.compile(
-        dialect=postgresql.dialect(), compile_kwargs={"render_postcompile": True}
-    )
-    assert start not in rendered.params.values() and NOW not in rendered.params.values()
-    assert set(rendered.params.values()) == {0.5}
-    assert "POSTCOMPILE" not in str(rendered)
-    # SQLAlchemy may reuse the compiled expression; PostgreSQL still receives
-    # each window's timestamps rather than unknown generic-plan parameters.
-    rendered_other = other.compile(
-        dialect=postgresql.dialect(), compile_kwargs={"render_postcompile": True}
-    )
-    assert str(rendered) != str(rendered_other)
-
-
-@pytest.mark.parametrize("projected", [False, True])
-def test_automation_overview_composes_one_consistent_window_and_selects_correct_blocker_reader(
-    monkeypatch, projected
-):
-    session, start = object(), NOW - timedelta(days=7)
-    blockers = [
-        automation.AutomationBlocker(
-            code="manual_review_required", label="Manual review", count=1, action=None, targets=[]
-        )
-    ]
-    chosen, unused = (
-        Mock(return_value=blockers),
-        Mock(side_effect=AssertionError("Wrong blocker reader")),
-    )
-    monkeypatch.setattr(overview_projection, "projected_blockers", chosen if projected else unused)
-    monkeypatch.setattr(automation, "automation_blockers", unused if projected else chosen)
-    publication = {
-        "published_in_window": 4,
-        "published_without_intervention": 3,
-        "automatic_publication_percent": 75.0,
-        "median_ingestion_to_publication_seconds": 90.0,
-    }
-    publishers = Mock(return_value=publication)
-    tokens = [
-        automation.AnalysisTokenDay(
-            date=str(NOW.date()),
-            article_analysis=100,
-            topic_analysis=30,
-            research_verification=20,
-            reported_runs=3,
-            unreported_runs=1,
-        )
-    ]
-    token_reader = Mock(return_value=(tokens, 500))
-    monkeypatch.setattr(automation, "publication_automation", publishers)
-    monkeypatch.setattr(automation, "analysis_token_activity", token_reader)
-    for name, result in [
-        ("decision_metrics", TopicDecisionMetrics()),
-        ("inference_charts", InferenceCharts()),
-        ("pipeline_throughput", PipelineThroughput()),
-    ]:
-        monkeypatch.setattr(automation, name, Mock(return_value=result))
-    result = automation.automation_metrics(session, start, NOW, projected=projected)
-    chosen.assert_called_once_with(session)
-    unused.assert_not_called()
-    publishers.assert_called_once_with(session, start, NOW)
-    token_reader.assert_called_once_with(session, start, NOW)
-    assert result.blockers == blockers and result.analysis_tokens == 150
-    assert result.analysis_duration_ms == 500 and result.usage_reported_runs == 3
-    assert result.usage_unreported_runs == 1 and result.automatic_publication_percent == 75

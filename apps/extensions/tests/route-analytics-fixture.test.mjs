@@ -13,7 +13,7 @@ const { extensionPage } = await import(
   `data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString("base64")}`
 );
 
-test("route telemetry assertions wait for the delayed initial page view", async () => {
+test("route telemetry waits for startup and distinguishes preview headings from cards", async () => {
   const events = [];
   let startupDelivered = false;
   const emit = (path) =>
@@ -32,7 +32,14 @@ test("route telemetry assertions wait for the delayed initial page view", async 
         startup();
         emit(new URL(destination).hash.slice(1));
       },
-      getByRole: () => ({ waitFor: async () => {} }),
+      getByRole: (role, options) => {
+        assert.equal(role, "heading");
+        if (options.name === "Shared reader components in every new tab")
+          assert.equal(options.level, 1, "wait for the preview rather than background cards");
+        if (options.name === "Sign in to connect your agent")
+          assert.equal(options.level, undefined, "the account gate uses an h2 heading");
+        return { waitFor: async () => {} };
+      },
     },
     (path) => `https://extension.test/#${path}`,
     events,

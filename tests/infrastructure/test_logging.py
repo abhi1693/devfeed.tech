@@ -899,7 +899,7 @@ def test_scheduler_dispatch_event_follows_commit(json_logs):
 
     @contextmanager
     def begin():
-        yield SimpleNamespace(scalar=lambda *args: job)
+        yield SimpleNamespace(scalars=lambda *args: SimpleNamespace(all=lambda: [job]))
         logger.debug("test_transaction_committed")
 
     queue = SimpleNamespace(enqueue=lambda *args, **kwargs: SimpleNamespace(id="rq-id"))
@@ -928,7 +928,7 @@ def test_scheduler_batch_dispatch_uses_one_transaction(json_logs):
     @contextmanager
     def begin():
         begins.append(True)
-        yield SimpleNamespace(scalar=lambda *args: jobs.pop(0) if jobs else None)
+        yield SimpleNamespace(scalars=lambda *args: SimpleNamespace(all=lambda: jobs))
         logger.debug("test_transaction_committed")
 
     queue = SimpleNamespace(enqueue=lambda *args, **kwargs: SimpleNamespace(id="rq-id"))

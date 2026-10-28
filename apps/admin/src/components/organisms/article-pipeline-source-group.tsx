@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useId, useLayoutEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@devfeed/ui/button";
@@ -13,9 +13,9 @@ import {
   type PipelineSourceGroup,
   type PipelineStage,
 } from "@/lib/article-pipeline";
-import { notifyFailure } from "@/lib/notifications";
 import { pipelineCardStatuses } from "@/lib/pipeline-status";
 import { useRequest } from "@/lib/use-request";
+import { useBoardPagination } from "@/lib/use-board-pagination";
 import { useBoardRefreshInterval } from "@/lib/use-refresh-interval";
 
 const stateOrder = ["running", "blocked", "retry_wait", "waiting", "ready", "complete"];
@@ -134,23 +134,7 @@ function SourceArticles({
   onArticlesChange: () => void;
 }) {
   const [revision, setRevision] = useState(0);
-  const [additional, setAdditional] = useState<{
-    snapshot: PipelineColumn;
-    boardSnapshot: PipelineBoard;
-    column: PipelineColumn;
-  }>();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<{
-    snapshot: PipelineBoard;
-    firstPage: PipelineColumn;
-  }>();
   const refreshSeconds = useBoardRefreshInterval();
-  const request = useRef<AbortController | null>(null);
-  const current = useRef(snapshot);
-  useEffect(() => {
-    current.current = snapshot;
-    return () => request.current?.abort();
-  }, [snapshot]);
   const load = useCallback(
     (signal: AbortSignal) =>
       getArticlePipelineSourceArticles(stage, query, group.source_id, 0, signal),
@@ -162,42 +146,19 @@ function SourceArticles({
     refreshSeconds * 1000,
     refreshKey + revision,
   );
-  const column =
-    additional?.snapshot === result.data && additional?.boardSnapshot === snapshot
-      ? additional.column
-      : result.data;
+  // Later pages belong to both the board and this group's first-page response.
+  const page = useMemo(() => ({ board: snapshot, first: result.data }), [snapshot, result.data]);
+  const pagination = useBoardPagination<typeof page, PipelineStage, PipelineColumn>({
+    snapshot: page,
+    load: (column, signal) =>
+      getArticlePipelineSourceArticles(stage, query, group.source_id, column.next_cursor!, signal),
+    merge: (previous, next) => ({ ...next, items: [...previous.items, ...next.items] }),
+    failureMessage: "Could not load more source articles",
+  });
+  const column = result.error ? undefined : (pagination.columns[stage] ?? result.data);
   const items = [...new Map(column?.items.map((article) => [article.id, article])).values()];
-  useLayoutEffect(onArticlesChange, [result.data, additional, onArticlesChange]);
-  async function more() {
-    if (!column?.next_cursor || busy || result.refreshing || result.loading || result.error) return;
-    request.current?.abort();
-    const controller = new AbortController();
-    request.current = controller;
-    setBusy(true);
-    setError(undefined);
-    try {
-      const next = await getArticlePipelineSourceArticles(
-        stage,
-        query,
-        group.source_id,
-        column.next_cursor,
-        controller.signal,
-      );
-      if (!controller.signal.aborted && current.current === snapshot && result.data)
-        setAdditional({
-          snapshot: result.data,
-          boardSnapshot: snapshot,
-          column: { ...next, items: [...items, ...next.items] },
-        });
-    } catch (cause) {
-      if (!controller.signal.aborted) {
-        notifyFailure(cause, "Could not load more source articles");
-        if (result.data) setError({ snapshot, firstPage: result.data });
-      }
-    } finally {
-      if (request.current === controller) setBusy(false);
-    }
-  }
+  const busy = pagination.loading === stage;
+  useLayoutEffect(onArticlesChange, [column, result.error, onArticlesChange]);
   return (
     <div className="space-y-3 border-t p-2">
       <RequestState
@@ -209,7 +170,7 @@ function SourceArticles({
       {column && !items.length && !result.error && (
         <p className="py-3 text-center text-xs text-muted-foreground">No articles in this stage.</p>
       )}
-      {error?.snapshot === snapshot && error?.firstPage === result.data && (
+      {pagination.error === stage && (
         <p role="alert" className="text-xs text-destructive">
           Could not load more articles. Try again.
         </p>
@@ -221,7 +182,7 @@ function SourceArticles({
           className="w-full"
           disabled={busy || result.refreshing || !!result.error}
           loading={busy}
-          onClick={() => void more()}
+          onClick={() => void pagination.more(column)}
         >
           Load more {group.source_name || "Unknown source"} articles
         </Button>

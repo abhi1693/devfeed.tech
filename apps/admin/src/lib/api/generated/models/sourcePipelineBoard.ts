@@ -5,13 +5,13 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.1.4
  */
-import type { ReadModelSnapshot } from './readModelSnapshot';
+import type { AnalyticsSnapshot } from './analyticsSnapshot';
 import type { SourcePipelineColumn } from './sourcePipelineColumn';
 
 export interface SourcePipelineBoard {
   as_of: string;
   columns: SourcePipelineColumn[];
   counts: Partial<Record<'discovery' | 'profile' | 'assessment' | 'branding' | 'review' | 'ingestion' | 'active' | 'paused' | 'rejected', number>>;
-  snapshot?: ReadModelSnapshot | null;
+  snapshot?: AnalyticsSnapshot | null;
   terminal_since: string;
 }

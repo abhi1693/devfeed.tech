@@ -36,9 +36,7 @@ from tests.support.partner_matching import NOW, product
 
 
 @pytest.mark.parametrize("denied", [False, True])
-@pytest.mark.parametrize(
-    "read", ["inventory", "audience", "destination", "creative", "product", "dashboard"]
-)
+@pytest.mark.parametrize("read", ["inventory", "audience", "destination", "creative", "product"])
 def test_portal_reads_require_the_current_member_account_before_forwarding_exact_scope(
     monkeypatch, denied, read
 ):

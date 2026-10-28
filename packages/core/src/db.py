@@ -5,8 +5,11 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_core import automation_events as _automation_events  # noqa: F401
 from devfeed_core import notifications as _notifications  # noqa: F401
+from devfeed_core.analytics_producer import ApplicationAnalyticsCapture
 from devfeed_core.cache_events import AppSession
 from devfeed_core.config import Settings, get_settings
+
+ApplicationAnalyticsCapture.install(AppSession)
 
 
 @lru_cache

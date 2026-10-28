@@ -5,14 +5,14 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.1.4
  */
+import type { AnalyticsSnapshot } from './analyticsSnapshot';
 import type { PipelineBoardCounts } from './pipelineBoardCounts';
 import type { PipelineColumn } from './pipelineColumn';
-import type { ReadModelSnapshot } from './readModelSnapshot';
 
 export interface PipelineBoard {
   as_of: string;
   columns: PipelineColumn[];
   counts: PipelineBoardCounts;
-  snapshot?: ReadModelSnapshot | null;
+  snapshot?: AnalyticsSnapshot | null;
   terminal_since: string;
 }

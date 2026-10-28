@@ -143,32 +143,32 @@ def expand_recommendation_events(factory, batch=100):
 
 
 def dispatch_recommendations(factory, queue, batch=25):
-    """Durable redispatch after Redis loss or an interrupted worker, without leases."""
-    count = 0
+    """Publish one locked batch; durable identities repair interrupted publication."""
+    if batch < 1:
+        return 0
     now = utcnow()
-    for _ in range(batch):
-        with factory.begin() as session:
-            state = session.scalar(
-                select(UserRecommendationState)
-                .where(
-                    UserRecommendationState.next_refresh_at <= now,
-                    has_recommendation_work(UserRecommendationState.user_id),
-                    or_(
-                        UserRecommendationState.dispatched_at.is_(None),
-                        UserRecommendationState.dispatched_at
-                        < now - timedelta(seconds=REDISPATCH_SECONDS),
-                    ),
-                )
-                .order_by(
-                    UserRecommendationState.computed_at.is_not(None),
-                    UserRecommendationState.next_refresh_at,
-                    UserRecommendationState.user_id,
-                )
-                .limit(1)
-                .with_for_update(skip_locked=True)
+    logs = []
+    with factory.begin() as session:
+        states = session.scalars(
+            select(UserRecommendationState)
+            .where(
+                UserRecommendationState.next_refresh_at <= now,
+                has_recommendation_work(UserRecommendationState.user_id),
+                or_(
+                    UserRecommendationState.dispatched_at.is_(None),
+                    UserRecommendationState.dispatched_at
+                    < now - timedelta(seconds=REDISPATCH_SECONDS),
+                ),
             )
-            if state is None:
-                break
+            .order_by(
+                UserRecommendationState.computed_at.is_not(None),
+                UserRecommendationState.next_refresh_at,
+                UserRecommendationState.user_id,
+            )
+            .limit(batch)
+            .with_for_update(skip_locked=True)
+        ).all()
+        for state in states:
             queue.enqueue(
                 "devfeed_aggregator.recommendation_tasks.refresh",
                 str(state.user_id),
@@ -181,15 +181,15 @@ def dispatch_recommendations(factory, queue, batch=25):
                 at_front=state.computed_at is None,
             )
             state.dispatched_at = now
-            logger.info(
-                "recommendation_refresh_dispatched",
-                extra={
+            logs.append(
+                {
                     "first_feed": state.computed_at is None,
                     "wait_ms": max(0, round((now - state.next_refresh_at).total_seconds() * 1000)),
-                },
+                }
             )
-            count += 1
-    return count
+    for fields in logs:
+        logger.info("recommendation_refresh_dispatched", extra=fields)
+    return len(logs)
 
 
 def interests(session, user_id):
@@ -615,7 +615,7 @@ def refresh_recommendations(factory, user_id):
                     UserRecommendationState.user_id == user_id,
                     UserRecommendationState.next_refresh_at <= utcnow(),
                 )
-                .with_for_update(skip_locked=True)
+                .with_for_update()
             )
             if state is None:
                 return 0

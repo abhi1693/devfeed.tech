@@ -29,6 +29,8 @@ from devfeed_user_api.main import create_app
 from fastapi.testclient import TestClient
 from sqlalchemy import insert, update
 
+from tests.support.user_analytics import reader_analytics
+
 pytestmark = pytest.mark.integration
 PATH = "/v1/user/settings/columns/starters"
 
@@ -54,6 +56,12 @@ def starter_data(database):
     app.dependency_overrides[require_user] = lambda: current
     with TestClient(app) as client:
         yield client, current, first, second
+
+
+@pytest.fixture
+def starter_analytics(starter_data):
+    with reader_analytics(starter_data[0]):
+        yield
 
 
 def topic(session, index, status="active"):
@@ -247,7 +255,7 @@ def test_direct_follow_and_unfollow_changes_are_visible_without_background_refre
 
 
 def test_immediate_likes_use_primary_and_supporting_topics_but_not_incidental_or_proposed(
-    starter_data, database
+    starter_data, database, starter_analytics
 ):
     client, _, account, _ = starter_data
     with database.begin() as session:
@@ -429,7 +437,9 @@ def test_liked_topics_rank_by_evidence_count_then_stable_identity(starter_data, 
     }
 
 
-def test_like_evidence_is_bounded_to_the_latest_hundred_user_likes(starter_data, database):
+def test_like_evidence_is_bounded_to_the_latest_hundred_user_likes(
+    starter_data, database, starter_analytics
+):
     client, _, account, _ = starter_data
     now = utcnow()
     with database.begin() as session:

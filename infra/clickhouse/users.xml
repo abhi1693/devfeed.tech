@@ -1,0 +1,133 @@
+<clickhouse>
+    <profiles>
+        <!-- The official image assigns its configured user to the default profile. -->
+        <default>
+            <max_threads from_env="DEVFEED_CLICKHOUSE_MAX_THREADS" />
+            <max_execution_time from_env="DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS" />
+            <max_memory_usage from_env="DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES" />
+            <max_concurrent_queries_for_user from_env="DEVFEED_CLICKHOUSE_READER_MAX_QUERIES" />
+            <max_memory_usage_for_user from_env="DEVFEED_CLICKHOUSE_READER_MAX_MEMORY_BYTES" />
+            <constraints>
+                <max_threads><min>1</min><max from_env="DEVFEED_CLICKHOUSE_MAX_THREADS" /></max_threads>
+                <max_execution_time><min>1</min><max from_env="DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS" /></max_execution_time>
+                <max_memory_usage><min>16777216</min><max from_env="DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES" /></max_memory_usage>
+                <max_concurrent_queries_for_user><readonly /></max_concurrent_queries_for_user>
+                <max_memory_usage_for_user><readonly /></max_memory_usage_for_user>
+            </constraints>
+        </default>
+        <devfeed_reader>
+            <profile>default</profile>
+            <!-- readonly=2 permits bounded per-query settings while prohibiting writes. -->
+            <readonly>2</readonly>
+        </devfeed_reader>
+        <devfeed_ingest>
+            <max_threads from_env="DEVFEED_CLICKHOUSE_MAX_THREADS" />
+            <max_execution_time from_env="DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS" />
+            <max_memory_usage from_env="DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES" />
+            <max_concurrent_queries_for_user from_env="DEVFEED_CLICKHOUSE_INGEST_MAX_QUERIES" />
+            <max_memory_usage_for_user from_env="DEVFEED_CLICKHOUSE_INGEST_MAX_MEMORY_BYTES" />
+            <constraints>
+                <max_threads><min>1</min><max from_env="DEVFEED_CLICKHOUSE_MAX_THREADS" /></max_threads>
+                <max_execution_time><min>1</min><max from_env="DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS" /></max_execution_time>
+                <max_memory_usage><min>16777216</min><max from_env="DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES" /></max_memory_usage>
+                <max_concurrent_queries_for_user><readonly /></max_concurrent_queries_for_user>
+                <max_memory_usage_for_user><readonly /></max_memory_usage_for_user>
+            </constraints>
+        </devfeed_ingest>
+    </profiles>
+    <users>
+        <devfeed_reader>
+            <password from_env="DEVFEED_CLICKHOUSE_READER_PASSWORD" />
+            <networks><ip>::/0</ip></networks>
+            <profile>devfeed_reader</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <query from_env="DEVFEED_CLICKHOUSE_READER_GRANT" />
+            </grants>
+        </devfeed_reader>
+        <!-- The public service receives only its required tables. -->
+        <devfeed_public>
+            <password from_env="DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD" />
+            <networks><ip>::/0</ip></networks>
+            <profile>devfeed_ingest</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <events_partner from_env="DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_PARTNER_GRANT" />
+                <events_search from_env="DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_SEARCH_GRANT" />
+                <pipeline from_env="DEVFEED_CLICKHOUSE_PUBLIC_PIPELINE_GRANT" />
+                <cards from_env="DEVFEED_CLICKHOUSE_PUBLIC_CARDS_GRANT" />
+                <progress from_env="DEVFEED_CLICKHOUSE_PUBLIC_PROGRESS_GRANT" />
+            </grants>
+        </devfeed_public>
+        <!-- The user service receives only its required tables. -->
+        <devfeed_user>
+            <password from_env="DEVFEED_CLICKHOUSE_USER_PASSWORD" />
+            <networks><ip>::/0</ip></networks>
+            <profile>devfeed_ingest</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <opens from_env="DEVFEED_CLICKHOUSE_USER_OPENS_GRANT" />
+                <events from_env="DEVFEED_CLICKHOUSE_USER_EVENTS_GRANT" />
+                <lifetime from_env="DEVFEED_CLICKHOUSE_USER_LIFETIME_GRANT" />
+                <baseline from_env="DEVFEED_CLICKHOUSE_USER_BASELINE_GRANT" />
+                <cutover from_env="DEVFEED_CLICKHOUSE_USER_CUTOVER_GRANT" />
+            </grants>
+        </devfeed_user>
+        <!-- The partner service receives only its required tables. -->
+        <devfeed_partner>
+            <password from_env="DEVFEED_CLICKHOUSE_PARTNER_PASSWORD" />
+            <networks><ip>::/0</ip></networks>
+            <profile>devfeed_reader</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <events_partner from_env="DEVFEED_CLICKHOUSE_PARTNER_EVENTS_PARTNER_GRANT" />
+                <progress from_env="DEVFEED_CLICKHOUSE_PARTNER_PROGRESS_GRANT" />
+            </grants>
+        </devfeed_partner>
+        <!-- The admin service receives only its required tables. -->
+        <devfeed_admin>
+            <password from_env="DEVFEED_CLICKHOUSE_ADMIN_PASSWORD" />
+            <networks><ip>::/0</ip></networks>
+            <profile>devfeed_ingest</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <all from_env="DEVFEED_CLICKHOUSE_ADMIN_ALL_GRANT" />
+                <pipeline from_env="DEVFEED_CLICKHOUSE_ADMIN_PIPELINE_GRANT" />
+                <user_events from_env="DEVFEED_CLICKHOUSE_ADMIN_USER_EVENTS_GRANT" />
+                <cards from_env="DEVFEED_CLICKHOUSE_ADMIN_CARDS_GRANT" />
+                <events_partner from_env="DEVFEED_CLICKHOUSE_ADMIN_EVENTS_PARTNER_GRANT" />
+            </grants>
+        </devfeed_admin>
+        <!-- The worker service receives only its required tables. -->
+        <devfeed_worker>
+            <password from_env="DEVFEED_CLICKHOUSE_WORKER_PASSWORD" />
+            <networks><ip>::/0</ip></networks>
+            <profile>devfeed_ingest</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <inference from_env="DEVFEED_CLICKHOUSE_WORKER_INFERENCE_GRANT" />
+                <pipeline from_env="DEVFEED_CLICKHOUSE_WORKER_PIPELINE_GRANT" />
+                <user_events from_env="DEVFEED_CLICKHOUSE_WORKER_USER_EVENTS_GRANT" />
+                <cards from_env="DEVFEED_CLICKHOUSE_WORKER_CARDS_GRANT" />
+                <progress from_env="DEVFEED_CLICKHOUSE_WORKER_PROGRESS_GRANT" />
+            </grants>
+        </devfeed_worker>
+        <!-- The importer can maintain analytics schema and data, but not manage users. -->
+        <devfeed_ingest>
+            <password from_env="DEVFEED_CLICKHOUSE_INGEST_PASSWORD" />
+            <networks><ip>::/0</ip></networks>
+            <profile>devfeed_ingest</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <query from_env="DEVFEED_CLICKHOUSE_INGEST_GRANT" />
+            </grants>
+        </devfeed_ingest>
+    </users>
+</clickhouse>

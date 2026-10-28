@@ -41,6 +41,7 @@ let queued = false;
 let linked = false;
 let conflict = false;
 let profileMissing = false;
+let analyticsPreparing = false;
 const posts = [];
 const reads = [];
 const snapshot = () => generation.toString(16).padStart(64, "0");
@@ -262,6 +263,13 @@ function source() {
 }
 const fixture = createServer(async (req, res) => {
   const url = new URL(req.url, "http://fixture");
+  if (analyticsPreparing && req.method === "GET" && url.pathname === "/v1/admin/source-pipeline") {
+    res.writeHead(503, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({ detail: { code: "analytics_preparing", message: "Private diagnostic" } }),
+    );
+    return;
+  }
   let body;
   if (url.pathname.endsWith("/auth/me"))
     body = {
@@ -680,6 +688,22 @@ try {
     .getByRole("region", { name: "Source lifecycle pipeline" })
     .waitFor({ timeout: 5000 });
   await unfocused.close();
+  await page.bringToFront();
+  await page.getByRole("region", { name: "Source lifecycle pipeline" }).waitFor();
+  assert.ok(await page.locator("article[data-board-item-id]").count());
+  analyticsPreparing = true;
+  await page
+    .getByRole("region", { name: "Source lifecycle pipeline" })
+    .waitFor({ state: "detached" });
+  await page
+    .getByText("Analytics are being prepared. Please retry shortly.", { exact: true })
+    .first()
+    .waitFor();
+  assert.equal(await page.locator("article[data-board-item-id]").count(), 0);
+  assert.equal(await page.getByText("Private diagnostic", { exact: true }).count(), 0);
+  analyticsPreparing = false;
+  await page.getByRole("region", { name: "Source lifecycle pipeline" }).waitFor();
+  assert.ok(await page.locator("article[data-board-item-id]").count());
   assert.deepEqual(errors, []);
   await writeFile(
     `${destination}/report.json`,

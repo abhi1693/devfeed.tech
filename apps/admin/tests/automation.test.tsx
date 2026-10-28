@@ -2,12 +2,11 @@
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { renderAdmin } from "./render-admin";
-import { AutomationOverview } from "@/components/organisms/automation-overview";
 import { SourcePublicationPolicy } from "@/components/organisms/source-publication-policy";
 import { AutomationHistory } from "@/components/organisms/automation-history";
 import * as api from "@/lib/api/generated/admin";
-import type { AutomationOverview as AutomationData, SourceOut } from "@/lib/api/generated/models";
-import { notify, notifyFailure } from "@/lib/notifications";
+import type { SourceOut } from "@/lib/api/generated/models";
+import { notifyFailure } from "@/lib/notifications";
 
 vi.mock("@/lib/api/generated/admin", () => ({
   adminAutomationRecover: vi.fn(),
@@ -21,111 +20,6 @@ vi.mock("@/lib/notifications", () => ({
 }));
 beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
-
-const data: AutomationData = {
-  analysis_duration_ms: 1200,
-  analysis_tokens: 850,
-  automatic_publication_percent: 50,
-  median_ingestion_to_publication_seconds: 120,
-  published_in_window: 4,
-  published_without_intervention: 2,
-  usage_reported_runs: 3,
-  blockers: [
-    {
-      code: "topic_not_matched",
-      label: "Relevant article, no topic matched",
-      count: 1,
-      action: "analyze",
-      targets: [{ id: "article-1", title: "Routing guide", kind: "article", revision: 7 }],
-    },
-  ],
-};
-
-it("recovers the selected article with its displayed revision and session token", async () => {
-  vi.mocked(api.adminAutomationRecover).mockResolvedValue({ status: "queued", job_id: "job-1" });
-  const refresh = vi.fn();
-  renderAdmin(<AutomationOverview data={data} onChange={refresh} />);
-  expect(screen.getByText("50%")).toBeTruthy();
-  expect(screen.getByText("2 min")).toBeTruthy();
-  fireEvent.click(screen.getByText("Relevant article, no topic matched"));
-  expect(screen.getByRole("link", { name: "Routing guide" }).getAttribute("href")).toBe(
-    "/content/articles/article-1",
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
-  await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
-  expect(api.adminAutomationRecover).toHaveBeenCalledWith(
-    "article-1",
-    "analyze",
-    { expected_revision: 7 },
-    { headers: { "X-CSRF-Token": "test-csrf" } },
-  );
-  expect(notify.success).toHaveBeenCalledWith("Recovery job queued");
-});
-
-it("retains blockers and reports a failed recovery without claiming success", async () => {
-  vi.mocked(api.adminAutomationRecover).mockRejectedValue(new Error("Conflict"));
-  const refresh = vi.fn();
-  renderAdmin(<AutomationOverview data={data} onChange={refresh} />);
-  fireEvent.click(screen.getByText("Relevant article, no topic matched"));
-  fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
-  await waitFor(() => expect(notifyFailure).toHaveBeenCalledOnce());
-  expect(refresh).not.toHaveBeenCalled();
-  expect(screen.getByRole("link", { name: "Routing guide" })).toBeTruthy();
-});
-
-it("keeps catalog gaps reviewable without offering unchanged analysis", () => {
-  renderAdmin(
-    <AutomationOverview
-      data={{ ...data, blockers: [{ ...data.blockers[0], action: null }] }}
-      onChange={vi.fn()}
-    />,
-  );
-  fireEvent.click(screen.getByText("Relevant article, no topic matched"));
-  expect(screen.getByRole("link", { name: "Routing guide" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Analyze again" })).toBeNull();
-});
-
-it("reports a completed policy rejection as resolved", async () => {
-  vi.mocked(api.adminAutomationRecover).mockResolvedValue({ status: "rejected" });
-  const refresh = vi.fn();
-  renderAdmin(
-    <AutomationOverview
-      data={{ ...data, blockers: [{ ...data.blockers[0], action: "evaluate" }] }}
-      onChange={refresh}
-    />,
-  );
-  fireEvent.click(screen.getByText("Relevant article, no topic matched"));
-  fireEvent.click(screen.getByRole("button", { name: "Evaluate source policy" }));
-  await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
-  expect(notify.success).toHaveBeenCalledWith("Article rejected by its publication policy");
-  expect(notify.warning).not.toHaveBeenCalled();
-});
-
-it("keeps empty publication metrics unavailable and links relationship blockers correctly", () => {
-  renderAdmin(
-    <AutomationOverview
-      data={{
-        ...data,
-        automatic_publication_percent: null,
-        median_ingestion_to_publication_seconds: null,
-        blockers: [
-          {
-            code: "relationship",
-            label: "Relationship evidence",
-            count: 1,
-            targets: [{ id: "relation-1", title: "Uses Angular", kind: "relationship-proposal" }],
-          },
-        ],
-      }}
-      onChange={vi.fn()}
-    />,
-  );
-  expect(screen.getAllByText("—")).toHaveLength(2);
-  fireEvent.click(screen.getByText("Relationship evidence"));
-  expect(screen.getByRole("link", { name: "Uses Angular" }).getAttribute("href")).toBe(
-    "/taxonomy/relationships/proposals/relation-1",
-  );
-});
 
 it("requires a saved preview before auto mode and uses the returned revision", async () => {
   vi.mocked(api.adminSourcePublicationPolicy).mockResolvedValue({
@@ -217,12 +111,4 @@ it("shows full mode authority without the manual publication controls", () => {
   );
   expect(screen.getByText(/Automatic publication is enabled/)).toBeTruthy();
   expect(screen.queryByRole("combobox")).toBeNull();
-});
-
-it("shows automatic progress without requiring recovery clicks in full mode", () => {
-  renderAdmin(<AutomationOverview data={{ ...data, full_automation: true }} onChange={vi.fn()} />);
-  expect(screen.getByText("Automation progress")).toBeTruthy();
-  expect(screen.getByText(/Automatic decisions and items that need review/)).toBeTruthy();
-  fireEvent.click(screen.getByText("Relevant article, no topic matched"));
-  expect(screen.queryByRole("button", { name: "Analyze again" })).toBeNull();
 });

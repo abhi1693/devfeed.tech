@@ -13,9 +13,9 @@ from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 
 
-def publisher(*, jobs=(), recovery=(), count=0, locked=True, batch_size=100):
+def publisher(*, jobs=(), recovery=(), count=0, locked=True, pending=True, batch_size=100):
     session = Mock()
-    session.scalar.return_value = locked
+    session.scalar.side_effect = [pending, locked]
 
     def claims(statement):
         compiled = statement.compile(dialect=postgresql.dialect())
@@ -74,10 +74,15 @@ def test_queue_lock_covers_backpressure_and_publication(queue_name, lock):
     first, second = job(), job()
     state = publisher(jobs=[first, second])
     events = []
-    state.session.scalar.side_effect = lambda statement: events.append("lock") or True
+
+    def scalar(statement):
+        events.append("lock" if "pg_try_advisory_xact_lock" in str(statement) else "pending")
+        return True
+
+    state.session.scalar.side_effect = scalar
 
     def lookup(name):
-        assert events == ["lock"]
+        assert events == ["pending", "lock"]
         events.append("queue")
         return state.queue
 
@@ -92,7 +97,7 @@ def test_queue_lock_covers_backpressure_and_publication(queue_name, lock):
     state.queue.enqueue.side_effect = enqueue
     assert publish(state, queue_name=queue_name) == 2
     state.lookup.assert_called_once_with(queue_name)
-    assert events == ["lock", "queue", "enqueue", "enqueue"]
+    assert events == ["pending", "lock", "queue", "enqueue", "enqueue"]
     assert state.session.scalar.call_args.args[0].compile().params == {
         "pg_try_advisory_xact_lock_2": lock
     }
@@ -108,6 +113,19 @@ def test_queue_lock_covers_backpressure_and_publication(queue_name, lock):
             "result_ttl": 0,
             "failure_ttl": 60,
         }
+
+
+def test_empty_lane_uses_one_bounded_probe_without_redis_or_advisory_lock():
+    state = publisher(pending=False)
+    assert publish(state) == 0
+    state.session.scalar.assert_called_once()
+    statement = state.session.scalar.call_args.args[0]
+    compiled = str(statement.compile(dialect=postgresql.dialect()))
+    assert "EXISTS" in compiled and "ORDER BY" not in compiled
+    assert "pg_try_advisory" not in compiled
+    state.lookup.assert_not_called()
+    state.session.scalars.assert_not_called()
+    assert state.transaction.committed
 
 
 def test_busy_queue_lock_skips_redis_and_job_reads():

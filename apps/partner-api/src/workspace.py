@@ -2,21 +2,29 @@
 
 import uuid
 
+from devfeed_core.analytics import AnalyticsUnavailable
+from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.models import PartnerAccount, PartnerConnection
 from devfeed_core.partner_ad_formats import AdFormat
 from devfeed_core.partner_connections import ProviderSlug
 from devfeed_core.partner_credentials import credential_storage_available
 from devfeed_core.text_search import text_search
+from devfeed_http.analytics import analytics_client
+from devfeed_http.dependencies import run_database
 from devfeed_http.pagination import Listing, Page
+from devfeed_http.partner_analytics_reporting import (
+    reporting_assets,
+    reporting_metrics,
+    require_partner_history,
+)
 from devfeed_http.partner_portal import (
     SortOrder,
     WorkspaceAssetSort,
     WorkspaceDashboard,
     WorkspaceInventoryOut,
     inventory_page,
-    reporting_metrics,
 )
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 
 from devfeed_partner_api.access import PartnerAccountAccess
@@ -29,7 +37,7 @@ from devfeed_partner_api.connections import (
     create_connection,
     partner_connection_views,
 )
-from devfeed_partner_api.dependencies import DB
+from devfeed_partner_api.dependencies import DB, DBFactory
 
 router = APIRouter(
     prefix="/v1/partner", tags=["partner-workspace"], dependencies=[Depends(require_partner)]
@@ -49,12 +57,20 @@ class WorkspaceConnectionCreate(PartnerConnectionCreate):
     account_id: uuid.UUID
 
 
+def _dashboard_metadata(session, partner, account_id, ad_format):
+    scope = PartnerAccountAccess(session, partner).query(account_id)
+    assets = reporting_assets(session, scope, ad_format)
+    total = session.scalar(select(func.count()).select_from(scope.subquery()))
+    return assets, total
+
+
 @router.get(
     "/dashboard", response_model=WorkspaceDashboard, operation_id="partnerWorkspaceDashboard"
 )
-def dashboard(
-    session: DB,
+async def dashboard(
+    factory: DBFactory,
     partner: Partner,
+    request: Request,
     account_id: uuid.UUID | None = None,
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(100, ge=1, le=200),
@@ -63,13 +79,24 @@ def dashboard(
     order: SortOrder = Query("asc"),
     ad_format: AdFormat | None = None,
 ):
-    scope = PartnerAccountAccess(session, partner).query(account_id)
-    return {
-        **reporting_metrics(
-            session, scope, days, limit, offset, sort=sort, order=order, ad_format=ad_format
-        ),
-        "account_total": session.scalar(select(func.count()).select_from(scope.subquery())),
-    }
+    assets, account_total = await run_database(
+        factory, _dashboard_metadata, partner, account_id, ad_format
+    )
+    client = analytics_client(request)
+    try:
+        await require_partner_history(client)
+        metrics = await reporting_metrics(
+            assets,
+            DirectEngagementAnalytics(client),
+            days,
+            limit,
+            offset,
+            sort=sort,
+            order=order,
+        )
+    except AnalyticsUnavailable:
+        raise HTTPException(503, "Partner analytics is being prepared") from None
+    return {**metrics, "account_total": account_total}
 
 
 @router.get(

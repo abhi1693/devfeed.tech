@@ -13,7 +13,7 @@ Upload screenshots through GitHub's native attachment upload and embed the resul
 Never commit review screenshots, create .github/pr-assets, or use raw repository URLs to host them.
 If native upload is unavailable, report the gap instead of committing images.
 If a relevant check wasn't run, say why. For documentation-only changes, checking links and rendering is enough locally.
-See https://github.com/abhi1693/devfeed.tech/blob/master/docs/ci.md for commands and the full CI suite.
+See https://github.com/abhi1693/devfeed.tech/blob/master/.github/CI.md for commands and the full CI suite.
 -->
 
 ## Rollout notes

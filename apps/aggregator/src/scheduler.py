@@ -7,10 +7,10 @@ import uuid
 from contextlib import suppress
 
 from devfeed_core.analysis import fail_analysis
+from devfeed_core.analytics_producer import shutdown as drain_analytics
 from devfeed_core.automation_scheduler import schedule_automation
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
-from devfeed_core.engagement import prune_article_opens
 from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.job_dispatch import DispatchLane, dispatch_jobs, dispatch_lanes
 from devfeed_core.job_lifecycle import fail_or_retry
@@ -22,7 +22,6 @@ from devfeed_core.models import (
     Source,
     utcnow,
 )
-from devfeed_core.overview_daily import refresh_overview_daily
 from devfeed_core.partner_matching import refresh_partner_matches
 from devfeed_core.partner_promotions import sync_partner_promotions
 from devfeed_core.partner_tracking import prune_partner_delivery_history
@@ -90,13 +89,8 @@ def _tick() -> dict[str, int]:
 
     refresh_quota()
     factory = session_factory()
-    try:
-        refresh_overview_daily(factory)
-    except Exception:
-        # Retain source events if aggregation fails, without stopping feed ingestion.
-        logger.exception("overview_daily_refresh_failed")
-    else:
-        prune_article_opens(factory)
+    # The exporter preserves expired opens before their transactional rows
+    # are removed. Historical aggregation belongs to ClickHouse.
     from devfeed_core.job_retention import prune_job_payloads
 
     try:
@@ -418,6 +412,7 @@ def run() -> None:
                         health.completed()
                     stop.wait(15)
         finally:
+            drain_analytics()
             stop_runtime(telemetry)
             logger.info("scheduler_stopped")
 

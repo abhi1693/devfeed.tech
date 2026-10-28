@@ -1,48 +1,27 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { RefreshSettings } from "./refresh-settings";
+import userEvent from "@testing-library/user-event";
+import type { DateRange } from "@devfeed/ui/date-range-picker";
+import { RefreshSettings, saveRefresh } from "./refresh-settings";
 import { Overview } from "@/components/organisms/overview";
-import { OverviewPanel } from "@/components/organisms/overview-panel";
-import { adminOverviewPanel } from "@/lib/api/generated/admin";
+import { OverviewChart } from "@/components/organisms/overview-chart";
+import { ChartCard } from "@/components/molecules/overview-chart";
+import { chartDefinition } from "@/lib/overview-charts";
+import type { OverviewChartReport } from "@/lib/api/generated/models";
+import { adminOverviewChart } from "@/lib/api/generated/admin";
 import { ApiError } from "@/lib/api/client";
-import { populatedOverview } from "./fixtures/overview";
+import { populatedCharts, charts, reportForRange } from "./fixtures/overview";
 
-vi.mock("@/lib/api/generated/admin", () => ({ adminOverviewPanel: vi.fn() }));
-vi.mock("@/lib/notifications", () => ({ notifyFailure: vi.fn() }));
-// Chart behavior is covered by the chart component suites; these tests exercise request isolation.
-vi.mock("@/components/organisms/overview-metrics", () => ({
-  OverviewMetrics: ({ metric }: { metric: number }) => <div>Metric {metric} ready</div>,
-}));
-vi.mock("@/components/organisms/overview-charts", () => ({
-  OverviewCharts: () => <div>Activity ready</div>,
-}));
-vi.mock("@/components/organisms/overview-engagement-charts", () => ({
-  OverviewEngagementCharts: () => <div>Engagement ready</div>,
-}));
-vi.mock("@/components/organisms/overview-panels", () =>
-  Object.fromEntries(
-    [
-      "OverviewAttention",
-      "OverviewAudience",
-      "OverviewSources",
-      "OverviewJobReliability",
-      "OverviewWorkload",
-      "OverviewPublicationAutomation",
-      "OverviewBlockers",
-    ].map((name) => [name, () => <div>{name} ready</div>]),
+vi.mock("@/lib/api/generated/admin", () => ({ adminOverviewChart: vi.fn() }));
+vi.mock("@/components/organisms/overview-chart-content", () => ({
+  OverviewChartContent: ({ report }: { report: OverviewChartReport }) => (
+    <ChartCard {...chartDefinition(report.chart)}>
+      <div>{report.chart} ready</div>
+    </ChartCard>
   ),
-);
-vi.mock("@/components/organisms/overview-token-chart", () => ({
-  OverviewTokenChart: () => <div>Tokens ready</div>,
 }));
-vi.mock("@/components/organisms/overview-inference-charts", () => ({
-  OverviewInferenceCharts: () => <div>Inference ready</div>,
-}));
-
-beforeEach(() => {
-  vi.clearAllMocks();
-});
+beforeEach(() => vi.clearAllMocks());
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -50,203 +29,404 @@ afterEach(() => {
 function showOverview() {
   return render(
     <RefreshSettings>
-      <Overview initialDays={30} />
+      <Overview />
     </RefreshSettings>,
   );
 }
-
-it("shows the shell and one shimmer for every chart before data arrives", async () => {
-  vi.mocked(adminOverviewPanel).mockImplementation(
-    (_panel, _params, options) =>
-      new Promise((_resolve, reject) =>
-        options?.signal?.addEventListener(
-          "abort",
-          () => reject(new DOMException("Aborted", "AbortError")),
-          { once: true },
-        ),
-      ),
+function publication(range: DateRange = { from: "now-29d/d", to: "now" }) {
+  return (
+    <RefreshSettings>
+      <OverviewChart chart="publication-rate" range={range} />
+    </RefreshSettings>
   );
+}
+async function chooseRange(label: string) {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Chart date range" }));
+  await user.click(screen.getByRole("button", { name: label }));
+}
+const publicationCard = () =>
+  document.querySelector('[data-overview-card="publication-rate"]') as HTMLElement;
+
+it("fetches each of twelve chart documents independently", async () => {
+  vi.mocked(adminOverviewChart).mockImplementation(async (chart) => populatedCharts[chart]);
   showOverview();
-  expect(screen.getByRole("heading", { name: "Overview" })).toBeTruthy();
-  expect(screen.getAllByRole("status", { name: /^Loading / })).toHaveLength(33);
-  await waitFor(() => expect(adminOverviewPanel).toHaveBeenCalledTimes(4));
+  await waitFor(() => expect(adminOverviewChart).toHaveBeenCalledTimes(12));
+  expect(
+    vi
+      .mocked(adminOverviewChart)
+      .mock.calls.map(([chart]) => chart)
+      .sort(),
+  ).toEqual([...charts].sort());
+  for (const chart of charts) expect(await screen.findByText(`${chart} ready`)).toBeTruthy();
+  expect(screen.queryByRole("navigation", { name: "Overview sections" })).toBeNull();
 });
 
-it("renders completed charts while another chart is still loading", async () => {
-  let finish!: (value: typeof populatedOverview) => void;
-  vi.mocked(adminOverviewPanel).mockImplementation((panel) =>
-    panel === "publications"
+it("refreshes only Queue pressure after charts load, including focus and interval changes", async () => {
+  vi.useFakeTimers();
+  vi.mocked(adminOverviewChart).mockImplementation(async (chart) => populatedCharts[chart]);
+  showOverview();
+  await act(async () => {});
+  expect(adminOverviewChart).toHaveBeenCalledTimes(12);
+  const expectCounts = (queue: number) => {
+    for (const chart of charts)
+      expect(
+        vi.mocked(adminOverviewChart).mock.calls.filter(([name]) => name === chart),
+        chart,
+      ).toHaveLength(chart === "queue-pressure" ? queue : 1);
+  };
+  await saveRefresh(5);
+  await act(() => vi.advanceTimersByTimeAsync(15_000));
+  expectCounts(4);
+  await act(async () => fireEvent(window, new Event("blur")));
+  await act(() => vi.advanceTimersByTimeAsync(10_000));
+  expectCounts(4);
+  await act(async () => fireEvent(window, new Event("focus")));
+  expectCounts(5);
+  await saveRefresh(60);
+  await act(() => vi.advanceTimersByTimeAsync(60_000));
+  expectCounts(6);
+  await saveRefresh(0);
+  await act(() => vi.advanceTimersByTimeAsync(60_000));
+  expectCounts(6);
+});
+
+it("places a loader inside a slow chart while its neighboring chart is usable", async () => {
+  let finish!: (report: (typeof populatedCharts)["publication-rate"]) => void;
+  vi.mocked(adminOverviewChart).mockImplementation((chart) =>
+    chart === "publication-rate"
       ? new Promise((resolve) => {
           finish = resolve;
         })
-      : Promise.resolve(populatedOverview),
+      : Promise.resolve(populatedCharts[chart]),
   );
   showOverview();
-  await screen.findByText("Metric 1 ready");
-  expect(screen.getByRole("status", { name: "Loading First publications" })).toBeTruthy();
-  expect(screen.queryByText("Metric 0 ready")).toBeNull();
-  await act(async () => finish(populatedOverview));
-  expect(await screen.findByText("Metric 0 ready")).toBeTruthy();
-  await waitFor(() => expect(adminOverviewPanel).toHaveBeenCalledTimes(33));
-  expect(new Set(vi.mocked(adminOverviewPanel).mock.calls.map(([name]) => name)).size).toBe(33);
+  expect(await screen.findByText("publication-latency ready")).toBeTruthy();
+  const card = within(publicationCard());
+  expect(card.getByRole("heading", { name: "Publication output" })).toBeTruthy();
+  expect(card.getByRole("status", { name: "Loading Publication output" })).toBeTruthy();
+  expect(card.getAllByText("—")).toHaveLength(2);
+  expect(document.querySelectorAll("[data-chart-skeleton]")).toHaveLength(0);
+  await act(async () => finish(populatedCharts["publication-rate"]));
+  expect(await screen.findByText("publication-rate ready")).toBeTruthy();
+  expect(adminOverviewChart).toHaveBeenCalledTimes(12);
 });
 
-it("retries only the failed chart without reloading successful charts", async () => {
-  vi.mocked(adminOverviewPanel).mockImplementation((panel) =>
-    panel === "publications"
-      ? Promise.reject(new ApiError(500))
-      : Promise.resolve(populatedOverview),
-  );
+it("retries one failed chart without reloading the other chart in its section", async () => {
+  vi.mocked(adminOverviewChart).mockImplementation(async (chart) => {
+    if (chart === "publication-rate") throw new ApiError(503);
+    return populatedCharts[chart];
+  });
   showOverview();
-  const retry = await screen.findByRole("button", { name: "Try again" });
-  await waitFor(() => expect(adminOverviewPanel).toHaveBeenCalledTimes(33));
-  vi.mocked(adminOverviewPanel).mockResolvedValue(populatedOverview);
+  const retry = await within(publicationCard()).findByRole("button", { name: "Try again" });
+  expect(await screen.findByText("publication-latency ready")).toBeTruthy();
+  await waitFor(() => expect(adminOverviewChart).toHaveBeenCalledTimes(12));
+  vi.mocked(adminOverviewChart).mockResolvedValue(populatedCharts["publication-rate"]);
   fireEvent.click(retry);
-  expect(await screen.findByText("Metric 0 ready")).toBeTruthy();
-  expect(adminOverviewPanel).toHaveBeenCalledTimes(34);
-  expect(vi.mocked(adminOverviewPanel).mock.calls[33][0]).toBe("publications");
+  expect(await screen.findByText("publication-rate ready")).toBeTruthy();
+  expect(adminOverviewChart).toHaveBeenCalledTimes(13);
+  expect(vi.mocked(adminOverviewChart).mock.calls[12][0]).toBe("publication-rate");
 });
 
-it("cancels old date-range requests and ignores their late results", async () => {
-  const old: { resolve: (v: typeof populatedOverview) => void; signal: AbortSignal }[] = [];
-  vi.mocked(adminOverviewPanel).mockImplementation((_panel, params, options) =>
-    params?.days === 30
-      ? new Promise((resolve) => old.push({ resolve, signal: options!.signal as AbortSignal }))
-      : Promise.resolve({ ...populatedOverview, days: 7 }),
+it("cancels old range requests and ignores their late responses", async () => {
+  const old: {
+    resolve: (value: OverviewChartReport) => void;
+    signal: AbortSignal;
+    chart: keyof typeof populatedCharts;
+  }[] = [];
+  vi.mocked(adminOverviewChart).mockImplementation((chart, params, options) =>
+    chart !== "attention" && params?.from === "now-29d/d"
+      ? new Promise((resolve) =>
+          old.push({ resolve, signal: options!.signal as AbortSignal, chart }),
+        )
+      : Promise.resolve(reportForRange(populatedCharts[chart], { from: "now-6d/d", to: "now" })),
   );
   showOverview();
   await waitFor(() => expect(old).toHaveLength(4));
-  fireEvent.click(screen.getByRole("button", { name: "7 days" }));
-  expect(old.every((x) => x.signal.aborted)).toBe(true);
-  await act(async () => old.forEach((x) => x.resolve(populatedOverview)));
-  await screen.findByText("Metric 0 ready");
-  expect(screen.getByRole("button", { name: "7 days" }).getAttribute("aria-pressed")).toBe("true");
+  await chooseRange("Last 7 days");
+  expect(old.every(({ signal }) => signal.aborted)).toBe(true);
+  await act(async () => old.forEach(({ resolve, chart }) => resolve(populatedCharts[chart])));
   await waitFor(() =>
     expect(
-      vi.mocked(adminOverviewPanel).mock.calls.filter(([, params]) => params?.days === 7),
-    ).toHaveLength(33),
+      vi
+        .mocked(adminOverviewChart)
+        .mock.calls.filter(([, params]) => params?.from === "now-6d/d" && params.to === "now"),
+    ).toHaveLength(11),
   );
+  expect(
+    vi.mocked(adminOverviewChart).mock.calls.filter(([chart]) => chart === "attention"),
+  ).toHaveLength(1);
+  expect(await screen.findByText("publication-rate ready")).toBeTruthy();
 });
 
-it("shows report preparation immediately and waits for the saved refresh interval", async () => {
-  vi.useFakeTimers();
-  vi.mocked(adminOverviewPanel)
-    .mockRejectedValueOnce(new ApiError(503, undefined, {}, "report_refreshing"))
-    .mockResolvedValue(populatedOverview);
-  render(
-    <RefreshSettings>
-      <OverviewPanel panel="publications" title="Publications" days={30} refresh={0}>
-        {() => <div>Loaded</div>}
-      </OverviewPanel>
-    </RefreshSettings>,
+it("changes month and calendar-year windows without refreshing current attention", async () => {
+  vi.mocked(adminOverviewChart).mockImplementation(async (chart, params) =>
+    reportForRange(populatedCharts[chart], params),
   );
+  showOverview();
+  await waitFor(() => expect(adminOverviewChart).toHaveBeenCalledTimes(12));
+  await chooseRange("Last 3 months");
+  await waitFor(() => expect(adminOverviewChart).toHaveBeenCalledTimes(23));
+  expect(new URL(location.href).searchParams.get("from")).toBe("now-3M");
+  expect(new URL(location.href).searchParams.get("to")).toBe("now");
+  expect(
+    vi
+      .mocked(adminOverviewChart)
+      .mock.calls.filter(([, params]) => params?.from === "now-3M" && params.to === "now"),
+  ).toHaveLength(11);
+  await chooseRange("Last year");
+  await waitFor(() => expect(adminOverviewChart).toHaveBeenCalledTimes(34));
+  expect(new URL(location.href).searchParams.get("from")).toBe("now-1y/y");
+  expect(new URL(location.href).searchParams.get("to")).toBe("now-1y/y");
+  expect(
+    vi.mocked(adminOverviewChart).mock.calls.filter(([chart]) => chart === "attention"),
+  ).toHaveLength(1);
+});
+
+it("uses complete historical window identities even when their lengths match", async () => {
+  vi.mocked(adminOverviewChart).mockImplementation(async (chart, params) =>
+    reportForRange(populatedCharts[chart], params),
+  );
+  const first = { from: "2024-02-01", to: "2024-02-07" };
+  const second = { from: "2024-02-08", to: "2024-02-14" };
+  const view = render(publication(first));
+  await screen.findByText("publication-rate ready");
+  view.rerender(publication(second));
+  await waitFor(() => expect(adminOverviewChart).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(adminOverviewChart).mock.calls.map(([, params]) => params)).toEqual([
+    first,
+    second,
+  ]);
+});
+
+it("replaces the old range's plot and metrics with an in-card loader", async () => {
+  let finish!: (report: (typeof populatedCharts)["publication-rate"]) => void;
+  vi.mocked(adminOverviewChart)
+    .mockResolvedValueOnce(populatedCharts["publication-rate"])
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+  const view = render(publication());
+  await screen.findByText("publication-rate ready");
+  view.rerender(publication({ from: "now-6d/d", to: "now" }));
+  await waitFor(() => expect(adminOverviewChart).toHaveBeenCalledTimes(2));
+  expect(screen.queryByText("publication-rate ready")).toBeNull();
+  expect(
+    within(publicationCard()).getByRole("status", { name: "Loading Publication output" }),
+  ).toBeTruthy();
+  expect(within(publicationCard()).getAllByText("—")).toHaveLength(2);
+  expect(screen.queryByText(/Loading range|previous range/)).toBeNull();
+  expect(document.querySelector("[data-overview-chart]")?.getAttribute("aria-busy")).toBe("true");
+  await act(async () => finish(populatedCharts["publication-rate"]));
+  expect(screen.getByText("publication-rate ready")).toBeTruthy();
+});
+
+it("keeps preparation inside the chart and checks completion after five seconds", async () => {
+  vi.useFakeTimers();
+  vi.mocked(adminOverviewChart)
+    .mockRejectedValueOnce(new ApiError(503, undefined, {}, "analytics_preparing"))
+    .mockResolvedValue(populatedCharts["publication-rate"]);
+  render(publication());
   await act(async () => {});
-  expect(screen.getByText("The saved publications report is being prepared.")).toBeTruthy();
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(2000);
+  expect(
+    within(publicationCard()).getByRole("status", { name: "Loading Publication output" }),
+  ).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  await act(() => vi.advanceTimersByTimeAsync(4999));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(1);
+  await act(() => vi.advanceTimersByTimeAsync(1));
+  expect(screen.getByText("publication-rate ready")).toBeTruthy();
+  await act(() => vi.advanceTimersByTimeAsync(60_000));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(2);
+});
+
+it("keeps checking delayed preparation automatically even when refresh is paused", async () => {
+  vi.useFakeTimers();
+  vi.mocked(adminOverviewChart).mockRejectedValue(
+    new ApiError(503, undefined, {}, "analytics_preparing"),
+  );
+  render(publication());
+  await act(async () => {});
+  await saveRefresh(0);
+  await act(() => vi.advanceTimersByTimeAsync(10_000));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(3);
+  expect(within(publicationCard()).getByText("Still preparing this chart")).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  await act(() => vi.advanceTimersByTimeAsync(14_999));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(3);
+  vi.mocked(adminOverviewChart).mockResolvedValue(populatedCharts["publication-rate"]);
+  await act(() => vi.advanceTimersByTimeAsync(1));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(4);
+  expect(screen.getByText("publication-rate ready")).toBeTruthy();
+  await act(() => vi.advanceTimersByTimeAsync(60_000));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(4);
+});
+
+it("pauses preparing checks while hidden and checks immediately when the page returns", async () => {
+  vi.useFakeTimers();
+  const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  try {
+    vi.mocked(adminOverviewChart).mockRejectedValue(
+      new ApiError(503, undefined, {}, "analytics_preparing"),
+    );
+    render(publication());
+    await act(async () => {});
+    await saveRefresh(0);
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(within(publicationCard()).getByText("Still preparing this chart")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(adminOverviewChart).toHaveBeenCalledTimes(1);
+    vi.mocked(adminOverviewChart).mockResolvedValue(populatedCharts["publication-rate"]);
+    visibility.mockReturnValue("visible");
+    await act(async () => fireEvent(document, new Event("visibilitychange")));
+    expect(screen.getByText("publication-rate ready")).toBeTruthy();
+    expect(adminOverviewChart).toHaveBeenCalledTimes(2);
+  } finally {
+    visibility.mockRestore();
+  }
+});
+
+it("stops preparation polling after an error when refresh is paused and keeps its manual retry", async () => {
+  vi.useFakeTimers();
+  vi.mocked(adminOverviewChart)
+    .mockRejectedValueOnce(new ApiError(503, undefined, {}, "analytics_preparing"))
+    .mockRejectedValueOnce(new ApiError(500))
+    .mockResolvedValue(populatedCharts["publication-rate"]);
+  render(publication());
+  await act(async () => {});
+  await saveRefresh(0);
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  expect(within(publicationCard()).getByRole("alert")).toBeTruthy();
+  await act(() => vi.advanceTimersByTimeAsync(60_000));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(2);
+  await act(async () =>
+    fireEvent.click(within(publicationCard()).getByRole("button", { name: "Try again" })),
+  );
+  expect(screen.getByText("publication-rate ready")).toBeTruthy();
+});
+
+it("cancels an in-flight completion check and stops polling when unmounted", async () => {
+  vi.useFakeTimers();
+  vi.mocked(adminOverviewChart)
+    .mockRejectedValueOnce(new ApiError(503, undefined, {}, "analytics_preparing"))
+    .mockImplementation(() => new Promise(() => {}));
+  const view = render(publication());
+  await act(async () => {});
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(2);
+  const signal = vi.mocked(adminOverviewChart).mock.calls[1][2]!.signal!;
+  view.unmount();
+  expect(signal.aborted).toBe(true);
+  await act(() => vi.advanceTimersByTimeAsync(60_000));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(2);
+});
+
+it("cancels delayed preparation checks when the date range changes", async () => {
+  vi.useFakeTimers();
+  vi.mocked(adminOverviewChart).mockImplementation(async (_chart, params) => {
+    if (params?.from === "now-29d/d") throw new ApiError(503, undefined, {}, "analytics_preparing");
+    return reportForRange(populatedCharts["publication-rate"], params);
   });
-  expect(adminOverviewPanel).toHaveBeenCalledTimes(1);
-  await act(() => vi.advanceTimersByTimeAsync(8000));
-  expect(screen.getByText("Loaded")).toBeTruthy();
-  expect(adminOverviewPanel).toHaveBeenCalledTimes(2);
+  const view = render(publication());
+  await act(async () => {});
+  await saveRefresh(0);
+  await act(() => vi.advanceTimersByTimeAsync(10_000));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(3);
+  view.rerender(publication({ from: "now-6d/d", to: "now" }));
+  await act(async () => {});
+  expect(screen.getByText("publication-rate ready")).toBeTruthy();
+  await act(() => vi.advanceTimersByTimeAsync(60_000));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(4);
 });
 
-it("retains the last successful result when that chart refresh fails", async () => {
-  vi.mocked(adminOverviewPanel).mockResolvedValue(populatedOverview);
-  const view = render(
-    <RefreshSettings>
-      <OverviewPanel panel="publications" title="Publications" days={30} refresh={0}>
-        {() => <div>Saved chart</div>}
-      </OverviewPanel>
-    </RefreshSettings>,
-  );
-  await screen.findByText("Saved chart");
-  vi.mocked(adminOverviewPanel).mockRejectedValue(new ApiError(500));
-  view.rerender(
-    <RefreshSettings>
-      <OverviewPanel panel="publications" title="Publications" days={30} refresh={1}>
-        {() => <div>Saved chart</div>}
-      </OverviewPanel>
-    </RefreshSettings>,
-  );
-  await screen.findByRole("alert");
-  expect(screen.getByText("Saved chart")).toBeTruthy();
-});
-
-it("does not silently retry an unavailable reporting service", async () => {
+it("replaces a failed Queue pressure refresh with its own retry state", async () => {
   vi.useFakeTimers();
-  vi.mocked(adminOverviewPanel).mockRejectedValue(new ApiError(503));
+  vi.mocked(adminOverviewChart)
+    .mockResolvedValueOnce(populatedCharts["queue-pressure"])
+    .mockRejectedValue(new ApiError(500));
   render(
     <RefreshSettings>
-      <OverviewPanel panel="publications" title="Publications" days={30} refresh={0}>
-        {() => <div>Loaded</div>}
-      </OverviewPanel>
+      <OverviewChart chart="queue-pressure" range={{ from: "now-29d/d", to: "now" }} />
     </RefreshSettings>,
   );
   await act(async () => {});
-  expect(screen.getByRole("alert").textContent).toContain("Could not update publications");
-  await act(() => vi.advanceTimersByTimeAsync(9999));
-  expect(adminOverviewPanel).toHaveBeenCalledTimes(1);
+  expect(screen.getByText("queue-pressure ready")).toBeTruthy();
+  await act(() => vi.advanceTimersByTimeAsync(10_000));
+  expect(screen.queryByText("queue-pressure ready")).toBeNull();
+  const card = document.querySelector('[data-overview-card="queue-pressure"]') as HTMLElement;
+  expect(within(card).getByRole("alert").textContent).toContain("Could not update queue pressure.");
 });
 
-it("shows a bounded deadline for a stalled report", async () => {
+it("keeps freshness metadata out of charts", async () => {
+  vi.mocked(adminOverviewChart).mockResolvedValue({
+    ...populatedCharts["publication-rate"],
+    snapshot: { status: "stale", generated_at: "2026-10-26T13:26:00Z", lag_seconds: 600 },
+  });
+  render(publication());
+  await screen.findByText("publication-rate ready");
+  expect(screen.queryByText(/Last updated|^Updated |Checked .*ago/)).toBeNull();
+});
+
+it("offers an in-chart retry when a request exceeds its deadline", async () => {
   vi.useFakeTimers();
-  vi.mocked(adminOverviewPanel).mockImplementation(
-    (_panel, _params, options) =>
+  vi.mocked(adminOverviewChart).mockImplementation(
+    (_chart, _params, options) =>
       new Promise((_resolve, reject) => {
         options!.signal!.addEventListener("abort", () => reject(options!.signal!.reason), {
           once: true,
         });
       }),
   );
-  render(
-    <RefreshSettings>
-      <OverviewPanel panel="publications" title="Publications" days={30} refresh={0}>
-        {() => <div>Loaded</div>}
-      </OverviewPanel>
-    </RefreshSettings>,
-  );
+  render(publication());
   await act(async () => {});
   await act(() => vi.advanceTimersByTimeAsync(15_000));
-  expect(screen.getByRole("alert").textContent).toContain("Loading publications took too long");
-  expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
-});
-
-it("groups charts into named sections without header refresh controls", async () => {
-  vi.mocked(adminOverviewPanel).mockResolvedValue({
-    ...populatedOverview,
-    generated_at: new Date().toISOString(),
-  });
-  showOverview();
-  for (const name of [
-    "Needs attention",
-    "Publishing",
-    "Audience",
-    "Personalization",
-    "Processing",
-    "AI usage",
-  ])
-    expect(screen.getByRole("heading", { level: 2, name })).toBeTruthy();
-  expect(screen.getByRole("navigation", { name: "Overview sections" })).toBeTruthy();
-  await screen.findByText("Metric 0 ready");
-  expect(screen.queryByRole("status", { name: "Overview refresh status" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Refresh all" })).toBeNull();
-  expect(screen.queryByText(/Last refreshed/)).toBeNull();
-});
-
-it("keeps header clear while panels are loading", async () => {
-  let finish!: (value: typeof populatedOverview) => void;
-  vi.mocked(adminOverviewPanel).mockImplementation((panel) =>
-    panel === "publications"
-      ? new Promise((resolve) => {
-          finish = resolve;
-        })
-      : Promise.resolve({ ...populatedOverview, generated_at: new Date().toISOString() }),
+  expect(within(publicationCard()).getByRole("alert").textContent).toContain(
+    "Loading publication output took too long.",
   );
-  showOverview();
-  await waitFor(() => expect(adminOverviewPanel).toHaveBeenCalledTimes(33));
-  expect(screen.queryByRole("status", { name: "Overview refresh status" })).toBeNull();
-  expect(screen.queryByText(/Refreshing.*panels/)).toBeNull();
-  await act(async () => finish({ ...populatedOverview, generated_at: new Date().toISOString() }));
-  await screen.findByText("Metric 0 ready");
+  expect(within(publicationCard()).getByRole("button", { name: "Try again" })).toBeTruthy();
+});
+
+it("does not carry another range's error or busy state back into a saved chart", async () => {
+  vi.mocked(adminOverviewChart).mockImplementation(async (_chart, params) => {
+    if (params?.from === "now-29d/d") throw new ApiError(503);
+    return reportForRange(populatedCharts["publication-rate"], { from: "now-6d/d", to: "now" });
+  });
+  const view = render(publication({ from: "now-6d/d", to: "now" }));
+  await screen.findByText("publication-rate ready");
+  view.rerender(publication());
+  await screen.findByRole("alert");
+  view.rerender(publication({ from: "now-6d/d", to: "now" }));
+  expect(screen.getByText("publication-rate ready")).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(document.querySelector("[data-overview-chart]")?.getAttribute("aria-busy")).toBe("false");
+  expect(adminOverviewChart).toHaveBeenCalledTimes(2);
+});
+
+it("cancels a different range's pending read when returning to saved data", async () => {
+  vi.mocked(adminOverviewChart).mockImplementation((_chart, params) =>
+    params?.from === "now-29d/d"
+      ? new Promise(() => {})
+      : Promise.resolve(populatedCharts["publication-rate"]),
+  );
+  const view = render(publication({ from: "now-6d/d", to: "now" }));
+  await screen.findByText("publication-rate ready");
+  view.rerender(publication());
+  await waitFor(() => expect(adminOverviewChart).toHaveBeenCalledTimes(2));
+  const signal = vi.mocked(adminOverviewChart).mock.calls[1][2]!.signal!;
+  view.rerender(publication({ from: "now-6d/d", to: "now" }));
+  expect(signal.aborted).toBe(true);
+  expect(screen.getByText("publication-rate ready")).toBeTruthy();
+  expect(document.querySelector("[data-overview-chart]")?.getAttribute("aria-busy")).toBe("false");
+});
+
+it("rejects a response for a different chart instead of rendering it", async () => {
+  vi.mocked(adminOverviewChart).mockResolvedValue(populatedCharts["publication-latency"]);
+  render(publication());
+  expect(await within(publicationCard()).findByRole("alert")).toBeTruthy();
+  expect(screen.queryByText("publication-latency ready")).toBeNull();
 });

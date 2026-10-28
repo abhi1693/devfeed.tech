@@ -48,10 +48,17 @@ def main() -> int:
         )
     )
     print(f"API fuzzing: profile={args.profile}, seed={seed}", flush=True)
-    with disposable_services() as env, TemporaryDirectory(prefix="devfeed-fuzz-") as directory:
+    with (
+        disposable_services(analytics=True) as env,
+        TemporaryDirectory(prefix="devfeed-fuzz-") as directory,
+    ):
         env.update(
             DEVFEED_TEST_DATABASE_URL=env["DEVFEED_DATABASE_URL"],
             DEVFEED_TEST_REDIS_URL=env["DEVFEED_REDIS_URL"],
+            DEVFEED_TEST_CLICKHOUSE_URL=env["DEVFEED_CLICKHOUSE_URL"],
+            DEVFEED_TEST_CLICKHOUSE_DATABASE=env["DEVFEED_CLICKHOUSE_DATABASE"],
+            DEVFEED_TEST_CLICKHOUSE_USERNAME=env["DEVFEED_CLICKHOUSE_USERNAME"],
+            DEVFEED_TEST_CLICKHOUSE_PASSWORD=env["DEVFEED_CLICKHOUSE_PASSWORD"],
             DEVFEED_FUZZ_PROFILE=args.profile,
             DEVFEED_FUZZ_REPORTS=str(reports),
             OTEL_SDK_DISABLED="true",
