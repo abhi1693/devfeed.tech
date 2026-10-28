@@ -177,6 +177,9 @@ CI checks out the event's exact base and head commits into separate directories
 and installs each revision's own locked application dependencies. The candidate's
 Locust harness drives both versions, including bases that predate this harness.
 Each gets a new database, seed dataset, Redis, PgBouncer and API process.
+The pinned PgBouncer image is pulled before measurements with at most three
+attempts and bounded backoff, so transient registry rate limits do not interrupt
+either sample. A failed pull still fails the job; measurement gates are unchanged.
 The runner explicitly enables `TCP_NODELAY` on the loopback listener inherited by
 Uvicorn for both revisions. This prevents event-loop differences in inherited-socket
 defaults from adding Nagle/delayed-ACK latency to reused HTTP connections.

@@ -1,7 +1,9 @@
 import { trace } from "@opentelemetry/api";
 import { traceHeaders } from "@devfeed/telemetry/propagation";
 import { describe, expect, it, vi } from "vitest";
-import { createServer } from "node:http";
+import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { channel } from "node:diagnostics_channel";
+import { Socket } from "node:net";
 import { once } from "node:events";
 import { registerTelemetry } from "@devfeed/telemetry/server";
 
@@ -48,6 +50,19 @@ describe("operational telemetry", () => {
     });
     try {
       await registerTelemetry("web");
+      // Diagnostic publishers may omit the URL: keep metrics bounded and balanced.
+      const socket = new Socket();
+      const incomplete = new IncomingMessage(socket);
+      incomplete.method = "GET";
+      incomplete.url = undefined;
+      const completed = new ServerResponse(incomplete);
+      completed.statusCode = 204;
+      channel("http.server.request.start").publish({ request: incomplete, response: completed });
+      completed.emit("finish");
+      socket.destroy();
+      expect(log.mock.calls.map(([line]) => JSON.parse(line))).toContainEqual(
+        expect.objectContaining({ method: "GET", status_code: 204, service: "web" }),
+      );
       app.listen(0, "127.0.0.1");
       await once(app, "listening");
       const appPort = (app.address() as { port: number }).port;
@@ -113,6 +128,7 @@ describe("operational telemetry", () => {
       }));
       for (const [route, status, kind] of [
         ["/", "200", "request"],
+        ["unmatched", "204", "request"],
         ["/search", "500", "request"],
         ["/search", "200", "request"],
         ["/v1/user/notifications/chimely/v1/inbox/stream", "200", "stream"],

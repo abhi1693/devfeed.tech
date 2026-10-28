@@ -65,6 +65,18 @@ jobs:
         run: sh candidate/scripts/ci/python-bootstrap.sh baseline --editable --all-packages
       - name: Test workload phases and latency histogram precision
         run: candidate/.venv/bin/python -m unittest discover -s candidate/loadtests -p 'test_*.py'
+      - name: Pre-pull pinned benchmark pooler with bounded retries
+        run: |
+          image=$(candidate/.venv/bin/python -c 'import runpy; print(runpy.run_path("candidate/scripts/load-test.py")["POOLER"])')
+          for attempt in 1 2 3; do
+            if docker pull "$image"; then
+              exit 0
+            fi
+            if [ "$attempt" = 3 ]; then
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done
       - name: Run one runner pair
         env:
           PAIR_REPEAT: ${{ matrix.repeat }}
