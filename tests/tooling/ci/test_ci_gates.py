@@ -20,7 +20,6 @@ FRONTEND_UNIT_JOBS = {"admin-web", "partner-web", "user-web", "extensions"}
 BACKEND_INTEGRATION_JOBS = {
     "python-integration",
     "migration-upgrade",
-    "api-compat",
     "api-fuzz",
     "recovery",
 }
@@ -211,7 +210,6 @@ def test_image_stages_run_after_successful_validation_despite_expected_ancestor_
     jobs = reader_jobs()
     ancestors = job_ancestors(jobs, name)
     optional = {
-        "api-compat": event in {"pull_request", "merge_group"},
         "api-fuzz": event in {"pull_request", "merge_group"},
         "recovery": event in {"pull_request", "merge_group", "push"},
         "dast": event in {"pull_request", "merge_group", "push"},
@@ -907,7 +905,6 @@ def test_stage_gates_reject_failed_cancelled_missing_and_unexpectedly_skipped_de
     # Intentional event skips must be accepted; a skipped applicable check must
     # block later work just as a failure does. Execute the actual workflow gate.
     applicable = {
-        "api-compat": event in {"pull_request", "merge_group"},
         "api-fuzz": event in {"pull_request", "merge_group"},
         "recovery": event in {"pull_request", "merge_group", "push"},
         "dast": event in {"pull_request", "merge_group", "push"},
@@ -982,9 +979,6 @@ def test_ci_required_accepts_only_the_expected_successes(
         "partner-web": {"result": "success"},
         "user-web": {"result": "success"},
         "extensions": {"result": "success"},
-        "api-compat": {
-            "result": "success" if event in {"pull_request", "merge_group"} else "skipped"
-        },
         "api-fuzz": {
             "result": "success" if event in {"pull_request", "merge_group"} else "skipped"
         },

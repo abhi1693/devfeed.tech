@@ -166,7 +166,6 @@ def test_generated_duplication_policy_uses_only_shared_generator_output_conventi
         "scripts/ci/sonar_coverage.py",
         "scripts/ci/unit_shards.py",
         "scripts/ci/coverage_report.py",
-        "scripts/ci/api_contracts.py",
         "packages/core/src/analytics_worker.py",
     ],
 )

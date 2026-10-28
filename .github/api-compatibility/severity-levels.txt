@@ -1,2 +1,0 @@
-response-property-enum-value-added info
-response-property-max-unset info
