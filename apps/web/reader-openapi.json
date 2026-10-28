@@ -3516,7 +3516,7 @@
   "info": {
     "description": "Public discovery reads and optional account operations through the reader gateway. Account operations require an OIDC session; writes also require CSRF protection. See /api/docs.",
     "title": "DevFeed Reader API",
-    "version": "0.1.4"
+    "version": "0.1.5"
   },
   "openapi": "3.1.0",
   "paths": {

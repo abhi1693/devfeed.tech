@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.1.4
+ * OpenAPI spec version: 0.1.5
  */
 
 export type FeedSettingsView = typeof FeedSettingsView[keyof typeof FeedSettingsView];

@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Partner API
  * Partner analytics API with role-gated sessions and live memberships.
- * OpenAPI spec version: 0.1.4
+ * OpenAPI spec version: 0.1.5
  */
 import type { Evidence } from './evidence';
 import type { ProductInputPricing } from './productInputPricing';
