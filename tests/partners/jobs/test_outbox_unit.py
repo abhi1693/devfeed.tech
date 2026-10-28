@@ -96,7 +96,10 @@ def test_queue_lock_covers_backpressure_and_publication(queue_name, lock):
 
     state.queue.enqueue.side_effect = enqueue
     assert publish(state, queue_name=queue_name) == 2
-    state.lookup.assert_called_once_with(queue_name)
+    state.lookup.assert_called_once_with("partner-pipeline")
+    assert state.queue.enqueue.call_args.kwargs["meta"] == {
+        "devfeed_ai": queue_name == "source-analysis"
+    }
     assert events == ["pending", "lock", "queue", "enqueue", "enqueue"]
     assert state.session.scalar.call_args.args[0].compile().params == {
         "pg_try_advisory_xact_lock_2": lock
@@ -112,6 +115,7 @@ def test_queue_lock_covers_backpressure_and_publication(queue_name, lock):
             "job_timeout": 300,
             "result_ttl": 0,
             "failure_ttl": 60,
+            "meta": {"devfeed_ai": queue_name == "source-analysis"},
         }
 
 
