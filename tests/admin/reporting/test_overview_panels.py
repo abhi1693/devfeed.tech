@@ -1,5 +1,8 @@
 """Chart reads must not build the aggregate dashboard or block unrelated panels."""
 
+import asyncio
+from unittest.mock import AsyncMock
+
 import pytest
 from devfeed_core.models import (
     Article,
@@ -10,6 +13,16 @@ from devfeed_core.models import (
 )
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture
+def overview_cutover_database(integration_environment, monkeypatch):
+    from tests.support.legacy_migrations import database_at_revision
+
+    # Each scenario owns its schema, independently of whether another integration
+    # test already completed the finite historical import in the shared test DB.
+    with database_at_revision(monkeypatch, "head") as database:
+        yield database
 
 
 def test_pending_extraction_is_distinguished_from_unavailable_text(database):
@@ -99,14 +112,58 @@ def test_pending_extraction_is_distinguished_from_unavailable_text(database):
 
 @pytest.mark.parametrize("chart", ["attention", "publication-rate"])
 @pytest.mark.parametrize(
+    "cutover_complete", [False, True], ids=["import-pending", "import-complete"]
+)
+@pytest.mark.parametrize(
     "query", ["days=7", "start=2025-01-01", "end=2025-02-01", "range=P0D", "range=P367D"]
 )
 def test_removed_or_invalid_range_protocols_are_rejected_before_recording_demand(
-    database, admin_client, chart, query
+    overview_cutover_database, admin_client, monkeypatch, chart, query, cutover_complete
 ):
-    from sqlalchemy import text
+    from devfeed_core.analytics_cutover import LegacyAnalyticsCutover
+    from devfeed_core.analytics_import_runner import postgres_connections
+    from devfeed_core.config import get_settings
+    from devfeed_core.db import get_engine
+    from sqlalchemy import event, text
 
-    response = admin_client.get(f"/v1/admin/overview/charts/{chart}?{query}")
-    assert response.status_code == 422
+    database = overview_cutover_database
+    with database.begin() as session:
+        session.execute(
+            text("INSERT INTO report_refreshes(\"group\", days) VALUES ('publishing',7)")
+        )
+
+    async def prepare_cutover():
+        async with postgres_connections(get_settings().database_url)() as connection:
+            cutover = LegacyAnalyticsCutover()
+            await cutover.freeze(connection)
+            if cutover_complete:
+                await cutover.cleanup(connection)
+
+    asyncio.run(prepare_cutover())
     with database() as session:
-        assert session.scalar(text("SELECT to_regclass('report_refreshes')")) is None
+        relation = session.scalar(text("SELECT to_regclass('report_refreshes')"))
+        assert relation == (None if cutover_complete else "report_refreshes")
+        previous_demand = (
+            session.execute(text("SELECT * FROM report_refreshes")).all() if relation else []
+        )
+
+    section = AsyncMock(side_effect=AssertionError("Invalid chart ranges must not query analytics"))
+    monkeypatch.setattr(admin_client.app.state.analytics, "section", section)
+    statements = []
+
+    def record_statement(connection, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    engine = get_engine()
+    event.listen(engine, "before_cursor_execute", record_statement)
+    try:
+        response = admin_client.get(f"/v1/admin/overview/charts/{chart}?{query}")
+    finally:
+        event.remove(engine, "before_cursor_execute", record_statement)
+    assert response.status_code == 422
+    section.assert_not_called()
+    assert statements == []
+    with database() as session:
+        assert session.scalar(text("SELECT to_regclass('report_refreshes')")) == relation
+        if relation:
+            assert session.execute(text("SELECT * FROM report_refreshes")).all() == previous_demand

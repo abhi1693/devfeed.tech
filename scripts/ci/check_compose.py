@@ -314,7 +314,9 @@ def check() -> None:
     assert "clickhouse" not in services["api"]["depends_on"]
     assert services["migrate"]["depends_on"]["clickhouse"]["condition"] == "service_healthy"
     assert services["migrate"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed_ingest"
-    assert "--initialize" in services["migrate"]["command"][-1]
+    assert services["migrate"]["command"][-1] == (
+        "devfeed db upgrade && exec devfeed analytics upgrade"
+    )
     assert services["analytics-importer"]["depends_on"]["clickhouse"]["condition"] == (
         "service_healthy"
     )
