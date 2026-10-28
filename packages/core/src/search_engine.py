@@ -8,13 +8,60 @@ import random
 import threading
 import time
 import uuid
-from typing import cast
+from collections.abc import Callable, Collection, Iterable, Sequence
+from typing import NotRequired, TypedDict, overload
 from urllib.parse import urlencode
 
 import httpcore
 
 from devfeed_core.config import get_settings
-from devfeed_core.telemetry import observed_dependency
+from devfeed_core.search_records import SearchDocument
+from devfeed_core.telemetry import Instruments, observed_dependency
+
+
+class SearchDocumentIdentity(TypedDict):
+    id: str
+
+
+class TypesenseHit(TypedDict):
+    document: SearchDocumentIdentity
+
+
+class TypesenseSection(TypedDict):
+    hits: list[TypesenseHit]
+    found: NotRequired[int]
+    search_cutoff: NotRequired[bool]
+    error: NotRequired[str]
+
+
+class SearchQueryCount(TypedDict):
+    query: str
+    count: int
+
+
+class SearchRequest(TypedDict):
+    collection: str
+    q: str
+    query_by: str
+    query_by_weights: str
+    prefix: bool
+    num_typos: int
+    drop_tokens_threshold: int
+    prioritize_exact_match: bool
+    sort_by: str
+    per_page: int
+    page: int
+    limit_hits: int
+    include_fields: str
+    highlight_fields: str
+    search_cutoff_ms: int
+    filter_by: NotRequired[str]
+
+
+class SearchRule(TypedDict, total=False):
+    name: str
+    type: str
+
 
 KINDS = ("articles", "topics", "sources", "tags")
 PAGE_SIZE = 12
@@ -32,12 +79,12 @@ CONTENT_TYPES = frozenset(("article", "news", "tutorial", "release", "comparison
 logger = logging.getLogger(__name__)
 
 
-def _escape_filter_value(value):
+def _escape_filter_value(value: str | uuid.UUID) -> str:
     """Quote one server-constructed Typesense filter value."""
     return "`" + str(value).replace("\\", "\\\\").replace("`", "\\`") + "`"
 
 
-def _typed_filter(field, values):
+def _typed_filter(field: str, values: Iterable[str | uuid.UUID]) -> str:
     """Build an exact filter from validated values, never from filter syntax."""
     escaped = []
     for value in values:
@@ -96,7 +143,7 @@ class SearchUnavailable(Exception):
 class SearchRequestError(SearchUnavailable):
     """A sanitized Typesense request failure with retry classification."""
 
-    def __init__(self, message, *, reason, status=None):
+    def __init__(self, message: str, *, reason: str, status: int | None = None) -> None:
         super().__init__(message)
         self.reason = reason
         self.status = status
@@ -105,12 +152,12 @@ class SearchRequestError(SearchUnavailable):
 class SearchImportError(SearchUnavailable):
     """A bulk import response that could not be fully acknowledged."""
 
-    def __init__(self, message, *, reason):
+    def __init__(self, message: str, *, reason: str) -> None:
         super().__init__(message)
         self.reason = reason
 
 
-def _metric_instruments():
+def _metric_instruments() -> Instruments | None:
     from devfeed_core.telemetry import current
 
     runtime = current()
@@ -118,7 +165,7 @@ def _metric_instruments():
 
 
 class Typesense:
-    def __init__(self, *, admin=False):
+    def __init__(self, *, admin: bool = False) -> None:
         settings = get_settings()
         key = settings.search_admin_key if admin else settings.search_query_key
         if not settings.search_enabled or not settings.search_url or not key:
@@ -129,12 +176,12 @@ class Typesense:
         self.write_timeout = settings.search_index_write_timeout_seconds
         self.write_timeout_max = settings.search_index_write_timeout_max_seconds
 
-    def alias(self, kind):
+    def alias(self, kind: str) -> str:
         if kind not in KINDS:
             raise ValueError("Unknown search section")
         return f"{self.prefix}_{kind}"
 
-    def physical_collection(self, kind, version=None):
+    def physical_collection(self, kind: str, version: str | None = None) -> str:
         if kind not in KINDS:
             raise ValueError("Unknown search section")
         version = version or get_settings().search_collection_version
@@ -146,12 +193,45 @@ class Typesense:
             raise ValueError("Invalid search collection version")
         return f"{self.prefix}_{kind}_{version}"
 
-    def collection(self, kind):
+    def collection(self, kind: str) -> str:
         """Return the stable alias used by readers and the live indexer."""
         return self.alias(kind)
 
+    @overload
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        data: object = None,
+        raw: bytes | None = None,
+        allowed: tuple[()] = (),
+        timeout: float | None = None,
+    ) -> bytes: ...
+
+    @overload
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        data: object = None,
+        raw: bytes | None = None,
+        allowed: Collection[int],
+        timeout: float | None = None,
+    ) -> bytes | None: ...
+
     @observed_dependency("typesense", "request")
-    def request(self, method, path, *, data=None, raw=None, allowed=(), timeout=None):
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        data: object = None,
+        raw: bytes | None = None,
+        allowed: Collection[int] = (),
+        timeout: float | None = None,
+    ) -> bytes | None:
         body = raw if raw is not None else json.dumps(data).encode() if data is not None else None
         request_timeout = self.timeout if timeout is None else timeout
         try:
@@ -198,7 +278,7 @@ class Typesense:
         except ValueError as exc:
             raise SearchRequestError("Search is unavailable", reason="response_error") from exc
 
-    def _retry_delay(self, retry_count):
+    def _retry_delay(self, retry_count: int) -> float:
         settings = get_settings()
         ceiling = min(
             settings.search_index_retry_max_seconds,
@@ -206,7 +286,14 @@ class Typesense:
         )
         return random.uniform(ceiling * 0.5, ceiling)
 
-    def _with_retries(self, operation, *, collection, batch_size, timeout=None):
+    def _with_retries[T](
+        self,
+        operation: Callable[[float | None], T],
+        *,
+        collection: str,
+        batch_size: int,
+        timeout: float | None = None,
+    ) -> tuple[T, int]:
         settings = get_settings()
         attempts = settings.search_index_retry_attempts
         for retry_count in range(attempts + 1):
@@ -249,8 +336,8 @@ class Typesense:
 
         raise AssertionError("unreachable")
 
-    def _import(self, collection, raw, batch_size):
-        def operation(timeout):
+    def _import(self, collection: str, raw: bytes, batch_size: int) -> None:
+        def operation(timeout: float | None) -> None:
             payload = self.request(
                 "POST",
                 f"/collections/{collection}/documents/import?action=upsert",
@@ -259,6 +346,7 @@ class Typesense:
             )
             failed_lines = 0
             lines = []
+            assert payload is not None  # This call allows no ignored HTTP statuses.
             for line in payload.splitlines():
                 try:
                     lines.append(json.loads(line))
@@ -299,19 +387,19 @@ class Typesense:
 
     def search(
         self,
-        query,
-        kinds=KINDS,
-        page=1,
+        query: str,
+        kinds: Sequence[str] = KINDS,
+        page: int = 1,
         *,
-        sort="relevance",
-        date_from=None,
-        date_to=None,
-        topics=None,
-        sources=None,
-        tags=None,
-        content_types=None,
-    ):
-        searches = [
+        sort: str = "relevance",
+        date_from: int | None = None,
+        date_to: int | None = None,
+        topics: Iterable[str | uuid.UUID] | None = None,
+        sources: Iterable[str | uuid.UUID] | None = None,
+        tags: Iterable[str | uuid.UUID] | None = None,
+        content_types: Iterable[str] | None = None,
+    ) -> dict[str, TypesenseSection]:
+        searches: list[SearchRequest] = [
             {
                 "collection": self.collection(kind),
                 "q": query,
@@ -359,8 +447,11 @@ class Typesense:
             if filters:
                 search["filter_by"] = " && ".join(filters)
         try:
-            data = json.loads(self.request("POST", "/multi_search", data={"searches": searches}))
-            results = data["results"]
+            payload = self.request("POST", "/multi_search", data={"searches": searches})
+            assert payload is not None
+            data = json.loads(payload)
+            # The bounded SDK response below establishes the hit envelope.
+            results: list[TypesenseSection] = data["results"]
             if len(results) != len(kinds):
                 raise ValueError("Incomplete search response")
             for result in results:
@@ -372,18 +463,19 @@ class Typesense:
         except (ValueError, TypeError, KeyError) as exc:
             raise SearchUnavailable("Search is unavailable") from exc
 
-    def count(self, kind):
+    def count(self, kind: str) -> int:
         collection = self.alias_target(kind)
         if collection is None:
             raise SearchUnavailable("Search alias is unavailable")
 
-        def operation(timeout):
+        def operation(timeout: float | None) -> int:
             payload = self.request(
                 "GET",
                 f"/collections/{collection}",
                 timeout=timeout,
             )
             try:
+                assert payload is not None
                 found = json.loads(payload)["num_documents"]
                 if not isinstance(found, int) or found < 0:
                     raise ValueError("Invalid collection count")
@@ -399,7 +491,14 @@ class Typesense:
         )
         return result
 
-    def create_collection(self, kind, *, version=None, allowed=(409,), timeout=None):
+    def create_collection(
+        self,
+        kind: str,
+        *,
+        version: str | None = None,
+        allowed: Collection[int] = (409,),
+        timeout: float | None = None,
+    ) -> bytes | None:
         collection = self.physical_collection(kind, version)
         return self.request(
             "POST",
@@ -422,11 +521,12 @@ class Typesense:
             timeout=self.write_timeout if timeout is None else timeout,
         )
 
-    def ensure_filter_fields(self, kind):
+    def ensure_filter_fields(self, kind: str) -> None:
         """Add filter fields to an existing physical collection during setup."""
         collection = self.physical_collection(kind)
         payload = self.request("GET", f"/collections/{collection}")
         try:
+            assert payload is not None
             existing = {field["name"] for field in json.loads(payload).get("fields", [])}
         except (ValueError, TypeError, AttributeError):
             raise SearchUnavailable("Search schema is unavailable") from None
@@ -439,7 +539,7 @@ class Typesense:
                 timeout=self.write_timeout,
             )
 
-    def alias_target(self, kind, *, timeout=None):
+    def alias_target(self, kind: str, *, timeout: float | None = None) -> str | None:
         payload = self.request(
             "GET", f"/aliases/{self.alias(kind)}", allowed=(404,), timeout=timeout
         )
@@ -453,19 +553,21 @@ class Typesense:
         except (ValueError, TypeError, KeyError) as exc:
             raise SearchUnavailable("Search alias is unavailable") from exc
 
-    def analytics_rules(self):
+    def analytics_rules(self) -> list[SearchRule]:
         """Return configured Typesense analytics rules without exposing credentials."""
         payload = self.request("GET", "/analytics/rules")
         try:
+            assert payload is not None
             value = json.loads(payload)
             rules = value.get("rules", value) if isinstance(value, dict) else value
             if not isinstance(rules, list):
                 raise ValueError("Invalid analytics rules response")
-            return rules
+            decoded_rules: list[SearchRule] = rules
+            return decoded_rules
         except (ValueError, TypeError, AttributeError) as exc:
             raise SearchUnavailable("Search analytics is unavailable") from exc
 
-    def analytics_queries(self, collection, *, limit=25):
+    def analytics_queries(self, collection: str, *, limit: int = 25) -> list[SearchQueryCount]:
         """Read aggregated query documents for the private admin dashboard."""
         params = urlencode(
             {
@@ -478,21 +580,22 @@ class Typesense:
         )
         payload = self.request("GET", f"/collections/{collection}/documents/search?{params}")
         try:
+            assert payload is not None
             hits = json.loads(payload).get("hits", [])
             if not isinstance(hits, list):
                 raise ValueError("Invalid analytics query response")
-            result = []
+            result: list[SearchQueryCount] = []
             for item in hits:
                 document = item.get("document", {})
                 query, count = document.get("q"), document.get("count")
                 if isinstance(query, str) and isinstance(count, int) and count >= 0:
                     result.append({"query": query, "count": count})
-            result.sort(key=lambda item: (-cast(int, item["count"]), cast(str, item["query"])))
+            result.sort(key=lambda item: (-item["count"], item["query"]))
             return result
         except (ValueError, TypeError, AttributeError) as exc:
             raise SearchUnavailable("Search analytics is unavailable") from exc
 
-    def _create_analytics_collection(self, collection):
+    def _create_analytics_collection(self, collection: str) -> None:
         self.request(
             "POST",
             "/collections",
@@ -508,7 +611,7 @@ class Typesense:
             timeout=self.write_timeout,
         )
 
-    def setup_analytics(self):
+    def setup_analytics(self) -> None:
         """Create the persistent query analytics projection used by the admin UI."""
         if not get_settings().search_analytics_enabled:
             return
@@ -554,42 +657,62 @@ class Typesense:
             timeout=self.write_timeout,
         )
 
-    def setup(self):
+    def setup(self) -> None:
         for kind in KINDS:
             collection = self.collection(kind)
+
+            def create(timeout: float | None, selected: str = kind) -> bytes | None:
+                return self.create_collection(selected, timeout=timeout)
+
+            def ensure(timeout: float | None, selected: str = kind) -> None:
+                self.ensure_filter_fields(selected)
+
+            def target(timeout: float | None, selected: str = kind) -> str | None:
+                return self.alias_target(selected, timeout=timeout)
+
             self._with_retries(
-                lambda timeout, kind=kind: self.create_collection(kind, timeout=timeout),
+                create,
                 collection=self.physical_collection(kind),
                 batch_size=0,
                 timeout=self.write_timeout,
             )
             self._with_retries(
-                lambda timeout, kind=kind: self.ensure_filter_fields(kind),
+                ensure,
                 collection=self.physical_collection(kind),
                 batch_size=0,
                 timeout=self.write_timeout,
             )
             current, _ = self._with_retries(
-                lambda timeout, kind=kind: self.alias_target(kind, timeout=timeout),
+                target,
                 collection=collection,
                 batch_size=0,
                 timeout=self.timeout,
             )
             if current is None:
-                self._with_retries(
-                    lambda timeout, collection=collection, kind=kind: self.request(
+
+                def publish(
+                    timeout: float | None,
+                    selected: str = kind,
+                    alias: str = collection,
+                ) -> bytes:
+                    return self.request(
                         "PUT",
-                        f"/aliases/{collection}",
-                        data={"collection_name": self.physical_collection(kind)},
+                        f"/aliases/{alias}",
+                        data={"collection_name": self.physical_collection(selected)},
                         timeout=timeout,
-                    ),
+                    )
+
+                self._with_retries(
+                    publish,
                     collection=collection,
                     batch_size=0,
                     timeout=self.write_timeout,
                 )
         self.setup_analytics()
 
-    def sync(self, kind, documents, removed):
+    def sync(
+        self, kind: str, documents: Sequence[SearchDocument], removed: Collection[str | uuid.UUID]
+    ) -> None:
         # Typesense aliases are the reader contract; document writes and
         # deletes must target the current physical collection explicitly.
         collection = self.alias_target(kind)

@@ -1,28 +1,38 @@
 """Partner account management belongs exclusively to the authenticated admin API."""
 
+from __future__ import annotations
+
 import uuid
-from datetime import UTC, datetime
-from typing import Annotated
+from datetime import UTC, date, datetime
+from typing import Annotated, TypedDict
 
 from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.models import (
     PartnerAccount,
     PartnerAsset,
+    PartnerCampaign,
     PartnerMembership,
+    PartnerProduct,
     UserAccount,
 )
 from devfeed_core.partner_ad_formats import AdFormat, validate_account_formats
 from devfeed_core.partner_audiences import (
     AudienceDimension,
+    AudienceTopicsData,
     audience_topic_options,
     validate_audience,
 )
-from devfeed_core.partner_link_rel import LINK_REL_OPTIONS, validate_link_rel
+from devfeed_core.partner_link_rel import LINK_REL_OPTIONS, LinkRel, validate_link_rel
 from devfeed_core.partner_promotions import (
     request_promotion_enrollment,
 )
-from devfeed_core.partner_tiers import TIER_BENEFITS, promotion_kind_allowed, tier_policy
+from devfeed_core.partner_tiers import (
+    TIER_BENEFITS,
+    TierPolicy,
+    promotion_kind_allowed,
+    tier_policy,
+)
 from devfeed_core.text_search import text_search
 from devfeed_http.body_limits import BodyLimitedRoute
 from devfeed_http.dependencies import run_database
@@ -35,14 +45,17 @@ from devfeed_http.partner_ad_images import (
     upload_product_ad_image,
 )
 from devfeed_http.partner_analytics_reporting import (
+    ReportingAsset,
+    ReportingMetrics,
     reporting_assets,
     reporting_metrics,
     require_partner_history,
 )
-from devfeed_http.partner_campaigns import CampaignService
+from devfeed_http.partner_campaigns import CampaignMetadata, CampaignService
 from devfeed_http.partner_portal import (
     AccountInput,
     AccountOut,
+    AccountsData,
     AccountsOut,
     AssetInput,
     AssetOut,
@@ -54,6 +67,8 @@ from devfeed_http.partner_portal import (
     Dashboard,
     DestinationPreviewOut,
     InventoryOut,
+    InventoryPageData,
+    InventoryProductData,
     MemberInput,
     MemberOut,
     MemberSubject,
@@ -61,6 +76,7 @@ from devfeed_http.partner_portal import (
     PartnershipTierOut,
     ProductPromotionInput,
     ProductPromotionOut,
+    SponsorArticlesData,
     SponsorArticlesOut,
     asset_access,
     creative_preview,
@@ -85,6 +101,7 @@ from devfeed_http.partner_products import (
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
 
 from devfeed_admin_api.auth import Admin, AdminIdentity, require_admin
 from devfeed_admin_api.dependencies import DB, DBFactory, get_redis
@@ -97,6 +114,21 @@ router = APIRouter(
 )
 
 
+class DashboardData(ReportingMetrics):
+    account: AccountOut
+
+
+class PartnershipTierData(TierPolicy):
+    tier: str
+    benefits: list[str]
+    link_rel_options: list[LinkRel]
+
+
+class CampaignsData(TypedDict):
+    items: list[CampaignOut]
+    total: int
+
+
 def require_superuser(admin: Admin) -> AdminIdentity:
     if "superuser" not in admin.roles:
         raise HTTPException(403, "Superuser access required")
@@ -106,7 +138,9 @@ def require_superuser(admin: Admin) -> AdminIdentity:
 Superuser = Annotated[AdminIdentity, Depends(require_superuser)]
 
 
-def account_access(session, _admin, account_id, *, lock=False):
+def account_access(
+    session: Session, _admin: AdminIdentity, account_id: uuid.UUID, *, lock: bool = False
+) -> PartnerAccount:
     query = select(PartnerAccount).where(PartnerAccount.id == account_id)
     if lock:
         query = query.with_for_update().execution_options(populate_existing=True)
@@ -116,7 +150,14 @@ def account_access(session, _admin, account_id, *, lock=False):
     return account
 
 
-def write_manual_account(session, admin, account_id, *, product_id=None, url=None):
+def write_manual_account(
+    session: Session,
+    admin: AdminIdentity,
+    account_id: uuid.UUID,
+    *,
+    product_id: uuid.UUID | None = None,
+    url: str | None = None,
+) -> tuple[PartnerAccount, PartnerProduct | None]:
     account_access(session, admin, account_id)
     product = lock_manual_identity(session, account_id, product_id=product_id, url=url)
     return account_access(session, admin, account_id, lock=True), product
@@ -131,7 +172,7 @@ def write_manual_account(session, admin, account_id, *, product_id=None, url=Non
 )
 def create_product(
     account_id: uuid.UUID, payload: ManualProductInput, session: DB, superuser: Superuser
-):
+) -> InventoryProductData:
     account_access(session, superuser, account_id)
     limit_product_write(get_redis(), superuser, account_id)
     account, existing = write_manual_account(
@@ -147,7 +188,9 @@ def create_product(
     response_model=ProductDetailOut,
     operation_id="adminPartnerProductGet",
 )
-def get_product(account_id: uuid.UUID, product_id: uuid.UUID, session: DB, superuser: Superuser):
+def get_product(
+    account_id: uuid.UUID, product_id: uuid.UUID, session: DB, superuser: Superuser
+) -> InventoryProductData:
     return product_detail(session, account_access(session, superuser, account_id), product_id)
 
 
@@ -163,10 +206,11 @@ def update_product(
     payload: ManualProductUpdate,
     session: DB,
     superuser: Superuser,
-):
+) -> InventoryProductData:
     account_access(session, superuser, account_id)
     limit_product_write(get_redis(), superuser, account_id)
     account, product = write_manual_account(session, superuser, account_id, product_id=product_id)
+    assert product is not None
     result = update_manual_product(session, account, product, payload)
     session.commit()
     return result
@@ -180,17 +224,18 @@ def update_product(
 )
 def archive_product(
     account_id: uuid.UUID, product_id: uuid.UUID, session: DB, superuser: Superuser
-):
+) -> Response:
     account_access(session, superuser, account_id)
     limit_product_write(get_redis(), superuser, account_id)
     account, product = write_manual_account(session, superuser, account_id, product_id=product_id)
+    assert product is not None
     archive_manual_product(session, account, product)
     session.commit()
     return Response(status_code=204)
 
 
 @router.get("/tiers", response_model=list[PartnershipTierOut])
-def partnership_tiers(_admin: Superuser):
+def partnership_tiers(_admin: Superuser) -> list[PartnershipTierData]:
     return [
         {
             "tier": tier,
@@ -209,7 +254,7 @@ def accounts(
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
     q: str = Query("", max_length=200, pattern=r"^[^\x00]*$"),
-):
+) -> AccountsData:
     filters = [text_search(q.strip(), PartnerAccount.name)] if q.strip() else []
     return {
         "items": session.scalars(
@@ -219,7 +264,8 @@ def accounts(
             .limit(limit)
             .offset(offset)
         ).all(),
-        "total": session.scalar(select(func.count()).select_from(PartnerAccount).where(*filters)),
+        "total": session.scalar(select(func.count()).select_from(PartnerAccount).where(*filters))
+        or 0,
     }
 
 
@@ -236,7 +282,7 @@ def audience_catalog(
     topic_id: uuid.UUID | None = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(25, ge=1, le=100),
-):
+) -> AudienceTopicsData:
     return audience_topic_options(
         session, dimension, q=q, topic_id=topic_id, offset=offset, limit=limit
     )
@@ -254,7 +300,7 @@ def sponsor_article_catalog(
     article_id: uuid.UUID | None = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(25, ge=1, le=100),
-):
+) -> SponsorArticlesData:
     return sponsor_articles(session, q=q, article_id=article_id, offset=offset, limit=limit)
 
 
@@ -271,7 +317,7 @@ def account_sponsor_articles(
     article_id: uuid.UUID | None = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(25, ge=1, le=100),
-):
+) -> SponsorArticlesData:
     account_access(session, admin, account_id)
     return sponsor_articles(session, q=q, article_id=article_id, offset=offset, limit=limit)
 
@@ -283,7 +329,7 @@ def account_sponsor_articles(
 )
 def preview_creative(
     account_id: uuid.UUID, session: DB, admin: Superuser, product_id: uuid.UUID | None = None
-):
+) -> CreativePreviewOut:
     return creative_preview(
         session, account_access(session, admin, account_id), product_id=product_id
     )
@@ -303,14 +349,16 @@ def audience_topics(
     topic_id: uuid.UUID | None = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(25, ge=1, le=100),
-):
+) -> AudienceTopicsData:
     account = account_access(session, admin, account_id)
     return audience_topic_options(
         session, dimension, account=account, q=q, topic_id=topic_id, offset=offset, limit=limit
     )
 
 
-def _dashboard_metadata(session, admin, account_id, ad_format):
+def _dashboard_metadata(
+    session: Session, admin: AdminIdentity, account_id: uuid.UUID, ad_format: AdFormat | None
+) -> tuple[AccountOut, list[ReportingAsset]]:
     account = AccountOut.model_validate(account_access(session, admin, account_id))
     assets = reporting_assets(
         session, select(PartnerAccount).where(PartnerAccount.id == account_id), ad_format
@@ -328,7 +376,7 @@ async def dashboard(
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
     ad_format: AdFormat | None = None,
-):
+) -> DashboardData:
     account, assets = await run_database(factory, _dashboard_metadata, admin, account_id, ad_format)
     client = request.app.state.analytics.client
     try:
@@ -350,12 +398,14 @@ async def dashboard(
     response_model=DestinationPreviewOut,
     operation_id="adminPartnerDestinationPreview",
 )
-def preview_destination(account_id: uuid.UUID, session: DB, admin: Superuser):
+def preview_destination(
+    account_id: uuid.UUID, session: DB, admin: Superuser
+) -> DestinationPreviewOut:
     return destination_preview(session, account_access(session, admin, account_id))
 
 
 @router.post("", response_model=AccountOut, status_code=201)
-def create_account(payload: AccountInput, _superuser: Superuser, session: DB):
+def create_account(payload: AccountInput, _superuser: Superuser, session: DB) -> PartnerAccount:
     try:
         validate_link_rel(payload.tier, payload.link_rel)
         validate_account_formats(payload.tier, payload.ad_formats)
@@ -369,7 +419,9 @@ def create_account(payload: AccountInput, _superuser: Superuser, session: DB):
 
 
 @router.put("/{account_id}", response_model=AccountOut)
-def update_account(account_id: uuid.UUID, payload: AccountInput, superuser: Superuser, session: DB):
+def update_account(
+    account_id: uuid.UUID, payload: AccountInput, superuser: Superuser, session: DB
+) -> PartnerAccount:
     account = account_access(session, superuser, account_id, lock=True)
     try:
         if "link_rel" in payload.model_fields_set:
@@ -389,7 +441,7 @@ def update_account(account_id: uuid.UUID, payload: AccountInput, superuser: Supe
 
 
 @router.get("/{account_id}/members", response_model=list[MemberOut])
-def members(account_id: uuid.UUID, superuser: Superuser, session: DB):
+def members(account_id: uuid.UUID, superuser: Superuser, session: DB) -> list[MemberOut]:
     account_access(session, superuser, account_id)
     rows = session.execute(
         select(PartnerMembership, UserAccount)
@@ -415,7 +467,9 @@ def members(account_id: uuid.UUID, superuser: Superuser, session: DB):
 
 
 @router.put("/{account_id}/members", status_code=204, response_class=Response)
-def add_member(account_id: uuid.UUID, payload: MemberInput, superuser: Superuser, session: DB):
+def add_member(
+    account_id: uuid.UUID, payload: MemberInput, superuser: Superuser, session: DB
+) -> Response:
     account_access(session, superuser, account_id)
     user = session.get(UserAccount, payload.user_id)
     if (
@@ -435,7 +489,9 @@ def add_member(account_id: uuid.UUID, payload: MemberInput, superuser: Superuser
 
 
 @router.delete("/{account_id}/members/{subject}", status_code=204, response_class=Response)
-def remove_member(account_id: uuid.UUID, subject: MemberSubject, superuser: Superuser, session: DB):
+def remove_member(
+    account_id: uuid.UUID, subject: MemberSubject, superuser: Superuser, session: DB
+) -> Response:
     account_access(session, superuser, account_id)
     member = session.get(PartnerMembership, (account_id, superuser.issuer, subject))
     if member is not None:
@@ -445,7 +501,9 @@ def remove_member(account_id: uuid.UUID, subject: MemberSubject, superuser: Supe
 
 
 @router.post("/{account_id}/assets", response_model=AssetOut, status_code=201)
-def create_asset(account_id: uuid.UUID, payload: AssetInput, superuser: Superuser, session: DB):
+def create_asset(
+    account_id: uuid.UUID, payload: AssetInput, superuser: Superuser, session: DB
+) -> PartnerAsset:
     account = account_access(session, superuser, account_id, lock=True)
     if not promotion_kind_allowed(account, payload.kind):
         raise HTTPException(422, "Promotion type is not included in this partnership tier")
@@ -461,7 +519,9 @@ def create_asset(account_id: uuid.UUID, payload: AssetInput, superuser: Superuse
     response_model=AssetOut,
     operation_id="adminPartnerAssetGet",
 )
-def get_asset(account_id: uuid.UUID, asset_id: uuid.UUID, session: DB, superuser: Superuser):
+def get_asset(
+    account_id: uuid.UUID, asset_id: uuid.UUID, session: DB, superuser: Superuser
+) -> PartnerAsset:
     account_access(session, superuser, account_id)
     return asset_access(session, account_id, asset_id)
 
@@ -473,7 +533,7 @@ def update_asset(
     payload: AssetInput,
     superuser: Superuser,
     session: DB,
-):
+) -> PartnerAsset:
     account = account_access(session, superuser, account_id, lock=True)
     if not promotion_kind_allowed(account, payload.kind):
         raise HTTPException(422, "Promotion type is not included in this partnership tier")
@@ -489,14 +549,22 @@ def update_asset(
     return asset
 
 
-def _prepare_metric_write(session, account_id, asset_id, superuser, day):
+def _prepare_metric_write(
+    session: Session,
+    account_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    superuser: AdminIdentity,
+    day: date,
+) -> tuple[int, datetime]:
     account_access(session, superuser, account_id)
     asset_access(session, account_id, asset_id)
     # Order revisions for one day's replacement, then release this transaction
     # before ClickHouse I/O. Its version resolves delayed concurrent inserts.
     lock_name = f"partner-metrics:{asset_id}:{day.isoformat()}"
     session.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(lock_name, 0))))
-    return int(session.scalar(select(func.txid_current()))), datetime.now(UTC)
+    revision = session.scalar(select(func.txid_current()))
+    assert revision is not None
+    return int(revision), datetime.now(UTC)
 
 
 @router.put("/{account_id}/assets/{asset_id}/metrics", status_code=204, response_class=Response)
@@ -507,7 +575,7 @@ async def record_metrics(
     superuser: Superuser,
     factory: DBFactory,
     request: Request,
-):
+) -> Response:
     try:
         revision, observed = await run_database(
             factory, _prepare_metric_write, account_id, asset_id, superuser, payload.day
@@ -527,12 +595,16 @@ async def record_metrics(
     return Response(status_code=204)
 
 
-def _campaign_page(session, account_id, superuser, limit, offset):
+def _campaign_page(
+    session: Session, account_id: uuid.UUID, superuser: AdminIdentity, limit: int, offset: int
+) -> CampaignMetadata:
     account = account_access(session, superuser, account_id)
     return CampaignService(session, account).page(limit=limit, offset=offset)
 
 
-def _campaign_metadata(session, account_id, campaign_id, superuser):
+def _campaign_metadata(
+    session: Session, account_id: uuid.UUID, campaign_id: uuid.UUID, superuser: AdminIdentity
+) -> CampaignMetadata:
     account = account_access(session, superuser, account_id)
     return CampaignService(session, account).get(campaign_id)
 
@@ -547,7 +619,7 @@ async def campaigns(
     request: Request,
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
-):
+) -> CampaignsData:
     metadata = await run_database(factory, _campaign_page, account_id, superuser, limit, offset)
     client = request.app.state.analytics.client
     try:
@@ -571,7 +643,7 @@ async def campaign(
     factory: DBFactory,
     superuser: Superuser,
     request: Request,
-):
+) -> CampaignOut:
     metadata = await run_database(factory, _campaign_metadata, account_id, campaign_id, superuser)
     client = request.app.state.analytics.client
     try:
@@ -589,14 +661,20 @@ async def campaign(
 )
 def create_campaign(
     account_id: uuid.UUID, payload: CampaignInput, session: DB, superuser: Superuser
-):
+) -> PartnerCampaign:
     account = account_access(session, superuser, account_id, lock=True)
     campaign = CampaignService(session, account).save(payload)
     session.commit()
     return campaign
 
 
-def _update_campaign(session, account_id, campaign_id, payload, superuser):
+def _update_campaign(
+    session: Session,
+    account_id: uuid.UUID,
+    campaign_id: uuid.UUID,
+    payload: CampaignInput,
+    superuser: AdminIdentity,
+) -> CampaignMetadata:
     account = account_access(session, superuser, account_id, lock=True)
     service = CampaignService(session, account)
     campaign = service.save(payload, campaign_id=campaign_id)
@@ -616,7 +694,7 @@ async def update_campaign(
     factory: DBFactory,
     superuser: Superuser,
     request: Request,
-):
+) -> CampaignOut:
     client = request.app.state.analytics.client
     try:
         await require_partner_history(client)
@@ -640,7 +718,7 @@ def inventory(
     q: str = Query("", max_length=200, pattern=r"^[^\x00]*$"),
     product_id: uuid.UUID | None = None,
     include_archived: bool = False,
-):
+) -> InventoryPageData:
     account = account_access(session, superuser, account_id)
     return inventory_products(
         session,
@@ -658,7 +736,9 @@ def inventory(
     response_model=list[ProductPromotionOut],
     operation_id="adminPartnerProductPromotionsList",
 )
-def product_promotions(account_id: uuid.UUID, session: DB, superuser: Superuser):
+def product_promotions(
+    account_id: uuid.UUID, session: DB, superuser: Superuser
+) -> list[ProductPromotionOut]:
     account_access(session, superuser, account_id)
     return list_product_promotions(session, account_id)
 
@@ -674,7 +754,7 @@ def update_product_promotion(
     payload: ProductPromotionInput,
     session: DB,
     superuser: Superuser,
-):
+) -> ProductPromotionOut:
     account_access(session, superuser, account_id)
     lock_image_product(session, account_id, product_id)
     account = lock_image_account(
@@ -692,7 +772,7 @@ def update_product_promotion(
 )
 def get_product_promotion(
     account_id: uuid.UUID, product_id: uuid.UUID, session: DB, superuser: Superuser
-):
+) -> ProductPromotionOut:
     return product_promotion(session, account_access(session, superuser, account_id), product_id)
 
 
@@ -710,7 +790,7 @@ def upload_ad_image(
     file: Annotated[UploadFile, File(description="JPEG, PNG or WebP, up to 5 MB")],
     session: DB,
     superuser: Superuser,
-):
+) -> ProductPromotionOut:
     account_access(session, superuser, account_id)
     limit_image_upload(get_redis(), superuser, account_id)
     lock_image_product(session, account_id, product_id)
@@ -723,5 +803,5 @@ def upload_ad_image(
 
 
 @router.get("/{account_id}", response_model=AccountOut, operation_id="adminPartnerAccountGet")
-def get_account(account_id: uuid.UUID, session: DB, admin: Superuser):
+def get_account(account_id: uuid.UUID, session: DB, admin: Superuser) -> PartnerAccount:
     return account_access(session, admin, account_id)

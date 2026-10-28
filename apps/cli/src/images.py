@@ -1,5 +1,7 @@
 """Submit and inspect image lookups without running HTTP work in the CLI."""
 
+from types import SimpleNamespace
+
 from devfeed_aggregator.dispatch import dispatch_now
 from devfeed_core.db import session_factory
 from devfeed_core.image_jobs import (
@@ -17,8 +19,10 @@ from devfeed_core.source_logos import backfill_source_logos, request_source_logo
 from devfeed_core.topic_logos import backfill_topic_logos, request_topic_logo
 from sqlalchemy import select
 
+from devfeed_cli.contracts import CommandOutput
 
-def fetch(args):
+
+def fetch(args: SimpleNamespace) -> CommandOutput:
     with session_factory().begin() as session:
         job = request_image(session, args.id)
         result = ImageJobOut.model_validate(job).model_dump(mode="json") if job else None
@@ -28,7 +32,7 @@ def fetch(args):
     return {"article_id": str(args.id), "already_present": result is None, "job": result}
 
 
-def backfill(args):
+def backfill(args: SimpleNamespace) -> CommandOutput:
     with session_factory().begin() as session:
         schedule = (
             backfill_source_logos
@@ -46,7 +50,7 @@ def backfill(args):
         }
 
 
-def jobs(args):
+def jobs(args: SimpleNamespace) -> list[CommandOutput]:
     statement = select(ArticleImageJob)
     if args.status:
         statement = statement.where(ArticleImageJob.status == args.status)
@@ -63,7 +67,7 @@ def jobs(args):
         ]
 
 
-def show(args):
+def show(args: SimpleNamespace) -> CommandOutput:
     with session_factory()() as session:
         job = session.get(ArticleImageJob, args.id)
         if job is None:
@@ -71,7 +75,7 @@ def show(args):
         return ImageJobOut.model_validate(job).model_dump(mode="json")
 
 
-def retry(args):
+def retry(args: SimpleNamespace) -> CommandOutput:
     with session_factory().begin() as session:
         job = retry_image(session, args.id)
         result = ImageJobOut.model_validate(job).model_dump(mode="json") if job else None
@@ -81,23 +85,23 @@ def retry(args):
     return {"already_present": result is None, "job": result}
 
 
-def dispatch(args):
+def dispatch(args: SimpleNamespace) -> CommandOutput:
     return dispatch_now(args.id, kind="images")
 
 
-def topic_logo(args):
+def topic_logo(args: SimpleNamespace) -> CommandOutput | None:
     with session_factory().begin() as session:
         job = request_topic_logo(session, args.id)
         return ImageJobOut.model_validate(job).model_dump(mode="json") if job else None
 
 
-def source_logo(args):
+def source_logo(args: SimpleNamespace) -> CommandOutput | None:
     with session_factory().begin() as session:
         job = request_source_logo(session, args.id, refresh=args.refresh)
         return ImageJobOut.model_validate(job).model_dump(mode="json") if job else None
 
 
-def recompress(args):
+def recompress(args: SimpleNamespace) -> CommandOutput:
     with session_factory().begin() as session:
         jobs = backfill_thumbnail_encoding(session, args.limit)
         return {
@@ -106,7 +110,7 @@ def recompress(args):
         }
 
 
-def resize(args):
+def resize(args: SimpleNamespace) -> CommandOutput:
     with session_factory().begin() as session:
         jobs = backfill_thumbnail_sizes(session, args.limit)
         return {

@@ -1,5 +1,7 @@
 """User-wide partner views scoped in SQL to every current account membership."""
 
+from __future__ import annotations
+
 import uuid
 
 from devfeed_core.analytics import AnalyticsUnavailable
@@ -11,13 +13,16 @@ from devfeed_core.partner_credentials import credential_storage_available
 from devfeed_core.text_search import text_search
 from devfeed_http.analytics import analytics_client
 from devfeed_http.dependencies import run_database
-from devfeed_http.pagination import Listing, Page
+from devfeed_http.pagination import Listing, Page, PageData
 from devfeed_http.partner_analytics_reporting import (
+    ReportingAsset,
+    ReportingMetrics,
     reporting_assets,
     reporting_metrics,
     require_partner_history,
 )
 from devfeed_http.partner_portal import (
+    InventoryPageData,
     SortOrder,
     WorkspaceAssetSort,
     WorkspaceDashboard,
@@ -25,12 +30,15 @@ from devfeed_http.partner_portal import (
     inventory_page,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func, select
+from sqlalchemy import Row, func, select
+from sqlalchemy.orm import Session
+from sqlalchemy.sql.selectable import Select
 
 from devfeed_partner_api.access import PartnerAccountAccess
-from devfeed_partner_api.auth import Partner, require_partner
+from devfeed_partner_api.auth import Partner, PartnerIdentity, require_partner
 from devfeed_partner_api.connections import (
     PartnerConnectionCreate,
+    PartnerConnectionJobOut,
     PartnerConnectionJobsOut,
     PartnerConnectionOut,
     connection_jobs,
@@ -57,11 +65,24 @@ class WorkspaceConnectionCreate(PartnerConnectionCreate):
     account_id: uuid.UUID
 
 
-def _dashboard_metadata(session, partner, account_id, ad_format):
+class WorkspaceDashboardData(ReportingMetrics):
+    account_total: int
+
+
+class WorkspaceConnectionsData(PageData[WorkspaceConnectionOut]):
+    credentials_available: bool
+
+
+def _dashboard_metadata(
+    session: Session,
+    partner: PartnerIdentity,
+    account_id: uuid.UUID | None,
+    ad_format: AdFormat | None,
+) -> tuple[list[ReportingAsset], int]:
     scope = PartnerAccountAccess(session, partner).query(account_id)
     assets = reporting_assets(session, scope, ad_format)
     total = session.scalar(select(func.count()).select_from(scope.subquery()))
-    return assets, total
+    return assets, total or 0
 
 
 @router.get(
@@ -78,7 +99,7 @@ async def dashboard(
     sort: WorkspaceAssetSort = Query("name"),
     order: SortOrder = Query("asc"),
     ad_format: AdFormat | None = None,
-):
+) -> WorkspaceDashboardData:
     assets, account_total = await run_database(
         factory, _dashboard_metadata, partner, account_id, ad_format
     )
@@ -111,7 +132,7 @@ def inventory(
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
     include_archived: bool = False,
-):
+) -> InventoryPageData:
     return inventory_page(
         session,
         PartnerAccountAccess(session, partner).query(account_id),
@@ -123,7 +144,7 @@ def inventory(
     )
 
 
-def connection_query(access: PartnerAccountAccess):
+def connection_query(access: PartnerAccountAccess) -> Select[PartnerConnection, str]:
     return (
         select(PartnerConnection, PartnerAccount.name.label("account_name"))
         .join(PartnerAccount, PartnerAccount.id == PartnerConnection.account_id)
@@ -134,7 +155,9 @@ def connection_query(access: PartnerAccountAccess):
     )
 
 
-def workspace_connection(session, partner, provider):
+def workspace_connection(
+    session: Session, partner: PartnerIdentity, provider: str
+) -> Row[PartnerConnection, str]:
     row = session.execute(
         connection_query(PartnerAccountAccess(session, partner)).where(
             PartnerConnection.provider == provider
@@ -145,7 +168,9 @@ def workspace_connection(session, partner, provider):
     return row
 
 
-def connection_view(session, connection, account_name):
+def connection_view(
+    session: Session, connection: PartnerConnection, account_name: str
+) -> WorkspaceConnectionOut:
     view = partner_connection_views(session, [connection])[0]
     return WorkspaceConnectionOut(
         **view.model_dump(),
@@ -158,7 +183,9 @@ def connection_view(session, connection, account_name):
     response_model=WorkspaceConnectionsOut,
     operation_id="partnerWorkspaceConnections",
 )
-def connections(session: DB, partner: Partner, query: Listing, account_id: uuid.UUID | None = None):
+def connections(
+    session: DB, partner: Partner, query: Listing, account_id: uuid.UUID | None = None
+) -> WorkspaceConnectionsData:
     access = PartnerAccountAccess(session, partner)
     if account_id is not None:
         access.require(account_id)
@@ -194,7 +221,7 @@ def connections(session: DB, partner: Partner, query: Listing, account_id: uuid.
             WorkspaceConnectionOut(**view.model_dump(), account_name=row.account_name)
             for row, view in zip(rows, views, strict=True)
         ],
-        "total": total,
+        "total": total or 0,
         "limit": query.limit,
         "offset": query.offset,
         "credentials_available": available,
@@ -206,7 +233,7 @@ def connections(session: DB, partner: Partner, query: Listing, account_id: uuid.
     response_model=WorkspaceConnectionOut,
     operation_id="partnerWorkspaceConnectionGet",
 )
-def get_connection(provider: ProviderSlug, session: DB, partner: Partner):
+def get_connection(provider: ProviderSlug, session: DB, partner: Partner) -> WorkspaceConnectionOut:
     connection, account_name = workspace_connection(session, partner, provider)
     return connection_view(session, connection, account_name)
 
@@ -216,8 +243,11 @@ def get_connection(provider: ProviderSlug, session: DB, partner: Partner):
     response_model=PartnerConnectionJobsOut,
     operation_id="partnerWorkspaceConnectionJobs",
 )
-def jobs(provider: ProviderSlug, session: DB, partner: Partner, query: Listing):
+def jobs(
+    provider: ProviderSlug, session: DB, partner: Partner, query: Listing
+) -> PageData[PartnerConnectionJobOut]:
     connection, _ = workspace_connection(session, partner, provider)
+    assert connection.account_id is not None
     return connection_jobs(connection.account_id, provider, session, partner, query)
 
 
@@ -227,7 +257,9 @@ def jobs(provider: ProviderSlug, session: DB, partner: Partner, query: Listing):
     status_code=201,
     operation_id="partnerWorkspaceConnectionCreate",
 )
-def add_connection(body: WorkspaceConnectionCreate, session: DB, partner: Partner):
+def add_connection(
+    body: WorkspaceConnectionCreate, session: DB, partner: Partner
+) -> WorkspaceConnectionOut:
     payload = PartnerConnectionCreate.model_validate(
         {field: getattr(body, field) for field in PartnerConnectionCreate.model_fields}
     )

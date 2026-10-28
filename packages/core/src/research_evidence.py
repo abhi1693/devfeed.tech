@@ -10,11 +10,23 @@ import re
 import time
 import unicodedata
 from html.parser import HTMLParser
+from typing import NotRequired, TypedDict
 
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, fetch_evidence_page
 from devfeed_core.images import decode_html
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import utcnow
+
+
+class FetchedPage(TypedDict):
+    final_url: str
+    text: str
+    content_hash: NotRequired[str]
+    reuse_seconds: NotRequired[int]
+    validated_at: NotRequired[str]
+    reusable: NotRequired[bool]
+
 
 VERIFICATION_VERSION = "public-quote-v1"
 VOID = {
@@ -40,12 +52,12 @@ def normalized(value: str) -> str:
 
 
 class VisibleText(HTMLParser):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.stack: list[tuple[str, bool]] = []
         self.parts: list[str] = []
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
         hidden = (
             bool(self.stack and self.stack[-1][1])
@@ -58,11 +70,11 @@ class VisibleText(HTMLParser):
         if not hidden and tag in {"p", "div", "br", "li", "td", "h1", "h2", "h3"}:
             self.parts.append(" ")
 
-    def handle_startendtag(self, tag, attrs):
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs)
         self.handle_endtag(tag)
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         for index in range(len(self.stack) - 1, -1, -1):
             if self.stack[index][0] == tag:
                 del self.stack[index:]
@@ -70,7 +82,7 @@ class VisibleText(HTMLParser):
         if tag in {"p", "div", "li", "td", "h1", "h2", "h3"}:
             self.parts.append(" ")
 
-    def handle_data(self, value):
+    def handle_data(self, value: str) -> None:
         if not self.stack or not self.stack[-1][1]:
             self.parts.append(value)
 
@@ -79,17 +91,17 @@ def citation_key(url: str, quote: str) -> str:
     return hashlib.sha256(json.dumps([url, quote], ensure_ascii=False).encode()).hexdigest()
 
 
-def verify_citations(citations: list[tuple[str, str]]) -> dict:
+def verify_citations(citations: list[tuple[str, str]]) -> JsonRecord:
     deadline = time.monotonic() + get_settings().evidence_timeout_seconds
-    pages: dict[str, dict] = {}
-    checks: dict[str, dict] = {}
+    pages: dict[str, JsonRecord] = {}
+    checks: dict[str, JsonRecord] = {}
     for url, quote in citations[:20]:
         key = citation_key(url, quote)
         if key in checks:
             continue
         if url not in pages:
             remaining = deadline - time.monotonic()
-            page: dict = {"url": url, "checked_at": utcnow().isoformat()}
+            page: JsonRecord = {"url": url, "checked_at": utcnow().isoformat()}
             if remaining <= 0:
                 page["reason"] = "verification_timeout"
                 page["retryable"] = True
@@ -117,7 +129,7 @@ def verify_citations(citations: list[tuple[str, str]]) -> dict:
     return {"version": VERIFICATION_VERSION, "checks": checks}
 
 
-def citation_verified(verification: dict, url: str, quote: str) -> bool:
+def citation_verified(verification: JsonRecord, url: str, quote: str) -> bool:
     return (
         verification.get("version") == VERIFICATION_VERSION
         and verification.get("checks", {}).get(citation_key(url, quote), {}).get("status")
@@ -125,7 +137,7 @@ def citation_verified(verification: dict, url: str, quote: str) -> bool:
     )
 
 
-def citation_retryable(check: dict) -> bool:
+def citation_retryable(check: JsonRecord) -> bool:
     if check.get("status") == "verified":
         return False
     if "retryable" in check:
@@ -135,7 +147,7 @@ def citation_retryable(check: dict) -> bool:
     return check.get("reason") in {"transport_error", "verification_timeout", "http_error"}
 
 
-def fetched_page(url: str, timeout: float) -> dict:
+def fetched_page(url: str, timeout: float) -> FetchedPage:
     """Reuse parsed public evidence only after a fresh, SSRF-checked HTTP validation.
 
     Cached quotes are never an approval decision. Errors never serve stale pages.
@@ -177,7 +189,11 @@ def fetched_page(url: str, timeout: float) -> dict:
             raise FeedError(
                 "Unmatched cache validation", reason="invalid_evidence_revalidation", retryable=True
             )
-        page = {k: previous[k] for k in ("final_url", "content_hash", "text")}
+        page: FetchedPage = {
+            "final_url": previous["final_url"],
+            "content_hash": previous["content_hash"],
+            "text": previous["text"],
+        }
     else:
         parser = VisibleText()
         parser.feed(decode_html(fetched))

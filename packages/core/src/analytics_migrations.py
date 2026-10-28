@@ -4,12 +4,16 @@ The deployment initializer owns upgrades. Runtime services only verify the
 installed version; schema history and checksums live entirely in ClickHouse.
 """
 
+from __future__ import annotations
+
 import hashlib
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib.resources import files
 
 from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
+from devfeed_core.config import Settings
 
 HISTORY_TABLE = "analytics_schema_migrations"
 SCHEMA_LOCK_KEY = 0x44465343
@@ -70,7 +74,9 @@ class ClickHouseMigrationRunner:
     against the ClickHouse history on the next invocation.
     """
 
-    def __init__(self, client, *, migrations: tuple[Migration, ...] | None = None):
+    def __init__(
+        self, client: AnalyticsClient, *, migrations: tuple[Migration, ...] | None = None
+    ) -> None:
         self.client = client
         self.migrations = load_migrations() if migrations is None else migrations
         versions = tuple(migration.version for migration in self.migrations)
@@ -80,7 +86,7 @@ class ClickHouseMigrationRunner:
             if not migration.name or not all(migration.statements):
                 raise AnalyticsMigrationError("ClickHouse migrations must contain SQL statements")
 
-    async def _history(self):
+    async def _history(self) -> tuple[bool, dict[int, Migration]]:
         result = await self.client.query("EXISTS TABLE " + HISTORY_TABLE)
         if (
             len(result) != 1
@@ -108,7 +114,7 @@ class ClickHouseMigrationRunner:
             raise AnalyticsMigrationError("ClickHouse schema history contains a version gap")
         return True, applied
 
-    def _status(self, applied) -> MigrationStatus:
+    def _status(self, applied: Mapping[int, Migration]) -> MigrationStatus:
         return MigrationStatus(
             current_version=len(applied),
             latest_version=len(self.migrations),
@@ -157,7 +163,7 @@ class ClickHouseMigrationRunner:
         return tuple(completed)
 
 
-async def upgrade_analytics(settings=None) -> MigrationStatus:
+async def upgrade_analytics(settings: Settings | None = None) -> MigrationStatus:
     """Serialize deployment upgrades and prepare the historical import boundary.
 
     A transient PostgreSQL advisory lock prevents concurrent schema writers. It

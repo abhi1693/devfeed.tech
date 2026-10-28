@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from importlib.metadata import version
 
@@ -60,7 +63,7 @@ def create_app(
     card = server_card(server._lowlevel_server.create_initialization_options(), settings)
 
     @asynccontextmanager
-    async def lifespan(app):
+    async def lifespan(app: Starlette) -> AsyncIterator[None]:
         from contextlib import AsyncExitStack
 
         async with AsyncExitStack() as stack:
@@ -71,10 +74,10 @@ def create_app(
                 stack.push_async_callback(redis.aclose)
             yield
 
-    async def live(request: Request):
+    async def live(request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok"})
 
-    async def ready(request: Request):
+    async def ready(request: Request) -> JSONResponse:
         try:
             await api.get("v1/topics", limit=1)
             if redis and user_client:
@@ -88,7 +91,7 @@ def create_app(
             return JSONResponse({"status": "unavailable"}, status_code=503)
         return JSONResponse({"status": "ok"})
 
-    async def app_version(request: Request):
+    async def app_version(request: Request) -> JSONResponse:
         return JSONResponse({"version": version("devfeed-mcp")})
 
     app = Starlette(

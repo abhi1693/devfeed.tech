@@ -1,13 +1,18 @@
 """Account-owned catalog imports with write-only, origin-bound credentials."""
 
+from __future__ import annotations
+
 import hashlib
 import logging
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypedDict, Unpack, overload
+from typing import cast as type_cast
 from urllib.parse import urlsplit
 
 from devfeed_core.models import (
+    PartnerAccount,
     PartnerConnection,
     PartnerPipelineJob,
     utcnow,
@@ -42,16 +47,17 @@ from devfeed_core.text_search import text_search
 from devfeed_http.body_limits import BodyLimitedRoute
 from devfeed_http.image_uploads import MAX_REQUEST_BYTES, limit_image_upload
 from devfeed_http.operation_policies import GatewayPolicy
-from devfeed_http.pagination import Listing, Page, paginate
+from devfeed_http.pagination import Listing, Page, PageData, paginate
 from devfeed_http.partner_connection_logos import ConnectionLogoEdit
 from devfeed_http.partner_connector_previews import ConnectorPreviewService
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import Field, SecretStr, field_validator
 from redis.exceptions import RedisError
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from devfeed_partner_api.access import PartnerAccountAccess
-from devfeed_partner_api.auth import Partner, actor, require_partner
+from devfeed_partner_api.auth import Partner, PartnerIdentity, actor, require_partner
 from devfeed_partner_api.dependencies import DB, get_redis
 
 router = APIRouter(
@@ -101,7 +107,7 @@ class PartnerConnectionUpdate(ConnectionLogoInput):
 
     @field_validator("connector")
     @classmethod
-    def supported_connector(cls, value):
+    def supported_connector(cls, value: PartnerConnectorConfig | None) -> ConnectorConfig | None:
         return validate_partner_connector(value) if value is not None else None
 
 
@@ -149,7 +155,18 @@ class PartnerConnectionJobsOut(Page[PartnerConnectionJobOut]):
     pass
 
 
-def partner_connection_views(session, connections):
+class LogoValues(TypedDict, total=False):
+    source_url: str | None
+    file: UploadFile
+
+
+class PartnerConnectionsData(PageData[PartnerConnectionOut]):
+    credentials_available: bool
+
+
+def partner_connection_views(
+    session: Session, connections: Sequence[PartnerConnection]
+) -> list[PartnerConnectionOut]:
     """Keep upstream diagnostics outside the account-owned portal."""
     result = []
     for connection, view in zip(connections, connection_views(session, connections), strict=True):
@@ -173,7 +190,9 @@ def partner_connection_views(session, connections):
     return result
 
 
-def connection_access(session, account_id, provider, *, lock=False):
+def connection_access(
+    session: Session, account_id: uuid.UUID, provider: str, *, lock: bool = False
+) -> PartnerConnection:
     statement = select(PartnerConnection).where(
         PartnerConnection.provider == provider,
         PartnerConnection.account_id == account_id,
@@ -187,7 +206,7 @@ def connection_access(session, account_id, provider, *, lock=False):
     return connection
 
 
-def validate_sync_interval(account, minutes):
+def validate_sync_interval(account: PartnerAccount, minutes: int) -> None:
     if minutes not in sync_intervals(account.tier):
         hours = ", ".join(str(value // 60) for value in sync_intervals(account.tier))
         raise HTTPException(
@@ -195,7 +214,9 @@ def validate_sync_interval(account, minutes):
         )
 
 
-def authorize_connection_write(session, partner, account_id, *, creating=False):
+def authorize_connection_write(
+    session: Session, partner: PartnerIdentity, account_id: uuid.UUID, *, creating: bool = False
+) -> PartnerAccountAccess:
     access = PartnerAccountAccess(session, partner)
     access.require(account_id)
     caller = hashlib.sha256(f"{partner.issuer}\0{partner.subject}".encode()).hexdigest()
@@ -218,23 +239,25 @@ def authorize_connection_write(session, partner, account_id, *, creating=False):
     return access
 
 
-def write_account(session, partner, account_id, *, creating=False):
+def write_account(
+    session: Session, partner: PartnerIdentity, account_id: uuid.UUID, *, creating: bool = False
+) -> PartnerAccount:
     access = authorize_connection_write(session, partner, account_id, creating=creating)
     # Match worker lock order; account/membership locks remain held through commit.
     lock_catalog(session)
     return access.lock(account_id)
 
 
-def check_revision(connection, expected):
+def check_revision(connection: PartnerConnection, expected: int) -> None:
     if connection.revision != expected:
         raise HTTPException(409, "Import connection changed; refresh to load the latest settings")
 
 
-def safe_credential_error(exc):
+def safe_credential_error(exc: CredentialUnavailable) -> HTTPException:
     return HTTPException(503 if not credential_storage_available() else 422, str(exc))
 
 
-def log_change(event, connection, partner):
+def log_change(event: str, connection: PartnerConnection, partner: PartnerIdentity) -> None:
     logger.info(
         event,
         extra={
@@ -246,7 +269,36 @@ def log_change(event, connection, partner):
     )
 
 
-def preview_context(session, partner, account_id, body, *, provider=None):
+@overload
+def preview_context(
+    session: Session,
+    partner: PartnerIdentity,
+    account_id: uuid.UUID,
+    body: PartnerConnectorPreview,
+    *,
+    provider: None = None,
+) -> ConnectorPreviewService: ...
+
+
+@overload
+def preview_context(
+    session: Session,
+    partner: PartnerIdentity,
+    account_id: uuid.UUID,
+    body: PartnerConnectionPreview,
+    *,
+    provider: str,
+) -> ConnectorPreviewService: ...
+
+
+def preview_context(
+    session: Session,
+    partner: PartnerIdentity,
+    account_id: uuid.UUID,
+    body: PartnerConnectorPreview | PartnerConnectionPreview,
+    *,
+    provider: str | None = None,
+) -> ConnectorPreviewService:
     """Authorize a read-only draft without holding database locks during API calls."""
     PartnerAccountAccess(session, partner).require(account_id)
     caller = hashlib.sha256(f"{partner.issuer}\0{partner.subject}".encode()).hexdigest()
@@ -269,7 +321,8 @@ def preview_context(session, partner, account_id, body, *, provider=None):
     connection = None
     if provider is not None:
         connection = connection_access(session, account_id, provider)
-        check_revision(connection, body.expected_revision)
+        # A provider selects the revision-bearing payload overload above.
+        check_revision(connection, type_cast(PartnerConnectionPreview, body).expected_revision)
     config = body.connector
     credential = None
     if config.auth.mode == "none":
@@ -298,7 +351,7 @@ def preview_context(session, partner, account_id, body, *, provider=None):
 )
 def draft_connector_preview(
     account_id: uuid.UUID, body: PartnerConnectorPreview, session: DB, partner: Partner
-):
+) -> ConnectorPreviewOut:
     return preview_context(session, partner, account_id, body).products()
 
 
@@ -309,7 +362,7 @@ def draft_connector_preview(
 )
 def draft_connector_response(
     account_id: uuid.UUID, body: PartnerConnectorPreview, session: DB, partner: Partner
-):
+) -> ConnectorResponseOut:
     return preview_context(session, partner, account_id, body).response()
 
 
@@ -324,7 +377,7 @@ def existing_connector_preview(
     body: PartnerConnectionPreview,
     session: DB,
     partner: Partner,
-):
+) -> ConnectorPreviewOut:
     return preview_context(session, partner, account_id, body, provider=provider).products()
 
 
@@ -339,12 +392,14 @@ def existing_connector_response(
     body: PartnerConnectionPreview,
     session: DB,
     partner: Partner,
-):
+) -> ConnectorResponseOut:
     return preview_context(session, partner, account_id, body, provider=provider).response()
 
 
 @router.get("", response_model=PartnerConnectionsOut, operation_id="partnerConnectionsList")
-def list_connections(account_id: uuid.UUID, session: DB, partner: Partner, query: Listing):
+def list_connections(
+    account_id: uuid.UUID, session: DB, partner: Partner, query: Listing
+) -> PartnerConnectionsData:
     PartnerAccountAccess(session, partner).require(account_id)
     statement = select(PartnerConnection).where(
         PartnerConnection.account_id == account_id, PartnerConnection.archived_at.is_(None)
@@ -360,12 +415,17 @@ def list_connections(account_id: uuid.UUID, session: DB, partner: Partner, query
         {"name": PartnerConnection.name, "provider": PartnerConnection.provider},
         default="name",
     )
-    page["items"] = partner_connection_views(session, page["items"])
-    return {**page, "credentials_available": credential_storage_available()}
+    return {
+        **page,
+        "items": partner_connection_views(session, page["items"]),
+        "credentials_available": credential_storage_available(),
+    }
 
 
 @router.get("/{provider}", response_model=PartnerConnectionOut, operation_id="partnerConnectionGet")
-def get_connection(account_id: uuid.UUID, provider: ProviderSlug, session: DB, partner: Partner):
+def get_connection(
+    account_id: uuid.UUID, provider: ProviderSlug, session: DB, partner: Partner
+) -> PartnerConnectionOut:
     PartnerAccountAccess(session, partner).require(account_id)
     return partner_connection_views(session, [connection_access(session, account_id, provider)])[0]
 
@@ -375,7 +435,7 @@ def get_connection(account_id: uuid.UUID, provider: ProviderSlug, session: DB, p
 )
 def create_connection(
     account_id: uuid.UUID, body: PartnerConnectionCreate, session: DB, partner: Partner
-):
+) -> PartnerConnectionOut:
     access = authorize_connection_write(session, partner, account_id, creating=True)
     if (
         session.scalar(
@@ -448,10 +508,10 @@ def update_connection(
     body: PartnerConnectionUpdate,
     session: DB,
     partner: Partner,
-):
+) -> PartnerConnectionOut:
     access = authorize_connection_write(session, partner, account_id)
 
-    def authorize():
+    def authorize() -> PartnerConnection:
         access.require(account_id)
         connection = connection_access(session, account_id, provider)
         check_revision(connection, body.expected_revision)
@@ -515,10 +575,17 @@ def update_connection(
     return partner_connection_views(session, [connection])[0]
 
 
-def save_connection_logo(account_id, provider, expected_revision, session, partner, **values):
+def save_connection_logo(
+    account_id: uuid.UUID,
+    provider: str,
+    expected_revision: int,
+    session: Session,
+    partner: PartnerIdentity,
+    **values: Unpack[LogoValues],
+) -> PartnerConnectionOut:
     access = authorize_connection_write(session, partner, account_id)
 
-    def authorize():
+    def authorize() -> PartnerConnection:
         access.require(account_id)
         connection = connection_access(session, account_id, provider)
         check_revision(connection, expected_revision)
@@ -555,7 +622,7 @@ def upload_connection_logo(
     file: Annotated[UploadFile, File(description="JPEG, PNG or WebP, up to 5 MB")],
     session: DB,
     partner: Partner,
-):
+) -> PartnerConnectionOut:
     return save_connection_logo(
         account_id, provider, expected_revision, session, partner, file=file
     )
@@ -573,7 +640,7 @@ def update_connection_logo(
     body: ConnectionLogoUpdate,
     session: DB,
     partner: Partner,
-):
+) -> PartnerConnectionOut:
     return save_connection_logo(
         account_id, provider, body.expected_revision, session, partner, source_url=body.logo_url
     )
@@ -590,7 +657,7 @@ def connection_action(
     body: PartnerConnectionAction,
     session: DB,
     partner: Partner,
-):
+) -> PartnerConnectionOut:
     write_account(session, partner, account_id)
     connection = connection_access(session, account_id, provider)
     check_revision(connection, body.expected_revision)
@@ -617,7 +684,7 @@ def disconnect_connection(
     body: PartnerConnectionDelete,
     session: DB,
     partner: Partner,
-):
+) -> PartnerConnectionOut:
     """Archive the connection and erase its token, retaining catalog and reporting history."""
     write_account(session, partner, account_id)
     connection = connection_access(session, account_id, provider)
@@ -641,7 +708,7 @@ def disconnect_connection(
 )
 def connection_jobs(
     account_id: uuid.UUID, provider: ProviderSlug, session: DB, partner: Partner, query: Listing
-):
+) -> PageData[PartnerConnectionJobOut]:
     PartnerAccountAccess(session, partner).require(account_id)
     connection_access(session, account_id, provider)
     statement = select(PartnerPipelineJob).where(PartnerPipelineJob.provider == provider)
@@ -656,7 +723,7 @@ def connection_jobs(
         {"created_at": PartnerPipelineJob.created_at, "status": PartnerPipelineJob.display_status},
         "-created_at",
     )
-    page["items"] = [
+    items = [
         PartnerConnectionJobOut(
             id=row.id,
             operation=row.operation,
@@ -670,4 +737,4 @@ def connection_jobs(
         )
         for row in page["items"]
     ]
-    return page
+    return {**page, "items": items}

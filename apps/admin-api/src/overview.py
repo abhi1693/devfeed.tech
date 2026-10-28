@@ -18,7 +18,7 @@ from devfeed_admin_api.overview_windows import current_window, parse_report_wind
 router = APIRouter(prefix="/v1/admin/overview", tags=["admin-overview"])
 
 
-def validate_report_query(request: Request):
+def validate_report_query(request: Request) -> None:
     unknown = set(request.query_params) - {"from", "to"}
     if unknown:
         raise HTTPException(
@@ -51,7 +51,7 @@ async def overview_chart(
         max_length=64,
         description="Inclusive UTC end: ISO date or Grafana date math",
     ),
-):
+) -> OverviewChartReport:
     try:
         window = parse_report_window(from_value, to_value, utcnow())
         if chart == "attention":

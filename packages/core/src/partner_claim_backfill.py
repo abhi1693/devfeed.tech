@@ -6,10 +6,10 @@ must not replace a newer claim.
 """
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
-from typing import Any
 
-from psycopg import sql
+from psycopg import AsyncConnection, sql
 
 # TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Legacy claims are needed only until
 # every pre-cutover signed receipt has expired and the verified import is done.
@@ -19,11 +19,18 @@ LEGACY_CLAIM_AT = datetime(1, 1, 1, tzinfo=UTC)
 MAX_CLAIMS = 1000
 
 
-async def backfill_partner_claims(connection, records):
+@dataclass(slots=True)
+class _LegacyClaim:
+    day: date
+    impression: datetime | None = None
+    click: datetime | None = None
+
+
+async def backfill_partner_claims[Row](connection: AsyncConnection[Row], records: object) -> None:
     """Idempotently transfer at most one frozen legacy event page to claims."""
     if not isinstance(records, (list, tuple)) or len(records) > MAX_CLAIMS:
         raise ValueError("Invalid legacy partner receipt page")
-    grouped: dict[tuple[uuid.UUID, uuid.UUID], list[Any]] = {}
+    grouped: dict[tuple[uuid.UUID, uuid.UUID], _LegacyClaim] = {}
     for record in records:
         if not isinstance(record, dict) or set(record) != {
             "asset_id",
@@ -35,7 +42,7 @@ async def backfill_partner_claims(connection, records):
         try:
             asset = uuid.UUID(str(record["asset_id"]))
             delivery = uuid.UUID(str(record["delivery_id"]))
-            day = record["day"]
+            day: object = record["day"]
             if isinstance(day, str):
                 day = date.fromisoformat(day)
             if not isinstance(day, date) or isinstance(day, datetime):
@@ -45,10 +52,13 @@ async def backfill_partner_claims(connection, records):
                 raise ValueError
         except (ValueError, TypeError, AttributeError) as error:
             raise ValueError("Invalid legacy partner receipt") from error
-        item = grouped.setdefault((asset, delivery), [day, None, None])
-        if item[0] != day:
+        item = grouped.setdefault((asset, delivery), _LegacyClaim(day))
+        if item.day != day:
             raise ValueError("Inconsistent legacy partner receipt day")
-        item[1 if kind == "impression" else 2] = LEGACY_CLAIM_AT
+        if kind == "impression":
+            item.impression = LEGACY_CLAIM_AT
+        else:
+            item.click = LEGACY_CLAIM_AT
     if not grouped:
         return
     placeholders = sql.SQL(",").join([sql.SQL("(%s,%s,%s,%s,%s)") for _ in grouped])
@@ -63,9 +73,17 @@ async def backfill_partner_claims(connection, records):
         "WHERE partner_placement_deliveries.asset_id=EXCLUDED.asset_id "
         "RETURNING delivery_id"
     ).format(placeholders)
-    params: list[Any] = []
-    for (asset, delivery), (day, impression, click) in grouped.items():
-        params.extend((asset, delivery, datetime.combine(day, time.min, UTC), impression, click))
+    params: list[uuid.UUID | datetime | None] = []
+    for (asset, delivery), claim in grouped.items():
+        params.extend(
+            (
+                asset,
+                delivery,
+                datetime.combine(claim.day, time.min, UTC),
+                claim.impression,
+                claim.click,
+            )
+        )
     async with connection.transaction():
         rows = await (await connection.execute(statement, params)).fetchall()
         if len(rows) != len(grouped):

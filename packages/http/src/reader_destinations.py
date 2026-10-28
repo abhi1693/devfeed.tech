@@ -3,7 +3,7 @@
 import re
 from datetime import date
 from importlib.resources import files
-from typing import Literal
+from typing import Literal, TypedDict
 from urllib.parse import parse_qsl, quote, quote_plus, unquote
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -117,6 +117,12 @@ def _decoded_value(value: str, *, path_parameter: bool = False) -> bool:
     return True
 
 
+class ReaderDestinationRecord(TypedDict):
+    routeId: str
+    parameters: dict[str, str]
+    query: dict[str, str]
+
+
 class ReaderDestination(BaseModel):
     """Resolved route identity, semantic parameters and approved query values."""
 
@@ -126,8 +132,12 @@ class ReaderDestination(BaseModel):
     parameters: dict[str, str]
     query: dict[str, str]
 
-    def as_record(self) -> dict:
-        return self.model_dump(by_alias=True)
+    def as_record(self) -> ReaderDestinationRecord:
+        return {
+            "routeId": self.route_id,
+            "parameters": dict(self.parameters),
+            "query": dict(self.query),
+        }
 
     @classmethod
     def from_record(cls, value: object) -> "ReaderDestination | None":

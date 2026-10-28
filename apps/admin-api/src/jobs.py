@@ -1,10 +1,13 @@
 """Run records and guarded retries, grouped by pipeline."""
 
+from __future__ import annotations
+
 import uuid
 from datetime import datetime
 from typing import Annotated, Literal
+from typing import cast as type_cast
 
-from devfeed_core.job_definitions import JOB_DEFINITIONS
+from devfeed_core.job_definitions import JOB_DEFINITIONS, Job
 from devfeed_core.job_logs import JobKind, JobLogPage, read_job_logs, validate_cursor
 from devfeed_core.job_retries import retry_candidate, retry_failed_job
 from devfeed_core.json_types import JsonValue
@@ -23,22 +26,37 @@ from devfeed_core.models import (
     TopicProposal,
 )
 from devfeed_core.schemas import ORMModel
+from devfeed_core.services import OperationConflict
 from devfeed_core.text_search import text_search
-from devfeed_http.pagination import Listing, Page, paginate, record
+from devfeed_http.pagination import Listing, Page, PageData, paginate, record
 from devfeed_http.schemas import ErrorResponse
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from redis import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import String, Uuid, case, cast, false, func, literal, null, select, union_all
+from sqlalchemy import (
+    Select,
+    String,
+    Uuid,
+    case,
+    cast,
+    false,
+    func,
+    literal,
+    null,
+    select,
+    union_all,
+)
 from sqlalchemy.orm import load_only
 
 from devfeed_admin_api.auth import Admin, actor, require_admin
 from devfeed_admin_api.dependencies import DB, get_redis
 from devfeed_admin_api.job_views import JOB_FIELDS
 
-MODELS = {kind: d.model for kind, d in JOB_DEFINITIONS.items() if d.admin_visible}
-LOG_MODELS = {
+MODELS: dict[str, type[Job]] = {
+    kind: d.model for kind, d in JOB_DEFINITIONS.items() if d.admin_visible
+}
+LOG_MODELS: dict[str, type[Job | SourceDiscoveryJob | PartnerEvaluation | PartnerPipelineJob]] = {
     **MODELS,
     "source-discovery": SourceDiscoveryJob,
     "partner-evaluation": PartnerEvaluation,
@@ -49,7 +67,12 @@ router = APIRouter(
 )
 
 
-def retry_candidates(model):
+def job_statement(model: type[Job]) -> Select[Job]:
+    # SQLAlchemy's class-union overload widens this validated registry to Base.
+    return type_cast(Select[Job], select(model))
+
+
+def retry_candidates(model: type[Job]) -> Select[uuid.UUID]:
     """Batch eligibility for filtered/sorted lists, without a history lookup per row.
 
     A failed job is eligible only when it is newest and its subject has no active
@@ -74,7 +97,7 @@ def retry_candidates(model):
         if model is ArticleImageJob
         else (model.proposal_id, model.topic_id)
         if model is TopicAnalysisJob
-        else (model.article_id if hasattr(model, "article_id") else model.source_id,)
+        else (model.article_id if hasattr(model, "article_id") else model.__table__.c.source_id,)
     )
     history = select(
         model.id,
@@ -110,7 +133,12 @@ class AdminJobOut(ORMModel):
     details: dict[str, JsonValue]
 
 
-def job_view(job, kind, *, retryable=None) -> AdminJobOut:
+def job_view(
+    job: Job | SourceDiscoveryJob | PartnerEvaluation | PartnerPipelineJob,
+    kind: JobKind,
+    *,
+    retryable: bool | None = None,
+) -> AdminJobOut:
     values = {field: getattr(job, field) for field in JOB_FIELDS[kind]}
     if job.status == "failed" and retryable is False:
         values["status"] = "retried"
@@ -142,7 +170,7 @@ def ai_analysis_jobs(
     proposal_id: uuid.UUID | None = None,
     topic_id: uuid.UUID | None = None,
     retryable_only: bool = False,
-):
+) -> PageData[AdminJobOut]:
     """Page article and topic research runs together before loading their details."""
     order = query.sort or "-created_at"
     # Retry eligibility is correlated history work. Ordinary chronological pages
@@ -199,9 +227,8 @@ def ai_analysis_jobs(
     if topic_id:
         statement = statement.where(runs.c.topic_id == topic_id)
     if query.q:
-        statement = statement.where(
-            text_search(query.q, cast(runs.c.id, String), runs.c.target_name)
-        )
+        identifier_text = cast(runs.c.id, String)
+        statement = statement.where(text_search(query.q, identifier_text, runs.c.target_name))
     display_status = case(
         ((runs.c.status == "failed") & ~runs.c.retryable, "retried"), else_=runs.c.status
     )
@@ -232,7 +259,8 @@ def ai_analysis_jobs(
         if identifiers:
             model = MODELS[kind]
             for job, eligible in session.execute(
-                select(model, retry_candidate(model) if not needs_retry else false())
+                job_statement(model)
+                .add_columns(retry_candidate(model) if not needs_retry else false())
                 .where(model.id.in_(identifiers))
                 .options(
                     load_only(
@@ -262,13 +290,13 @@ def ai_analysis_jobs(
             for row in page
             if (row["kind"], row["id"]) in records
         ],
-        "total": total,
+        "total": total or 0,
         "offset": query.offset,
         "limit": query.limit,
     }
 
 
-def job_metadata(model):
+def job_metadata(model: type[Job]) -> Select[uuid.UUID, bool, str | None]:
     """Resolve retry eligibility and subject names without browser request fan-out."""
     metadata = select(model.id, retry_candidate(model))
     if model is ArticleImageJob:
@@ -301,11 +329,11 @@ def jobs(
     article_id: uuid.UUID | None = None,
     topic_id: uuid.UUID | None = None,
     retryable_only: bool = False,
-):
+) -> PageData[AdminJobOut]:
     if kind not in MODELS:
         raise HTTPException(404, "Job not found")
     model = MODELS[kind]
-    statement = select(model).options(
+    statement = job_statement(model).options(
         load_only(*(getattr(model, field) for field in JOB_FIELDS[kind]), raiseload=True)
     )
     # Batch broad status ordering/history views; selective unresolved-failure
@@ -322,7 +350,8 @@ def jobs(
     elif status:
         statement = statement.where(model.status == status)
     if query.q:
-        statement = statement.where(text_search(query.q, cast(model.id, String)))
+        identifier_text = cast(model.id, String)
+        statement = statement.where(text_search(query.q, identifier_text))
     for name, value in (
         ("source_id", source_id),
         ("article_id", article_id),
@@ -333,7 +362,7 @@ def jobs(
             statement = (
                 statement.where(column == value) if column is not None else statement.where(false())
             )
-    result = paginate(
+    result: PageData[Job] = paginate(
         session,
         statement,
         query,
@@ -353,7 +382,7 @@ def jobs(
     )
     retryable_ids = {identifier for identifier, eligible, _ in rows if eligible}
     names = {identifier: name for identifier, _, name in rows}
-    result["items"] = [
+    items: list[AdminJobOut] = [
         job_view(item, kind, retryable=item.id in retryable_ids).model_copy(
             update={"target_name": names.get(item.id)}
         )
@@ -362,11 +391,11 @@ def jobs(
     # The result is detached presentation data; free the connection before
     # FastAPI queues response validation on its shared worker threads.
     session.close()
-    return result
+    return {**result, "items": items}
 
 
 @router.get("/{kind}/{job_id}", response_model=AdminJobOut, operation_id="admin_job_get")
-def detail(kind: JobKind, job_id: uuid.UUID, session: DB):
+def detail(kind: JobKind, job_id: uuid.UUID, session: DB) -> AdminJobOut:
     if kind not in MODELS:
         raise HTTPException(404, "Job not found")
     model = MODELS[kind]
@@ -376,11 +405,13 @@ def detail(kind: JobKind, job_id: uuid.UUID, session: DB):
 
 
 @router.post("/{kind}/{job_id}/retry", response_model=AdminJobOut, operation_id="admin_job_retry")
-def retry(kind: JobKind, job_id: uuid.UUID, admin: Admin, session: DB):
+def retry(kind: JobKind, job_id: uuid.UUID, admin: Admin, session: DB) -> AdminJobOut:
     if kind not in MODELS:
         raise HTTPException(404, "Job not found")
     previous = record(session, MODELS[kind], job_id)
     job = retry_failed_job(session, previous, kind, actor(admin))
+    if job is None:
+        raise OperationConflict("No eligible retry is available")
     session.commit()
     return job_view(job, kind)
 
@@ -406,7 +437,7 @@ def runtime_logs(
     redis: Annotated[Redis, Depends(get_redis)],
     after: Annotated[str | None, Query(max_length=41)] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
-):
+) -> AdminJobLogs:
     if after is not None:
         try:
             validate_cursor(after)

@@ -1,5 +1,7 @@
 """Session-bound subscriber gateway. Chimely credentials never reach the browser."""
 
+from __future__ import annotations
+
 import uuid
 
 from devfeed_core.job_retries import retry_notification
@@ -10,7 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from devfeed_admin_api.auth import Admin
+from devfeed_admin_api.auth import Admin, AdminIdentity
 from devfeed_admin_api.config import get_settings
 from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.jobs import AdminJobOut, job_view
@@ -24,7 +26,7 @@ class NotificationConfig(BaseModel):
     subscriber_id: str | None = None
 
 
-def subscriber_id(admin):
+def subscriber_id(admin: AdminIdentity) -> str:
     return notification_subscriber_id(
         audience="admin",
         issuer=admin.issuer,
@@ -34,7 +36,7 @@ def subscriber_id(admin):
 
 
 @router.get("/config", response_model=NotificationConfig, operation_id="admin_notification_config")
-def config(admin: Admin):
+def config(admin: Admin) -> NotificationConfig:
     settings = get_settings()
     enabled = settings.notifications_enabled and bool(settings.chimely_admin_environment)
     return NotificationConfig(
@@ -49,7 +51,7 @@ def config(admin: Admin):
     response_model=AdminJobOut,
     operation_id="admin_notification_retry",
 )
-def retry(identifier: uuid.UUID, admin: Admin, session: DB):
+def retry(identifier: uuid.UUID, admin: Admin, session: DB) -> AdminJobOut:
     job = retry_notification(session, identifier)
     session.commit()
     return job_view(job, "notifications")

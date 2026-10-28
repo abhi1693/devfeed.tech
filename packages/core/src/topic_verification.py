@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import Field, StrictBool, field_validator
 
 from devfeed_core.analysis import snapshot_hash
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import TopicProposal
 from devfeed_core.research_evidence import citation_verified
 from devfeed_core.schemas import InputModel
@@ -55,7 +56,7 @@ class TopicVerificationResult(InputModel):
     sources: list[IdentitySource] = Field(max_length=20)
 
 
-def verification_input(proposal: TopicProposal) -> dict:
+def verification_input(proposal: TopicProposal) -> JsonRecord:
     return {
         "proposal_id": str(proposal.id),
         "input_hash": snapshot_hash(proposal.proposed),
@@ -63,7 +64,7 @@ def verification_input(proposal: TopicProposal) -> dict:
     }
 
 
-def verification_prompt(item: dict) -> str:
+def verification_prompt(item: JsonRecord) -> str:
     return (
         SCOPE_POLICY
         + """Independently verify this COMPLETE developer-topic draft before approval.
@@ -114,7 +115,7 @@ Return only outputSchema JSON.
     )
 
 
-def checked_verdict(output: dict, item: dict) -> dict:
+def checked_verdict(output: JsonRecord, item: JsonRecord) -> JsonRecord:
     result = TopicVerificationResult.model_validate(output)
     if str(result.proposal_id) != item["proposal_id"] or result.input_hash != item["input_hash"]:
         raise ValueError("Topic verification must match the exact proposal")
@@ -142,7 +143,7 @@ def checked_verdict(output: dict, item: dict) -> dict:
     return {"version": VERSION, "check": result.model_dump(mode="json")}
 
 
-def topic_verified(verification: dict, proposal: TopicProposal, evidence: dict) -> bool:
+def topic_verified(verification: JsonRecord, proposal: TopicProposal, evidence: JsonRecord) -> bool:
     if verification.get("version") != VERSION:
         return False
     try:

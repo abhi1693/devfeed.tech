@@ -6,8 +6,9 @@ import json
 import secrets
 import time
 from collections import deque
-from contextlib import suppress
-from typing import Any
+from collections.abc import Awaitable, Callable
+from contextlib import AbstractAsyncContextManager, suppress
+from typing import Protocol, cast
 from urllib.parse import urlsplit
 
 from devfeed_core.ai_capacity import CAPACITY_ERRORS
@@ -15,6 +16,7 @@ from devfeed_core.analytics import AnalyticsClient
 from devfeed_core.config import Settings
 from devfeed_core.inference_errors import AnalysisError as AnalysisError
 from devfeed_core.inference_usage import call_id, context, record_call, request_hash
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import utcnow
 from devfeed_core.telemetry import observed_dependency
 from devfeed_core.version import __version__
@@ -41,14 +43,40 @@ RESEARCH_INSTRUCTIONS = (
 )
 
 
-async def _invoke(function, *args, **kwargs):
+class CodexSocket(Protocol):
+    async def recv(self) -> str | bytes: ...
+    async def send(self, message: str) -> None: ...
+
+
+class SocketConnector(Protocol):
+    def __call__(
+        self,
+        endpoint: str,
+        *,
+        additional_headers: dict[str, str],
+        max_size: int,
+        open_timeout: float,
+        close_timeout: float,
+        proxy: None,
+    ) -> AbstractAsyncContextManager[CodexSocket]: ...
+
+
+async def _invoke[**P, T](
+    function: Callable[P, T] | Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs
+) -> T:
     """Support async production dependencies and synchronous test adapters."""
     if inspect.iscoroutinefunction(function):
-        return await function(*args, **kwargs)
-    return await asyncio.to_thread(function, *args, **kwargs)
+        # inspect identifies coroutine functions but loses their generic result type.
+        return cast(T, await function(*args, **kwargs))
+    result = await asyncio.to_thread(function, *args, **kwargs)
+    # Callable objects and decorated synchronous functions may also return an
+    # awaitable. Execute its body on this event loop rather than returning it as T.
+    if inspect.isawaitable(result):
+        return cast(T, await result)
+    return cast(T, result)
 
 
-def turn_error(error: dict | None) -> str:
+def turn_error(error: JsonRecord | None) -> str:
     info = (error or {}).get("codexErrorInfo")
     if isinstance(info, str) and info.casefold() == "serveroverloaded":
         return "codex_server_overloaded"
@@ -66,7 +94,13 @@ def turn_error(error: dict | None) -> str:
 
 
 class CodexClient:
-    def __init__(self, settings: Settings, *, connector=None, usage_recorder=None):
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        connector: SocketConnector | None = None,
+        usage_recorder: Callable[[JsonRecord], None | Awaitable[None]] | None = None,
+    ) -> None:
         self.settings = settings
         self.connector = connector
         self.usage_recorder = usage_recorder
@@ -83,13 +117,19 @@ class CodexClient:
         self.token_limit: int | None = None
         self.search_limit: int | None = None
         self.reasoning_effort: str | None = None
-        self.pending: deque[dict] = deque()
+        self.pending: deque[JsonRecord] = deque()
         self.received_bytes = 0
         self.web_search_count = 0
         self.usage: dict[str, int] = {}
         self.retry_after = 0
 
-    def _connection(self, *, timeout=10, max_size=MAX_SERVER_MESSAGE_BYTES, close_timeout=3):
+    def _connection(
+        self,
+        *,
+        timeout: float = 10,
+        max_size: int = MAX_SERVER_MESSAGE_BYTES,
+        close_timeout: float = 3,
+    ) -> AbstractAsyncContextManager[CodexSocket]:
         endpoint = self.settings.codex_app_server_url or ""
         local = urlsplit(endpoint).scheme == "unix"
         connector = self.connector or (unix_connect if local else connect)
@@ -146,10 +186,10 @@ class CodexClient:
             # Never expose an account response, authentication header or raw error.
             return "codex_unavailable"
 
-    def read_quota(self) -> dict:
+    def read_quota(self) -> JsonRecord:
         return asyncio.run(self._read_quota())
 
-    async def _read_quota(self) -> dict:
+    async def _read_quota(self) -> JsonRecord:
         self.pending.clear()
         self.received_bytes = 0
         async with asyncio.timeout(10):
@@ -163,13 +203,15 @@ class CodexClient:
                 await ws.send(json.dumps({"method": "initialized", "params": {}}))
                 return await self.request(ws, 2, "account/rateLimits/read", {})
 
-    def complete(self, prompt: str, schema: dict, *, allow_web_search: bool = False) -> dict:
+    def complete(
+        self, prompt: str, schema: JsonRecord, *, allow_web_search: bool = False
+    ) -> JsonRecord:
         return asyncio.run(self.complete_async(prompt, schema, allow_web_search=allow_web_search))
 
     @observed_dependency("codex", "complete")
     async def complete_async(
-        self, prompt: str, schema: dict, *, allow_web_search: bool = False
-    ) -> dict:
+        self, prompt: str, schema: JsonRecord, *, allow_web_search: bool = False
+    ) -> JsonRecord:
         from devfeed_core.quota_pacing import current_pause_reason
 
         if reason := await asyncio.to_thread(current_pause_reason, self.settings):
@@ -207,7 +249,7 @@ class CodexClient:
             }:
                 from devfeed_core.topic_decision_budget import admit_relationship_call
 
-                admitted = await _invoke(
+                admitted: bool = await _invoke(
                     admit_relationship_call, dict(values), settings=self.settings, client=analytics
                 )
                 if not admitted:
@@ -234,15 +276,15 @@ class CodexClient:
                 )
                 await self._record_usage(values, analytics)
 
-    async def _record_usage(self, values, client):
+    async def _record_usage(self, values: JsonRecord, client: AnalyticsClient) -> None:
         if self.usage_recorder is None:
             await record_call(values, client=client)
         else:
             await _invoke(self.usage_recorder, values)
 
     async def _complete_async(
-        self, prompt: str, schema: dict, *, allow_web_search: bool = False
-    ) -> dict:
+        self, prompt: str, schema: JsonRecord, *, allow_web_search: bool = False
+    ) -> JsonRecord:
         self.pending.clear()
         self.received_bytes = 0
         self.web_search_count = 0
@@ -280,7 +322,7 @@ class CodexClient:
                         ].get("model_reasoning_effort")
                         # A fresh profile cannot inherit an existing server profile.
                         profile = "devfeed-analysis-" + secrets.token_hex(8)
-                        config: dict[str, Any] = {
+                        config: JsonRecord = {
                             "web_search": "live" if allow_web_search else "disabled",
                             # Analysis consumes the supplied document only. Avoid
                             # repository instruction discovery under denied reads.
@@ -542,7 +584,7 @@ class CodexClient:
         except Exception:
             raise AnalysisError("codex_transport_or_protocol_error") from None
 
-    async def receive(self, ws):
+    async def receive(self, ws: CodexSocket) -> JsonRecord:
         raw = await ws.recv()
         size = len(raw.encode() if isinstance(raw, str) else raw)
         self.received_bytes += size
@@ -555,7 +597,9 @@ class CodexClient:
             raise AnalysisError("invalid_server_message")
         return message
 
-    async def request(self, ws, identifier, method, params):
+    async def request(
+        self, ws: CodexSocket, identifier: int, method: str, params: JsonRecord
+    ) -> JsonRecord:
         await ws.send(json.dumps({"id": identifier, "method": method, "params": params}))
         for _ in range(1000):
             message = await self.receive(ws)
@@ -572,14 +616,15 @@ class CodexClient:
                     raise AnalysisError("codex_request_failed")
                 if not isinstance(message.get("result"), dict):
                     raise AnalysisError("codex_request_failed")
-                return message["result"]
+                result: JsonRecord = message["result"]
+                return result
             else:
                 # Notifications may precede the turn/start response. Preserve
                 # them so a fast completed turn isn't mistaken for no output.
                 self.pending.append(message)
         raise AnalysisError("too_many_server_events")
 
-    async def deny(self, ws, message):
+    async def deny(self, ws: CodexSocket, message: JsonRecord) -> None:
         await ws.send(
             json.dumps(
                 {

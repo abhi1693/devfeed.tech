@@ -5,31 +5,38 @@ Public card DTOs and compact typed metadata leave this module; source evidence,
 bodies, prompts, credentials and full private source URLs stay transactional.
 """
 
+from __future__ import annotations
+
 import json
+import uuid
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from datetime import timedelta
-from urllib.parse import unquote_plus, urlsplit, urlunsplit
+from datetime import datetime, timedelta
+from urllib.parse import SplitResult, unquote_plus, urlsplit, urlunsplit
 from uuid import UUID
 
 from sqlalchemy import func, select, text
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import Session, load_only, sessionmaker
 
 from devfeed_core.analysis import catalog, reuse_candidates
+from devfeed_core.analytics import SqlRecord
 from devfeed_core.analytics_blockers import automation_blocker_rows, automation_blockers
 from devfeed_core.analytics_card_types import PipelineCard, PipelineJobs
-from devfeed_core.article_lifecycle import derive_publication_readiness
+from devfeed_core.article_lifecycle import ProcessingInputs, derive_publication_readiness
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
     ArticleContent,
+    ArticleEnrichmentJob,
+    ArticleImageJob,
     ArticleReview,
     Source,
     SourceCandidate,
     TopicProposal,
     TopicRelationProposal,
 )
-from devfeed_core.source_lifecycle import source_readiness_batch
+from devfeed_core.source_lifecycle import _job_items, source_readiness_batch
 from devfeed_core.text_search import normalized_text
 
 BATCH_SIZE = 200
@@ -56,7 +63,7 @@ _SECRET_QUERY_KEYS = frozenset(
 )
 
 
-def bounded_ids(identifiers):
+def bounded_ids(identifiers: Iterable[uuid.UUID]) -> list[uuid.UUID]:
     identifiers = list(dict.fromkeys(identifiers))
     if len(identifiers) > BATCH_SIZE:
         raise ValueError("Card observation batches must contain at most 200 identities")
@@ -64,7 +71,7 @@ def bounded_ids(identifiers):
 
 
 @contextmanager
-def _observation_session(factory):
+def _observation_session(factory: sessionmaker[Session]) -> Iterator[Session]:
     """Every card batch observes one bounded, read-only source snapshot."""
     with factory() as session:
         session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
@@ -72,14 +79,14 @@ def _observation_session(factory):
         yield session
 
 
-def _netloc(parts):
+def _netloc(parts: SplitResult) -> str:
     host = parts.hostname or ""
     if ":" in host:
         host = f"[{host}]"
     return f"{host}:{parts.port}" if parts.port else host
 
 
-def uri_origin(value):
+def uri_origin(value: str | None) -> str:
     """Only an origin is safe for private feed URLs with opaque path tokens."""
     if not value:
         return ""
@@ -92,7 +99,7 @@ def uri_origin(value):
         return ""
 
 
-def public_article_uri(value):
+def public_article_uri(value: str | None) -> str:
     """Keep public article path/query search without explicit bearer credentials."""
     try:
         parts = urlsplit(value or "")
@@ -108,7 +115,7 @@ def public_article_uri(value):
         return ""
 
 
-def normalize_search_field(value):
+def normalize_search_field(value: object) -> str:
     return " ".join(
         "".join(
             character if character.isalnum() or character in "#+" else " "
@@ -117,15 +124,15 @@ def normalize_search_field(value):
     )
 
 
-def normalized_search(*fields):
+def normalized_search(*fields: object) -> str:
     return "\n".join(normalize_search_field(value) for value in fields)
 
 
-def literal_search(*fields):
+def literal_search(*fields: object) -> str:
     return json.dumps([str(value or "") for value in fields], ensure_ascii=False)
 
 
-def article_search(article, original_normalized):
+def article_search(article: Article, original_normalized: str) -> str:
     original = article.canonical_url or ""
     safe = public_article_uri(original)
     return (
@@ -135,7 +142,9 @@ def article_search(article, original_normalized):
     )
 
 
-def minimal_terminal_article(article, policy, now, terminal_at):
+def minimal_terminal_article(
+    article: Article, policy: str, now: datetime, terminal_at: datetime | None
+) -> SqlRecord:
     """Keep exact all-source review metadata without hydrating terminal evidence."""
     source_objects = sorted(
         (origin.source for origin in article.origins),
@@ -159,17 +168,19 @@ def minimal_terminal_article(article, policy, now, terminal_at):
 
 
 def _article_row(
-    article,
-    card,
-    policy,
-    now,
-    terminal_at,
+    article: Article,
+    card: PipelineCard,
+    policy: str,
+    now: datetime,
+    terminal_at: datetime | None,
     *,
-    search_text=None,
-    jobs=(),
-    blocker_codes=(),
-    catalog_sensitive=False,
-):
+    search_text: str | None = None,
+    jobs: Iterable[
+        ArticleAnalysisJob | ArticleEnrichmentJob | ArticleImageJob | ArticleContent | None
+    ] = (),
+    blocker_codes: Iterable[str] = (),
+    catalog_sensitive: bool = False,
+) -> SqlRecord:
     """Active and terminal observations share one safe, typed article shape."""
     safe_uri = public_article_uri(article.canonical_url)
     jobs = tuple(jobs)
@@ -210,8 +221,10 @@ def _article_row(
     )
 
 
-def article_rows(factory, identifiers, policy, now):
-    from devfeed_core.analytics_article_cards import _batch_facts, _card, _statement
+def article_rows(
+    factory: sessionmaker[Session], identifiers: Iterable[uuid.UUID], policy: str, now: datetime
+) -> list[SqlRecord]:
+    from devfeed_core.analytics_article_cards import _article_facts, _batch_facts, _card, _statement
 
     identifiers = bounded_ids(identifiers)
     if not identifiers:
@@ -257,8 +270,8 @@ def article_rows(factory, identifiers, policy, now):
             for item in articles
             if (terminal_times[item.id] is None and item.publication_status != "published")
             or (
-                terminal_times[item.id] is not None
-                and terminal_times[item.id] >= now - timedelta(days=7)
+                (terminal_time := terminal_times[item.id]) is not None
+                and terminal_time >= now - timedelta(days=7)
             )
         ]
         retained_ids = {item.id for item in retained}
@@ -289,16 +302,22 @@ def article_rows(factory, identifiers, policy, now):
     rows = []
     with reuse_candidates(reuse_existing=True):
         for article in articles:
-            current = {key: values.get(article.id) for key, values in facts.items()}
+            current = _article_facts(facts, article.id)
             if article.review_status == "rejected":
-                current = dict.fromkeys(current)
-            readiness = derive_publication_readiness(
-                article,
+                current = {
+                    "content": None,
+                    "enrichment": None,
+                    "analysis": None,
+                    "discovery": None,
+                    "storage": None,
+                }
+            inputs: ProcessingInputs = {
                 **current,
-                taxonomy=taxonomy,
-                settings=get_settings(),
-                now=now,
-            )
+                "taxonomy": taxonomy,
+                "settings": get_settings(),
+                "now": now,
+            }
+            readiness = derive_publication_readiness(article, **inputs)
             card = _card(article, readiness, current, taxonomy=taxonomy)
             rows.append(
                 _article_row(
@@ -308,19 +327,34 @@ def article_rows(factory, identifiers, policy, now):
                     now,
                     terminal_times[article.id],
                     search_text=article_search(article, searches[article.id]),
-                    blocker_codes=[row["code"] for row in blockers.get(article.id, [])],
+                    blocker_codes=[
+                        row["code"]
+                        for row in blockers.get(article.id, [])
+                        if row["code"] is not None
+                    ],
                     catalog_sensitive=article.review_status != "rejected"
                     and (
                         bool(article.topic_links)
                         or getattr(current.get("analysis"), "status", None) == "succeeded"
                     ),
-                    jobs=current.values(),
+                    jobs=(
+                        current["enrichment"],
+                        current["analysis"],
+                        current["discovery"],
+                        current["storage"],
+                    ),
                 )
             )
     return rows + archived
 
 
-def source_rows(factory, sources, candidates, policy, now):
+def source_rows(
+    factory: sessionmaker[Session],
+    sources: Iterable[uuid.UUID],
+    candidates: Iterable[uuid.UUID],
+    policy: str,
+    now: datetime,
+) -> list[SqlRecord]:
     from devfeed_core.analytics_source_cards import _activity, _card
 
     sources, candidates = bounded_ids(sources), bounded_ids(candidates)
@@ -376,7 +410,8 @@ def source_rows(factory, sources, candidates, policy, now):
                     if card.stage in {"active", "paused", "rejected"}
                     else None,
                     has_active_work=any(
-                        job and job.status in {"queued", "running"} for job in fact.jobs.values()
+                        job and job.status in {"queued", "running"}
+                        for _, job in _job_items(fact.jobs)
                     ),
                     next_transition_at=(
                         getattr(
@@ -391,7 +426,13 @@ def source_rows(factory, sources, candidates, policy, now):
         return rows
 
 
-def proposal_rows(factory, topic_ids, relationship_ids, policy, now):
+def proposal_rows(
+    factory: sessionmaker[Session],
+    topic_ids: Iterable[uuid.UUID],
+    relationship_ids: Iterable[uuid.UUID],
+    policy: str,
+    now: datetime,
+) -> list[SqlRecord]:
     """Classify selected review records without exporting their private evidence."""
     topic_ids, relationship_ids = bounded_ids(topic_ids), bounded_ids(relationship_ids)
     if len(topic_ids) + len(relationship_ids) > BATCH_SIZE:

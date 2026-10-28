@@ -1,5 +1,7 @@
 """ClickHouse pipeline boards and authoritative transactional detail/actions."""
 
+from __future__ import annotations
+
 import uuid
 from typing import Annotated, Literal
 
@@ -10,6 +12,9 @@ from devfeed_core.analytics_article_cards import (
 )
 from devfeed_core.analytics_article_cards import (
     _analysis_steps as _analysis_steps,
+)
+from devfeed_core.analytics_article_cards import (
+    _article_facts,
 )
 from devfeed_core.analytics_article_cards import (
     _batch_facts as _batch_facts,
@@ -82,6 +87,7 @@ from devfeed_core.analytics_card_types import (
 )
 from devfeed_core.article_jobs import approved_sources, request_article_enrichment
 from devfeed_core.article_lifecycle import (
+    ProcessingInputs,
     derive_publication_readiness,
     publication_readiness,
     reconcile_processing,
@@ -99,6 +105,7 @@ from devfeed_http.dependencies import run_database
 from devfeed_http.pagination import record
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import literal, select
+from sqlalchemy.orm import Session
 
 from devfeed_admin_api.analytics_current import preparing
 from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
@@ -109,14 +116,14 @@ router = APIRouter(tags=["admin-articles"], dependencies=[Depends(require_admin)
 Analytics = Annotated[AnalyticsRuntime, Depends(get_analytics)]
 
 
-def _normalized_search(session, query):
+def _normalized_search(session: Session, query: str | None) -> str | None:
     """Retain PostgreSQL Unicode/locale semantics using one literal, table-free SELECT."""
     if not query:
         return None
     return session.scalar(select(normalized_text(literal(query))))
 
 
-def _hydrate_clocks(session, result):
+def _hydrate_clocks(session: Session, result: PipelineBoard) -> PipelineBoard:
     items = [item for column in result.columns for item in column.items]
     clocks = (
         dict(
@@ -148,7 +155,7 @@ async def board(
     needs_attention: bool = False,
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
     group_by: Literal["source"] | None = None,
-):
+) -> PipelineBoard:
     needle = await run_database(factory, _normalized_search, q)
     try:
         result = await analytics.article_board(
@@ -180,7 +187,7 @@ async def column(
     cursor: Annotated[int, Query(ge=0, le=2**31 - 1)] = 0,
     group_by: Literal["source"] | None = None,
     source_group: uuid.UUID | Literal["unknown"] | None = None,
-):
+) -> PipelineColumn:
     needle = await run_database(factory, _normalized_search, q)
     try:
         result = await analytics.article_board(
@@ -199,11 +206,12 @@ async def column(
     return (await run_database(factory, _hydrate_clocks, result)).columns[0]
 
 
-def _detail(session, article):
+def _detail(session: Session, article: Article) -> PipelineDetail:
     batch = _batch_facts(session, [article])
-    facts = {key: values.get(article.id) for key, values in batch.items()}
+    facts = _article_facts(batch, article.id)
     taxonomy = catalog(session)
-    readiness = derive_publication_readiness(article, **facts, taxonomy=taxonomy)
+    inputs: ProcessingInputs = {**facts, "taxonomy": taxonomy}
+    readiness = derive_publication_readiness(article, **inputs)
     processing = retry_readiness(article, readiness, facts, taxonomy=taxonomy)
     checks = [
         PipelineCheck(
@@ -325,7 +333,7 @@ def _detail(session, article):
     response_model=PipelineDetail,
     operation_id="admin_article_pipeline_detail",
 )
-def detail(article_id: uuid.UUID, session: DB):
+def detail(article_id: uuid.UUID, session: DB) -> PipelineDetail:
     result = _detail(session, record(session, Article, article_id))
     session.close()
     return result
@@ -336,7 +344,9 @@ def detail(article_id: uuid.UUID, session: DB):
     response_model=PipelineDetail,
     operation_id="admin_article_pipeline_advance",
 )
-def advance(article_id: uuid.UUID, body: AdvancePipeline, session: DB, admin: Admin):
+def advance(
+    article_id: uuid.UUID, body: AdvancePipeline, session: DB, admin: Admin
+) -> PipelineDetail:
     approved_sources(session, article_id, lock=True)
     article = record(session, Article, article_id, lock=True)
     if article.editorial_revision != body.expected_revision:
@@ -359,7 +369,7 @@ def advance(article_id: uuid.UUID, body: AdvancePipeline, session: DB, admin: Ad
     response_model=PipelineDetail,
     operation_id="admin_article_pipeline_retry",
 )
-def retry(article_id: uuid.UUID, body: RetryPipeline, session: DB, admin: Admin):
+def retry(article_id: uuid.UUID, body: RetryPipeline, session: DB, admin: Admin) -> PipelineDetail:
     article = request_processing_retry(
         session,
         article_id,

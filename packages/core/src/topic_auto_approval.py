@@ -1,5 +1,7 @@
 """Opt-in application policies use the same review services as administrators."""
 
+from __future__ import annotations
+
 import logging
 import uuid
 from collections.abc import Callable
@@ -11,6 +13,7 @@ from sqlalchemy.orm import Session
 from devfeed_core.analysis import snapshot_hash
 from devfeed_core.article_topic_policy import proposal_allowed
 from devfeed_core.config import get_settings
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import (
     TopicAnalysisJob,
     TopicProposal,
@@ -80,7 +83,7 @@ def auto_approve_research(session: Session, job: TopicAnalysisJob) -> None:
         if "topic_verification" not in job.result:
             return  # The durable verifier must check the entire imported draft first.
 
-        def approve_topic(note: str):
+        def approve_topic(note: str) -> TopicProposal:
             proposal = session.get(TopicProposal, identifier)
             if proposal is None:
                 raise RecordNotFound("Topic proposal not found")
@@ -126,7 +129,9 @@ def auto_approve_research(session: Session, job: TopicAnalysisJob) -> None:
             if relationship_proposal is None or relationship_proposal.status != "pending":
                 continue
 
-            def approve_relationship(note: str, identifier=identifier):
+            def approve_relationship(
+                note: str, identifier: uuid.UUID = identifier
+            ) -> TopicRelationProposal:
                 proposal = session.get(TopicRelationProposal, identifier)
                 if proposal is None or proposal.job_id != job.id:
                     raise RecordNotFound("Relationship proposal for this research run not found")
@@ -163,7 +168,7 @@ def auto_approve_research(session: Session, job: TopicAnalysisJob) -> None:
 
 
 def retract_automatic_relationship(
-    session: Session, identifier: uuid.UUID, *, expected_hash: str, note: str, actor: dict
+    session: Session, identifier: uuid.UUID, *, expected_hash: str, note: str, actor: JsonRecord
 ) -> None:
     """Explicit operator correction, preserving the original automatic review audit."""
     retract_reviewed_relationship(
@@ -181,9 +186,9 @@ def retract_reviewed_relationship(
     identifier: uuid.UUID,
     *,
     expected_hash: str,
-    expected_reviewer: dict,
+    expected_reviewer: JsonRecord,
     note: str,
-    actor: dict,
+    actor: JsonRecord,
     expected_reviewed_at: datetime | None = None,
 ) -> None:
     """Authorized correction bound to the inspected review and unchanged edge."""

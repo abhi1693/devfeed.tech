@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Self
 
 from devfeed_core.notification_config import ChimelySettings
 from pydantic import SecretStr, model_validator
@@ -9,7 +10,7 @@ class Settings(ChimelySettings):
     chimely_user_api_key: SecretStr | None = None
 
     @model_validator(mode="after")
-    def validate_key(self):
+    def validate_key(self) -> Self:
         if self.notifications_enabled:
             for audience in ("admin", "user"):
                 environment = getattr(self, f"chimely_{audience}_environment")

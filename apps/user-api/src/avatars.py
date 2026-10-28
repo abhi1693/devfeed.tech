@@ -35,7 +35,7 @@ def upload_avatar(
     file: Annotated[UploadFile, File(description="JPEG, PNG or WebP, up to 5 MB")],
     user: User,
     session: DB,
-):
+) -> UserProfileSettings:
     account_id = lock_account(session, user)
     account = session.get(UserAccount, account_id)
     assert account is not None
@@ -64,7 +64,7 @@ def upload_avatar(
         extension=ExtensionTransportPolicy(timeout_ms=45_000)
     ).openapi_extra(),
 )
-def remove_avatar(user: User, session: DB):
+def remove_avatar(user: User, session: DB) -> UserProfileSettings:
     account_id = lock_account(session, user)
     account = session.get(UserAccount, account_id)
     assert account is not None

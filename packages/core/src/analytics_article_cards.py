@@ -4,18 +4,24 @@ These helpers never query a PostgreSQL projection or publish anything. Large
 private evidence is loaded only for the selected IDs and is never exported.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import re
+import uuid
 from collections import OrderedDict
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from threading import Lock
+from typing import Protocol, TypedDict, TypeVar, cast
 
-from sqlalchemy import case, func, literal, select
+from sqlalchemy import Row, Select, case, func, literal, select
 from sqlalchemy.dialects.postgresql import distinct_on
-from sqlalchemy.orm import defer, lazyload, load_only, selectinload
+from sqlalchemy.orm import Session, defer, lazyload, load_only, selectinload
+from sqlalchemy.sql.selectable import ScalarSelect
 
-from devfeed_core.analysis import PROMPT_VERSION
+from devfeed_core.analysis import PROMPT_VERSION, AnalysisCatalog
 from devfeed_core.analytics_card_types import (
     AnalysisStepOut,
     PipelineCard,
@@ -23,13 +29,19 @@ from devfeed_core.analytics_card_types import (
     PipelineJobs,
 )
 from devfeed_core.article_analysis_steps import STEP_SPECS
-from devfeed_core.article_lifecycle import ProcessingReadiness, derive_publication_readiness
+from devfeed_core.article_lifecycle import (
+    ProcessingFacts,
+    ProcessingInputs,
+    ProcessingReadiness,
+    derive_publication_readiness,
+)
 from devfeed_core.article_processing_retry import (
     current_processing_job,
     processing_retry_targets,
     retry_readiness,
 )
-from devfeed_core.config import get_settings
+from devfeed_core.config import Settings, get_settings
+from devfeed_core.job_definitions import Job
 from devfeed_core.job_retries import retry_candidate
 from devfeed_core.models import (
     Article,
@@ -45,12 +57,40 @@ from devfeed_core.models import (
 from devfeed_core.text_search import text_search
 
 BATCH_SIZE = 200
-_readiness_cache: OrderedDict[tuple, ProcessingReadiness] = OrderedDict()
+_readiness_cache: OrderedDict[tuple[uuid.UUID, bytes], ProcessingReadiness] = OrderedDict()
 _readiness_lock = Lock()
 _CACHE_SIZE = 4096
 
 
-def _display_source_id():
+ArticleJobT = TypeVar("ArticleJobT", ArticleAnalysisJob, ArticleEnrichmentJob, ArticleImageJob)
+
+
+class _PipelineMarkers(Protocol):
+    """Transient ORM query metadata, never database columns."""
+
+    _pipeline_retryable: bool
+    _pipeline_current_step: str | None
+
+
+class BatchProcessingFacts(TypedDict):
+    content: dict[uuid.UUID, ArticleContent]
+    enrichment: dict[uuid.UUID, ArticleEnrichmentJob]
+    analysis: dict[uuid.UUID, ArticleAnalysisJob]
+    discovery: dict[uuid.UUID, ArticleImageJob]
+    storage: dict[uuid.UUID, ArticleImageJob]
+
+
+def _article_facts(facts: BatchProcessingFacts, identifier: uuid.UUID) -> ProcessingFacts:
+    return {
+        "content": facts["content"].get(identifier),
+        "enrichment": facts["enrichment"].get(identifier),
+        "analysis": facts["analysis"].get(identifier),
+        "discovery": facts["discovery"].get(identifier),
+        "storage": facts["storage"].get(identifier),
+    }
+
+
+def _display_source_id() -> ScalarSelect[uuid.UUID]:
     """Match the source attribution displayed by _card, including missing origins."""
     return (
         select(Source.id)
@@ -63,7 +103,9 @@ def _display_source_id():
     )
 
 
-def _statement(q, source_id, source_group=None):
+def _statement(
+    q: str | None, source_id: uuid.UUID | None, source_group: str | uuid.UUID | None = None
+) -> Select[Article]:
     statement = select(Article).options(
         lazyload(Article.tags),
         selectinload(Article.origins)
@@ -93,16 +135,24 @@ def _statement(q, source_id, source_group=None):
     return statement
 
 
-def _latest(session, model, identifiers, *, operation=None, lightweight=False):
+def _latest[ArticleJobT: ArticleAnalysisJob | ArticleEnrichmentJob | ArticleImageJob](
+    session: Session,
+    model: type[ArticleJobT],
+    identifiers: Sequence[uuid.UUID],
+    *,
+    operation: str | None = None,
+    lightweight: bool = False,
+) -> dict[uuid.UUID, ArticleJobT]:
     current = select(model.id).where(model.article_id.in_(identifiers))
     order = [model.article_id, model.status.in_(["queued", "running"]).desc()]
     if operation:
-        current = current.where(model.operation == operation)
+        image_model = cast(type[ArticleImageJob], model)
+        current = current.where(image_model.operation == operation)
         current = current.join(Article, Article.id == model.article_id)
         current_input = (
-            model.image_url.is_not_distinct_from(Article.image_url)
+            image_model.image_url.is_not_distinct_from(Article.image_url)
             if operation == "store"
-            else (model.storage["input_url"].as_string() == Article.canonical_url).is_(True)
+            else (image_model.storage["input_url"].as_string() == Article.canonical_url).is_(True)
         )
         order.append(current_input.desc())
     current = current.ext(distinct_on(model.article_id)).order_by(
@@ -110,13 +160,16 @@ def _latest(session, model, identifiers, *, operation=None, lightweight=False):
         model.created_at.desc(),
         model.id.desc(),
     )
-    statement = select(model, retry_candidate(model)).where(model.id.in_(current))
+    statement: Select[ArticleJobT, bool] | Select[ArticleJobT, bool, str | None] = select(
+        model, retry_candidate(cast(type[Job], model))
+    ).where(model.id.in_(current))
     if lightweight and model is ArticleAnalysisJob:
         pending_step = case(
             *(
                 (
                     func.coalesce(
-                        model.usage["article_steps"][name]["status"].as_string(), "pending"
+                        ArticleAnalysisJob.usage["article_steps"][name]["status"].as_string(),
+                        "pending",
                     ).not_in(["succeeded", "skipped"]),
                     literal(name),
                 )
@@ -126,26 +179,37 @@ def _latest(session, model, identifiers, *, operation=None, lightweight=False):
         )
         progress = case(
             (
-                model.status.in_(["queued", "running", "failed"])
-                & (model.prompt_version == PROMPT_VERSION),
-                func.coalesce(model.usage["active_step"].as_string(), pending_step),
+                ArticleAnalysisJob.status.in_(["queued", "running", "failed"])
+                & (ArticleAnalysisJob.prompt_version == PROMPT_VERSION),
+                func.coalesce(ArticleAnalysisJob.usage["active_step"].as_string(), pending_step),
             ),
             else_=None,
         )
         statement = statement.add_columns(progress).options(
-            defer(model.input_snapshot), defer(model.catalog_snapshot), defer(model.usage)
+            defer(ArticleAnalysisJob.input_snapshot),
+            defer(ArticleAnalysisJob.catalog_snapshot),
+            defer(ArticleAnalysisJob.usage),
         )
-    result = {}
-    for row in session.execute(statement.options(lazyload("*"))):
-        job, eligible = row[:2]
-        job._pipeline_retryable = eligible
-        if lightweight and model is ArticleAnalysisJob:
-            job._pipeline_current_step = row[2]
+    result: dict[uuid.UUID, ArticleJobT] = {}
+    rows: Iterable[Row[ArticleJobT, bool] | Row[ArticleJobT, bool, str | None]] = session.execute(
+        statement.options(lazyload("*"))
+    )
+    for row in rows:
+        # Both SQLAlchemy rows and in-memory projections provide this fixed tuple shape.
+        values = cast(tuple[ArticleJobT, bool] | tuple[ArticleJobT, bool, str | None], row)
+        job, eligible = values[:2]
+        metadata = cast(_PipelineMarkers, job)
+        metadata._pipeline_retryable = eligible
+        if len(values) == 3:
+            metadata._pipeline_current_step = values[2]
+        assert job.article_id is not None  # The source ID filter excludes logo-only image jobs.
         result[job.article_id] = job
     return result
 
 
-def _batch_facts(session, articles, *, lightweight=False):
+def _batch_facts(
+    session: Session, articles: Sequence[Article], *, lightweight: bool = False
+) -> BatchProcessingFacts:
     identifiers = [article.id for article in articles]
     content_query = select(ArticleContent).where(ArticleContent.article_id.in_(identifiers))
     if lightweight:
@@ -167,14 +231,21 @@ def _batch_facts(session, articles, *, lightweight=False):
     }
 
 
-def _readiness_key(article, facts, *, catalog_hash, settings, now):
+def _readiness_key(
+    article: Article,
+    facts: ProcessingFacts,
+    *,
+    catalog_hash: str,
+    settings: Settings,
+    now: datetime,
+) -> tuple[uuid.UUID, bytes]:
     """Identity of every admission input, excluding immutable large evidence.
 
     Content text is identified by its extraction hash; immutable inference input
     and candidate snapshots by their stored hashes. The cache is only a display
     optimization. Publication always recomputes readiness in its locked transaction.
     """
-    values = {
+    values: dict[str, object] = {
         "article": {
             field: getattr(article, field)
             for field in (
@@ -214,44 +285,41 @@ def _readiness_key(article, facts, *, catalog_hash, settings, now):
     }
     content = facts["content"]
     values["content"] = (content.content_hash, content.method, content.url) if content else None
-    for name, job in facts.items():
-        if name == "content":
+    for name in ("enrichment", "analysis", "discovery", "storage"):
+        job = facts[name]
+        if job is None:
+            values[name] = None
             continue
-        values[name] = (
-            None
-            if job is None
-            else {
-                field: getattr(job, field)
-                for field in (
-                    "id",
-                    "status",
-                    "outcome",
-                    "error",
-                    "available_at",
-                    "attempts",
-                    *(
-                        (
-                            "input_hash",
-                            "catalog_hash",
-                            "prompt_version",
-                            "result",
-                            "inputs_pruned_at",
-                        )
-                        if name == "analysis"
-                        else ("result",)
-                        if name == "enrichment"
-                        else ("image_url", "storage")
-                    ),
-                )
-            }
+        fields = (
+            "id",
+            "status",
+            "outcome",
+            "error",
+            "available_at",
+            "attempts",
+            *(
+                ("input_hash", "catalog_hash", "prompt_version", "result", "inputs_pruned_at")
+                if name == "analysis"
+                else ("result",)
+                if name == "enrichment"
+                else ("image_url", "storage")
+            ),
         )
-        if job is not None:
-            values[name]["future"] = job.available_at > now
+        job_value: dict[str, object] = {field: getattr(job, field) for field in fields}
+        job_value["future"] = job.available_at > now
+        values[name] = job_value
     digest = hashlib.sha256(json.dumps(values, sort_keys=True, default=str).encode()).digest()
     return article.id, digest
 
 
-def _batch_readiness(session, articles, *, taxonomy, settings, now):
+def _batch_readiness(
+    session: Session,
+    articles: Sequence[Article],
+    *,
+    taxonomy: AnalysisCatalog,
+    settings: Settings,
+    now: datetime,
+) -> tuple[BatchProcessingFacts, dict[uuid.UUID, ProcessingReadiness]]:
     facts = _batch_facts(session, articles, lightweight=True)
     catalog_hash = (
         hashlib.sha256(json.dumps(taxonomy, sort_keys=True, default=str).encode()).digest().hex()
@@ -260,7 +328,7 @@ def _batch_readiness(session, articles, *, taxonomy, settings, now):
     results = {}
     misses = []
     for article in articles:
-        current = {name: rows.get(article.id) for name, rows in facts.items()}
+        current = _article_facts(facts, article.id)
         key = keys[article.id] = _readiness_key(
             article, current, catalog_hash=catalog_hash, settings=settings, now=now
         )
@@ -294,10 +362,14 @@ def _batch_readiness(session, articles, *, taxonomy, settings, now):
                 )
             )
         for article in misses:
-            current = {name: rows.get(article.id) for name, rows in facts.items()}
-            readiness = derive_publication_readiness(
-                article, **current, taxonomy=taxonomy, settings=settings, now=now
-            )
+            current = _article_facts(facts, article.id)
+            inputs: ProcessingInputs = {
+                **current,
+                "taxonomy": taxonomy,
+                "settings": settings,
+                "now": now,
+            }
+            readiness = derive_publication_readiness(article, **inputs)
             results[article.id] = readiness
             with _readiness_lock:
                 _readiness_cache[keys[article.id]] = readiness
@@ -306,7 +378,11 @@ def _batch_readiness(session, articles, *, taxonomy, settings, now):
     return facts, results
 
 
-def _job(job, *, retryable=True):
+def _job(
+    job: ArticleAnalysisJob | ArticleEnrichmentJob | ArticleImageJob | None,
+    *,
+    retryable: bool = True,
+) -> PipelineJob | None:
     if job is None:
         return None
     return PipelineJob(
@@ -321,7 +397,12 @@ def _job(job, *, retryable=True):
     )
 
 
-def _jobs(facts, *, allow_retry=True, readiness=None):
+def _jobs(
+    facts: ProcessingFacts,
+    *,
+    allow_retry: bool = True,
+    readiness: ProcessingReadiness | None = None,
+) -> PipelineJobs:
     latest_image = current_processing_job(facts, "images", readiness=readiness)
     return PipelineJobs(
         enrichment=_job(facts["enrichment"], retryable=allow_retry),
@@ -344,7 +425,7 @@ _STEP_LABELS = {
 }
 
 
-def _step_time(value):
+def _step_time(value: object) -> datetime | None:
     if isinstance(value, str):
         try:
             return datetime.fromisoformat(value)
@@ -353,7 +434,7 @@ def _step_time(value):
     return None
 
 
-def _analysis_steps(job):
+def _analysis_steps(job: ArticleAnalysisJob | None) -> list[AnalysisStepOut]:
     if job is None or (not job.steps and job.prompt_version != PROMPT_VERSION):
         return []
     terminal = job.status == "succeeded"
@@ -389,11 +470,11 @@ def _analysis_steps(job):
     return rows
 
 
-def _current_analysis_step(job):
+def _current_analysis_step(job: ArticleAnalysisJob | None) -> str | None:
     if job is None or job.status not in {"queued", "running", "failed"}:
         return None
     if hasattr(job, "_pipeline_current_step"):
-        value = job._pipeline_current_step
+        value = cast(str | None, job._pipeline_current_step)
         return value if value in STEP_SPECS else None
     if job.active_step in STEP_SPECS:
         return job.active_step
@@ -405,7 +486,7 @@ def _current_analysis_step(job):
     return None
 
 
-def _actions(readiness):
+def _actions(readiness: ProcessingReadiness) -> list[str]:
     if "no_approved_source" in readiness.blockers:
         return []
     if readiness.stage not in {"ingested", "enrichment", "analysis", "images"}:
@@ -435,7 +516,13 @@ def _actions(readiness):
     return []
 
 
-def _card(article, readiness, facts, *, taxonomy=None):
+def _card(
+    article: Article,
+    readiness: ProcessingReadiness,
+    facts: ProcessingFacts,
+    *,
+    taxonomy: AnalysisCatalog | None = None,
+) -> PipelineCard:
     sources = sorted(
         (origin.source for origin in article.origins),
         key=lambda source: (source.approval_status != "approved", source.name, source.id),

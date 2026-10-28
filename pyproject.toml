@@ -164,4 +164,20 @@ packages = [
   "devfeed_source_discovery_worker",
 ]
 check_untyped_defs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_any_generics = true
+disallow_untyped_decorators = true
+warn_return_any = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+# These integrations do not ship typing metadata. Their adapters expose concrete
+# protocols; missing imports anywhere else must remain type-checking errors.
+[[tool.mypy.overrides]]
+module = [
+  "boto3", "boto3.*", "botocore", "botocore.*",
+  "cairosvg", "cairosvg.*", "feedparser", "feedparser.*",
+  "pyroscope", "pyroscope.*", "yaml", "yaml.*",
+]
 ignore_missing_imports = true

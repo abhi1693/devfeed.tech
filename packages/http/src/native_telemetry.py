@@ -33,7 +33,7 @@ from devfeed_http.route_policies import (
 class _ErrorResponseHandler:
     """Keep native response/rethrow behavior without invoking a handler twice."""
 
-    def __init__(self, handler: HTTPExceptionHandler):
+    def __init__(self, handler: HTTPExceptionHandler) -> None:
         self.handler = handler
 
     async def __call__(self, request: Request, exc: Exception) -> Response:
@@ -56,7 +56,7 @@ class _ErrorResponseHandler:
 
 
 class NativeRouteTelemetry:
-    def __init__(self, app: FastAPI):
+    def __init__(self, app: FastAPI) -> None:
         self.app = app
         # Reuse the app's complete native configuration, including provider ownership.
         self.native = NativeTelemetry(app._telemetry)
@@ -125,7 +125,9 @@ class NativeRouteTelemetry:
 class _ResponseObservation:
     """Observe pre-routing responses with one frame of backpressure and no body buffer."""
 
-    def __init__(self, telemetry: NativeRouteTelemetry, scope: Scope, receive: Receive, send: Send):
+    def __init__(
+        self, telemetry: NativeRouteTelemetry, scope: Scope, receive: Receive, send: Send
+    ) -> None:
         self.telemetry, self.scope, self.receive, self.send = telemetry, scope, receive, send
         self.frames: asyncio.Queue[tuple[Message, asyncio.Future[None]]] = asyncio.Queue(maxsize=1)
         self.task: asyncio.Task[None] | None = None
@@ -194,7 +196,7 @@ class _ResponseObservation:
 
 
 class RuntimePolicyMiddleware:
-    def __init__(self, app: ASGIApp):
+    def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:

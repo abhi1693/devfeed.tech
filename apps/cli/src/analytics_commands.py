@@ -8,13 +8,14 @@ from devfeed_core.analytics import AnalyticsClient
 from devfeed_core.analytics_migrations import ClickHouseMigrationRunner, upgrade_analytics
 from devfeed_core.config import get_settings
 
+from devfeed_cli.contracts import CommandOutput
 from devfeed_cli.options import group
 from devfeed_cli.runtime import invoke
 
 app = group("Apply or inspect versioned ClickHouse schema migrations.")
 
 
-async def migrate_analytics(action: str) -> dict:
+async def migrate_analytics(action: str) -> CommandOutput:
     settings = get_settings()
     if action == "upgrade":
         return asdict(await upgrade_analytics(settings))
@@ -27,5 +28,5 @@ async def migrate_analytics(action: str) -> dict:
 @app.command("upgrade", help="Apply pending ClickHouse migrations and prepare the import boundary.")
 @app.command("check", help="Fail if the ClickHouse schema differs from this application version.")
 @app.command("current", help="Display applied and pending ClickHouse schema versions.")
-def migrate(ctx: typer.Context):
+def migrate(ctx: typer.Context) -> None:
     invoke(ctx, lambda args: asyncio.run(migrate_analytics(args.action)), locals())

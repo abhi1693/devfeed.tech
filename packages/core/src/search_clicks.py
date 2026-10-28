@@ -14,7 +14,7 @@ _TOKEN = re.compile(r"([0-9]{1,12})\.([0-9a-f]{64})", re.ASCII)
 
 
 class SearchClickTokens:
-    def __init__(self, key: str, *, clock: Callable[[], float] = time.time):
+    def __init__(self, key: str, *, clock: Callable[[], float] = time.time) -> None:
         # The Typesense search key is server-only. Derive a purpose-specific key;
         # neither the original key nor the query text appears in a receipt.
         self.key = hmac.digest(key.encode("utf-8"), b"devfeed:search-click:v1", "sha256")

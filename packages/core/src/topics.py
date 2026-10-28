@@ -1,5 +1,7 @@
 """Canonical topic identities and explicit graph edges; never transitive feed matches."""
 
+from __future__ import annotations
+
 import uuid
 from datetime import datetime
 from typing import ClassVar, Literal
@@ -33,7 +35,7 @@ class TopicFact(InputModel):
 
     @field_validator("retrieved_at")
     @classmethod
-    def timezone_required(cls, value):
+    def timezone_required(cls, value: datetime) -> datetime:
         if value.tzinfo is None:
             raise ValueError("retrieved_at requires a timezone")
         return value
@@ -54,12 +56,12 @@ class TopicWrite(InputModel):
 
     @field_validator("keywords", "aliases")
     @classmethod
-    def unique_terms(cls, values):
+    def unique_terms(cls, values: list[str]) -> list[str]:
         return list({value.casefold(): value for value in values}.values())
 
     @field_validator("website_url", "logo_url")
     @classmethod
-    def public_url(cls, value):
+    def public_url(cls, value: str | None) -> str | None:
         return validate_public_url(value) if value is not None else None
 
 
@@ -69,7 +71,7 @@ class TopicOut(ORMModel):
 
     @model_validator(mode="before")
     @classmethod
-    def managed_branding(cls, value):
+    def managed_branding(cls, value: object) -> object:
         if not isinstance(value, Topic):
             return value
         from devfeed_core.logos import logo_url, logo_variants
@@ -103,7 +105,7 @@ class RelationWrite(InputModel):
 
     @field_validator("evidence_url")
     @classmethod
-    def public_url(cls, value):
+    def public_url(cls, value: str | None) -> str | None:
         return validate_public_url(value) if value is not None else None
 
 
@@ -122,10 +124,10 @@ def lock_topics(session: Session, *, read: bool = False) -> None:
 def save_topic(
     session: Session,
     body: TopicWrite,
-    identifier=None,
+    identifier: uuid.UUID | None = None,
     *,
     initial_status: Literal["active", "proposed", "rejected"] = "active",
-):
+) -> Topic:
     # Serialize identity changes; a concurrent editor or proposal cannot create a
     # second canonical entity while this transaction is resolving identity.
     lock_topics(session)
@@ -155,7 +157,7 @@ def save_topic(
     return current
 
 
-def relate_topics(session: Session, body: RelationWrite):
+def relate_topics(session: Session, body: RelationWrite) -> TopicRelation:
     if body.topic_id == body.related_topic_id:
         raise OperationConflict("A topic cannot be related to itself")
     if any(

@@ -1,22 +1,27 @@
 """Rank ClickHouse opens against a short authoritative business-data snapshot."""
 
+from __future__ import annotations
+
 import struct
 import uuid
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 
 from devfeed_core.analytics import AnalyticsUnavailable
+from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
 from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
 from devfeed_core.models import Article, ArticleLike
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import ArticleOut, FeedPage
 from devfeed_http.dependencies import run_database
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 MAX_METADATA_BYTES = 64 * 1024**2
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
-def _ranking_metadata(session, since):
+def _ranking_metadata(session: Session, since: datetime) -> bytes:
     """Serialize bounded external query data without retaining ORM rows.
 
     One short PostgreSQL statement supplies visibility, tie ordering and likes.
@@ -56,7 +61,7 @@ def _ranking_metadata(session, since):
         session.rollback()
 
 
-def _articles(session, identities):
+def _articles(session: Session, identities: Sequence[str]) -> list[Article]:
     if not identities:
         return []
     statement = (
@@ -68,11 +73,18 @@ def _articles(session, identities):
     return [articles[identity] for identity in identities if identity in articles]
 
 
-def _article_page(session, identities):
+def _article_page(session: Session, identities: Sequence[str]) -> list[ArticleOut]:
     return ArticleOut.from_articles(_articles(session, identities))
 
 
-async def trending_page(factory, analytics, *, since: datetime, limit: int, cursor: int):
+async def trending_page(
+    factory: Callable[[], Session],
+    analytics: ArticleOpenAnalytics,
+    *,
+    since: datetime,
+    limit: int,
+    cursor: int,
+) -> FeedPage:
     """Delegate sorting and deep offsets to a single bounded ClickHouse query."""
     async with analytics.client.external_query_slot():
         metadata = await run_database(factory, _ranking_metadata, since)

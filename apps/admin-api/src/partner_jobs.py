@@ -1,8 +1,11 @@
 """Read-only administration pages for partner pipeline and evaluation runs."""
 
+from __future__ import annotations
+
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Literal
+from typing import Literal, TypedDict
 
 from devfeed_core.models import (
     PartnerEvaluation,
@@ -13,14 +16,14 @@ from devfeed_core.models import (
 from devfeed_core.partner_connections import PartnerJobOut
 from devfeed_core.partner_tools import EvaluationOut
 from devfeed_core.schemas import ORMModel
-from devfeed_http.pagination import Listing, Page, paginate, record
+from devfeed_http.pagination import Listing, Page, PageData, paginate, record
 from fastapi import APIRouter, Depends
 from sqlalchemy import String, cast, exists, or_, select
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import Session, load_only
 
 from devfeed_admin_api.auth import require_admin
 from devfeed_admin_api.dependencies import DB
-from devfeed_admin_api.partner_tools import evaluation_view
+from devfeed_admin_api.partner_tools import EvaluationData, evaluation_view
 
 router = APIRouter(
     prefix="/v1/admin/partner-tools",
@@ -54,7 +57,44 @@ class PartnerEvaluationDetail(EvaluationOut):
     available_at: datetime
 
 
-def pipeline_views(session, jobs):
+class PartnerPipelineData(TypedDict):
+    id: uuid.UUID
+    provider: str | None
+    operation: Literal["sync", "sync_product", "assess"]
+    parent_id: uuid.UUID | None
+    external_id: str | None
+    product_id: uuid.UUID | None
+    status: str
+    attempts: int
+    created_at: datetime
+    finished_at: datetime | None
+    error: str | None
+    available_at: datetime
+    product_name: str | None
+
+
+class PartnerEvaluationData(TypedDict):
+    id: uuid.UUID
+    product_id: uuid.UUID
+    status: str
+    attempts: int
+    created_at: datetime
+    available_at: datetime
+    finished_at: datetime | None
+    error: str | None
+    product_name: str
+    matches: int
+    articles: int
+
+
+class PartnerEvaluationDetailData(EvaluationData):
+    attempts: int
+    available_at: datetime
+
+
+def pipeline_views(
+    session: Session, jobs: Sequence[PartnerPipelineJob]
+) -> list[PartnerPipelineData]:
     names = (
         dict(
             session.execute(
@@ -66,14 +106,27 @@ def pipeline_views(session, jobs):
         if jobs
         else {}
     )
-    return [
-        {
-            **PartnerJobOut.model_validate(job).model_dump(),
-            "available_at": job.available_at,
-            "product_name": names.get(job.product_id),
-        }
-        for job in jobs
-    ]
+    result: list[PartnerPipelineData] = []
+    for job in jobs:
+        value = PartnerJobOut.model_validate(job)
+        result.append(
+            {
+                "id": value.id,
+                "provider": value.provider,
+                "operation": value.operation,
+                "parent_id": value.parent_id,
+                "external_id": value.external_id,
+                "product_id": value.product_id,
+                "status": value.status,
+                "attempts": value.attempts,
+                "created_at": value.created_at,
+                "finished_at": value.finished_at,
+                "error": value.error,
+                "available_at": job.available_at,
+                "product_name": names.get(job.product_id) if job.product_id else None,
+            }
+        )
+    return result
 
 
 @router.get(
@@ -87,7 +140,7 @@ def pipeline(
     provider: str | None = None,
     product_id: uuid.UUID | None = None,
     parent_id: uuid.UUID | None = None,
-):
+) -> PageData[PartnerPipelineData]:
     statement = (
         select(PartnerPipelineJob)
         .options(
@@ -154,7 +207,7 @@ def pipeline(
     response_model=PartnerPipelineOut,
     operation_id="admin_partner_pipeline_get",
 )
-def pipeline_detail(job_id: uuid.UUID, session: DB):
+def pipeline_detail(job_id: uuid.UUID, session: DB) -> PartnerPipelineData:
     return pipeline_views(session, [record(session, PartnerPipelineJob, job_id)])[0]
 
 
@@ -169,7 +222,7 @@ def evaluations(
     status: JobStatus | None = None,
     product_id: uuid.UUID | None = None,
     provider: str | None = None,
-):
+) -> PageData[PartnerEvaluationData]:
     # Lists omit article snapshots; the detail endpoint supplies the full evidence.
     fields = (
         PartnerEvaluation.id,
@@ -231,7 +284,14 @@ def evaluations(
         **page,
         "items": [
             {
-                **{field.key: getattr(job, field.key) for field in fields if field.key != "result"},
+                "id": job.id,
+                "product_id": job.product_id,
+                "status": job.status,
+                "attempts": job.attempts,
+                "created_at": job.created_at,
+                "available_at": job.available_at,
+                "finished_at": job.finished_at,
+                "error": job.error,
                 "product_name": names.get(job.id) or "Product",
                 "matches": sum(
                     bool(d.get("relevant")) for d in (job.result or {}).get("decisions", [])
@@ -248,7 +308,7 @@ def evaluations(
     response_model=PartnerEvaluationDetail,
     operation_id="admin_partner_evaluation_get",
 )
-def evaluation_detail(job_id: uuid.UUID, session: DB):
+def evaluation_detail(job_id: uuid.UUID, session: DB) -> PartnerEvaluationDetailData:
     job = record(session, PartnerEvaluation, job_id)
     return {
         **evaluation_view(session, job),

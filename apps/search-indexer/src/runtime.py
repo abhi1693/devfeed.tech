@@ -33,7 +33,9 @@ def run_indexer(*, once: bool = False, output: Callable[[str], None] = print) ->
         stop_runtime(telemetry)
 
 
-def _consume_index(stop, engine, once: bool, output: Callable[[str], None]) -> int:
+def _consume_index(
+    stop: threading.Event, engine: Typesense, once: bool, output: Callable[[str], None]
+) -> int:
     settings = get_settings()
     last_reconcile = 0.0
     while not stop.is_set():

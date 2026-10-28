@@ -10,7 +10,7 @@ from devfeed_core.managed_images import (
 )
 from devfeed_core.object_storage import R2ConfigurationError, R2Storage
 
-from devfeed_aggregator.image_storage_base import OriginalStore, VariantStore
+from devfeed_aggregator.image_storage_base import OriginalStore, StoredImage, VariantStore
 
 WIDTHS = (320, 640, 960)
 
@@ -35,7 +35,7 @@ def storage_client() -> R2Storage:
 
 
 class ImageOriginalStore(OriginalStore):
-    def store(self, source: str) -> dict:
+    def store(self, source: str) -> StoredImage:
         result = _fetch(
             source,
             None,
@@ -59,17 +59,17 @@ class ImageOriginalStore(OriginalStore):
 
 
 class ThumbnailVariantStore(VariantStore):
-    def sizes(self, asset: dict) -> list[int]:
+    def sizes(self, asset: StoredImage) -> list[int]:
         return sorted({min(width, asset["source_width"]) for width in WIDTHS})
 
-    def _key(self, asset: dict, size: int) -> str:
+    def _key(self, asset: StoredImage, size: int) -> str:
         # Checkpointed v1 jobs retain their encoder and immutable object namespace.
         version = asset.get("thumbnail_version", "v1")
         if version not in THUMBNAIL_QUALITIES:
             raise FeedError("Unknown thumbnail encoding", reason="image_transform", retryable=False)
         return f"thumbnails/{version}/{asset['hash']}/{size}.webp"
 
-    def _render(self, asset: dict, size: int) -> bytes:
+    def _render(self, asset: StoredImage, size: int) -> bytes:
         quality = THUMBNAIL_QUALITIES[asset.get("thumbnail_version", "v1")]
         body = self.transform.fetch(
             self.transform.url(
@@ -85,6 +85,6 @@ class ThumbnailVariantStore(VariantStore):
 class ArticleThumbnailVariantStore(ThumbnailVariantStore):
     """Fill common card/DPR gaps without changing product images or legacy jobs."""
 
-    def sizes(self, asset: dict) -> list[int]:
+    def sizes(self, asset: StoredImage) -> list[int]:
         widths = ARTICLE_THUMBNAIL_WIDTHS if asset.get("thumbnail_version") == "v2" else WIDTHS
         return sorted({min(width, asset["source_width"]) for width in widths})

@@ -2,6 +2,7 @@
 
 import json
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from urllib.parse import urljoin, urlsplit
@@ -10,6 +11,7 @@ from devfeed_core.article_jobs import EXTRACTION_VERSION
 from devfeed_core.feeds.fetcher import FeedError, FetchResult
 from devfeed_core.feeds.parser import plain_text
 from devfeed_core.images import ImageParser, decode_html, extract_image
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.source_tags import source_tag_names
 from trafilatura import bare_extraction, extract_metadata
 from trafilatura.utils import load_html
@@ -34,11 +36,11 @@ BLOCKED_TITLES = {
 
 
 class MetadataParser(ImageParser):
-    def __init__(self, base: str):
+    def __init__(self, base: str) -> None:
         super().__init__(base)
         self.declared_language: str | None = None
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         super().handle_starttag(tag, attrs)
         if self.ignored:
             return
@@ -59,10 +61,12 @@ class MetadataParser(ImageParser):
             }:
                 candidates = self.meta.setdefault(key, [])
                 if len(candidates) < 20 and values.get("content"):
-                    candidates.append(values["content"][:1000])
+                    content = values["content"]
+                    assert content is not None
+                    candidates.append(content[:1000])
 
 
-def structured_nodes(documents: list[str]):
+def structured_nodes(documents: list[str]) -> Iterator[JsonRecord]:
     for document in documents:
         try:
             pending = [(json.loads(document), 0)]
@@ -83,7 +87,7 @@ def structured_nodes(documents: list[str]):
                         pending.append((node[key], depth + 1))
 
 
-def is_article(node: dict) -> bool:
+def is_article(node: JsonRecord) -> bool:
     types = node.get("@type", [])
     types = [types] if isinstance(types, str) else types
     return isinstance(types, list) and any(
@@ -94,7 +98,7 @@ def is_article(node: dict) -> bool:
     )
 
 
-def article_nodes(documents: list[str]):
+def article_nodes(documents: list[str]) -> Iterator[JsonRecord]:
     return (node for node in structured_nodes(documents) if is_article(node))
 
 
@@ -221,7 +225,7 @@ def structured_author(documents: list[str]) -> str | None:
 
 
 def publication_date(parser: MetadataParser, now: datetime) -> datetime | None:
-    candidates = [
+    candidates: list[object] = [
         item
         for key in ("article:published_time", "datepublished", "pubdate")
         for item in parser.meta.get(key, [])
@@ -264,7 +268,7 @@ class PageArticle:
     image_url: str | None
     language: str | None
     text_source: str | None
-    evidence: dict
+    evidence: JsonRecord
     text: str = ""
     tags: list[str] = field(default_factory=list)
 

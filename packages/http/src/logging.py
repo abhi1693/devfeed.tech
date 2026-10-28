@@ -1,5 +1,7 @@
 """ASGI request logging keeps context alive through response bodies and failures."""
 
+from __future__ import annotations
+
 import logging
 import time
 import uuid
@@ -20,7 +22,7 @@ class RequestLoggingMiddleware:
         service: str,
         logger: logging.Logger,
         response_headers: tuple[tuple[bytes, bytes], ...] = (),
-    ):
+    ) -> None:
         self.app = app
         self.service = service
         self.logger = logger

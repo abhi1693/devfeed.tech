@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 
+from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.models import (
     Article,
     ArticleTopic,
@@ -24,17 +26,18 @@ from devfeed_core.partner_tiers import promotion_kind_allowed
 from devfeed_core.publication import visible_article
 from fastapi import HTTPException
 from sqlalchemy import func, select
+from sqlalchemy.engine import Row
 from sqlalchemy.orm import Session
 
 from devfeed_http.partner_portal import CampaignInput, CampaignOut
 
 
 class CampaignService:
-    def __init__(self, session: Session, account: PartnerAccount):
+    def __init__(self, session: Session, account: PartnerAccount) -> None:
         self.session = session
         self.account = account
 
-    def _page(self, limit, offset):
+    def _page(self, limit: int, offset: int) -> tuple[Sequence[PartnerCampaign], int]:
         rows = self.session.scalars(
             select(PartnerCampaign)
             .where(PartnerCampaign.account_id == self.account.id)
@@ -47,13 +50,13 @@ class CampaignService:
             .select_from(PartnerCampaign)
             .where(PartnerCampaign.account_id == self.account.id)
         )
-        return rows, total
+        return rows, total or 0
 
-    def page(self, *, limit: int = 100, offset: int = 0):
+    def page(self, *, limit: int = 100, offset: int = 0) -> CampaignMetadata:
         rows, total = self._page(limit, offset)
         return self.metadata(rows, total=total)
 
-    def get(self, campaign_id: uuid.UUID):
+    def get(self, campaign_id: uuid.UUID) -> CampaignMetadata:
         return self.metadata([self._find(campaign_id)])
 
     def _find(self, campaign_id: uuid.UUID) -> PartnerCampaign:
@@ -66,7 +69,9 @@ class CampaignService:
             raise HTTPException(404, "Partner campaign not found")
         return campaign
 
-    def save(self, payload: CampaignInput, *, campaign_id: uuid.UUID | None = None):
+    def save(
+        self, payload: CampaignInput, *, campaign_id: uuid.UUID | None = None
+    ) -> PartnerCampaign:
         """Save after the caller locks the account; keep disclosure and enrollment atomic."""
         campaign = self._find(campaign_id) if campaign_id is not None else None
         if campaign is not None and campaign.managed:
@@ -106,7 +111,7 @@ class CampaignService:
         request_promotion_enrollment(self.session, self.account.id)
         return campaign
 
-    def _validate_scope(self, payload: CampaignInput):
+    def _validate_scope(self, payload: CampaignInput) -> None:
         if payload.product_ids:
             owned = {
                 product.id
@@ -131,7 +136,7 @@ class CampaignService:
             if active != set(payload.topic_ids):
                 raise HTTPException(422, "Campaign topics must be active catalog topics")
 
-    def record_sponsorship(self, payload: CampaignInput):
+    def record_sponsorship(self, payload: CampaignInput) -> None:
         if payload.article_id is None:
             return
         article = self.session.scalar(
@@ -163,18 +168,24 @@ class CampaignService:
             # The row lock merges concurrent sponsors without losing disclosure.
             article.sponsor_names = sorted(set(article.sponsor_names or []) | {self.account.name})
 
-    def _assets(self, campaign_ids):
+    def _assets(
+        self, campaign_ids: Sequence[uuid.UUID]
+    ) -> Sequence[Row[uuid.UUID, uuid.UUID | None]]:
         return self.session.execute(
             select(PartnerAsset.id, PartnerAsset.campaign_id).where(
                 PartnerAsset.campaign_id.in_(campaign_ids)
             )
         ).all()
 
-    def metadata(self, rows, *, total=0):
+    def metadata(self, rows: Sequence[PartnerCampaign], *, total: int = 0) -> CampaignMetadata:
         assets = self._assets([row.id for row in rows]) if rows else []
         return CampaignMetadata(
             [CampaignOut.model_validate(row) for row in rows],
-            {str(asset_id): campaign_id for asset_id, campaign_id in assets},
+            {
+                str(asset_id): campaign_id
+                for asset_id, campaign_id in assets
+                if campaign_id is not None
+            },
             total,
         )
 
@@ -185,7 +196,7 @@ class CampaignMetadata:
     owners: dict[str, uuid.UUID]
     total: int = 0
 
-    async def reports(self, analytics) -> list[CampaignOut]:
+    async def reports(self, analytics: DirectEngagementAnalytics) -> list[CampaignOut]:
         if not self.rows:
             return []
         measured = {row.id: [0, 0] for row in self.rows}

@@ -5,6 +5,7 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from devfeed_core.ai_capacity import cooldown_key
 from devfeed_core.analytics_producer import shutdown as drain_analytics
@@ -14,10 +15,13 @@ from devfeed_core.runtime_files import write_runtime_marker
 from devfeed_core.telemetry import current, extract_context, span, start_runtime, stop_runtime
 from devfeed_core.worker_queues import AI_QUEUES, QUEUES
 from opentelemetry.trace import StatusCode
+from redis.client import Pipeline
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from rq import Worker
 from rq.exceptions import StopRequested
+from rq.job import Job
+from rq.queue import Queue
 from rq.suspension import WORKERS_SUSPENDED
 from rq.worker import WorkerStatus
 
@@ -36,7 +40,7 @@ class AdmissionSnapshot:
 
 
 class CodexReadiness:
-    def __init__(self):
+    def __init__(self) -> None:
         from devfeed_aggregator.codex_client import CodexClient
 
         self.client = CodexClient(get_settings())
@@ -53,7 +57,8 @@ class CodexReadiness:
 
 
 class AnalysisAwareWorker(Worker):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        # RQ owns this variadic constructor contract; preserve SDK forwarding.
         super().__init__(*args, **kwargs)
         queues = args[0] if args else kwargs.get("queues", [])
         self.codex_readiness = (
@@ -63,16 +68,16 @@ class AnalysisAwareWorker(Worker):
         self.health_pid = os.getpid()
         self.next_admission_heartbeat = 0.0
 
-    def _shutdown(self):
+    def _shutdown(self) -> None:
         # RQ otherwise raises StopRequested from the first signal handler while
         # idle. Interrupting a Redis MULTI/EXEC response can poison the socket
         # subsequently reused by register_death. Finish the exchange, then stop
         # at our bounded dequeue boundary. RQ still owns second-signal SIGKILL.
         self._stop_requested = True
 
-    def heartbeat(self, timeout=None, pipeline=None):
+    def heartbeat(self, timeout: int | None = None, pipeline: Pipeline | None = None) -> object:
         try:
-            result = super().heartbeat(timeout=timeout, pipeline=pipeline)
+            result: object = super().heartbeat(timeout=timeout, pipeline=pipeline)
         except RedisConnectionError:
             # Stock RQ retries connection errors without consulting the stop
             # flag. Stop only after a failed exchange; a successful final
@@ -84,17 +89,18 @@ class AnalysisAwareWorker(Worker):
         if pipeline is None:
             self.write_health()
             self.next_admission_heartbeat = time.monotonic() + HEARTBEAT_INTERVAL
+
         return result
 
-    def serialize(self):
+    def serialize(self) -> dict[str, object]:
         return {**super().serialize(), "worker_ttl": self.worker_ttl}
 
-    def maintain_heartbeats(self, job):
+    def maintain_heartbeats(self, job: Job) -> None:
         super().maintain_heartbeats(job)
         self.write_health()
         self.next_admission_heartbeat = time.monotonic() + HEARTBEAT_INTERVAL
 
-    def write_health(self):
+    def write_health(self) -> None:
         path = os.environ.get("DEVFEED_WORKER_HEALTH_PATH")
         if not path or os.getpid() != self.health_pid:
             return
@@ -103,14 +109,15 @@ class AnalysisAwareWorker(Worker):
         stamp = int(time.clock_gettime(time.CLOCK_BOOTTIME))
         write_runtime_marker(Path(path), f"{self.health_pid} {stamp} {int(ttl)}\n")
 
-    def execute_job(self, job, queue):
+    def execute_job(self, job: Job, queue: Queue) -> object:
         runtime = current()
         started = time.monotonic()
         name = queue.name if queue.name in QUEUES else "other"
         if runtime:
             runtime.instruments["worker_active"].set(1)
         try:
-            return super().execute_job(job, queue)
+            result: object = super().execute_job(job, queue)
+            return result
         finally:
             if runtime:
                 runtime.instruments["worker_active"].set(0)
@@ -119,7 +126,7 @@ class AnalysisAwareWorker(Worker):
                     time.monotonic() - started, {"messaging.destination.name": name}
                 )
 
-    def perform_job(self, job, queue):
+    def perform_job(self, job: Job, queue: Queue) -> bool:
         # RQ calls this in the work horse, after its final fork. Never initialize
         # the native profiler or exporter threads in the forking parent.
         name = queue.name if queue.name in QUEUES else "other"
@@ -142,7 +149,7 @@ class AnalysisAwareWorker(Worker):
             drain_analytics()
             stop_runtime(telemetry)
 
-    def admission_snapshot(self):
+    def admission_snapshot(self) -> AdmissionSnapshot:
         """One bounded Redis exchange; only confirmed heartbeats refresh probes."""
         settings = get_settings()
         heartbeat = time.monotonic() >= self.next_admission_heartbeat
@@ -168,7 +175,7 @@ class AnalysisAwareWorker(Worker):
             reason = "provider_capacity_cooldown"
         return AdmissionSnapshot(pending, reason, bool(values[-1]))
 
-    def ai_ready(self, snapshot):
+    def ai_ready(self, snapshot: AdmissionSnapshot) -> bool:
         readiness = self.codex_readiness
         if readiness is None or not any(snapshot.pending.get(name) for name in AI_QUEUES):
             return False
@@ -184,14 +191,16 @@ class AnalysisAwareWorker(Worker):
         self.analysis_paused = not ready
         return ready
 
-    def wait_state(self, state):
+    def wait_state(self, state: WorkerStatus) -> None:
         if self.get_state() != state:
             self.set_state(state)
             self.procline("AI analysis paused" if state == WorkerStatus.SUSPENDED else "Listening")
         if self.should_run_maintenance_tasks:
             self.run_maintenance_tasks()
 
-    def dequeue_available(self, snapshot, *, burst):
+    def dequeue_available(
+        self, snapshot: AdmissionSnapshot, *, burst: bool
+    ) -> tuple[Job, Queue] | None:
         if snapshot.suspended:
             if burst:
                 raise StopRequested()
@@ -221,7 +230,9 @@ class AnalysisAwareWorker(Worker):
             self.reorder_queues(reference_queue=result[1])
         return result
 
-    def dequeue_job_and_maintain_ttl(self, timeout, max_idle_time=None):
+    def dequeue_job_and_maintain_ttl(
+        self, timeout: int | None, max_idle_time: int | None = None
+    ) -> tuple[Job, Queue] | None:
         if self.codex_readiness is None:
             return self.dequeue_background(timeout, max_idle_time)
         idle_since = time.monotonic()
@@ -249,7 +260,9 @@ class AnalysisAwareWorker(Worker):
             time.sleep(min(POLL_INTERVAL, remaining))
         return None
 
-    def dequeue_background(self, timeout, max_idle_time):
+    def dequeue_background(
+        self, timeout: int | None, max_idle_time: int | None
+    ) -> tuple[Job, Queue] | None:
         """Keep stock RQ blocking transport while checking warm shutdown safely."""
         if timeout is None:
             return super().dequeue_job_and_maintain_ttl(None, max_idle_time)
@@ -264,7 +277,8 @@ class AnalysisAwareWorker(Worker):
                 return None
             budget = min(SHUTDOWN_CHECK_INTERVAL, remaining)
             try:
-                result = super().dequeue_job_and_maintain_ttl(min(timeout, budget), budget)
+                # RQ accepts fractional wait budgets; its annotation restricts seconds to int.
+                result = super().dequeue_job_and_maintain_ttl(min(timeout, budget), budget)  # type: ignore[arg-type]
             except StopRequested:
                 if not self._stop_requested:
                     raise

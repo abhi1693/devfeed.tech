@@ -1,11 +1,17 @@
 """Shared literal text search for service lists and entity pickers."""
 
+from __future__ import annotations
+
 from sqlalchemy import case, func, literal, or_
+from sqlalchemy.sql import ColumnElement, SQLColumnExpression
+from sqlalchemy.sql.functions import Function
 
 from devfeed_core.models import Topic
 
 
-def normalized_text(value):
+def normalized_text(
+    value: SQLColumnExpression[str] | SQLColumnExpression[str | None],
+) -> Function[str]:
     # Punctuation and whitespace separate words. Keep Unicode letters/numbers
     # and the meaningful symbols in technology names such as C++ and C#.
     return func.trim(
@@ -13,7 +19,9 @@ def normalized_text(value):
     )
 
 
-def text_search(query: str, *columns):
+def text_search(
+    query: str, *columns: SQLColumnExpression[str] | SQLColumnExpression[str | None]
+) -> ColumnElement[bool]:
     """Normalize both sides before filtering/counting/paging, never the data.
 
     A punctuation-only query remains a literal search instead of becoming an
@@ -31,6 +39,6 @@ def text_search(query: str, *columns):
     )
 
 
-def topic_search(query: str):
+def topic_search(query: str) -> ColumnElement[bool]:
     """Return every matching topic, including those sharing an abbreviation."""
     return text_search(query, Topic.name, Topic.slug, func.array_to_string(Topic.aliases, " "))

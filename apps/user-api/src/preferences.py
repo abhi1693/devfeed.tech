@@ -1,7 +1,10 @@
 """User-owned topic preferences and uncached personalized discovery."""
 
+from __future__ import annotations
+
 import uuid
 from typing import Annotated
+from uuid import UUID
 
 from devfeed_core.models import (
     Article,
@@ -21,6 +24,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import Session
+from sqlalchemy.sql.selectable import Select
 
 from devfeed_user_api.auth import User
 from devfeed_user_api.dependencies import DB
@@ -38,7 +43,7 @@ class TopicFollow(BaseModel):
     followed: bool
 
 
-def lock_account(session, user: User) -> uuid.UUID:
+def lock_account(session: Session, user: User) -> uuid.UUID:
     account = session.scalar(
         select(UserAccount.id)
         .where(
@@ -59,7 +64,7 @@ def lock_account(session, user: User) -> uuid.UUID:
     response_model=Preferences,
     openapi_extra=AgentAccessPolicy(scope="devfeed:read").openapi_extra(),
 )
-def preferences(user: User, session: DB):
+def preferences(user: User, session: DB) -> Preferences:
     ids = session.scalars(
         select(UserTopic.topic_id)
         .join(Topic)
@@ -70,7 +75,7 @@ def preferences(user: User, session: DB):
 
 
 @router.put("/preferences", response_model=Preferences)
-def save_preferences(payload: Preferences, user: User, session: DB):
+def save_preferences(payload: Preferences, user: User, session: DB) -> Preferences:
     ids = sorted(set(payload.topic_ids))
     # Serialize updates from multiple tabs, and bind ownership only to the session.
     account = lock_account(session, user)
@@ -99,7 +104,7 @@ def save_preferences(payload: Preferences, user: User, session: DB):
     response_model=TopicFollow,
     openapi_extra=AgentAccessPolicy(scope="devfeed:write").openapi_extra(),
 )
-def follow_topic(topic_id: uuid.UUID, payload: TopicFollow, user: User, session: DB):
+def follow_topic(topic_id: uuid.UUID, payload: TopicFollow, user: User, session: DB) -> TopicFollow:
     # A single-topic mutation must not replace preferences loaded by another tab.
     account = lock_account(session, user)
     if payload.followed:
@@ -136,7 +141,7 @@ class SourcePreferences(BaseModel):
     response_model=SourcePreferences,
     openapi_extra=AgentAccessPolicy(scope="devfeed:read").openapi_extra(),
 )
-def source_preferences(user: User, session: DB):
+def source_preferences(user: User, session: DB) -> SourcePreferences:
     account = session.scalar(
         select(UserAccount.id).where(
             UserAccount.id == uuid.UUID(user.user_id),
@@ -157,7 +162,9 @@ def source_preferences(user: User, session: DB):
 
 
 @router.put("/preferences/sources", response_model=SourcePreferences)
-def save_source_preferences(payload: SourcePreferences, user: User, session: DB):
+def save_source_preferences(
+    payload: SourcePreferences, user: User, session: DB
+) -> SourcePreferences:
     ids = sorted(set(payload.source_ids))
     account = lock_account(session, user)
     approved = set(
@@ -187,7 +194,9 @@ def save_source_preferences(payload: SourcePreferences, user: User, session: DB)
     response_model=TopicFollow,
     openapi_extra=AgentAccessPolicy(scope="devfeed:write").openapi_extra(),
 )
-def follow_source(source_id: uuid.UUID, payload: TopicFollow, user: User, session: DB):
+def follow_source(
+    source_id: uuid.UUID, payload: TopicFollow, user: User, session: DB
+) -> TopicFollow:
     account = lock_account(session, user)
     if payload.followed:
         if (
@@ -226,7 +235,7 @@ class TagPreferences(BaseModel):
     tag_ids: Annotated[list[uuid.UUID], Field(max_length=100)]
 
 
-def published_tags():
+def published_tags() -> Select[UUID]:
     return select(Tag.id).where(
         select(ArticleTag.article_id)
         .join(Article, Article.id == ArticleTag.article_id)
@@ -240,7 +249,7 @@ def published_tags():
     response_model=TagPreferences,
     openapi_extra=AgentAccessPolicy(scope="devfeed:read").openapi_extra(),
 )
-def tag_preferences(user: User, session: DB):
+def tag_preferences(user: User, session: DB) -> TagPreferences:
     ids = session.scalars(
         select(UserTag.tag_id)
         .where(UserTag.user_id == uuid.UUID(user.user_id))
@@ -250,7 +259,7 @@ def tag_preferences(user: User, session: DB):
 
 
 @router.put("/preferences/tags", response_model=TagPreferences)
-def save_tag_preferences(payload: TagPreferences, user: User, session: DB):
+def save_tag_preferences(payload: TagPreferences, user: User, session: DB) -> TagPreferences:
     ids = sorted(set(payload.tag_ids))
     account = lock_account(session, user)
     if set(session.scalars(published_tags().where(Tag.id.in_(ids)))) != set(ids):
@@ -270,7 +279,7 @@ def save_tag_preferences(payload: TagPreferences, user: User, session: DB):
     response_model=TopicFollow,
     openapi_extra=AgentAccessPolicy(scope="devfeed:write").openapi_extra(),
 )
-def follow_tag(tag_id: uuid.UUID, payload: TopicFollow, user: User, session: DB):
+def follow_tag(tag_id: uuid.UUID, payload: TopicFollow, user: User, session: DB) -> TopicFollow:
     account = lock_account(session, user)
     if payload.followed:
         if session.scalar(published_tags().where(Tag.id == tag_id)) is None:

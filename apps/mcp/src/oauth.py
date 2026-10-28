@@ -1,9 +1,12 @@
 """OAuth SDK provider backed by the user service's revocable Redis grants."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import secrets
 import time
+from typing import Any, cast
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 import anyio
@@ -23,6 +26,10 @@ from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+# The OAuth SDK persists extensible client and grant records through this boundary.
+type JsonRecord = dict[str, Any]
+
+
 RESOURCE_SCOPES = ["devfeed:read", "devfeed:write"]
 SCOPES = [*RESOURCE_SCOPES, "offline_access"]
 
@@ -32,17 +39,19 @@ def key(kind: str, value: str) -> str:
 
 
 class OAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]):
-    def __init__(self, redis: Redis, resource: str, web_url: str, access_ttl_seconds: int = 900):
+    def __init__(
+        self, redis: Redis, resource: str, web_url: str, access_ttl_seconds: int = 900
+    ) -> None:
         self.access_ttl_seconds = access_ttl_seconds
         self.redis = redis
         self.resource = resource
         self.web_url = web_url.rstrip("/")
 
-    async def get_record(self, kind: str, value: str):
+    async def get_record(self, kind: str, value: str) -> JsonRecord | None:
         raw = await self.redis.get(key(kind, value))
-        return json.loads(raw) if raw else None
+        return cast(JsonRecord, json.loads(raw)) if raw else None
 
-    async def put_record(self, kind: str, value: str, record: dict, ttl: int):
+    async def put_record(self, kind: str, value: str, record: JsonRecord, ttl: int) -> None:
         await self.redis.set(key(kind, value), json.dumps(record), ex=ttl)
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
@@ -107,7 +116,7 @@ class OAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshT
 
     async def load_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: str
-    ):
+    ) -> AuthorizationCode | None:
         record = await self.get_record("code", authorization_code)
         if not record or record["client_id"] != client.client_id:
             return None
@@ -180,20 +189,22 @@ class OAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshT
 
     async def exchange_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: AuthorizationCode
-    ):
+    ) -> OAuthToken:
         raw = await self.redis.getdel(key("code", authorization_code.code))
         if not raw:
             raise TokenError("invalid_grant")
         record = json.loads(raw)
         return await self.issue(record["grant_id"], client.client_id, authorization_code.scopes)
 
-    async def revoke_grant(self, grant_id: str):
+    async def revoke_grant(self, grant_id: str) -> None:
         grant = await self.get_record("grant", grant_id)
         await self.redis.delete(key("grant", grant_id))
         if grant:
             await self.redis.zrem(key("connections", grant["identity"]["user_id"]), grant_id)
 
-    async def load_refresh_token(self, client: OAuthClientInformationFull, refresh_token: str):
+    async def load_refresh_token(
+        self, client: OAuthClientInformationFull, refresh_token: str
+    ) -> RefreshToken | None:
         record = await self.get_record("refresh", refresh_token)
         if not record:
             replay = await self.get_record("used-refresh", refresh_token)
@@ -206,7 +217,7 @@ class OAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshT
 
     async def exchange_refresh_token(
         self, client: OAuthClientInformationFull, refresh_token: RefreshToken, scopes: list[str]
-    ):
+    ) -> OAuthToken:
         record = await self.get_record("refresh", refresh_token.token)
         if not record:
             replay = await self.get_record("used-refresh", refresh_token.token)
@@ -216,7 +227,8 @@ class OAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshT
         grant = await self.get_record("grant", record["grant_id"])
         if not grant:
             raise TokenError("invalid_grant")
-        ttl = max(1, int(grant.get("absolute_expires_at", grant["expires_at"]) - time.time()))
+        expires_at: int = grant["expires_at"]
+        ttl = max(1, int(grant.get("absolute_expires_at", expires_at) - time.time()))
         raw = await self.redis.eval(
             """
             local raw = redis.call('GET', KEYS[1])
@@ -236,7 +248,7 @@ class OAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshT
         record = json.loads(raw)
         return await self.issue(record["grant_id"], client.client_id, scopes)
 
-    async def load_access_token(self, token: str):
+    async def load_access_token(self, token: str) -> AccessToken | None:
         record = await self.get_record("access", token)
         if not record or record["expires_at"] <= time.time() or record["resource"] != self.resource:
             return None

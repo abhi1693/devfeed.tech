@@ -1,6 +1,7 @@
 """One connection policy for direct Redis and Sentinel-managed Valkey/Redis."""
 
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, cast
 
 from redis.asyncio import Redis as AsyncRedis
 from redis.asyncio.retry import Retry as AsyncRetry
@@ -36,7 +37,7 @@ class _AsyncSentinelRedis(AsyncRedis):
                     await sentinel.aclose()
 
 
-def _options(retry, overrides):
+def _options(retry: Retry | AsyncRetry, overrides: Mapping[str, Any]) -> dict[str, Any]:
     options: dict[str, Any] = {
         "socket_connect_timeout": 3,
         "socket_timeout": 3,
@@ -56,7 +57,7 @@ def _options(retry, overrides):
     return options
 
 
-def _sentinel_options(settings, options):
+def _sentinel_options(settings: Settings, options: dict[str, Any]) -> dict[str, Any]:
     options.update(parse_url(settings.redis_url))
     options.pop("host", None)
     options.pop("port", None)
@@ -86,8 +87,9 @@ def create_redis(settings: Settings, **overrides: Any) -> Redis:
     # Only Sentinel may supply the writable primary's address.
     discovery = _sentinel_options(settings, options)
     sentinel = Sentinel(settings.redis_sentinel_nodes, sentinel_kwargs=discovery)
-    return sentinel.master_for(
-        settings.redis_sentinel_master, redis_class=_SentinelRedis, **options
+    return cast(
+        Redis,
+        sentinel.master_for(settings.redis_sentinel_master, redis_class=_SentinelRedis, **options),
     )
 
 
@@ -102,6 +104,9 @@ def create_async_redis(settings: Settings, **overrides: Any) -> AsyncRedis:
         raise ValueError("Redis Sentinel requires a master name")
     discovery = _sentinel_options(settings, options)
     sentinel = AsyncSentinel(settings.redis_sentinel_nodes, sentinel_kwargs=discovery)
-    return sentinel.master_for(
-        settings.redis_sentinel_master, redis_class=_AsyncSentinelRedis, **options
+    return cast(
+        AsyncRedis,
+        sentinel.master_for(
+            settings.redis_sentinel_master, redis_class=_AsyncSentinelRedis, **options
+        ),
     )

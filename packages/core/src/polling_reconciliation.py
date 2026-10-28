@@ -1,15 +1,18 @@
 """Batch only schedules whose applied mode disagrees with the current gate."""
 
-from datetime import timedelta
+from __future__ import annotations
+
+from datetime import datetime, timedelta
 
 from sqlalchemy import or_, select
+from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_core.config import get_settings
 from devfeed_core.models import IngestionJob, Source
 from devfeed_core.polling import schedule
 
 
-def reconcile_polling(factory, batch, now):
+def reconcile_polling(factory: sessionmaker[Session], batch: int, now: datetime) -> int:
     settings = get_settings()
     enabled = settings.adaptive_source_polling_enabled
     active = select(IngestionJob.id).where(

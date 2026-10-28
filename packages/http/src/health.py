@@ -1,25 +1,29 @@
 """Shared readiness response for independently deployed HTTP services."""
 
+from __future__ import annotations
+
 import logging
 from collections.abc import Callable
 
 from devfeed_core.db import database_revision
 from devfeed_core.version import BACKWARD_COMPATIBLE_SCHEMA_REVISIONS, SCHEMA_REVISION
 from fastapi.responses import JSONResponse
+from redis import Redis
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from devfeed_http.schemas import UnhealthyResponse
 
 
 def readiness_response(
-    session,
-    redis,
+    session: Session,
+    redis: Redis,
     logger: logging.Logger | None = None,
     *,
-    revision_reader: Callable = database_revision,
+    revision_reader: Callable[[Session], str | None] = database_revision,
     schema_revision: str = SCHEMA_REVISION,
-):
+) -> JSONResponse | dict[str, str]:
     try:
         revision = revision_reader(session)
         session.close()

@@ -1,6 +1,9 @@
 """Reversible pause for article-derived taxonomy proposals, independent of full automation."""
 
+from __future__ import annotations
+
 from sqlalchemy import true
+from sqlalchemy.sql.elements import ColumnElement
 
 from devfeed_core.config import get_settings
 from devfeed_core.models import TopicProposal
@@ -12,7 +15,7 @@ def proposal_allowed(proposal: TopicProposal) -> bool:
     return get_settings().article_topic_proposals_enabled or proposal.origin not in ARTICLE_ORIGINS
 
 
-def proposal_condition():
+def proposal_condition() -> ColumnElement[bool]:
     return (
         true()
         if get_settings().article_topic_proposals_enabled

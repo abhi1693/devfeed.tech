@@ -21,7 +21,7 @@ MAX_ATTEMPTS = DELIVERY_POLICY.max_attempts
 MAX_DELIVERY_AGE = DELIVERY_POLICY.max_age
 
 
-def deliver_notification(job_id: str):
+def deliver_notification(job_id: str) -> None:
     with job_log_context("notifications", job_id):
         try:
             _deliver(uuid.UUID(job_id))
@@ -30,7 +30,7 @@ def deliver_notification(job_id: str):
             raise
 
 
-def _deliver(identifier: uuid.UUID):
+def _deliver(identifier: uuid.UUID) -> None:
     settings = get_settings()
     if not settings.notifications_enabled:
         return  # Scheduler can redispatch this row after re-enabling.

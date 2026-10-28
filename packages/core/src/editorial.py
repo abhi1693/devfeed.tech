@@ -1,5 +1,7 @@
 """Editorial policy. AI output is evidence, never authority to publish."""
 
+from __future__ import annotations
+
 import logging
 import re
 import uuid
@@ -11,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from devfeed_core.article_jobs import approved_sources
 from devfeed_core.article_lifecycle import processing_readiness
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import Article, ArticleReview, utcnow
 from devfeed_core.schemas import ContentFormat, ContentType, InputModel, Name, ReviewNote
 from devfeed_core.services import OperationConflict, RecordNotFound
@@ -82,9 +85,9 @@ def decide_article(
     identifier: uuid.UUID,
     body: EditorialDecision,
     *,
-    dry_run=False,
-    automation=None,
-):
+    dry_run: bool = False,
+    automation: JsonRecord | None = None,
+) -> Article:
     # Match workers and ingestion: keep source authority stable before locking the
     # article. Job rows are only read by readiness, avoiding an inverted job lock.
     if body.action == "publish":

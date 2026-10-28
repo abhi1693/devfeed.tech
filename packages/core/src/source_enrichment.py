@@ -1,8 +1,12 @@
 """Source metadata outbox operations. No network work occurs inside transactions."""
 
+import uuid
+from collections.abc import Mapping
 from datetime import datetime
+from typing import TypedDict
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from devfeed_core.job_lifecycle import fail_or_retry, start_job
 from devfeed_core.jobs import LEASE_SECONDS
@@ -11,7 +15,13 @@ from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.source_profiles import PROFILE_FIELDS
 
 
-def source_identity(source):
+class SourceIdentity(TypedDict):
+    feed_url: str | None
+    source_type: str
+    website_url: str | None
+
+
+def source_identity(source: Source) -> SourceIdentity:
     return {
         "feed_url": source.feed_url,
         "source_type": source.source_type,
@@ -19,7 +29,7 @@ def source_identity(source):
     }
 
 
-def profile_current(source, job):
+def profile_current(source: Source, job: SourceEnrichmentJob | None) -> bool:
     if job is None or job.status != "succeeded":
         return False
     current = bool(
@@ -37,7 +47,7 @@ def profile_current(source, job):
     return current
 
 
-def request_source_review(session, source):
+def request_source_review(session: Session, source: Source) -> SourceEnrichmentJob | None:
     """All entry points share discovery followed by source enrichment/review."""
     if source.feed_url:
         return request_enrichment(session, source.id)
@@ -63,7 +73,9 @@ def request_source_review(session, source):
     return None
 
 
-def request_enrichment(session, source_id, *, supersede=False):
+def request_enrichment(
+    session: Session, source_id: uuid.UUID, *, supersede: bool = False
+) -> SourceEnrichmentJob:
     source = session.scalar(select(Source).where(Source.id == source_id).with_for_update())
     if source is None:
         raise RecordNotFound("Source not found")
@@ -90,7 +102,13 @@ def request_enrichment(session, source_id, *, supersede=False):
     return job
 
 
-def request_relevance(session, source_id, *, profile=None, automatic=False):
+def request_relevance(
+    session: Session,
+    source_id: uuid.UUID,
+    *,
+    profile: SourceEnrichmentJob | None = None,
+    automatic: bool = False,
+) -> SourceEnrichmentJob | None:
     from devfeed_core.config import get_settings
     from devfeed_core.source_relevance import VERSION
 
@@ -125,6 +143,7 @@ def request_relevance(session, source_id, *, profile=None, automatic=False):
         )
     if not profile_current(source, profile):
         raise OperationConflict("Complete current source profile work before assessment")
+    assert profile is not None
     result = profile.result or {}
     job = SourceEnrichmentJob(
         source_id=source_id,
@@ -142,7 +161,9 @@ def request_relevance(session, source_id, *, profile=None, automatic=False):
     return job
 
 
-def claim_enrichment(session, job_id):
+def claim_enrichment(
+    session: Session, job_id: uuid.UUID
+) -> tuple[SourceEnrichmentJob, Source] | None:
     # Source-first locking matches deletion and prevents a worker/deletion
     # deadlock. The subquery only reads the delivery's immutable source identity.
     source = session.scalar(
@@ -190,7 +211,9 @@ def claim_enrichment(session, job_id):
     return job, source
 
 
-def fill_profile(source, candidates: dict, original: dict) -> list[str]:
+def fill_profile(
+    source: Source, candidates: Mapping[str, str | None], original: Mapping[str, str | None]
+) -> list[str]:
     changed: list[str] = []
     if source.website_url != original["website_url"]:
         return changed  # A manual website change invalidates fetched branding evidence.
@@ -204,7 +227,7 @@ def fill_profile(source, candidates: dict, original: dict) -> list[str]:
     return changed
 
 
-def prepare_enrichment_dispatch(session, job_id):
+def prepare_enrichment_dispatch(session: Session, job_id: uuid.UUID) -> SourceEnrichmentJob:
     job = session.scalar(
         select(SourceEnrichmentJob).where(SourceEnrichmentJob.id == job_id).with_for_update()
     )

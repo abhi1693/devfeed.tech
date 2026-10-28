@@ -8,14 +8,26 @@ callback or renewal cannot restore access after a logout has been acknowledged.
 import hashlib
 import json
 import time
+from collections.abc import Callable
+from typing import Literal, TypedDict
 from urllib.parse import parse_qsl
 
 import jwt
-from fastapi import HTTPException, Request
+from devfeed_core.json_types import JsonRecord, JsonValue
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
+from redis import Redis
 
 from devfeed_http import oidc
 from devfeed_http.body_limits import BodyLimitedRoute
+
+
+class ProviderSession(TypedDict):
+    issuer: str
+    client_id: str
+    subject: str
+    sid: str | None
+    issued_at: int
 
 
 class SSOLogoutResponse(BaseModel):
@@ -65,7 +77,7 @@ def marker(prefix: str, sid: str | None, subject: str | None) -> str:
     return prefix + "revoked:" + digest
 
 
-def correlated(claims: dict, client: str) -> dict:
+def correlated(claims: JsonRecord, client: str) -> ProviderSession:
     if not opaque(claims.get("sub")) or ("sid" in claims and not opaque(claims["sid"])):
         raise oidc.OIDCError("Invalid provider session claims")
     return {
@@ -77,7 +89,7 @@ def correlated(claims: dict, client: str) -> dict:
     }
 
 
-def active(redis, service: str, settings: oidc.ProviderSettings, record: dict) -> bool:
+def active(redis: Redis, service: str, settings: oidc.ProviderSettings, record: JsonRecord) -> bool:
     context = record.get("provider_session")
     # Older browser sessions cannot be safely correlated. Policy versions are
     # bumped on rollout; require a new provider-validated login for those records.
@@ -106,7 +118,14 @@ def active(redis, service: str, settings: oidc.ProviderSettings, record: dict) -
     return True
 
 
-def save(redis, service: str, settings: oidc.ProviderSettings, key: str, record: dict, ttl: int):
+def save(
+    redis: Redis,
+    service: str,
+    settings: oidc.ProviderSettings,
+    key: str,
+    record: JsonRecord,
+    ttl: int,
+) -> None:
     redis.set(key, json.dumps(record), ex=ttl)
     # A marker written before or during SET is observed here; one written after
     # this check is observed on every authenticated request, including idle renewal.
@@ -133,11 +152,11 @@ async def read_token(request: Request) -> str:
         raise HTTPException(400, "Invalid logout request") from exc
 
 
-def validate(settings: oidc.ProviderSettings, metadata: dict, token: str) -> dict:
+def validate(settings: oidc.ProviderSettings, metadata: JsonRecord, token: str) -> JsonRecord:
     try:
         # Reject duplicate JSON members instead of silently choosing one identity.
-        def unique(pairs):
-            result = {}
+        def unique(pairs: list[tuple[str, JsonValue]]) -> dict[str, JsonValue]:
+            result: dict[str, JsonValue] = {}
             for name, value in pairs:
                 if name in result:
                     raise ValueError("Duplicate JWT member")
@@ -215,7 +234,7 @@ def validate(settings: oidc.ProviderSettings, metadata: dict, token: str) -> dic
         raise oidc.OIDCError("Invalid logout token") from exc
 
 
-def revoke(redis, service: str, settings: oidc.ProviderSettings, claims: dict) -> None:
+def revoke(redis: Redis, service: str, settings: oidc.ProviderSettings, claims: JsonRecord) -> None:
     prefix = scope(service, str(settings.oidc_issuer_url), str(settings.oidc_client_id))
     target = marker(prefix, claims.get("sid"), claims.get("sub"))
     fingerprint = hashlib.sha256(json.dumps(claims, sort_keys=True).encode()).hexdigest()
@@ -236,7 +255,15 @@ def revoke(redis, service: str, settings: oidc.ProviderSettings, claims: dict) -
         raise oidc.OIDCError("Conflicting logout delivery")
 
 
-def add_routes(router, *, service, get_settings, get_redis, local_logout, cookie):
+def add_routes(
+    router: APIRouter,
+    *,
+    service: Literal["admin", "user", "partner"],
+    get_settings: Callable[[], oidc.ProviderSettings],
+    get_redis: Callable[[], Redis],
+    local_logout: Callable[[Request], Response],
+    cookie: Callable[[Response, str, str, int], None],
+) -> None:
     """Register independently authenticated provider requests and browser SSO flow."""
     import hmac
     import secrets
@@ -252,24 +279,32 @@ def add_routes(router, *, service, get_settings, get_redis, local_logout, cookie
         ReaderGatewayPolicy,
     )
 
-    def origin(settings):
-        value = settings.base_url if service == "user" else getattr(settings, f"{service}_base_url")
+    def origin(settings: oidc.ProviderSettings) -> str | None:
+        value: str | None = getattr(
+            settings, "base_url" if service == "user" else f"{service}_base_url"
+        )
         return str(value).rstrip("/") if value else None
 
-    def flow_key(settings, state):
+    def flow_key(settings: oidc.ProviderSettings, state: str) -> str:
         prefix = scope(service, str(settings.oidc_issuer_url), str(settings.oidc_client_id))
         return prefix + "flow:" + hashlib.sha256(state.encode()).hexdigest()
 
-    def browser_policy(settings):
+    def trusted_origins(settings: oidc.ProviderSettings) -> list[str]:
+        # Reader aliases are a validated service-specific configuration field.
+        field = "allowed_origins"
+        values: list[str] = getattr(settings, field) if service == "user" else []
+        return values
+
+    def browser_policy(settings: oidc.ProviderSettings) -> list[str | None | list[str]]:
         # Bind completion to the configured client, origin and current service policy.
         return [
             settings.oidc_issuer_url,
             settings.oidc_client_id,
             origin(settings),
-            settings.allowed_origins if service == "user" else [],
+            trusted_origins(settings),
         ]
 
-    def process(token):
+    def process(token: str) -> None:
         settings = get_settings()
         if not oidc.configured(settings, base_url=origin(settings)):
             raise HTTPException(503, "Provider logout is not configured")
@@ -295,7 +330,7 @@ def add_routes(router, *, service, get_settings, get_redis, local_logout, cookie
         else GatewayPolicy(authentication="logout-token", body_limit=MAX_BODY)
     )
 
-    async def backchannel_logout(request: Request):
+    async def backchannel_logout(request: Request) -> Response:
         token = await read_token(request)
         await run_in_threadpool(process, token)
         return Response(status_code=200, headers={"Cache-Control": "no-store"})
@@ -320,7 +355,7 @@ def add_routes(router, *, service, get_settings, get_redis, local_logout, cookie
         if service == "user"
         else None,
     )
-    def sso_logout(request: Request):
+    def sso_logout(request: Request) -> JSONResponse:
         settings = get_settings()
         if not oidc.configured(settings, base_url=origin(settings)):
             raise HTTPException(503, "SSO sign-out is not configured")
@@ -337,7 +372,8 @@ def add_routes(router, *, service, get_settings, get_redis, local_logout, cookie
             # Reader aliases have host-only cookies of their own. Return to the
             # same explicitly trusted origin; its post-logout URI must also be registered.
             completion_origin = origin(settings)
-            if service == "user" and request.headers.get("origin") in settings.allowed_origins:
+            assert completion_origin is not None
+            if service == "user" and request.headers.get("origin") in trusted_origins(settings):
                 completion_origin = request.headers["origin"]
             flow = {
                 "browser": browser,
@@ -372,7 +408,7 @@ def add_routes(router, *, service, get_settings, get_redis, local_logout, cookie
         status_code=302,
         response_class=RedirectResponse,
     )
-    def sso_callback(request: Request):
+    def sso_callback(request: Request) -> RedirectResponse:
         settings = get_settings()
         states = request.query_params.getlist("state")
         browser = request.cookies.get(
@@ -380,9 +416,10 @@ def add_routes(router, *, service, get_settings, get_redis, local_logout, cookie
                 service,
                 "logout_state",
                 secure=(
-                    settings.cookie_secure
-                    if service == "user"
-                    else getattr(settings, f"{service}_cookie_secure")
+                    getattr(
+                        settings,
+                        "cookie_secure" if service == "user" else f"{service}_cookie_secure",
+                    )
                 ),
             ),
             "",
@@ -401,7 +438,7 @@ def add_routes(router, *, service, get_settings, get_redis, local_logout, cookie
             if (
                 flow.get("policy") != browser_policy(settings)
                 or flow.get("completion_origin")
-                not in [origin(settings), *(settings.allowed_origins if service == "user" else [])]
+                not in [origin(settings), *(trusted_origins(settings))]
                 or not isinstance(flow.get("browser"), str)
                 or not hmac.compare_digest(flow["browser"], browser)
                 or redis.getdel(key) != raw

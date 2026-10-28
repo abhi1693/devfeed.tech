@@ -1,5 +1,7 @@
 """Image lookup outbox and leases. Callers own transactions; no network I/O here."""
 
+from __future__ import annotations
+
 import uuid
 from typing import cast
 
@@ -9,6 +11,7 @@ from sqlalchemy.orm import Session, lazyload
 from devfeed_core.config import get_settings
 from devfeed_core.job_lifecycle import finish_job, start_job
 from devfeed_core.jobs import LEASE_SECONDS
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.managed_images import (
     ARTICLE_THUMBNAIL_LAYOUT,
     IMAGE_VERSION,
@@ -46,7 +49,7 @@ def thumbnail_maintenance_current(article: Article, job: ArticleImageJob) -> boo
 
 
 def request_image(
-    session: Session, article_id: uuid.UUID, *, automatic=False, refresh=False
+    session: Session, article_id: uuid.UUID, *, automatic: bool = False, refresh: bool = False
 ) -> ArticleImageJob | None:
     article = session.scalar(
         select(Article)
@@ -119,7 +122,9 @@ def backfill_images(session: Session, limit: int) -> list[ArticleImageJob]:
     return jobs
 
 
-def retry_image(session: Session, job_id: uuid.UUID, *, refresh=False) -> ArticleImageJob | None:
+def retry_image(
+    session: Session, job_id: uuid.UUID, *, refresh: bool = False
+) -> ArticleImageJob | None:
     from devfeed_core.logos import logo_job_target, request_logo
     from devfeed_core.models import PartnerProduct
 
@@ -223,10 +228,10 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
     # Match saves/completion by locking the logo subject before its job.
     # Article-only jobs do not match either query.
     for model in (Topic, Source, PartnerProduct):
-        target = logo_target(model)
+        locking_target = logo_target(model)
         session.scalar(
             select(model.id)
-            .join(ArticleImageJob, target.job_column == model.id)
+            .join(ArticleImageJob, locking_target.job_column == model.id)
             .where(ArticleImageJob.id == job_id)
             .with_for_update(of=model)
         )
@@ -254,6 +259,7 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
     if job is None or job.status != "queued" or job.available_at > now:
         return None
     if job.operation == "product-ad-image":
+        assert job.account_id is not None  # The promotion subject requires this FK.
         from devfeed_core.partner_product_images import product_ad_image_current
 
         if not get_settings().image_storage_enabled:
@@ -500,7 +506,7 @@ def backfill_thumbnail_encoding(session: Session, limit: int) -> list[ArticleIma
 
 
 def request_thumbnail_resize(
-    session: Session, article_id: uuid.UUID, *, checkpoint: dict | None = None
+    session: Session, article_id: uuid.UUID, *, checkpoint: JsonRecord | None = None
 ) -> ArticleImageJob | None:
     article = session.scalar(
         select(Article).where(Article.id == article_id).with_for_update(of=Article)

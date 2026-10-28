@@ -17,12 +17,14 @@ from devfeed_core.inference_validation import CODES, validation_feedback
 from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import owned_job
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import Source, SourceEnrichmentJob, utcnow
 from devfeed_core.source_enrichment import claim_enrichment, fill_profile, source_identity
 from devfeed_core.source_inspection import complete_website_profile
 from devfeed_core.source_profiles import PROFILE_FIELDS
 from devfeed_core.source_relevance import feed_sample
+from devfeed_core.source_types import SourceType
 from rq import get_current_job
 from sqlalchemy import select
 
@@ -33,7 +35,9 @@ from devfeed_aggregator.source_relevance import assess_source
 logger = logging.getLogger(__name__)
 
 
-def lookup_profile(url, source_type, existing):
+def lookup_profile(
+    url: str, source_type: SourceType, existing: dict[str, str | None]
+) -> tuple[JsonRecord, FeedError | None]:
     try:
         result = fetch_feed(url)
     except FeedError as exc:
@@ -69,9 +73,11 @@ def enrich_source(job_id: str) -> None:
             raise
 
 
-def _enrich_source(identifier):
+def _enrich_source(identifier: uuid.UUID) -> None:
     started = time.perf_counter()
     factory = session_factory()
+    job: SourceEnrichmentJob | None
+    source: Source | None
     with factory.begin() as session:
         claimed = claim_enrichment(session, identifier)
         if claimed is None:
@@ -94,10 +100,11 @@ def _enrich_source(identifier):
             logger.info("source_relevance_rerouted", extra={"source_id": source.id})
             return
         source_id, token, attempt = source.id, job.lease_token, job.attempts
-        url, source_type = source.feed_url, source.source_type
+        url, source_type = source.feed_url, SourceType(source.source_type)
         operation, captured = job.operation, dict(job.result or {})
         original = {field: getattr(source, field) for field in PROFILE_FIELDS}
         previous_code = (job.error or "").removeprefix("Source relevance validation failed: ")
+    assert token is not None  # claim_enrichment initializes ownership.
     with (
         log_context(source_id=source_id, attempt=attempt),
         inference_context(
@@ -108,9 +115,13 @@ def _enrich_source(identifier):
             "source_relevance_started" if operation == "relevance" else "source_enrichment_started",
             extra={"operation": operation},
         )
-        candidates, error, assessment = {}, None, None
+        candidates: JsonRecord = {}
+        error: Exception | None = None
+        assessment: JsonRecord | None = None
         stage = operation
         try:
+            if url is None:
+                raise TypeError("Source has no feed URL")
             if operation == "profile":
                 candidates, error = lookup_profile(url, source_type, original)
             else:

@@ -2,15 +2,18 @@
 
 import hashlib
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from threading import Event, Thread
-from typing import Annotated
+from types import SimpleNamespace, TracebackType
+from typing import Annotated, Self, TypedDict
 from uuid import UUID
 
 import typer
 from devfeed_aggregator.discovery_tasks import assess_sample
 from devfeed_core import discovery
 from devfeed_core.db import session_factory
+from devfeed_core.discovery import DiscoveryRunResult, DiscoveryStart, PublisherImportResult
 from devfeed_core.discovery_crawler import CrawlSession
 from devfeed_core.discovery_import import MAX_IMPORT_BYTES, parse_import, publisher_hint
 from devfeed_core.feeds.fetcher import FeedError
@@ -19,12 +22,13 @@ from devfeed_core.urls import validate_public_url
 from sqlalchemy import select
 
 from devfeed_cli.commands import InputError
+from devfeed_cli.contracts import CommandHandler, CommandOutput, CommandResult
 from devfeed_cli.options import Identifier, Limit, Offset, group
 from devfeed_cli.runtime import invoke as runtime_invoke
 
 
-def invoke(ctx, handler, values):
-    def execute(args):
+def invoke(ctx: typer.Context, handler: CommandHandler, values: Mapping[str, object]) -> None:
+    def execute(args: SimpleNamespace) -> CommandResult:
         try:
             return handler(args)
         except FeedError as exc:
@@ -41,7 +45,9 @@ app.add_typer(seeds, name="seeds")
 
 
 @app.command()
-def add(ctx: typer.Context, url: str, name: str | None = None, feed_hint: str | None = None):
+def add(
+    ctx: typer.Context, url: str, name: str | None = None, feed_hint: str | None = None
+) -> None:
     """Queue a publisher homepage; an optional feed is only a discovery hint."""
     invoke(
         ctx,
@@ -50,7 +56,7 @@ def add(ctx: typer.Context, url: str, name: str | None = None, feed_hint: str | 
     )
 
 
-def import_file(args):
+def import_file(args: SimpleNamespace) -> PublisherImportResult:
     with Path(args.file).open("rb") as stream:
         body = stream.read(MAX_IMPORT_BYTES + 1)
     return discovery.import_publishers(
@@ -61,7 +67,7 @@ def import_file(args):
 @app.command("import")
 def import_candidates(
     ctx: typer.Context, file: str, format: str = "opml", origin: str = "cli-import"
-):
+) -> None:
     """Import OPML, URLs, JSON or Markdown atomically; preserve provenance."""
     invoke(ctx, import_file, locals())
 
@@ -69,12 +75,12 @@ def import_candidates(
 @app.command("list")
 def list_candidates(
     ctx: typer.Context, status: str | None = None, limit: Limit = 50, offset: Offset = 0
-):
+) -> None:
     invoke(ctx, lambda a: discovery.list_candidates(a.status, a.limit, a.offset), locals())
 
 
 @app.command()
-def show(ctx: typer.Context, id: Identifier):
+def show(ctx: typer.Context, id: Identifier) -> None:
     """Show candidate, feed evidence, assessments and the last 100 jobs/reviews."""
     invoke(ctx, lambda a: discovery.show(a.id), locals())
 
@@ -84,7 +90,7 @@ class RunProgress:
 
     heartbeat_seconds = 10
 
-    def __init__(self, index, limit, quiet=False):
+    def __init__(self, index: int, limit: int, quiet: bool = False) -> None:
         self.prefix = f"[{index}/{limit}]"
         self.label = "Waiting for the next available job"
         self.quiet = quiet
@@ -92,33 +98,38 @@ class RunProgress:
         self.stop = Event()
         self.thread = Thread(target=self.heartbeat, daemon=True)
 
-    def emit(self, message):
+    def emit(self, message: str) -> None:
         if not self.quiet:
             typer.echo(f"{self.prefix} {message}", err=True)
 
-    def started(self, info):
+    def started(self, info: DiscoveryStart) -> None:
         name = "".join(char if char.isprintable() else " " for char in info["name"])[:200]
         self.label = f"{info['stage']}: {name} ({info['candidate_id']}, attempt {info['attempt']})"
         self.emit(f"Started {self.label}")
 
-    def heartbeat(self):
+    def heartbeat(self) -> None:
         while not self.stop.wait(self.heartbeat_seconds):
             self.emit(
                 f"Still working — {self.label}; {time.monotonic() - self.started_at:.0f}s elapsed"
             )
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         self.emit(self.label)
         if not self.quiet:
             self.thread.start()
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         self.stop.set()
         if self.thread.is_alive():
             self.thread.join()
 
-    def finished(self, result):
+    def finished(self, result: DiscoveryRunResult | None) -> None:
         elapsed = time.monotonic() - self.started_at
         if result is None:
             self.emit(
@@ -133,7 +144,12 @@ class RunProgress:
         self.emit(f"Finished: {details} ({elapsed:.1f}s)")
 
 
-def run_jobs(args):
+class RunJobsResult(TypedDict):
+    processed: int
+    jobs: list[DiscoveryRunResult]
+
+
+def run_jobs(args: SimpleNamespace) -> RunJobsResult:
     if args.allow_ai:
         from devfeed_core.config import get_settings
 
@@ -160,13 +176,13 @@ def run(
     quiet: Annotated[
         bool, typer.Option("--quiet", help="Suppress progress on stderr; retain JSON output.")
     ] = False,
-):
+) -> None:
     """Process due jobs, then exit. AI requires explicit --allow-ai. Safe to resume."""
     invoke(ctx, run_jobs, locals())
 
 
 @app.command()
-def assess(ctx: typer.Context, id: Identifier):
+def assess(ctx: typer.Context, id: Identifier) -> None:
     """Queue optional AI quality assessment of the selected feed sample."""
     invoke(ctx, lambda a: discovery.request(a.id, "assess"), locals())
 
@@ -178,7 +194,7 @@ def retry(
     reopen: bool = False,
     by: str | None = None,
     reason: str | None = None,
-):
+) -> None:
     """Queue discovery again; rejected candidates require an explicit audited reopen."""
     invoke(
         ctx,
@@ -188,7 +204,7 @@ def retry(
 
 
 @app.command("select")
-def select_feed(ctx: typer.Context, id: Identifier, feed_id: UUID):
+def select_feed(ctx: typer.Context, id: Identifier, feed_id: UUID) -> None:
     """Resolve multiple discovered feeds by explicitly selecting one."""
     invoke(ctx, lambda a: discovery.select_feed(a.id, a.feed_id), locals())
 
@@ -199,7 +215,7 @@ def approve(
     id: Identifier,
     by: Annotated[str, typer.Option()],
     reason: Annotated[str, typer.Option()],
-):
+) -> None:
     """Revalidate and admit explicitly; preserve existing source decisions/settings."""
     invoke(ctx, lambda a: discovery.approve(a.id, a.by, a.reason), locals())
 
@@ -210,11 +226,11 @@ def reject(
     id: Identifier,
     by: Annotated[str, typer.Option()],
     reason: Annotated[str, typer.Option()],
-):
+) -> None:
     invoke(ctx, lambda a: discovery.reject(a.id, a.by, a.reason), locals())
 
 
-def seed_add(args):
+def seed_add(args: SimpleNamespace) -> CommandOutput:
     from devfeed_core.discovery_import import FORMATS
     from sqlalchemy.dialects.postgresql import insert
 
@@ -226,15 +242,16 @@ def seed_add(args):
             insert(DiscoverySeed).values(url=url, format=args.format).on_conflict_do_nothing()
         )
         row = session.scalar(select(DiscoverySeed).where(DiscoverySeed.url == url))
+        assert row is not None  # The insert or URL conflict guarantees this seed.
         return discovery.record(row)
 
 
 @seeds.command("add")
-def register_seed(ctx: typer.Context, url: str, format: str = "opml"):
+def register_seed(ctx: typer.Context, url: str, format: str = "opml") -> None:
     invoke(ctx, seed_add, locals())
 
 
-def seed_list(args):
+def seed_list(args: SimpleNamespace) -> list[CommandOutput]:
     with session_factory()() as session:
         return [
             discovery.record(row)
@@ -248,11 +265,11 @@ def seed_list(args):
 
 
 @seeds.command("list")
-def list_seeds(ctx: typer.Context, limit: Limit = 50, offset: Offset = 0):
+def list_seeds(ctx: typer.Context, limit: Limit = 50, offset: Offset = 0) -> None:
     invoke(ctx, seed_list, locals())
 
 
-def seed_sync(args):
+def seed_sync(args: SimpleNamespace) -> PublisherImportResult:
     from devfeed_core.services import RecordNotFound
 
     with session_factory()() as session:
@@ -272,6 +289,6 @@ def seed_sync(args):
 
 
 @seeds.command("sync")
-def sync_seed(ctx: typer.Context, id: Identifier):
+def sync_seed(ctx: typer.Context, id: Identifier) -> None:
     """Fetch a registered collection with bounded guarded HTTP, then import hints."""
     invoke(ctx, seed_sync, locals())

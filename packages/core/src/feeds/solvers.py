@@ -4,6 +4,8 @@ Each configured service must enforce public-only web egress. URL checks here
 cannot police a remote browser's redirects, TLS, or subresource requests.
 """
 
+from __future__ import annotations
+
 import base64
 import ipaddress
 import logging
@@ -23,6 +25,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, FetchResult
 from devfeed_core.feeds.solver_providers import create_solver
 from devfeed_core.feeds.solver_types import SolveRequest, SolverUnavailable
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.redis import create_redis
 from devfeed_core.urls import validate_public_url
 
@@ -48,14 +51,14 @@ def _public_url(url: str) -> str:
 
 
 class _ChallengePage(HTMLParser):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.title = ""
         self.in_title = False
         self.in_script = False
         self.challenge = False
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag == "title":
             self.in_title = True
         if tag == "script":
@@ -66,13 +69,13 @@ class _ChallengePage(HTMLParser):
         }:
             self.challenge = True
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag == "title":
             self.in_title = False
         if tag == "script":
             self.in_script = False
 
-    def handle_data(self, data):
+    def handle_data(self, data: str) -> None:
         if self.in_title:
             self.title = (self.title + data)[:500]
         if self.in_script and re.search(r"window\.awsWafCookieDomainList\s*=", data):
@@ -197,25 +200,25 @@ def fetch_solved_page(
 class _FeedDocument(HTMLParser):
     """Extract XML text from the browser's plain-text document wrapper."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.in_pre = False
         self.parts: list[str] = []
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag == "pre":
             self.in_pre = True
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag == "pre":
             self.in_pre = False
 
-    def handle_data(self, data):
+    def handle_data(self, data: str) -> None:
         if self.in_pre:
             self.parts.append(data)
 
 
-def solve_feed_request(url: str) -> dict:
+def solve_feed_request(url: str) -> JsonRecord:
     """Ephemeral admin request executed exclusively by the isolated solver worker."""
     try:
         settings = get_settings()
@@ -238,7 +241,7 @@ def solve_feed_request(url: str) -> dict:
         return {"error": exc.reason}
 
 
-def solve_image_request(url: str) -> dict:
+def solve_image_request(url: str) -> JsonRecord:
     """Bounded binary retrieval on the isolated solver worker; no storage credentials."""
     try:
         result = fetch_solved_page(url, max_bytes=2_000_000, limit_setting="topic_logo", image=True)

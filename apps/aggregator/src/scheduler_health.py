@@ -3,11 +3,13 @@
 import logging
 import threading
 import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 from devfeed_core.config import get_settings
 from devfeed_core.models import utcnow
 from devfeed_core.redis import create_redis
+from redis import Redis
 from redis.backoff import NoBackoff
 from redis.exceptions import RedisError
 from redis.retry import Retry
@@ -19,15 +21,15 @@ STALL_SECONDS = 300
 
 
 class SchedulerHealth:
-    def __init__(self, connection, clock=time.monotonic):
+    def __init__(self, connection: Redis, clock: Callable[[], float] = time.monotonic) -> None:
         self.connection = connection
         self.clock = clock
         self.last_success = clock()
 
-    def completed(self):
+    def completed(self) -> None:
         self.last_success = self.clock()
 
-    def pulse(self):
+    def pulse(self) -> None:
         # A stuck cycle or repeated failing cycles eventually lose liveness.
         if self.clock() - self.last_success >= STALL_SECONDS:
             return
@@ -38,7 +40,7 @@ class SchedulerHealth:
 
 
 @contextmanager
-def scheduler_health():
+def scheduler_health() -> Iterator[SchedulerHealth]:
     connection = create_redis(
         get_settings(),
         socket_connect_timeout=1,
@@ -48,7 +50,7 @@ def scheduler_health():
     health = SchedulerHealth(connection)
     stop = threading.Event()
 
-    def heartbeat():
+    def heartbeat() -> None:
         from devfeed_aggregator.quota_monitor import refresh_quota
 
         quota_checked = float("-inf")

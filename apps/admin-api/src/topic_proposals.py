@@ -1,12 +1,16 @@
 """Private, attributed topic import and review operations."""
 
+from __future__ import annotations
+
 import uuid
-from typing import Annotated, Literal
+from collections.abc import Collection, Sequence
+from typing import Annotated, Literal, TypedDict
 
 from devfeed_core import github_topics
 from devfeed_core import topic_proposals as proposals
 from devfeed_core.analysis import snapshot_hash
 from devfeed_core.config import get_settings
+from devfeed_core.github_topics import GitHubPullResult
 from devfeed_core.models import TopicAnalysisJob, TopicProposal
 from devfeed_core.schemas import DatabaseText
 from devfeed_core.text_search import text_search
@@ -16,13 +20,19 @@ from devfeed_core.topic_analysis import (
     request_all_topic_analysis,
     request_topic_analysis,
 )
+from devfeed_core.topic_proposals import (
+    TopicEnrichmentPreview,
+    TopicImportPreview,
+    TopicProposalOut,
+)
 from devfeed_core.topics import lock_topics
 from devfeed_http.operation_policies import GatewayPolicy
-from devfeed_http.pagination import Listing, Page, paginate, record
+from devfeed_http.pagination import Listing, Page, PageData, paginate, record
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 from sqlalchemy import delete, func, or_, select
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import Session, load_only
+from sqlalchemy.sql.selectable import Select
 
 from devfeed_admin_api.auth import Admin, actor, require_admin
 from devfeed_admin_api.dependencies import DB
@@ -36,7 +46,7 @@ router = APIRouter(prefix="/v1/admin", tags=["admin-topics"], dependencies=[Depe
     response_model=proposals.TopicImportPreview,
     operation_id="admin_topic_import_preview",
 )
-def preview_import(body: proposals.TopicImport, session: DB):
+def preview_import(body: proposals.TopicImport, session: DB) -> TopicImportPreview:
     try:
         return proposals.preview_import(session, body)
     except ValueError as exc:
@@ -49,7 +59,9 @@ def preview_import(body: proposals.TopicImport, session: DB):
     status_code=201,
     operation_id="admin_topic_import_submit",
 )
-def submit_import(body: proposals.TopicImportSubmit, session: DB, admin: Admin):
+def submit_import(
+    body: proposals.TopicImportSubmit, session: DB, admin: Admin
+) -> list[TopicProposalOut]:
     try:
         values = proposals.submit_import(session, body, actor(admin))
     except (proposals.OperationConflict, proposals.RecordNotFound):
@@ -79,7 +91,7 @@ def listing(
         "any", "description", "aliases", "keywords", "website_url", "logo_url", "facts"
     ]
     | None = None,
-):
+) -> PageData[TopicProposalOut]:
     statement = select(TopicProposal)
     if status:
         statement = statement.where(TopicProposal.status == status)
@@ -158,6 +170,11 @@ def listing(
     }
 
 
+class FilterOptionsData(TypedDict):
+    kinds: Sequence[str]
+    sources: Sequence[str]
+
+
 class TopicProposalFilterOptions(BaseModel):
     kinds: list[str]
     sources: list[str]
@@ -168,7 +185,7 @@ class TopicProposalFilterOptions(BaseModel):
     response_model=TopicProposalFilterOptions,
     operation_id="admin_topic_proposal_filter_options",
 )
-def filter_options(session: DB):
+def filter_options(session: DB) -> FilterOptionsData:
     """Use the whole proposal catalog so choices survive filtering and pagination."""
     kind = TopicProposal.proposed["kind"].astext
     return {
@@ -181,7 +198,7 @@ def filter_options(session: DB):
     }
 
 
-def latest_analysis_statement():
+def latest_analysis_statement() -> Select[TopicAnalysisJob]:
     return (
         select(TopicAnalysisJob)
         .distinct(TopicAnalysisJob.proposal_id)
@@ -193,7 +210,9 @@ def latest_analysis_statement():
     )
 
 
-def latest_analyses(session, identifiers):
+def latest_analyses(
+    session: Session, identifiers: Collection[uuid.UUID]
+) -> dict[uuid.UUID | None, TopicAnalysisJob]:
     if not identifiers:
         return {}
     jobs = session.scalars(
@@ -221,7 +240,7 @@ def latest_analyses(session, identifiers):
     status_code=202,
     operation_id="admin_topic_proposals_analyze_all",
 )
-def analyze_all(session: DB, admin: Admin):
+def analyze_all(session: DB, admin: Admin) -> TopicAnalysisBatchOut:
     if not get_settings().ai_enabled:
         raise HTTPException(503, "AI analysis is disabled. Start the AI services first")
     result = request_all_topic_analysis(session, actor(admin))
@@ -234,7 +253,7 @@ def analyze_all(session: DB, admin: Admin):
     response_model=proposals.TopicProposalOut,
     operation_id="admin_topic_proposal_get",
 )
-def detail(proposal_id: uuid.UUID, session: DB):
+def detail(proposal_id: uuid.UUID, session: DB) -> TopicProposalOut:
     return proposals.proposal_view(
         record(session, TopicProposal, proposal_id),
         latest_analyses(session, [proposal_id]).get(proposal_id),
@@ -246,7 +265,9 @@ def detail(proposal_id: uuid.UUID, session: DB):
     response_model=proposals.TopicProposalOut,
     operation_id="admin_topic_proposal_review",
 )
-def review(proposal_id: uuid.UUID, body: proposals.TopicReview, session: DB, admin: Admin):
+def review(
+    proposal_id: uuid.UUID, body: proposals.TopicReview, session: DB, admin: Admin
+) -> TopicProposalOut:
     value = proposals.review_proposal(session, proposal_id, body, actor(admin))
     session.commit()
     return proposals.proposal_view(value)
@@ -264,7 +285,7 @@ def remove(
     session: DB,
     expected_input_hash: Annotated[str, Query(pattern=r"^[a-f0-9]{64}$")],
     expected_status: Literal["pending", "approved", "rejected"],
-):
+) -> Response:
     # Match review's lock order. The proposal lock also serializes new AI requests.
     # Read active jobs without locking them -> Response: workers lock job before proposal.
     lock_topics(session)
@@ -296,7 +317,7 @@ def remove(
     response_model=proposals.TopicEnrichmentPreview,
     operation_id="admin_topic_enrichment_preview",
 )
-def preview_enrichment(topic_id: uuid.UUID, session: DB):
+def preview_enrichment(topic_id: uuid.UUID, session: DB) -> TopicEnrichmentPreview:
     return proposals.preview_enrichment(session, topic_id)
 
 
@@ -308,7 +329,7 @@ def preview_enrichment(topic_id: uuid.UUID, session: DB):
 )
 def submit_enrichment(
     topic_id: uuid.UUID, body: proposals.TopicEnrichmentSubmit, session: DB, admin: Admin
-):
+) -> TopicProposalOut:
     value = proposals.submit_enrichment(session, topic_id, body, actor(admin))
     session.commit()
     return proposals.proposal_view(value)
@@ -320,7 +341,7 @@ def submit_enrichment(
     operation_id="admin_topic_github_pull",
     openapi_extra=GatewayPolicy(upstream_timeout_ms=120_000).openapi_extra(),
 )
-def github_pull(body: github_topics.GitHubPull, session: DB, admin: Admin):
+def github_pull(body: github_topics.GitHubPull, session: DB, admin: Admin) -> GitHubPullResult:
     try:
         result = github_topics.pull_topics(session, body, actor(admin))
     except github_topics.GitHubUnavailable as exc:
@@ -335,7 +356,7 @@ def github_pull(body: github_topics.GitHubPull, session: DB, admin: Admin):
     status_code=202,
     operation_id="admin_topic_proposal_analyze",
 )
-def analyze(proposal_id: uuid.UUID, session: DB, admin: Admin):
+def analyze(proposal_id: uuid.UUID, session: DB, admin: Admin) -> AdminJobOut:
     if not get_settings().ai_enabled:
         raise HTTPException(
             503, "AI analysis is disabled. Start Compose with --ai and sign in to Codex"

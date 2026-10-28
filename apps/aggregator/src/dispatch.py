@@ -10,6 +10,7 @@ from devfeed_core.db import session_factory
 from devfeed_core.image_jobs import prepare_image_dispatch
 from devfeed_core.job_definitions import JOB_DEFINITIONS, Job
 from devfeed_core.job_dispatch import dispatch_jobs
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.logging import log_context
 from devfeed_core.models import (
     ArticleEnrichmentJob,
@@ -67,7 +68,7 @@ IMMEDIATE_DISPATCH: dict[
 }
 
 
-def dispatch_now(job_id: uuid.UUID, *, kind: ImmediateKind = "ingestion") -> dict:
+def dispatch_now(job_id: uuid.UUID, *, kind: ImmediateKind = "ingestion") -> JsonRecord:
     """Commit the due-time override before publication; concurrent claims coalesce."""
     prepare, output, missing, failure = IMMEDIATE_DISPATCH[kind]
     ingestion = kind == "ingestion"
@@ -76,9 +77,11 @@ def dispatch_now(job_id: uuid.UUID, *, kind: ImmediateKind = "ingestion") -> dic
     with factory.begin() as session:
         job = prepare(session, job_id)
         fields = definition.log_fields(job)
-        source_analysis = isinstance(job, SourceEnrichmentJob) and requires_relevance(
-            session.get(Source, job.source_id), job
-        )
+        source_analysis = False
+        if isinstance(job, SourceEnrichmentJob):
+            source = session.get(Source, job.source_id)
+            assert source is not None  # The locked job retains its required source FK.
+            source_analysis = requires_relevance(source, job)
         solver = (
             isinstance(job, (SourceEnrichmentJob, ArticleEnrichmentJob, ArticleImageJob))
             and job.requires_solver

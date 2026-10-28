@@ -10,7 +10,12 @@ from devfeed_core.logos import LOGO_SIZES, LOGO_VERSION
 from devfeed_core.object_storage import R2Storage
 from PIL import Image, ImageOps
 
-from devfeed_aggregator.image_storage_base import ImgproxyTransform, OriginalStore, VariantStore
+from devfeed_aggregator.image_storage_base import (
+    ImgproxyTransform,
+    OriginalStore,
+    StoredImage,
+    VariantStore,
+)
 
 SVG_NS = "http://www.w3.org/2000/svg"
 SVG_TAGS = set(
@@ -90,12 +95,14 @@ def sanitize_svg(body: bytes) -> bytes:
         root.set("width", str(width * scale))
         root.set("height", str(height * scale))
         ET.register_namespace("", SVG_NS)
-        return ET.tostring(root, encoding="utf-8")
+        # defusedxml exposes the stdlib serializer without a typed re-export.
+        serialized: bytes = ET.tostring(root, encoding="utf-8")
+        return serialized
     except (ValueError, KeyError, UnicodeError, ET.ParseError) as exc:
         raise FeedError("Unsupported or unsafe SVG logo", reason="invalid_topic_logo") from exc
 
 
-def check_svg_css(value: str):
+def check_svg_css(value: str) -> None:
     # Disallow escapes and at-rules so CSS cannot hide network/file references.
     if "\\" in value or "@" in value or "/*" in value:
         raise ValueError("Unsupported SVG CSS")
@@ -105,13 +112,13 @@ def check_svg_css(value: str):
 
 
 class LogoOriginalStore(OriginalStore):
-    def __init__(self, storage: R2Storage):
+    def __init__(self, storage: R2Storage) -> None:
         super().__init__(storage)
         # Publisher favicons commonly use ICO. Decode them under the same pixel
         # limit, then store a normalized PNG; article photo policy stays narrower.
         self.formats = self.formats | {"ICO"}
 
-    def store(self, source: str) -> dict:
+    def store(self, source: str) -> StoredImage:
         result = fetch_topic_logo(source)
         body = result.body
         if (result.content_type or "").split(";", 1)[
@@ -154,19 +161,19 @@ class LogoVariantStore(VariantStore):
         self,
         storage: R2Storage,
         *,
-        sizes=LOGO_SIZES,
+        sizes: tuple[int, ...] = LOGO_SIZES,
         transform: ImgproxyTransform | None = None,
-    ):
+    ) -> None:
         super().__init__(storage, transform=transform)
         self._sizes = tuple(sizes)
 
-    def sizes(self, asset: dict) -> list[int]:
+    def sizes(self, asset: StoredImage) -> list[int]:
         return list(self._sizes)
 
-    def _key(self, asset: dict, size: int) -> str:
+    def _key(self, asset: StoredImage, size: int) -> str:
         return f"topic-logos/{LOGO_VERSION}/{asset['hash']}/{size}.webp"
 
-    def _render(self, asset: dict, size: int) -> bytes:
+    def _render(self, asset: StoredImage, size: int) -> bytes:
         # Fit every source to the same canvas fraction, including small rasters.
         # Otherwise the visible logo would shrink when a larger variant is selected.
         url = self.transform.url(

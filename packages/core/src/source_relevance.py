@@ -1,19 +1,32 @@
 """Evidence contract for optional automatic admission of user-suggested feeds."""
 
+from __future__ import annotations
+
 import json
 import math
 import re
 from copy import deepcopy
-from typing import Literal
+from typing import Literal, TypedDict
 
 from pydantic import Field
 from sqlalchemy import or_, select
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.sql import ColumnElement
 
 from devfeed_core.ai_content import eligible_content
 from devfeed_core.config import get_settings
+from devfeed_core.feeds.parser import ParsedFeed
 from devfeed_core.inference_validation import InferenceValidationError
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import Source, SourceEnrichmentJob
 from devfeed_core.schemas import InputModel, ReviewNote
+
+
+class FeedSampleEntry(TypedDict):
+    index: int
+    title: str
+    summary: str
+
 
 VERSION = "source-relevance-v5"
 PREVIOUS_VERSIONS = tuple(f"source-relevance-v{i}" for i in range(1, 5))
@@ -57,7 +70,7 @@ class SourceRelevance(InputModel):
     entries: list[EntryRelevance] = Field(max_length=10)
 
 
-def feed_sample(parsed):
+def feed_sample(parsed: ParsedFeed) -> list[FeedSampleEntry]:
     entries = [
         entry for entry in parsed.entries if eligible_content(getattr(entry, "published_at", None))
     ][:10]
@@ -67,7 +80,7 @@ def feed_sample(parsed):
     ]
 
 
-def evidence_options(entry):
+def evidence_options(entry: FeedSampleEntry) -> list[str]:
     """Only offer verbatim, bounded source passages; never manufacture evidence."""
     options = []
     for value in (entry["title"], entry["summary"]):
@@ -81,7 +94,7 @@ def evidence_options(entry):
     return list(dict.fromkeys(options))[:12]
 
 
-def relevance_schema(sample):
+def relevance_schema(sample: list[FeedSampleEntry]) -> JsonRecord:
     schema = SourceRelevance.model_json_schema()
     entry_schema = schema["$defs"].pop("EntryRelevance")
     variants = []
@@ -99,13 +112,13 @@ def relevance_schema(sample):
     return schema
 
 
-def evidence_references(entry):
+def evidence_references(entry: FeedSampleEntry) -> dict[str, str]:
     return {
         f"e{entry['index']}_{index}": quote for index, quote in enumerate(evidence_options(entry))
     }
 
 
-def restore_source_evidence(output, sample):
+def restore_source_evidence(output: JsonRecord, sample: list[FeedSampleEntry]) -> JsonRecord:
     result = deepcopy(output)
     entries = {entry["index"]: evidence_references(entry) for entry in sample}
     for entry in result.get("entries", []):
@@ -122,7 +135,7 @@ def restore_source_evidence(output, sample):
     return result
 
 
-def relevance_prompt(sample):
+def relevance_prompt(sample: list[FeedSampleEntry]) -> str:
     return (
         SOURCE_SCOPE_POLICY
         + """
@@ -160,16 +173,18 @@ Return every supplied entry index exactly once. The app decides approval or reje
     )
 
 
-def approval_supported(result: SourceRelevance, sample: list[dict]) -> bool:
+def approval_supported(result: SourceRelevance, sample: list[FeedSampleEntry]) -> bool:
     return classification_supported(result, sample, "relevant")
 
 
-def rejection_supported(result: SourceRelevance, sample: list[dict]) -> bool:
+def rejection_supported(result: SourceRelevance, sample: list[FeedSampleEntry]) -> bool:
     return classification_supported(result, sample, "unrelated")
 
 
 def classification_supported(
-    result: SourceRelevance, sample: list[dict], classification: Literal["relevant", "unrelated"]
+    result: SourceRelevance,
+    sample: list[FeedSampleEntry],
+    classification: Literal["relevant", "unrelated"],
 ) -> bool:
     expected = {entry["index"] for entry in sample}
     if len(result.entries) != len(sample) or {entry.index for entry in result.entries} != expected:
@@ -202,7 +217,7 @@ def classification_supported(
     )
 
 
-def requires_relevance(source, job=None):
+def requires_relevance(source: Source, job: SourceEnrichmentJob | None = None) -> bool:
     if job is not None and job.operation != "legacy":
         return job.operation == "relevance"
     settings = get_settings()
@@ -214,7 +229,7 @@ def requires_relevance(source, job=None):
     )
 
 
-def relevance_job_condition():
+def relevance_job_condition() -> ColumnElement[bool]:
     settings = get_settings()
     if not (settings.full_automation and settings.ai_enabled):
         return SourceEnrichmentJob.operation == "relevance"
@@ -230,7 +245,7 @@ def relevance_job_condition():
     )
 
 
-def schedule_pending_reviews(factory, limit=50):
+def schedule_pending_reviews(factory: sessionmaker[Session], limit: int = 50) -> int:
     """Review unassessed or older-policy pending sources; do not retry exhausted jobs."""
     settings = get_settings()
     if not (settings.full_automation and settings.ai_enabled):

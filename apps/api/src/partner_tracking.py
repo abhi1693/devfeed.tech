@@ -1,11 +1,15 @@
 """Receipt-authorized anonymous partner impression and click collection."""
 
+from __future__ import annotations
+
 from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.config import get_settings
 from devfeed_core.partner_claim_backfill import LEGACY_CLAIM_AT
 from devfeed_core.partner_tracking import (
     RECEIPT_TTL,
+    DeliveryClaim,
+    DeliveryReceipt,
     EventKind,
     InactivePartnerAsset,
     PartnerTrackingTokens,
@@ -24,6 +28,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from devfeed_api.dependencies import DBFactory, get_rate_limit_redis
 from devfeed_api.partner_callers import partner_caller_key
@@ -39,7 +44,9 @@ class PartnerEvent(BaseModel):
     kind: EventKind
 
 
-def _claim_event(session, receipt, kind, caller):
+def _claim_event(
+    session: Session, receipt: DeliveryReceipt, kind: EventKind, caller: str
+) -> DeliveryClaim:
     """Validate and commit the short-lived operational claim off the event loop."""
     headers = {"Cache-Control": "no-store"}
     try:
@@ -90,7 +97,7 @@ def _claim_event(session, receipt, kind, caller):
     response_class=Response,
     openapi_extra=RequestBodyPolicy(body_limit=2048).openapi_extra(),
 )
-async def track_event(body: PartnerEvent, request: Request, factory: DBFactory):
+async def track_event(body: PartnerEvent, request: Request, factory: DBFactory) -> Response:
     headers = {"Cache-Control": "no-store"}
     key = get_settings().partner_tracking_key
     receipt = PartnerTrackingTokens(key.get_secret_value()).verify(body.receipt) if key else None

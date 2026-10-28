@@ -8,7 +8,7 @@ app = typer.Typer(help="Backfill and synchronize the Typesense search index.")
 
 
 @app.command()
-def backfill():
+def backfill() -> None:
     """Queue all existing records for indexing; normal traffic uses change events."""
     from devfeed_core.db import session_factory
     from devfeed_core.search_index import backfill as enqueue
@@ -17,7 +17,7 @@ def backfill():
 
 
 @app.command()
-def setup():
+def setup() -> None:
     """Create collections and the configured search-only key (never print keys)."""
     from devfeed_core.config import get_settings
     from devfeed_core.search_engine import KINDS, Typesense
@@ -41,7 +41,7 @@ def setup():
 
 
 @app.command()
-def worker(once: bool = False):
+def worker(once: bool = False) -> None:
     """Run the dedicated indexer runtime; retained as a CLI compatibility command."""
     from devfeed_search_indexer.runtime import run_indexer
 

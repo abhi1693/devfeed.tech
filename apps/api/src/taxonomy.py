@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import uuid
+from collections.abc import Sequence
 
 from devfeed_core.models import Article, ArticleTag, Tag
 from devfeed_core.publication import visible_article
@@ -27,7 +30,7 @@ def tags(
     offset: int = Query(0, ge=0, le=MAX_OFFSET),
     q: str = Query("", max_length=200),
     letter: str = Query("", pattern=r"^[A-Z#]?$"),
-):
+) -> Sequence[Tag]:
     statement = select(Tag).where(
         select(ArticleTag.article_id)
         .join(Article, Article.id == ArticleTag.article_id)
@@ -56,7 +59,7 @@ def tags(
     response_model=TagPublicOut,
     openapi_extra=CachePolicy(namespace="tag", revision=1, ttl="metadata").openapi_extra(),
 )
-def tag(slug: TextInput, session: DB, by_id: bool = False):
+def tag(slug: TextInput, session: DB, by_id: bool = False) -> Tag:
     """Read a visible tag by canonical slug, or by stable UUID when by_id is true."""
     from fastapi import HTTPException
 

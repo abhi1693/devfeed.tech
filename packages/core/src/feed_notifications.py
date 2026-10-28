@@ -1,11 +1,15 @@
 """First-publication notifications for existing topic followers, never broadcasts."""
 
+from __future__ import annotations
+
 import hashlib
 import json
-from datetime import timedelta
+import uuid
+from datetime import datetime, timedelta
 
-from sqlalchemy import exists, select
+from sqlalchemy import Select, exists, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
@@ -27,7 +31,7 @@ from devfeed_core.publication import visible_article
 CATEGORY = "feed.topic.new"
 
 
-def record_publication(session, article, published_at):
+def record_publication(session: Session, article: Article, published_at: datetime) -> None:
     settings = get_settings()
     if not settings.notifications_enabled or not settings.chimely_user_environment:
         return
@@ -64,7 +68,7 @@ def record_publication(session, article, published_at):
         )
 
 
-def recipient_ids(event):
+def recipient_ids(event: FeedNotificationEvent) -> Select[uuid.UUID]:
     # Use the topic membership index rather than scanning the user directory.
     # Current unfollows and follows created after publication are excluded.
     topics = (
@@ -96,7 +100,7 @@ def recipient_ids(event):
     return select(audience.c.user_id)
 
 
-def expand_feed_notifications(factory, batch=100):
+def expand_feed_notifications(factory: sessionmaker[Session], batch: int = 100) -> int:
     """One locked event/page per tick, with cursor and outbox committed together."""
     settings = get_settings()
     if not settings.notifications_enabled or not settings.chimely_user_environment:
@@ -180,7 +184,7 @@ def expand_feed_notifications(factory, batch=100):
         return len(users)
 
 
-def delivery_is_current(session, job):
+def delivery_is_current(session: Session, job: NotificationDelivery) -> bool:
     import uuid
 
     event = session.get(FeedNotificationEvent, uuid.UUID(job.payload["article_id"]))

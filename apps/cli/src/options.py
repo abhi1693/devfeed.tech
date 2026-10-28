@@ -1,5 +1,6 @@
 """Reusable typed options and explicit update/clear semantics."""
 
+from collections.abc import Mapping
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -35,10 +36,10 @@ def boolean_pair(positive: bool, negative: bool, flags: str) -> bool | None:
 
 def updates(
     ctx: typer.Context,
-    parameters: dict,
+    parameters: Mapping[str, object],
     fields: dict[str, str],
     clear: dict[str, tuple[str, object]] | None = None,
-) -> dict:
+) -> dict[str, object]:
     """Do not confuse an omitted option with an intentional null/empty value."""
     values = {
         target: parameters[name]

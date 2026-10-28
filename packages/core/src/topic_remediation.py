@@ -1,5 +1,7 @@
 """Bounded draft correction; independent verification still owns automatic approval."""
 
+from __future__ import annotations
+
 import json
 import uuid
 from copy import deepcopy
@@ -7,11 +9,12 @@ from datetime import timedelta
 
 from pydantic import Field
 from sqlalchemy import func, or_, select, tuple_
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import Session, aliased, sessionmaker
 
 from devfeed_core.analysis import TERMINAL_ANALYSIS_ERRORS, snapshot_hash
 from devfeed_core.article_topic_policy import proposal_condition
 from devfeed_core.config import get_settings
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import (
     ResearchVerificationJob,
     TopicAnalysisJob,
@@ -43,7 +46,7 @@ class TopicCorrectionResult(TopicResearchResult):
     input_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
-def correction_prompt(snapshot: dict) -> str:
+def correction_prompt(snapshot: JsonRecord) -> str:
     return (
         SCOPE_POLICY
         + """Independently research and correct this pending developer-topic draft.
@@ -83,7 +86,9 @@ files, use connectors or ask questions. Return only outputSchema JSON.
     )
 
 
-def apply_topic_correction(proposal, job, result: TopicCorrectionResult) -> str:
+def apply_topic_correction(
+    proposal: TopicProposal, job: TopicAnalysisJob, result: TopicCorrectionResult
+) -> str:
     if proposal.status != "pending" or snapshot_hash(proposal.proposed) != job.input_hash:
         return "superseded"
     if str(result.proposal_id) != str(proposal.id) or result.input_hash != job.input_hash:
@@ -137,7 +142,13 @@ def apply_topic_correction(proposal, job, result: TopicCorrectionResult) -> str:
     return "enriched"
 
 
-def _enqueue(session, proposal, previous=None, *, reset=False):
+def _enqueue(
+    session: Session,
+    proposal: TopicProposal,
+    previous: TopicAnalysisJob | None = None,
+    *,
+    reset: bool = False,
+) -> TopicAnalysisJob:
     result = previous.result if previous and not reset else {}
     checks = result.get("evidence_verification", {}).get("checks", {}).values()
     attempt = (
@@ -179,7 +190,7 @@ def _enqueue(session, proposal, previous=None, *, reset=False):
     return job
 
 
-def schedule_topic_corrections(factory) -> int:
+def schedule_topic_corrections(factory: sessionmaker[Session]) -> int:
     settings = get_settings()
     if settings.ai_bounded_topics_enabled:
         from devfeed_core.topic_decision_budget import schedule_decisions
@@ -200,7 +211,7 @@ def schedule_topic_corrections(factory) -> int:
                 TopicAnalysisJob.input_snapshot.has_key("correction"),
             )
         )
-        slots = min(settings.automation_batch_size, max(0, MAX_PENDING - pending))
+        slots = min(settings.automation_batch_size, max(0, MAX_PENDING - (pending or 0)))
         if not slots:
             return 0
         newer = aliased(TopicAnalysisJob)
@@ -319,7 +330,7 @@ def schedule_topic_corrections(factory) -> int:
     return scheduled
 
 
-def finalize_relationship_reviews(factory) -> int:
+def finalize_relationship_reviews(factory: sessionmaker[Session]) -> int:
     """Terminal verification failures become attributed rejections in full mode."""
     if not get_settings().full_automation:
         return 0

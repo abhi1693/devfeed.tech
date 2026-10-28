@@ -8,11 +8,11 @@ from datetime import datetime
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.models import utcnow
-from devfeed_core.research_evidence import fetched_page
+from devfeed_core.research_evidence import FetchedPage, fetched_page
 from devfeed_core.urls import validate_public_url
 
 
-def reusable_page(url: str, timeout: float) -> dict:
+def reusable_page(url: str, timeout: float) -> FetchedPage:
     from devfeed_core.cache import get_cache
 
     started = time.monotonic()
@@ -26,7 +26,7 @@ def reusable_page(url: str, timeout: float) -> dict:
             key = cache.namespace + ":topic-evidence:v1:" + hashlib.sha256(url.encode()).hexdigest()
             raw = cache.redis.get(key)
             if raw and len(raw) <= settings.cache_max_bytes:
-                page = json.loads(raw)
+                page: FetchedPage = json.loads(raw)
                 age = (utcnow() - datetime.fromisoformat(page["validated_at"])).total_seconds()
                 if (
                     0 <= age < min(ttl, int(page.get("reuse_seconds", ttl)))

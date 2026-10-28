@@ -1,6 +1,9 @@
 """Checkpointed image storage shared by article photos and catalog logos."""
 
 import logging
+import uuid
+from collections.abc import Callable, Mapping
+from typing import cast
 
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.image_jobs import thumbnail_maintenance_current
@@ -16,7 +19,9 @@ from devfeed_core.models import (
     Topic,
     utcnow,
 )
+from devfeed_core.object_storage import R2Storage
 from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_aggregator.image_storage import (
     ArticleThumbnailVariantStore,
@@ -24,11 +29,21 @@ from devfeed_aggregator.image_storage import (
     ThumbnailVariantStore,
     storage_client,
 )
+from devfeed_aggregator.image_storage_base import OriginalStore, StoredImage, VariantStore
+
+type ImageSubject = Article | Topic | Source | PartnerProduct | PartnerProductPromotion
+type LogoSubject = Topic | Source | PartnerProduct
+type SubjectIdentity = uuid.UUID | tuple[uuid.UUID, uuid.UUID]
 
 logger = logging.getLogger(__name__)
 
 
-def checkpoint(factory, identifier, token, asset) -> bool:
+def checkpoint(
+    factory: sessionmaker[Session],
+    identifier: uuid.UUID,
+    token: uuid.UUID,
+    asset: Mapping[str, object],
+) -> bool:
     with factory.begin() as session:
         job = owned_job(session, ArticleImageJob, identifier, token)
         if job is None:
@@ -42,12 +57,22 @@ def checkpoint(factory, identifier, token, asset) -> bool:
     return True
 
 
-def publish_logo_original(
-    factory, identifier, token, subject_id, source, asset, *, defer=False, model
-):
+def publish_logo_original[T: LogoSubject](
+    factory: sessionmaker[Session],
+    identifier: uuid.UUID,
+    token: uuid.UUID,
+    subject_id: SubjectIdentity,
+    source: str,
+    asset: Mapping[str, object],
+    *,
+    defer: bool = False,
+    model: type[T],
+) -> bool:
     """Expose a saved original while variants finish, preserving completed replacements."""
     with factory.begin() as session:
-        subject = session.scalar(select(model).where(model.id == subject_id).with_for_update())
+        subject = session.scalar(
+            select(model).where(model.__table__.c.id == subject_id).with_for_update()
+        )
         job = owned_job(session, ArticleImageJob, identifier, token)
         if job is None or subject is None:
             return False
@@ -65,7 +90,13 @@ def publish_logo_original(
     return True
 
 
-def store_image(factory, identifier, token, article_id, source):
+def store_image(
+    factory: sessionmaker[Session],
+    identifier: uuid.UUID,
+    token: uuid.UUID,
+    article_id: uuid.UUID,
+    source: str,
+) -> None:
     _store_asset(
         factory,
         identifier,
@@ -81,7 +112,13 @@ def store_image(factory, identifier, token, article_id, source):
     )
 
 
-def store_product_image(factory, identifier, token, product_id, source):
+def store_product_image(
+    factory: sessionmaker[Session],
+    identifier: uuid.UUID,
+    token: uuid.UUID,
+    product_id: uuid.UUID,
+    source: str,
+) -> None:
     from devfeed_aggregator.product_image_storage import ProductImageOriginalStore
 
     _store_asset(
@@ -99,7 +136,14 @@ def store_product_image(factory, identifier, token, product_id, source):
     )
 
 
-def store_product_ad_image(factory, identifier, token, account_id, product_id, source):
+def store_product_ad_image(
+    factory: sessionmaker[Session],
+    identifier: uuid.UUID,
+    token: uuid.UUID,
+    account_id: uuid.UUID,
+    product_id: uuid.UUID,
+    source: str,
+) -> None:
     _store_asset(
         factory,
         identifier,
@@ -115,7 +159,13 @@ def store_product_ad_image(factory, identifier, token, account_id, product_id, s
     )
 
 
-def cleanup_product_ad_image(factory, identifier, token, account_id, product_id):
+def cleanup_product_ad_image(
+    factory: sessionmaker[Session],
+    identifier: uuid.UUID,
+    token: uuid.UUID,
+    account_id: uuid.UUID,
+    product_id: uuid.UUID,
+) -> None:
     from devfeed_core.partner_product_images import (
         AD_IMAGE_SIZES,
         uploaded_ad_image_prefix,
@@ -145,25 +195,30 @@ def cleanup_product_ad_image(factory, identifier, token, account_id, product_id)
             fail_or_retry(job, f"Image cleanup failed: {type(exc).__name__}", utcnow())
 
 
-def _lock_subject(session, model, subject_id):
+def _lock_subject[T: ImageSubject](
+    session: Session, model: type[T], subject_id: SubjectIdentity
+) -> T | None:
     if model is PartnerProductPromotion:
+        assert isinstance(subject_id, tuple)
         account_id, product_id = subject_id
         # Saves, claims, merges and publication use product -> policy -> job.
         session.scalar(
             select(PartnerProduct.id).where(PartnerProduct.id == product_id).with_for_update()
         )
         return session.scalar(
-            select(PartnerProductPromotion)
+            select(model)
             .where(
                 PartnerProductPromotion.account_id == account_id,
                 PartnerProductPromotion.product_id == product_id,
             )
             .with_for_update()
         )
-    return session.scalar(select(model).where(model.id == subject_id).with_for_update())
+    return session.scalar(select(model).where(model.__table__.c.id == subject_id).with_for_update())
 
 
-def _current_source(subject, job, source_field, source):
+def _current_source(
+    subject: ImageSubject, job: ArticleImageJob, source_field: str, source: str
+) -> bool:
     return (
         (
             not isinstance(subject, Article)
@@ -178,7 +233,14 @@ def _current_source(subject, job, source_field, source):
     )
 
 
-def publish_product_image_original(factory, identifier, token, product_id, source, asset):
+def publish_product_image_original(
+    factory: sessionmaker[Session],
+    identifier: uuid.UUID,
+    token: uuid.UUID,
+    product_id: uuid.UUID,
+    source: str,
+    asset: Mapping[str, object],
+) -> bool:
     with factory.begin() as session:
         product = session.scalar(
             select(PartnerProduct).where(PartnerProduct.id == product_id).with_for_update()
@@ -191,7 +253,15 @@ def publish_product_image_original(factory, identifier, token, product_id, sourc
     return True
 
 
-def store_logo(factory, identifier, token, subject_id, source, *, model):
+def store_logo(
+    factory: sessionmaker[Session],
+    identifier: uuid.UUID,
+    token: uuid.UUID,
+    subject_id: SubjectIdentity,
+    source: str,
+    *,
+    model: type[LogoSubject],
+) -> None:
     from devfeed_core.logos import logo_sizes
 
     from devfeed_aggregator.logo_storage import LogoOriginalStore, LogoVariantStore
@@ -217,53 +287,67 @@ def store_logo(factory, identifier, token, subject_id, source, *, model):
     )
 
 
-def _replacement(session, model, subject, *, asset_field="managed_logo"):
+def _replacement(
+    session: Session,
+    model: type[ImageSubject],
+    subject: ImageSubject,
+    *,
+    asset_field: str = "managed_logo",
+) -> None:
+    # The selected model determines the subject contract; preserve model-based
+    # dispatch even for compatible ORM adapters and detached test records.
     if model is Article:
         from devfeed_core.image_jobs import request_image
 
         session.flush()
-        request_image(session, subject.id, automatic=True)
+        request_image(session, cast(Article, subject).id, automatic=True)
     elif model is PartnerProductPromotion:
         from devfeed_core.partner_product_images import request_product_ad_image
 
         session.flush()
-        request_product_ad_image(session, subject.account_id, subject.product_id)
+        policy = cast(PartnerProductPromotion, subject)
+        request_product_ad_image(session, policy.account_id, policy.product_id)
     elif model is PartnerProduct and asset_field == "managed_image":
         from devfeed_core.partner_product_images import request_product_image
 
         session.flush()
-        request_product_image(session, subject.id, automatic=True)
+        request_product_image(session, cast(PartnerProduct, subject).id, automatic=True)
     elif model in {Topic, Source, PartnerProduct}:
         from devfeed_core.logos import request_logo
 
         session.flush()
-        request_logo(session, model, subject.id, automatic=True)
+        request_logo(session, model, cast(LogoSubject, subject).id, automatic=True)
 
 
 def _store_asset(
-    factory,
-    identifier,
-    token,
-    subject_id,
-    source,
+    factory: sessionmaker[Session],
+    identifier: uuid.UUID,
+    token: uuid.UUID,
+    subject_id: SubjectIdentity,
+    source: str,
     *,
-    model,
-    source_field,
-    asset_field,
-    original_store,
-    variant_store,
-    method,
-):
+    model: type[ImageSubject],
+    source_field: str,
+    asset_field: str,
+    original_store: Callable[[R2Storage], OriginalStore],
+    variant_store: Callable[[R2Storage], VariantStore],
+    method: str,
+) -> None:
     try:
         with factory() as session:
             job = session.get(ArticleImageJob, identifier)
             if job is None or job.status != "running" or job.lease_token != token:
                 return
-            asset = {
-                key: value
-                for key, value in (job.storage or {}).items()
-                if key not in {"article_refresh", "source_pipeline_request"}
-            }
+            # Resume a checkpoint emitted by these typed stores. Persistence
+            # preserves this versioned schema; SQLAlchemy exposes a dynamic record.
+            asset = cast(
+                StoredImage,
+                {
+                    key: value
+                    for key, value in (job.storage or {}).items()
+                    if key not in {"article_refresh", "source_pipeline_request"}
+                },
+            )
         with storage_client() as client:
             original = original_store(client)
             variants = variant_store(client)
@@ -273,7 +357,14 @@ def _store_asset(
                 if not checkpoint(factory, identifier, token, asset):
                     return
             if asset_field == "managed_logo" and not publish_logo_original(
-                factory, identifier, token, subject_id, source, asset, defer=imported, model=model
+                factory,
+                identifier,
+                token,
+                subject_id,
+                source,
+                asset,
+                defer=imported,
+                model=cast(type[LogoSubject], model),
             ):
                 return
             if asset_field == "managed_logo" and imported:
@@ -282,7 +373,7 @@ def _store_asset(
                 model is PartnerProduct
                 and asset_field == "managed_image"
                 and not publish_product_image_original(
-                    factory, identifier, token, subject_id, source, asset
+                    factory, identifier, token, cast(uuid.UUID, subject_id), source, asset
                 )
             ):
                 return
@@ -310,7 +401,7 @@ def _store_asset(
                     asset_field,
                     {**asset, "subject_revision": job.subject_revision}
                     if model is PartnerProductPromotion
-                    else asset,
+                    else dict(asset),
                 )
             job.method = method
             marker = (job.storage or {}).get("source_pipeline_request")
@@ -322,7 +413,7 @@ def _store_asset(
                 session.flush()
                 from devfeed_core.source_lifecycle import reconcile_source_processing
 
-                reconcile_source_processing(session, subject, automatic=True)
+                reconcile_source_processing(session, cast(Source, subject), automatic=True)
         logger.info("image_storage_completed", extra={"variant_count": len(asset["variants"])})
     except Exception as exc:
         transport = exc if isinstance(exc, FeedError) else None

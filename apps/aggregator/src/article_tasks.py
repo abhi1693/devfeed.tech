@@ -4,6 +4,7 @@ import hashlib
 import logging
 import time
 import uuid
+from collections.abc import Iterable
 
 from devfeed_core.analysis import request_analysis
 from devfeed_core.article_jobs import approved_sources, claim_article
@@ -35,7 +36,7 @@ from devfeed_core.source_tags import attach_source_tags, resolve_source_tags
 from devfeed_core.taxonomy import classify, classify_tags, detect_content_type
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import lazyload
+from sqlalchemy.orm import Session, lazyload, sessionmaker
 
 from devfeed_aggregator.article_pages import PageArticle, extract_article, publisher_redirect
 from devfeed_aggregator.solver_jobs import defer_to_solver
@@ -43,7 +44,13 @@ from devfeed_aggregator.solver_jobs import defer_to_solver
 logger = logging.getLogger(__name__)
 
 
-def reject_missing_article(session, article, job, transport, url) -> bool:
+def reject_missing_article(
+    session: Session,
+    article: Article,
+    job: ArticleEnrichmentJob,
+    transport: FeedError | None,
+    url: str,
+) -> bool:
     """Reject empty, unpublished records only on an explicit publisher 404/410."""
     if (
         not get_settings().full_automation
@@ -78,7 +85,13 @@ def reject_missing_article(session, article, job, transport, url) -> bool:
     return True
 
 
-def apply_page(session, article: Article, page: PageArticle, *, source_tag_ids=()) -> list[str]:
+def apply_page(
+    session: Session,
+    article: Article,
+    page: PageArticle,
+    *,
+    source_tag_ids: Iterable[uuid.UUID] = (),
+) -> list[str]:
     """Fill publisher gaps; preserve nonempty publisher-supplied fields."""
     values = {}
     if page.has_text:
@@ -171,10 +184,19 @@ def _enrich(job_id: str) -> None:
         job, url = claimed
         token, article_id, attempt = job.lease_token, job.article_id, job.attempts
     with log_context(article_id=article_id, attempt=attempt):
+        assert token is not None  # claim_article initialized ownership.
         _enrich_claimed(factory, identifier, token, article_id, url, started)
 
 
-def _enrich_claimed(factory, identifier, token, article_id, url, started):
+def _enrich_claimed(
+    factory: sessionmaker[Session],
+    identifier: uuid.UUID,
+    token: uuid.UUID,
+    article_id: uuid.UUID,
+    url: str,
+    started: float,
+) -> None:
+    fields: dict[str, object]
     logger.info("article_enrichment_started")
     try:
         # All network, DOM processing and inference happen outside a DB transaction.

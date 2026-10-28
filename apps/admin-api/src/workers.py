@@ -1,10 +1,14 @@
 """Read-only worker snapshots. RQ transport health and durable job outcomes are distinct."""
 
+from __future__ import annotations
+
 import json
 import uuid
 import zlib
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, overload
+from typing import cast as type_cast
 
 from devfeed_core.ai_capacity import cooldown_remaining
 from devfeed_core.job_definitions import JOB_DEFINITIONS, Job, queue_lanes
@@ -24,7 +28,7 @@ from pydantic import BaseModel
 from redis import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import func, literal, select, union_all
-from sqlalchemy.orm import lazyload, load_only
+from sqlalchemy.orm import Session, lazyload, load_only
 
 from devfeed_admin_api.auth import require_admin
 from devfeed_admin_api.dependencies import DB, get_redis
@@ -32,6 +36,7 @@ from devfeed_admin_api.dependencies import DB, get_redis
 router = APIRouter(
     prefix="/v1/admin/workers", tags=["admin-workers"], dependencies=[Depends(require_admin)]
 )
+
 FUNCTIONS: dict[str, tuple[str, type[Job | SourceDiscoveryJob]]] = {
     d.handler: (d.kind, d.model) for d in JOB_DEFINITIONS.values()
 }
@@ -110,30 +115,45 @@ class WorkersSnapshot(BaseModel):
     ai_cooldown_seconds: int
 
 
-def decoded(value):
+@overload
+def decoded(value: bytes | str) -> str: ...
+
+
+@overload
+def decoded(value: None) -> None: ...
+
+
+def decoded(value: bytes | str | None) -> str | None:
     return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
 
 
-def timestamp(value):
+def timestamp(value: bytes | str | None) -> datetime | None:
     try:
-        parsed = datetime.fromisoformat(decoded(value))
+        text = decoded(value)
+        if text is None:
+            return None
+        parsed = datetime.fromisoformat(text)
         return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
     except (ValueError, TypeError):
         return None
 
 
-def age(value, now):
+def age(value: datetime | None, now: datetime) -> int | None:
     return max(0, int((now - value).total_seconds())) if value else None
 
 
-def number(value, default=0):
+def number(value: bytes | str | None, default: int = 0) -> int:
     try:
+        if value is None:
+            return default
         return max(0, int(value))
     except (ValueError, TypeError):
         return default
 
 
-def job_identity(data):
+def job_identity(
+    data: bytes | None,
+) -> tuple[tuple[str, type[Job | SourceDiscoveryJob]], uuid.UUID] | None:
     """Read only the allowlisted function and UUID from RQ's JSON serializer, never pickle."""
     if not data or len(data) > 16384:
         return None
@@ -155,7 +175,11 @@ def job_identity(data):
         return None
 
 
-def _load_rows(session, model, identifiers, fields):
+def _load_rows[
+    Entity: Job | SourceDiscoveryJob | Article | Source | Topic | TopicProposal | SourceCandidate
+](
+    session: Session, model: type[Entity], identifiers: Iterable[uuid.UUID], fields: Iterable[str]
+) -> dict[uuid.UUID, Entity]:
     if not identifiers:
         return {}
     columns = [getattr(model, field) for field in fields if hasattr(model, field)]
@@ -169,7 +193,9 @@ def _load_rows(session, model, identifiers, fields):
     }
 
 
-def current_jobs(connection, session, identifiers, now) -> dict[str, WorkerJob]:
+def current_jobs(
+    connection: Redis, session: Session, identifiers: Sequence[str], now: datetime
+) -> dict[str, WorkerJob]:
     identifiers = list(dict.fromkeys(identifiers))
     if not identifiers:
         return {}
@@ -203,16 +229,22 @@ def current_jobs(connection, session, identifiers, now) -> dict[str, WorkerJob]:
         ("topic_id", Topic, "name"),
         ("proposal_id", TopicProposal, "proposed"),
     )
-    subjects = {}
-    for field, model, label in targets:
+    subjects: dict[
+        type[Article | Source | Topic | TopicProposal],
+        dict[uuid.UUID, Article | Source | Topic | TopicProposal],
+    ] = {}
+    for field, subject_model, label in targets:
         ids = {
             value
             for rows in jobs.values()
             for row in rows.values()
             if (value := getattr(row, field, None))
         }
-        subjects[model] = _load_rows(session, model, ids, (label,))
-    discovery_rows = jobs.get(SourceDiscoveryJob, {})
+        subjects[subject_model] = _load_rows(session, subject_model, ids, (label,))
+    # Each registry bucket contains rows loaded through that exact ORM model.
+    discovery_rows = type_cast(
+        dict[uuid.UUID, SourceDiscoveryJob], jobs.get(SourceDiscoveryJob, {})
+    )
     candidates = _load_rows(
         session,
         SourceCandidate,
@@ -227,7 +259,7 @@ def current_jobs(connection, session, identifiers, now) -> dict[str, WorkerJob]:
         result.id, result.kind, result.status = job_id, kind, job.status
         result.outcome = getattr(job, "outcome", None)
         if model is SourceDiscoveryJob:
-            candidate = candidates.get(job.candidate_id)
+            candidate = candidates.get(discovery_rows[job_id].candidate_id)
             if candidate:
                 result.target_name, result.source_id = candidate.name, candidate.source_id
             continue
@@ -237,13 +269,14 @@ def current_jobs(connection, session, identifiers, now) -> dict[str, WorkerJob]:
                 setattr(result, field, target_id)
                 row = subjects[target].get(target_id)
                 if row is not None and result.target_name is None:
-                    result.target_name = (
-                        row.proposed.get("name") if label == "proposed" else getattr(row, label)
-                    )
+                    value = getattr(row, label)
+                    result.target_name = value.get("name") if label == "proposed" else value
     return results
 
 
-def read_workers(connection, session, now, name=None):
+def read_workers(
+    connection: Redis, session: Session, now: datetime, name: str | None = None
+) -> list[WorkerOut]:
     # SMEMBERS is bounded by the worker population, never by the job backlog.
     keys = (
         ["rq:worker:" + name]
@@ -305,7 +338,9 @@ def read_workers(connection, session, now, name=None):
     return workers
 
 
-def queue_snapshot(connection, session, workers):
+def queue_snapshot(
+    connection: Redis, session: Session, workers: Sequence[WorkerOut]
+) -> list[QueueOut]:
     with connection.pipeline(transaction=False) as pipe:
         for name in QUEUES:
             pipe.llen("rq:queue:" + name)
@@ -368,7 +403,9 @@ def queue_snapshot(connection, session, workers):
 
 
 @router.get("", response_model=WorkersSnapshot, operation_id="admin_workers_snapshot")
-def snapshot(response: Response, session: DB, connection: Annotated[Redis, Depends(get_redis)]):
+def snapshot(
+    response: Response, session: DB, connection: Annotated[Redis, Depends(get_redis)]
+) -> WorkersSnapshot:
     response.headers["Cache-Control"] = "no-store"
     now = datetime.now(UTC)
     try:
@@ -389,7 +426,7 @@ def detail(
     session: DB,
     connection: Annotated[Redis, Depends(get_redis)],
     name: Annotated[str, Path(min_length=1, max_length=256, pattern=r"^[a-zA-Z0-9_.:-]+$")],
-):
+) -> WorkerOut:
     response.headers["Cache-Control"] = "no-store"
     try:
         workers = read_workers(connection, session, datetime.now(UTC), name)

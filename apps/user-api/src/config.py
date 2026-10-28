@@ -2,7 +2,7 @@
 
 import re
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Self
 from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr, field_validator, model_validator
@@ -115,7 +115,7 @@ class Settings(BaseSettings):
         mode="before",
     )
     @classmethod
-    def empty_optional_user_setting(cls, value):
+    def empty_optional_user_setting(cls, value: object) -> object:
         return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("x_signup_event_id")
@@ -127,7 +127,7 @@ class Settings(BaseSettings):
 
     @field_validator("x_pixel_enabled", mode="before")
     @classmethod
-    def validate_x_pixel_enabled(cls, value):
+    def validate_x_pixel_enabled(cls, value: object) -> object:
         return value.strip().lower() == "true" if isinstance(value, str) else value
 
     @field_validator("oidc_github_idp_id", "oidc_google_idp_id")
@@ -138,7 +138,7 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def validate_user_configuration(self):
+    def validate_user_configuration(self) -> Self:
         if self.mcp_session_ttl_seconds > self.mcp_session_absolute_ttl_seconds:
             raise ValueError("MCP inactivity timeout cannot exceed its absolute lifetime")
         if bool(self.mcp_resource_url) != bool(self.mcp_issuer_url):

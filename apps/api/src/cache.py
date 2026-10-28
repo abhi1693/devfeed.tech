@@ -2,12 +2,14 @@
 
 import json
 import time
+from collections.abc import Callable, Coroutine
 from contextlib import suppress
-from typing import Any, Literal
+from typing import Literal
 
 import anyio
 from devfeed_core.cache import CacheUnavailable, get_cache, record_cache_read
 from devfeed_core.config import Settings, get_settings
+from devfeed_core.json_types import JsonValue
 from devfeed_http.body_limits import BodyLimitedRoute
 from fastapi import Request, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,7 +29,7 @@ class CachePolicy(BaseModel):
     revision: int = Field(ge=1)
     ttl: Literal["content", "metadata"]
 
-    def openapi_extra(self) -> dict[str, Any]:
+    def openapi_extra(self) -> dict[str, JsonValue]:
         return {CACHE_POLICY_EXTENSION: self.model_dump()}
 
     def identity(self, request: Request) -> str:
@@ -77,7 +79,7 @@ def tagged(
 class CachedReadRoute(BodyLimitedRoute):
     """Shared, non-personalized reads only; cookie-dependent endpoints must not opt in."""
 
-    def get_route_handler(self):
+    def get_route_handler(self) -> Callable[[Request], Coroutine[None, None, Response]]:
         handler = super().get_route_handler()
         extra = self.openapi_extra or {}
         policy = (
@@ -89,7 +91,7 @@ class CachedReadRoute(BodyLimitedRoute):
             return handler
 
         async def cached(request: Request) -> Response:
-            async def render():
+            async def render() -> Response:
                 try:
                     return await handler(request)
                 finally:

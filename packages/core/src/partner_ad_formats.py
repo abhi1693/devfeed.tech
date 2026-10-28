@@ -1,7 +1,11 @@
 """Creative formats are separate from commercial attribution and contextual surfaces."""
 
+from __future__ import annotations
+
 from collections.abc import Sequence
-from typing import Literal, get_args
+from typing import Literal, Protocol, get_args
+
+from devfeed_core.models import PartnerAccount
 
 from .partner_tiers import tier_policy
 
@@ -16,11 +20,16 @@ AD_FORMATS = get_args(AdFormat)
 AUTOMATIC_AD_FORMATS = ("feed", "header_sponsorship", "engagement")
 
 
-def ad_format_allowed(account, ad_format: str) -> bool:
+def ad_format_allowed(account: PartnerAccount, ad_format: str) -> bool:
     return ad_format in tier_policy(account.tier)["allowed_ad_formats"]
 
 
-def validate_account_formats(tier: str, formats: Sequence[str], *, previous=None):
+def validate_account_formats(
+    tier: str,
+    formats: Sequence[str],
+    *,
+    previous: Sequence[str] | None = None,
+) -> None:
     if len(formats) != len(set(formats)) or not set(formats).issubset(AUTOMATIC_AD_FORMATS):
         raise ValueError(
             "Choose unique automatic ad formats; sponsored content requires a campaign"
@@ -30,7 +39,12 @@ def validate_account_formats(tier: str, formats: Sequence[str], *, previous=None
         raise ValueError("This ad format requires Silver or a higher partnership tier")
 
 
-def validate_product_formats(tier: str, formats: Sequence[str] | None, *, previous=None):
+def validate_product_formats(
+    tier: str,
+    formats: Sequence[str] | None,
+    *,
+    previous: Sequence[str] | None = None,
+) -> None:
     if formats is None:
         return
     if len(formats) != len(set(formats)) or not set(formats).issubset(AD_FORMATS):
@@ -39,7 +53,15 @@ def validate_product_formats(tier: str, formats: Sequence[str] | None, *, previo
         raise ValueError("This ad format requires Silver or a higher partnership tier")
 
 
-def placement_format_allowed(ad_format: str, query) -> bool:
+class PlacementFormatQuery(Protocol):
+    @property
+    def ad_formats(self) -> Sequence[str]: ...
+
+    @property
+    def surface(self) -> str: ...
+
+
+def placement_format_allowed(ad_format: str, query: PlacementFormatQuery) -> bool:
     if ad_format not in query.ad_formats:
         return False
     if query.surface == "header":

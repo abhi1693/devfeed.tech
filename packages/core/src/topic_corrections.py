@@ -1,8 +1,11 @@
 """Explicit, attributed corrections preserve the original automatic approval."""
 
+from __future__ import annotations
+
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from devfeed_core.analysis import snapshot_hash
 from devfeed_core.models import Topic, TopicProposal
@@ -12,7 +15,15 @@ from devfeed_core.topic_proposals import TopicReview, review_proposal, snapshot
 from devfeed_core.topics import TopicWrite, lock_topics
 
 
-def correct_automatic_topic(session, identifier, *, expected_hash, body: TopicWrite, note, actor):
+def correct_automatic_topic(
+    session: Session,
+    identifier: uuid.UUID,
+    *,
+    expected_hash: str,
+    body: TopicWrite,
+    note: str,
+    actor: dict[str, str],
+) -> TopicProposal:
     """Caller supplies an explicitly reviewed replacement and expected current snapshot."""
     if not note.strip() or len(note) > 1000:
         raise ValueError("A bounded correction reason is required")

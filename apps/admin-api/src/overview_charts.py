@@ -16,6 +16,7 @@ from devfeed_admin_api.overview_sections import (
     PersonalizationCounts,
     QueuePressure,
     ReviewQueue,
+    SectionName,
     SourceCoverage,
     ThroughputBucket,
     TopicCoverage,
@@ -36,7 +37,7 @@ ChartName = Literal[
     "source-output",
     "topic-coverage",
 ]
-CHART_SECTIONS = {
+CHART_SECTIONS: dict[ChartName, SectionName | Literal["queues"]] = {
     "attention": "operations",
     "publication-rate": "publishing",
     "publication-latency": "publishing",

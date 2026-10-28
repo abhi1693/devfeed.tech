@@ -1,11 +1,52 @@
 import asyncio
 import json
+import threading
 from collections import deque
+from collections.abc import Awaitable
 
 import pytest
 from devfeed_aggregator.codex_client import AnalysisError, CodexClient
 from devfeed_core.config import Settings
 from pydantic import ValidationError
+
+
+@pytest.mark.parametrize(
+    "kind", ["async_function", "async_callable", "sync_function", "sync_awaitable"]
+)
+def test_dependency_adapters_await_results_and_preserve_false_admission(kind: str) -> None:
+    from devfeed_aggregator import codex_client
+
+    calls: list[tuple[str, str]] = []
+    owner_thread = threading.get_ident()
+
+    async def perform(value: str, *, reason: str) -> bool:
+        assert threading.get_ident() == owner_thread
+        calls.append((value, reason))
+        return False
+
+    class AsyncAdapter:
+        async def __call__(self, value: str, *, reason: str) -> bool:
+            return await perform(value, reason=reason)
+
+    def synchronous(value: str, *, reason: str) -> bool:
+        assert threading.get_ident() != owner_thread
+        calls.append((value, reason))
+        return False
+
+    def wrapped(value: str, *, reason: str) -> Awaitable[bool]:
+        assert threading.get_ident() != owner_thread
+        return perform(value, reason=reason)
+
+    adapters = {
+        "async_function": perform,
+        "async_callable": AsyncAdapter(),
+        "sync_function": synchronous,
+        "sync_awaitable": wrapped,
+    }
+    result = asyncio.run(codex_client._invoke(adapters[kind], "request", reason="quota"))
+
+    assert result is False
+    assert calls == [("request", "quota")]
 
 
 @pytest.fixture(autouse=True)

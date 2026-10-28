@@ -4,6 +4,8 @@ Only allowlisted account fields leave this module. No tokens, server errors,
 prompts, or arbitrary RPC methods are exposed by the administration API.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -12,12 +14,14 @@ import re
 import ssl
 import time
 from collections import deque
+from collections.abc import Awaitable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Literal, Protocol
 from urllib.parse import urlsplit
 
 from devfeed_core.config import Settings
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.version import __version__
 from pydantic import BaseModel, Field
 from websockets.asyncio.client import ClientConnection, connect, unix_connect
@@ -44,7 +48,7 @@ class CodexQuota(BaseModel):
     resets_at: datetime | None = None
 
 
-def quota_windows(windows) -> list[CodexQuota]:
+def quota_windows(windows: object) -> list[CodexQuota]:
     if not isinstance(windows, dict):
         return []
     result = []
@@ -89,20 +93,35 @@ class ConnectionProblem(Exception):
 
 
 class RpcProblem(Exception):
-    def __init__(self, *, unauthorized: bool = False):
+    def __init__(self, *, unauthorized: bool = False) -> None:
         self.unauthorized = unauthorized
 
 
+class Connector(Protocol):
+    def __call__(
+        self,
+        endpoint: str,
+        /,
+        *,
+        additional_headers: dict[str, str],
+        max_size: int,
+        open_timeout: float,
+        close_timeout: float,
+        proxy: None,
+        ssl: ssl.SSLContext | None,
+    ) -> Awaitable[ClientConnection]: ...
+
+
 class CodexConnection:
-    def __init__(self, settings: Settings, *, connector=None):
+    def __init__(self, settings: Settings, *, connector: Connector | None = None) -> None:
         self.settings = settings
         self.connector = connector
         self.ws: ClientConnection | None = None
         self.tls_context: ssl.SSLContext | None = None
-        self.task: asyncio.Task | None = None
+        self.task: asyncio.Task[None] | None = None
         self.lock = asyncio.Lock()
         self.request_id = 0
-        self.events: deque[dict] = deque(maxlen=8)
+        self.events: deque[JsonRecord] = deque(maxlen=8)
         self.last_provider_check = 0.0
         self.provider_state: Literal["connected", "limited", "error", "signed_out"] = "connected"
         self.status = CodexStatus(
@@ -111,11 +130,11 @@ class CodexConnection:
             model=settings.codex_model,
         )
 
-    def start(self):
+    def start(self) -> None:
         if self.settings.ai_enabled and self.task is None:
             self.task = asyncio.create_task(self._monitor())
 
-    async def close(self):
+    async def close(self) -> None:
         if self.task:
             self.task.cancel()
             with suppress(asyncio.CancelledError):
@@ -128,13 +147,17 @@ class CodexConnection:
                     await self._rpc("account/login/cancel", {"loginId": self.status.login.login_id})
             await self._disconnect()
 
-    async def _disconnect(self):
+    async def _disconnect(self) -> None:
         ws, self.ws = self.ws, None
         if ws:
             with suppress(Exception):
                 await ws.close()
 
-    def _finish_login(self, status, message=None):
+    def _finish_login(
+        self,
+        status: Literal["pending", "completed", "failed", "cancelled", "expired"],
+        message: str | None = None,
+    ) -> None:
         if self.status.login:
             self.status.login = self.status.login.model_copy(
                 update={
@@ -145,13 +168,19 @@ class CodexConnection:
                 }
             )
 
-    def _unavailable(self):
+    def _unavailable(self) -> None:
         if self.status.login and self.status.login.status == "pending":
             self._finish_login("failed", "Connection interrupted. Start a new sign-in attempt.")
         self._set_status("unavailable", "Codex is not responding. Check or restart the AI service.")
         self.status.email = self.status.plan = None
 
-    def _set_status(self, state, message):
+    def _set_status(
+        self,
+        state: Literal[
+            "disabled", "checking", "unavailable", "signed_out", "connected", "limited", "error"
+        ],
+        message: str,
+    ) -> None:
         if state != self.status.state:
             logger.info("codex_connection_changed", extra={"connection_state": state})
         if state not in {"connected", "limited"}:
@@ -161,7 +190,7 @@ class CodexConnection:
         self.status.message = message
         self.status.checked_at = datetime.now(UTC)
 
-    async def _connect(self):
+    async def _connect(self) -> None:
         if self.ws is not None:
             return
         if not self.settings.ai_enabled:
@@ -199,7 +228,9 @@ class CodexConnection:
             await self._disconnect()
             raise
 
-    async def _rpc(self, method, params=None, *, timeout=RPC_TIMEOUT):
+    async def _rpc(
+        self, method: str, params: JsonRecord | None = None, *, timeout: float = RPC_TIMEOUT
+    ) -> JsonRecord:
         if self.ws is None:
             raise ConnectionError("Codex disconnected")
         self.request_id += 1
@@ -251,7 +282,7 @@ class CodexConnection:
                 return result
             raise ValueError("Too many RPC messages")
 
-    def _apply_events(self):
+    def _apply_events(self) -> None:
         while self.events:
             event = self.events.popleft()
             if not isinstance(event, dict) or not self.status.login:
@@ -269,7 +300,7 @@ class CodexConnection:
             )
             self.last_provider_check = 0
 
-    async def check(self):
+    async def check(self) -> None:
         if not self.settings.ai_enabled:
             return
         async with self.lock:
@@ -342,15 +373,15 @@ class CodexConnection:
                 await self._disconnect()
 
     @staticmethod
-    def _text(value):
+    def _text(value: object) -> str | None:
         return value[:254] if isinstance(value, str) else None
 
-    async def _monitor(self):
+    async def _monitor(self) -> None:
         while True:
             await self.check()
             await asyncio.sleep(CHECK_INTERVAL)
 
-    async def login(self):
+    async def login(self) -> DeviceLogin:
         async with self.lock:
             if self.status.login and self.status.login.status == "pending":
                 return self.status.login
@@ -390,7 +421,7 @@ class CodexConnection:
                     "Codex is not responding. Restore the AI service and try again."
                 ) from None
 
-    async def cancel(self, login_id: str):
+    async def cancel(self, login_id: str) -> None:
         async with self.lock:
             if not self.status.login or self.status.login.login_id != login_id:
                 raise ConnectionProblem("This sign-in attempt is no longer current.")

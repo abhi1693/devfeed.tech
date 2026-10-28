@@ -13,7 +13,7 @@ from devfeed_aggregator.codex_client import CodexClient
 logger = logging.getLogger(__name__)
 
 
-def refresh_quota():
+def refresh_quota() -> None:
     settings = get_settings()
     if not settings.ai_enabled or not settings.ai_quota_pacing_enabled:
         return

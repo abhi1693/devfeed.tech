@@ -1,6 +1,8 @@
 """Trusted operator controls; no public moderation or account endpoints."""
 
 from pathlib import Path
+from types import SimpleNamespace
+from uuid import UUID
 
 from devfeed_aggregator.queue import get_queue
 from devfeed_core.analysis import (
@@ -19,8 +21,10 @@ from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.topics import RelationWrite, TopicOut, TopicWrite, relate_topics, save_topic
 from sqlalchemy import select
 
+from devfeed_cli.contracts import CommandOutput
 
-def article_view(article):
+
+def article_view(article: Article) -> CommandOutput:
     return {
         **ArticleOut.from_article(article, public=False).model_dump(mode="json"),
         "review_status": article.review_status,
@@ -31,7 +35,7 @@ def article_view(article):
     }
 
 
-def inspect_article(args):
+def inspect_article(args: SimpleNamespace) -> CommandOutput:
     with session_factory()() as session:
         article = session.get(Article, args.id)
         if article is None:
@@ -39,7 +43,7 @@ def inspect_article(args):
         return article_view(article)
 
 
-def classify(args):
+def classify(args: SimpleNamespace) -> CommandOutput:
     path = Path(args.file)
     if path.stat().st_size > 128_000:
         raise OperationConflict("Classification JSON exceeds 128 KB")
@@ -48,7 +52,7 @@ def classify(args):
         return article_view(classify_manually(session, args.id, body))
 
 
-def list_articles(args):
+def list_articles(args: SimpleNamespace) -> CommandOutput:
     statement = select(Article).order_by(Article.id).limit(args.limit)
     if args.after:
         statement = statement.where(Article.id > args.after)
@@ -64,7 +68,7 @@ def list_articles(args):
         }
 
 
-def decide(args):
+def decide(args: SimpleNamespace) -> CommandOutput:
     with session_factory().begin() as session:
         article = decide_article(
             session,
@@ -77,7 +81,7 @@ def decide(args):
         return {"dry_run": args.dry_run, "action": args.action, "article": article_view(article)}
 
 
-def history(args):
+def history(args: SimpleNamespace) -> list[CommandOutput]:
     with session_factory()() as session:
         return [
             {
@@ -97,7 +101,7 @@ def history(args):
         ]
 
 
-def job_view(job):
+def job_view(job: ArticleAnalysisJob) -> CommandOutput:
     # Private snapshots are intentionally omitted from routine job output.
     return {
         name: getattr(job, name)
@@ -120,7 +124,7 @@ def job_view(job):
     }
 
 
-def analyze(args):
+def analyze(args: SimpleNamespace) -> CommandOutput:
     if not get_settings().ai_enabled:
         raise OperationConflict(
             "Configure Codex and set DEVFEED_AI_ENABLED=true before queueing analysis"
@@ -142,7 +146,7 @@ def analyze(args):
     return result
 
 
-def analysis_backfill(args):
+def analysis_backfill(args: SimpleNamespace) -> CommandOutput:
     if not get_settings().ai_enabled:
         raise OperationConflict("Configure and enable AI before queueing analysis")
     with session_factory().begin() as session:
@@ -156,7 +160,7 @@ def analysis_backfill(args):
     return {"scanned": scanned, "queued": len(result), "next_after": after, "jobs": result}
 
 
-def dispatch_analysis(identifier):
+def dispatch_analysis(identifier: UUID) -> CommandOutput:
     factory = session_factory()
     with factory.begin() as session:
         job = session.scalar(
@@ -173,10 +177,13 @@ def dispatch_analysis(identifier):
     finally:
         queue.connection.close()
     with factory() as session:
-        return job_view(session.get(ArticleAnalysisJob, identifier))
+        job = session.get(ArticleAnalysisJob, identifier)
+        if job is None:
+            raise RecordNotFound("Analysis job not found")
+        return job_view(job)
 
 
-def analyses(args):
+def analyses(args: SimpleNamespace) -> list[CommandOutput]:
     statement = (
         select(ArticleAnalysisJob)
         .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id)
@@ -188,7 +195,7 @@ def analyses(args):
         return [job_view(job) for job in session.scalars(statement)]
 
 
-def topic_list(args):
+def topic_list(args: SimpleNamespace) -> list[CommandOutput]:
     with session_factory()() as session:
         return [
             TopicOut.model_validate(topic).model_dump(mode="json")
@@ -196,7 +203,7 @@ def topic_list(args):
         ]
 
 
-def topic_write(args):
+def topic_write(args: SimpleNamespace) -> CommandOutput:
     path = Path(args.file)
     if path.stat().st_size > 128_000:
         raise OperationConflict("Topic JSON exceeds 128 KB")
@@ -207,7 +214,7 @@ def topic_write(args):
         ).model_dump(mode="json")
 
 
-def topic_relate(args):
+def topic_relate(args: SimpleNamespace) -> CommandOutput:
     body = RelationWrite(
         topic_id=args.id,
         related_topic_id=args.related_id,

@@ -1,14 +1,20 @@
 """Durable admission accounting; failed or interrupted calls cannot regain budget."""
 
+import uuid
+from collections.abc import AsyncIterator
 from copy import deepcopy
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_core.ai_content import eligible_articles
 from devfeed_core.analysis import snapshot_hash
+from devfeed_core.analytics import AnalyticsClient
+from devfeed_core.analytics_inference_store import QuotaConnection
 from devfeed_core.article_topic_policy import proposal_condition
-from devfeed_core.config import get_settings
+from devfeed_core.config import Settings, get_settings
 from devfeed_core.inference_routing import total_tokens
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import (
     Article,
     ArticleTag,
@@ -22,7 +28,7 @@ from devfeed_core.pipeline_capacity import observe_capacity, topic_admission_lim
 from devfeed_core.topic_decisions import VERSION, DecisionDeferred
 
 
-def initial_state(settings) -> dict:
+def initial_state(settings: Settings) -> JsonRecord:
     return {
         "version": VERSION,
         "limits": {
@@ -37,7 +43,14 @@ def initial_state(settings) -> dict:
     }
 
 
-def reserve(state: dict, stage: str, *, escalated=False, web=False, minimum_tokens=2000) -> dict:
+def reserve(
+    state: JsonRecord,
+    stage: str,
+    *,
+    escalated: bool = False,
+    web: bool = False,
+    minimum_tokens: int = 2000,
+) -> JsonRecord:
     state = deepcopy(state)
     calls, limits = state["calls"], state["limits"]
     if any(call["status"] == "running" for call in calls):
@@ -77,16 +90,16 @@ def reserve(state: dict, stage: str, *, escalated=False, web=False, minimum_toke
 
 
 def settle(
-    state: dict,
+    state: JsonRecord,
     index: int,
     *,
-    usage: dict,
+    usage: JsonRecord,
     searches: int,
     seconds: float,
     model: str | None,
     effort: str | None,
     succeeded: bool,
-) -> dict:
+) -> JsonRecord:
     state = deepcopy(state)
     call = state["calls"][index]
     if call["status"] == "running":
@@ -107,7 +120,9 @@ def settle(
     return state
 
 
-def schedule_decisions(factory, *, capacity=None) -> int:
+def schedule_decisions(
+    factory: sessionmaker[Session], *, capacity: dict[str, int | bool] | None = None
+) -> int:
     from devfeed_core.topic_branding import identity_proposal_condition
 
     settings = get_settings()
@@ -131,7 +146,7 @@ def schedule_decisions(factory, *, capacity=None) -> int:
                 TopicAnalysisJob.status.in_(["queued", "running"]),
             )
         )
-        slots = min(settings.automation_batch_size, max(0, limit - pending))
+        slots = min(settings.automation_batch_size, max(0, limit - (pending or 0)))
         if not slots:
             return 0
         attempted = (
@@ -157,11 +172,13 @@ def schedule_decisions(factory, *, capacity=None) -> int:
         # Reserve at least one slot for the oldest untouched work on every admission.
         # The remaining slots prefer exact-tag demand; priority never confers approval.
         fifo = max(1, (slots + 3) // 4)
-        proposals = session.scalars(
-            base.order_by(TopicProposal.created_at, TopicProposal.id)
-            .limit(fifo)
-            .with_for_update(skip_locked=True)
-        ).all()
+        proposals = list(
+            session.scalars(
+                base.order_by(TopicProposal.created_at, TopicProposal.id)
+                .limit(fifo)
+                .with_for_update(skip_locked=True)
+            ).all()
+        )
         remaining = slots - len(proposals)
         if remaining:
             demand = (
@@ -211,7 +228,7 @@ def schedule_decisions(factory, *, capacity=None) -> int:
         return len(proposals)
 
 
-def actionable_topic_backlog(session) -> bool:
+def actionable_topic_backlog(session: Session) -> bool:
     """Deferred/manual cases do not block background research forever."""
     from devfeed_core.topic_branding import identity_proposal_condition
 
@@ -230,7 +247,7 @@ def actionable_topic_backlog(session) -> bool:
     )
 
 
-def relationship_allowance(session) -> bool:
+def relationship_allowance(session: Session) -> bool:
     """Check operational policy before the final ClickHouse quota reservation."""
     settings = get_settings()
     if settings.ai_quota_pacing_enabled:
@@ -253,7 +270,9 @@ def _relationship_policy_allowed() -> bool:
         return relationship_allowance(session)
 
 
-async def admit_relationship_call(values: dict, *, settings, client) -> bool:
+async def admit_relationship_call(
+    values: JsonRecord, *, settings: Settings, client: AnalyticsClient
+) -> bool:
     """Reserve the invocation directly in ClickHouse under a short PG lock."""
     import asyncio
     from contextlib import asynccontextmanager
@@ -279,7 +298,7 @@ async def admit_relationship_call(values: dict, *, settings, client) -> bool:
             return False
 
         @asynccontextmanager
-        async def connect():
+        async def connect() -> AsyncIterator[QuotaConnection]:
             dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://", 1)
             async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as connection:
                 yield connection
@@ -291,7 +310,9 @@ async def admit_relationship_call(values: dict, *, settings, client) -> bool:
         return False
 
 
-def grant_budget(session, proposal_id, *, calls: int, tokens: int, note: str, actor: str) -> dict:
+def grant_budget(
+    session: Session, proposal_id: uuid.UUID, *, calls: int, tokens: int, note: str, actor: str
+) -> JsonRecord:
     """Explicit operator recovery. Preserve all spent budget and earlier evidence audits."""
     from devfeed_core.services import OperationConflict
 

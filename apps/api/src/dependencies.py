@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from functools import lru_cache
 from typing import Annotated
 
@@ -10,11 +10,11 @@ from fastapi import Depends, Request
 from redis import Redis
 from redis.backoff import NoBackoff
 from redis.retry import Retry
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 
 # Each service owns its cached clients and dependency identity.
-def get_session(request: Request):
+def get_session(request: Request) -> Iterator[Session]:
     with session_factory()() as session:
         request.state.public_read_session = session
         yield session
@@ -40,7 +40,7 @@ database_session = Depends(get_session, scope="function")
 DB = Annotated[Session, database_session]
 
 
-def get_session_factory():
+def get_session_factory() -> sessionmaker[Session]:
     return session_factory()
 
 

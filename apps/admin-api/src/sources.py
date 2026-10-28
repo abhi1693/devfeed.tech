@@ -1,5 +1,7 @@
 """Authenticated source management; RSS validation and review remain core policy."""
 
+from __future__ import annotations
+
 import logging
 import uuid
 from dataclasses import asdict
@@ -36,6 +38,7 @@ from devfeed_http.operation_policies import GatewayPolicy
 from devfeed_http.pagination import (
     Listing,
     Page,
+    PageData,
     paginate,
     record,
     require_record,
@@ -44,6 +47,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import Field, field_validator
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
@@ -72,7 +76,7 @@ class PublicationPolicyUpdate(InputModel):
 )
 def publication_policy(
     source_id: uuid.UUID, body: PublicationPolicyUpdate, session: DB, admin: Admin
-):
+) -> Source:
     source = record(session, Source, source_id, lock=True)
     if source.publication_policy_revision != body.expected_revision:
         raise services.OperationConflict("Publication policy changed; reload before saving")
@@ -119,7 +123,9 @@ class SourcePreviewOut(SourceProfileInput):
     warnings: list[str]
 
 
-def reject_duplicate_feed(session, feed_url: str, source_id: uuid.UUID | None = None) -> None:
+def reject_duplicate_feed(
+    session: Session, feed_url: str, source_id: uuid.UUID | None = None
+) -> None:
     statement = select(Source.id).where(Source.feed_url == feed_url)
     if source_id is not None:
         statement = statement.where(Source.id != source_id)
@@ -145,7 +151,7 @@ def reject_duplicate_feed(session, feed_url: str, source_id: uuid.UUID | None = 
     operation_id="admin_source_preview",
     openapi_extra=GatewayPolicy(upstream_timeout_ms=305_000).openapi_extra(),
 )
-def preview(body: SourcePreviewRequest, session: DB):
+def preview(body: SourcePreviewRequest, session: DB) -> SourcePreviewOut:
     # End the read transaction before network I/O. No source or ingestion records are created.
     with session.begin():
         if body.source_id is not None:
@@ -182,7 +188,7 @@ def sources(
     source_type: SourceType | None = None,
     approval_status: Literal["pending", "approved", "rejected"] | None = None,
     enabled: bool | None = None,
-):
+) -> PageData[Source]:
     statement = select(Source)
     if query.q:
         statement = statement.where(
@@ -208,7 +214,7 @@ def sources(
 
 
 @router.get("/{source_id}", response_model=SourceOut, operation_id="admin_source_get")
-def detail(source_id: uuid.UUID, session: DB):
+def detail(source_id: uuid.UUID, session: DB) -> SourceOut:
     result = SourceOut.model_validate(record(session, Source, source_id))
     # Source labels can be requested concurrently. Do not hold a connection
     # while response validation waits for the shared HTTP worker pool.
@@ -223,7 +229,7 @@ def detail(source_id: uuid.UUID, session: DB):
     operation_id="admin_source_create",
     openapi_extra=GatewayPolicy(upstream_timeout_ms=215_000).openapi_extra(),
 )
-def create(body: AdminSourceCreate, session: DB, admin: Admin):
+def create(body: AdminSourceCreate, session: DB, admin: Admin) -> Source:
     with session.begin():
         if body.feed_url:
             reject_duplicate_feed(session, body.feed_url)
@@ -269,7 +275,7 @@ def create(body: AdminSourceCreate, session: DB, admin: Admin):
 
 
 @router.patch("/{source_id}", response_model=SourceOut, operation_id="admin_source_update")
-def update(source_id: uuid.UUID, body: SourcePatch, session: DB):
+def update(source_id: uuid.UUID, body: SourcePatch, session: DB) -> Source:
     value = services.update_source(session, source_id, body)
     session.commit()
     logger.info(
@@ -283,7 +289,7 @@ def update(source_id: uuid.UUID, body: SourcePatch, session: DB):
 
 
 @router.post("/{source_id}/review", response_model=SourceOut, operation_id="admin_source_review")
-def review(source_id: uuid.UUID, body: ReviewSource, session: DB, admin: Admin):
+def review(source_id: uuid.UUID, body: ReviewSource, session: DB, admin: Admin) -> Source:
     value = services.review_source(
         session, source_id, SourceDecision(**body.model_dump(), actor=admin.subject)
     )
@@ -297,7 +303,7 @@ def review(source_id: uuid.UUID, body: ReviewSource, session: DB, admin: Admin):
 @router.post(
     "/{source_id}/fetch", response_model=JobOut, status_code=202, operation_id="admin_source_fetch"
 )
-def fetch(source_id: uuid.UUID, session: DB):
+def fetch(source_id: uuid.UUID, session: DB) -> IngestionJob:
     job = services.fetch_source(session, source_id)
     session.commit()
     logger.info(
@@ -311,7 +317,7 @@ def fetch(source_id: uuid.UUID, session: DB):
     response_model=Page[SourceReviewOut],
     operation_id="admin_source_reviews",
 )
-def reviews(source_id: uuid.UUID, session: DB, query: Listing):
+def reviews(source_id: uuid.UUID, session: DB, query: Listing) -> PageData[SourceReview]:
     require_record(session, Source, source_id)
     statement = select(SourceReview).where(SourceReview.source_id == source_id)
     if query.q:

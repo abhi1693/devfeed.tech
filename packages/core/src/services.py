@@ -13,6 +13,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.feeds.validation import validate_feed
 from devfeed_core.jobs import reconcile_source_schedule, request_ingestion
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import IngestionJob, Source, SourceReview, Tag, Topic, utcnow
 from devfeed_core.schemas import (
     SourceCreate,
@@ -46,7 +47,7 @@ class ValidatedSource:
     logo_url: str | None = None
     image_url: str | None = None
     language: str | None = None
-    submitted_by: dict | None = None
+    submitted_by: JsonRecord | None = None
 
 
 def validate_source(

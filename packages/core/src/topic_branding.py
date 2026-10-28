@@ -1,8 +1,12 @@
 """One bounded branding proposal per active topic, independent of identity admission."""
 
+from __future__ import annotations
+
 import uuid
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.sql import ColumnElement
 
 from devfeed_core.analysis import snapshot_hash
 from devfeed_core.config import get_settings
@@ -18,13 +22,13 @@ ACTOR = {
 }
 
 
-def identity_proposal_condition():
+def identity_proposal_condition() -> ColumnElement[bool]:
     # Branding updates must never enter the minimal identity workflow, which
     # deliberately clears optional metadata, or its automatic correction loop.
     return TopicProposal.source_name != VERSION
 
 
-def schedule_topic_branding(factory) -> int:
+def schedule_topic_branding(factory: sessionmaker[Session]) -> int:
     settings = get_settings()
     if not (settings.ai_enabled and settings.auto_research_topic_branding):
         return 0

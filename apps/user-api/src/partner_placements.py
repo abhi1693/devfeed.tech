@@ -5,7 +5,7 @@ from devfeed_core.partner_placements import deliver_placements
 from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from devfeed_http.body_limits import BodyLimitedRoute
 from devfeed_http.operation_policies import ExtensionTransportPolicy, ReaderGatewayPolicy
-from devfeed_http.partner_placements import PlacementQuery, PlacementsOut
+from devfeed_http.partner_placements import PlacementQuery, PlacementsData, PlacementsOut
 from fastapi import APIRouter, HTTPException, Response
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
@@ -28,7 +28,9 @@ router = APIRouter(
         extension=ExtensionTransportPolicy(),
     ).bounded_openapi_extra(),
 )
-def placements(payload: PlacementQuery, user: BrowserUser, session: DB, response: Response):
+def placements(
+    payload: PlacementQuery, user: BrowserUser, session: DB, response: Response
+) -> PlacementsData:
     response.headers["Cache-Control"] = "no-store"
     key = get_settings().partner_tracking_key
     if key is None:

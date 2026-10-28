@@ -1,7 +1,10 @@
 """Source-independent preview image discovery; never execute scripts or fetch images."""
 
+from __future__ import annotations
+
 import json
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from email.message import Message
 from html.parser import HTMLParser
@@ -17,7 +20,7 @@ class PageImage:
     method: str
 
 
-def image_url(value, base: str) -> str | None:
+def image_url(value: object, base: str) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
     try:
@@ -28,7 +31,7 @@ def image_url(value, base: str) -> str | None:
 
 
 class ImageParser(HTMLParser):
-    def __init__(self, base: str):
+    def __init__(self, base: str) -> None:
         super().__init__(convert_charrefs=True)
         self.base = base
         self.base_seen = False
@@ -39,7 +42,7 @@ class ImageParser(HTMLParser):
         self.script_size = 0
         self.ignored = 0
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
         if tag in {"template", "noscript"}:
             self.ignored += 1
@@ -56,14 +59,14 @@ class ImageParser(HTMLParser):
             }:
                 candidates = self.meta.setdefault(key, [])
                 if len(candidates) < 30 and values.get("content"):
-                    candidates.append(values["content"][:4096])
+                    candidates.append((values["content"] or "")[:4096])
             elif key in {"og:image", "og:image:url", "og:image:secure_url"} and values.get(
                 "content"
             ):
                 if key == "og:image:secure_url" and self.opengraph:
-                    self.opengraph[-1].setdefault("secure", values["content"][:4096])
+                    self.opengraph[-1].setdefault("secure", (values["content"] or "")[:4096])
                 elif len(self.opengraph) < 30:
-                    self.opengraph.append({"url": values["content"][:4096], "method": key})
+                    self.opengraph.append({"url": (values["content"] or "")[:4096], "method": key})
         elif (
             tag == "script" and (values.get("type") or "").lower().strip() == "application/ld+json"
         ):
@@ -71,7 +74,7 @@ class ImageParser(HTMLParser):
                 self.script = []
                 self.script_size = 0
 
-    def handle_data(self, data):
+    def handle_data(self, data: str) -> None:
         if self.script is not None:
             self.script_size += len(data)
             if self.script_size <= 200_000:
@@ -79,7 +82,7 @@ class ImageParser(HTMLParser):
             else:
                 self.script = None
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag in {"template", "noscript"}:
             self.ignored = max(0, self.ignored - 1)
         if tag == "script" and self.script is not None:
@@ -96,14 +99,14 @@ class ArticleImageParser(HTMLParser):
     static publishers, including Jeff Geerling's site.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.ignored = 0
         self.article_depth = 0
         self.lead_figure_depth = 0
         self.candidate: str | None = None
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
         if tag in {"template", "noscript"}:
             self.ignored += 1
@@ -120,7 +123,7 @@ class ArticleImageParser(HTMLParser):
         elif tag == "img" and self.lead_figure_depth and self.candidate is None:
             self.candidate = values.get("src") or values.get("data-src")
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag == "figure" and self.lead_figure_depth:
             self.lead_figure_depth -= 1
         elif tag == "article" and self.article_depth:
@@ -142,7 +145,7 @@ def decode_html(result: FetchResult) -> str:
         return result.body.decode("utf-8-sig", errors="replace")
 
 
-def structured_images(documents: list[str]):
+def structured_images(documents: list[str]) -> Iterator[object]:
     """Only article/page image properties, not organization logos or author portraits."""
     for document in documents:
         try:
@@ -211,7 +214,7 @@ def extract_image(result: FetchResult, *, allow_article_image: bool = False) -> 
         for candidate in parser.meta.get(key, []):
             if url := image_url(candidate, parser.base):
                 return PageImage(url, key)
-    for candidate in structured_images(parser.documents):
-        if url := image_url(candidate, parser.base):
+    for structured_candidate in structured_images(parser.documents):
+        if url := image_url(structured_candidate, parser.base):
             return PageImage(url, "json_ld")
     return None

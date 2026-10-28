@@ -3,18 +3,23 @@
 import logging
 import threading
 import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 from devfeed_core.recommendations import dispatch_recommendations
+from rq import Queue
+from sqlalchemy.orm import Session, sessionmaker
 
 logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def recommendation_dispatcher(factory, queue_factory, *, interval=1.0):
+def recommendation_dispatcher(
+    factory: sessionmaker[Session], queue_factory: Callable[[], Queue], *, interval: float = 1.0
+) -> Iterator[None]:
     stop = threading.Event()
 
-    def run():
+    def run() -> None:
         queue = None
         try:
             while not stop.is_set():

@@ -1,3 +1,6 @@
+from collections.abc import Callable
+from typing import Any
+
 from devfeed_core.config import get_settings
 from devfeed_core.jobs import JOB_TIMEOUT_SECONDS
 from devfeed_core.redis import create_redis
@@ -7,7 +10,7 @@ from redis.backoff import ExponentialWithJitterBackoff
 from redis.retry import Retry
 from rq import Queue
 from rq.exceptions import DuplicateJobError, NoSuchJobError
-from rq.job import JobStatus
+from rq.job import Job, JobStatus
 from rq.serializers import JSONSerializer
 
 # Check and restore membership atomically. A queued hash alone is not a delivery.
@@ -26,11 +29,13 @@ return 1
 class DurableQueue(Queue):
     """Keep an existing delivery in place when the database outbox checks it again."""
 
-    def enqueue(self, f, *args, **kwargs):
+    def enqueue(self, f: str | Callable[..., object], *args: Any, **kwargs: Any) -> Job:
         if context := inject_context():
             kwargs["meta"] = {**kwargs.get("meta", {}), "devfeed_trace": context}
         try:
-            return super().enqueue(f, *args, **kwargs)
+            # RQ constrains an otherwise independent function TypeVar; both union
+            # alternatives are supported, but its stub rejects their union.
+            return super().enqueue(f, *args, **kwargs)  # type: ignore[type-var]
         except DuplicateJobError:
             if not kwargs.get("unique"):
                 raise
@@ -71,10 +76,10 @@ class DurableQueue(Queue):
                 existing.delete()
             # The original delivery may have finished and disappeared between
             # the unique enqueue and fetch. DB row locks serialize our publishers.
-            return super().enqueue(f, *args, **kwargs)
+            return super().enqueue(f, *args, **kwargs)  # type: ignore[type-var]
 
 
-def get_queue(name: str = "ingestion") -> Queue:
+def get_queue(name: str = "ingestion") -> DurableQueue:
     if name not in QUEUES:
         raise ValueError("Unknown worker queue")
     return DurableQueue(

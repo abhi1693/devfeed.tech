@@ -1,6 +1,11 @@
 """Code-defined promotion entitlements, separate from catalog trust and membership."""
 
-from typing import Literal, TypedDict
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal, TypedDict
+
+if TYPE_CHECKING:
+    from devfeed_core.models import PartnerAccount
 
 PartnerTier = Literal["bronze", "silver", "gold", "platinum", "diamond"]
 PromotionKind = Literal["product", "ad"]
@@ -63,15 +68,15 @@ def tier_policy(tier: str) -> TierPolicy:
     return TIER_POLICIES[tier]
 
 
-def promotion_kind_allowed(account, kind: str) -> bool:
+def promotion_kind_allowed(account: PartnerAccount, kind: str) -> bool:
     return kind in tier_policy(account.tier)["allowed_promotion_kinds"]
 
 
-def effective_promotion_kind(account) -> PromotionKind:
+def effective_promotion_kind(account: PartnerAccount) -> PromotionKind:
     policy = tier_policy(account.tier)
     override = account.promotion_kind
     if override in policy["allowed_promotion_kinds"]:
-        return override
+        return "ad" if override == "ad" else "product"
     return policy["default_promotion_kind"]
 
 

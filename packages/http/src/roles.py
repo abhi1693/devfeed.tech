@@ -1,5 +1,6 @@
 """Normalize only the configured, authenticated roles claim. No user-ID fallback."""
 
+from collections.abc import Mapping
 from typing import Literal, Protocol
 
 
@@ -9,7 +10,7 @@ class RoleSettings(Protocol):
     oidc_organization_id: str | None
 
 
-def claim_roles(settings: RoleSettings, claims: dict) -> set[str]:
+def claim_roles(settings: RoleSettings, claims: Mapping[str, object]) -> set[str]:
     value = claims.get(settings.oidc_roles_claim)
     if settings.oidc_roles_format == "string_list":
         # For providers with a flat, application-scoped roles claim. Organization
@@ -37,7 +38,9 @@ def claim_roles(settings: RoleSettings, claims: dict) -> set[str]:
     return roles
 
 
-def verified_roles(settings: RoleSettings, id_claims: dict, userinfo: dict) -> list[str]:
+def verified_roles(
+    settings: RoleSettings, id_claims: Mapping[str, object], userinfo: Mapping[str, object]
+) -> list[str]:
     """Use either trusted source; if both assert roles, require agreement on access.
 
     Call only after signature/issuer/audience/nonce validation and UserInfo subject

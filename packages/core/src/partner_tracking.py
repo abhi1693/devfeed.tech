@@ -8,11 +8,13 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Literal, cast
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_core.models import (
     PartnerAccount,
@@ -37,7 +39,7 @@ class DeliveryReceipt:
 
 
 class PartnerTrackingTokens:
-    def __init__(self, key: str, *, clock: Callable[[], float] = time.time):
+    def __init__(self, key: str, *, clock: Callable[[], float] = time.time) -> None:
         if len(key.encode()) < 32:
             raise ValueError("Partner tracking key must contain at least 32 bytes")
         self.key = hmac.digest(key.encode(), b"devfeed:partner-delivery:v1", "sha256")
@@ -74,7 +76,7 @@ class DeliveryClaim:
     recorded_at: datetime
     created: bool
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return self.created
 
 
@@ -87,7 +89,10 @@ class BusyPartnerAsset(SQLAlchemyError):
 
 
 def prune_partner_delivery_history(
-    factory, *, now=None, batch_size=DELIVERY_HISTORY_BATCH_SIZE
+    factory: sessionmaker[Session],
+    *,
+    now: datetime | None = None,
+    batch_size: int = DELIVERY_HISTORY_BATCH_SIZE,
 ) -> int:
     """Prune expired operational receipt reservations in bounded batches."""
     if not 1 <= batch_size <= DELIVERY_HISTORY_BATCH_SIZE:
@@ -111,10 +116,12 @@ def prune_partner_delivery_history(
             .where(PartnerPlacementDelivery.delivery_id.in_(select(expired_reservations)))
             .execution_options(synchronize_session=False)
         )
-        return reservations.rowcount
+        return cast(CursorResult[*tuple[object, ...]], reservations).rowcount
 
 
-def record_delivery_event(session, receipt: DeliveryReceipt, kind: EventKind) -> DeliveryClaim:
+def record_delivery_event(
+    session: Session, receipt: DeliveryReceipt, kind: EventKind
+) -> DeliveryClaim:
     from devfeed_core.partner_placements import automatic_asset_available, lock_attribution_row
 
     # Resolve the immutable owner first, then acquire the same nonblocking lock
@@ -126,12 +133,14 @@ def record_delivery_event(session, receipt: DeliveryReceipt, kind: EventKind) ->
         raise InactivePartnerAsset
     account = lock_attribution_row(session, PartnerAccount, account_id, busy_error=True)
     asset_row = lock_attribution_row(session, PartnerAsset, receipt.asset_id, busy_error=True)
+    assert account is not None and asset_row is not None
     if account.status != "active" or asset_row.status != "active":
         raise InactivePartnerAsset
     # Automatic deliveries must exist in the trusted issuer's durable outbox and
     # still satisfy account/product/campaign policy when the browser reports them.
     if asset_row.automatic:
         reservation = session.get(PartnerPlacementDelivery, receipt.delivery_id)
+        assert asset_row.product_id is not None
         product = lock_attribution_row(
             session, PartnerProduct, asset_row.product_id, busy_error=True
         )

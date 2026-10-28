@@ -143,6 +143,31 @@ def test_database_failure_rolls_back_articles_and_retries(database, rss_bytes, m
         assert job.error == "Ingestion error: RuntimeError"
 
 
+def test_missing_attempt_timestamp_rolls_back_success_and_retries(database, monkeypatch):
+    source_id, job_id = make_job(database)
+
+    def response_without_attempt(url, *_args):
+        # Claiming set the timestamp before transport released its transaction.
+        # Simulate that state being removed before the response is applied.
+        with database.begin() as session:
+            session.get(Source, source_id).last_attempt_at = None
+        return FetchResult(304, b"", url)
+
+    monkeypatch.setattr(tasks, "fetch_feed", response_without_attempt)
+
+    tasks.ingest(str(job_id))
+
+    with database() as session:
+        job = session.get(IngestionJob, job_id)
+        source = session.get(Source, source_id)
+        assert job.status == "queued" and job.attempts == 1
+        assert job.error == "Ingestion error: RuntimeError"
+        assert job.available_at > utcnow()
+        assert job.lease_token is job.lease_until is None
+        assert job.http_status is None
+        assert source.last_success_at is None and source.last_attempt_at is None
+
+
 def test_disabled_source_does_not_fetch(database, monkeypatch):
     source_id, job_id = make_job(database)
     with database.begin() as session:

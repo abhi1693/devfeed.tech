@@ -61,7 +61,7 @@ def cli(
             help="Show the app version and exit.",
         ),
     ] = False,
-):
+) -> None:
     # Do not initialize configuration here: help and shell completion are offline.
     pass
 
@@ -73,7 +73,7 @@ def worker(
     name: Annotated[str | None, typer.Option(help="Optional unique worker name.")] = None,
     max_jobs: Annotated[int | None, typer.Option(min=1, max=2_147_483_647)] = None,
     queue: WorkerQueue = "all",
-):
+) -> None:
     """Run a dedicated queue or the all, background or analysis worker group."""
     invoke(ctx, commands.run_worker, locals())
 
@@ -82,13 +82,13 @@ def worker(
 def scheduler(
     ctx: typer.Context,
     once: Annotated[bool, typer.Option("--once", help="Run one tick and exit.")] = False,
-):
+) -> None:
     """Run the polling scheduler and durable job dispatcher."""
     invoke(ctx, commands.run_scheduler, locals())
 
 
 @app.command("status")
-def service_status(ctx: typer.Context):
+def service_status(ctx: typer.Context) -> None:
     """Check dependencies, counts, queues and worker/scheduler heartbeats."""
     invoke(ctx, lambda _: status.snapshot(), locals())
 

@@ -20,31 +20,31 @@ def list_jobs(
     offset: Offset = 0,
     source_id: UUID | None = None,
     status: JobStatus | None = None,
-):
+) -> None:
     """List ingestion runs."""
     invoke(ctx, commands.job_list, locals())
 
 
 @jobs.command()
-def show(ctx: typer.Context, id: Identifier):
+def show(ctx: typer.Context, id: Identifier) -> None:
     """Inspect a run's status, counters and error."""
     invoke(ctx, commands.job_show, locals())
 
 
 @jobs.command()
-def retry(ctx: typer.Context, id: Identifier):
+def retry(ctx: typer.Context, id: Identifier) -> None:
     """Request a new run for a failed job, preserving its history."""
     invoke(ctx, commands.job_retry, locals())
 
 
 @jobs.command()
-def dispatch(ctx: typer.Context, id: Identifier):
+def dispatch(ctx: typer.Context, id: Identifier) -> None:
     """Dispatch a queued job to RQ now, bypassing queued delays."""
     invoke(ctx, commands.job_dispatch, locals())
 
 
 @cache.command("clear")
-def cache_clear(ctx: typer.Context):
+def cache_clear(ctx: typer.Context) -> None:
     """Invalidate this database's API responses without flushing Redis."""
     invoke(ctx, commands.cache_clear, locals())
 
@@ -57,5 +57,5 @@ def migrate(
     config: Annotated[
         Path | None, typer.Option(help="alembic.ini path; otherwise search parent directories.")
     ] = None,
-):
+) -> None:
     invoke(ctx, commands.migrate, locals())

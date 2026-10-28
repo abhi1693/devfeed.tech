@@ -1,10 +1,13 @@
 """Persist classification-relevant topic changes in the catalog transaction."""
 
+from __future__ import annotations
+
 import uuid
+from collections.abc import Sequence
 from typing import cast
 
 from sqlalchemy import event, inspect
-from sqlalchemy.orm import InstanceState
+from sqlalchemy.orm import InstanceState, Session, UOWTransaction
 
 from devfeed_core.cache_events import AppSession
 from devfeed_core.config import get_settings
@@ -14,7 +17,9 @@ FIELDS = ("name", "slug", "kind", "aliases", "keywords", "status")
 
 
 @event.listens_for(AppSession, "before_flush")
-def topic_changes(session, flush_context, instances):
+def topic_changes(
+    session: Session, flush_context: UOWTransaction, instances: Sequence[object] | None
+) -> None:
     settings = get_settings()
     if not settings.ai_enabled or not settings.auto_reanalyze_topics:
         return
@@ -47,7 +52,9 @@ def topic_changes(session, flush_context, instances):
 
 
 @event.listens_for(AppSession, "before_flush")
-def relationship_changes(session, flush_context, instances):
+def relationship_changes(
+    session: Session, flush_context: UOWTransaction, instances: Sequence[object] | None
+) -> None:
     # Persist changes even while AI/scheduling is disabled, so enabling it later
     # resumes current coverage. The generation order gives each pair one owner.
     from devfeed_core.models import TopicRelationshipScan, utcnow
@@ -81,7 +88,9 @@ def relationship_changes(session, flush_context, instances):
 
 
 @event.listens_for(AppSession, "before_flush")
-def tag_topic_changes(session, flush_context, instances):
+def tag_topic_changes(
+    session: Session, flush_context: UOWTransaction, instances: Sequence[object] | None
+) -> None:
     from devfeed_core.models import Tag
     from devfeed_core.tag_topic_discovery import (
         IDENTITY_FIELDS,
@@ -120,7 +129,9 @@ def tag_topic_changes(session, flush_context, instances):
 
 
 @event.listens_for(AppSession, "before_flush")
-def logo_changes(session, flush_context, instances):
+def logo_changes(
+    session: Session, flush_context: UOWTransaction, instances: Sequence[object] | None
+) -> None:
     """Keep every ORM editing/research path in the same transactional outbox."""
     from sqlalchemy import select
 
@@ -132,7 +143,7 @@ def logo_changes(session, flush_context, instances):
     for subject in list(session.new | session.dirty):
         if not isinstance(subject, (Topic, Source)) or not subject.logo_url:
             continue
-        state = cast(InstanceState, inspect(subject))
+        state = cast(InstanceState[Topic | Source], inspect(subject))
         if not state.attrs.logo_url.history.has_changes() or logo_current(subject):
             continue
         if state.persistent:

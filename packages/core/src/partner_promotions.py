@@ -1,13 +1,30 @@
 """Account inheritance, campaign targeting and immutable automatic attribution."""
 
+from __future__ import annotations
+
 import uuid
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import batched
+from typing import Literal, Protocol, TypedDict
 
-from sqlalchemy import and_, delete, exists, func, or_, select, union, update
+from sqlalchemy import (
+    ColumnElement,
+    Row,
+    Select,
+    SQLColumnExpression,
+    and_,
+    delete,
+    exists,
+    func,
+    or_,
+    select,
+    union,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.sql.selectable import Exists
 
 from .cache_events import mark_dirty
 from .models import (
@@ -26,11 +43,42 @@ from .partner_surfaces import default_campaign_surfaces
 from .partner_tiers import effective_promotion_kind, promotion_kind_allowed
 from .partner_tools import eligible
 
+type AccountProduct = tuple[PartnerAccount, PartnerProduct] | Row[PartnerAccount, PartnerProduct]
+
+
+class CampaignTarget(Protocol):
+    @property
+    def targeting(self) -> str: ...
+    @property
+    def product_ids(self) -> Sequence[str]: ...
+    @property
+    def technologies(self) -> Sequence[str]: ...
+    @property
+    def topic_ids(self) -> Sequence[str]: ...
+
+
+class AutomaticAssetValues(TypedDict):
+    id: uuid.UUID
+    account_id: uuid.UUID
+    product_id: uuid.UUID
+    campaign_id: uuid.UUID | None
+    ad_format: str
+    article_id: uuid.UUID | None
+    automatic: Literal[True]
+    name: str
+    kind: Literal["ad", "product"]
+    status: Literal["active"]
+    created_at: datetime
+
+
 PROMOTION_BATCH_SIZE = 200
 PROMOTION_INSERT_BATCH_SIZE = 500
 
 
-def account_product_source(account_id, product_id):
+def account_product_source(
+    account_id: uuid.UUID | SQLColumnExpression[uuid.UUID] | SQLColumnExpression[uuid.UUID | None],
+    product_id: uuid.UUID | SQLColumnExpression[uuid.UUID],
+) -> ColumnElement[bool]:
     """Import ownership and explicit manual inventory share the same serving policy."""
     imported = exists(
         select(PartnerListing.id)
@@ -54,7 +102,9 @@ def account_product_source(account_id, product_id):
     return or_(imported, manual)
 
 
-def associated_products_query(account_id: uuid.UUID | None = None, *, include_archived=False):
+def associated_products_query(
+    account_id: uuid.UUID | None = None, *, include_archived: bool = False
+) -> Select[PartnerAccount, PartnerProduct]:
     """Current explicit or imported inventory, independently of canonical identity."""
     imported = (
         select(PartnerConnection.account_id, PartnerListing.product_id)
@@ -92,7 +142,7 @@ def campaign_is_live(campaign: PartnerCampaign, now: datetime | None = None) -> 
 
 
 def campaign_matches_product(
-    campaign: PartnerCampaign,
+    campaign: CampaignTarget,
     product: PartnerProduct,
     topic_ids: Iterable[uuid.UUID | str] | None = None,
 ) -> bool:
@@ -123,7 +173,7 @@ def campaign_matches_product(
     return bool(campaign.technologies or campaign.topic_ids)
 
 
-def trusted_product_exists():
+def trusted_product_exists() -> Exists:
     """Correlated account-owned acceptance, usable independently of factual qualification."""
     return exists(
         select(PartnerProductPromotion.product_id)
@@ -140,7 +190,14 @@ def trusted_product_exists():
     )
 
 
-def commercially_eligible(session, account, product, now, *, busy_error=False):
+def commercially_eligible(
+    session: Session,
+    account: PartnerAccount,
+    product: PartnerProduct,
+    now: datetime | None,
+    *,
+    busy_error: bool = False,
+) -> bool:
     if product.merged_into_id or product.excluded:
         return False
     if eligible(product, now):
@@ -164,7 +221,9 @@ def commercially_eligible(session, account, product, now, *, busy_error=False):
     )
 
 
-def ensure_managed_campaign(session, account, now, ad_format="feed"):
+def ensure_managed_campaign(
+    session: Session, account: PartnerAccount, now: datetime, ad_format: str = "feed"
+) -> uuid.UUID | None:
     if (
         effective_promotion_kind(account) != "ad"
         or not promotion_kind_allowed(account, "ad")
@@ -227,13 +286,15 @@ def ensure_automatic_assets(
     return _enroll_automatic_rows(session, rows, now)
 
 
-def automatic_products_query(account_id=None):
+def automatic_products_query(
+    account_id: uuid.UUID | None = None,
+) -> Select[PartnerAccount, PartnerProduct]:
     return associated_products_query(account_id).where(
         PartnerAccount.status == "active", PartnerProduct.excluded.is_(False)
     )
 
 
-def _enroll_automatic_rows(session, rows, now):
+def _enroll_automatic_rows(session: Session, rows: Sequence[AccountProduct], now: datetime) -> int:
     if not rows:
         return 0
     rows = sorted(rows, key=lambda row: (row[0].id, row[1].id))
@@ -299,13 +360,15 @@ def _enroll_automatic_rows(session, rows, now):
         ).all()
     )
     created = 0
-    for batch in batched(
+    for asset_batch in batched(
         _automatic_asset_values(rows, campaigns, excluded), PROMOTION_INSERT_BATCH_SIZE
     ):
-        sponsored_ids = {row["id"] for row in batch if row["ad_format"] == "sponsored_content"}
+        sponsored_ids = {
+            row["id"] for row in asset_batch if row["ad_format"] == "sponsored_content"
+        }
         result = session.execute(
             insert(PartnerAsset)
-            .values(list(batch))
+            .values(list(asset_batch))
             .on_conflict_do_nothing()
             .returning(PartnerAsset.id)
         )
@@ -316,7 +379,11 @@ def _enroll_automatic_rows(session, rows, now):
     return created
 
 
-def _automatic_asset_values(rows, campaigns, excluded):
+def _automatic_asset_values(
+    rows: Iterable[AccountProduct],
+    campaigns: Mapping[uuid.UUID, Sequence[PartnerCampaign]],
+    excluded: Collection[tuple[uuid.UUID, uuid.UUID] | Row[uuid.UUID, uuid.UUID]],
+) -> Iterator[AutomaticAssetValues]:
     for account, product in rows:
         if (account.id, product.id) in excluded or not (
             account.approval_mode == "trusted" or product.status == "approved"
@@ -343,8 +410,10 @@ def _automatic_asset_values(rows, campaigns, excluded):
                 )
 
 
-def _next_campaign_start(session, account_id, after, now):
-    return session.scalar(
+def _next_campaign_start(
+    session: Session, account_id: uuid.UUID, after: datetime, now: datetime
+) -> datetime | None:
+    result: datetime | None = session.scalar(
         select(func.min(PartnerCampaign.starts_at))
         .join(PartnerAccount)
         .where(
@@ -355,9 +424,12 @@ def _next_campaign_start(session, account_id, after, now):
             PartnerCampaign.ends_at > now,
         )
     )
+    return result
 
 
-def request_promotion_enrollment(session, account_id, now=None):
+def request_promotion_enrollment(
+    session: Session, account_id: uuid.UUID, now: datetime | None = None
+) -> int:
     """Keep small saves immediate; checkpoint large catalogs in the same transaction."""
     now = now or datetime.now(UTC)
     # Account -> enrollment is shared with scheduler slices and policy editors.
@@ -374,7 +446,7 @@ def request_promotion_enrollment(session, account_id, now=None):
         .limit(PROMOTION_BATCH_SIZE + 1)
     ).all()
     created = 0
-    due = now
+    due: datetime | None = now
     if len(rows) <= PROMOTION_BATCH_SIZE:
         created = _enroll_automatic_rows(session, rows, now)
         due = _next_campaign_start(session, account_id, now, now)
@@ -401,7 +473,12 @@ def request_promotion_enrollment(session, account_id, now=None):
     return created
 
 
-def process_promotion_enrollment(factory, *, limit=PROMOTION_BATCH_SIZE, now=None):
+def process_promotion_enrollment(
+    factory: sessionmaker[Session],
+    *,
+    limit: int = PROMOTION_BATCH_SIZE,
+    now: datetime | None = None,
+) -> int:
     """Commit one account slice and its cursor together, without waiting for editors."""
     if limit <= 0:
         return 0
@@ -474,7 +551,12 @@ def process_promotion_enrollment(factory, *, limit=PROMOTION_BATCH_SIZE, now=Non
         raise
 
 
-def sync_partner_promotions(factory, *, limit=PROMOTION_BATCH_SIZE, now=None):
+def sync_partner_promotions(
+    factory: sessionmaker[Session],
+    *,
+    limit: int = PROMOTION_BATCH_SIZE,
+    now: datetime | None = None,
+) -> int:
     """Bounded repair lane for imported inventory and newly inherited account policy."""
     now = now or datetime.now(UTC)
     created = process_promotion_enrollment(factory, limit=limit, now=now)
@@ -560,9 +642,9 @@ def _asset_values(
     account_id: uuid.UUID,
     product: PartnerProduct,
     campaign_id: uuid.UUID | None,
-    ad_format="feed",
-    article_id=None,
-):
+    ad_format: str = "feed",
+    article_id: uuid.UUID | None = None,
+) -> AutomaticAssetValues:
     return {
         "id": uuid.uuid4(),
         "account_id": account_id,

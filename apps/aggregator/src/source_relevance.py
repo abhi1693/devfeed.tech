@@ -2,10 +2,12 @@
 
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.validation import validate_feed
-from devfeed_core.inference_validation import feedback_prompt
+from devfeed_core.inference_validation import ValidationFeedback, feedback_prompt
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import utcnow
 from devfeed_core.source_relevance import (
     VERSION,
+    FeedSampleEntry,
     SourceRelevance,
     approval_supported,
     feed_sample,
@@ -14,11 +16,18 @@ from devfeed_core.source_relevance import (
     relevance_schema,
     restore_source_evidence,
 )
+from devfeed_core.source_types import SourceType
 
 from devfeed_aggregator.codex_client import CodexClient
 
 
-def assess_source(feed_url, source_type, *, feedback=None, sample=None):
+def assess_source(
+    feed_url: str,
+    source_type: SourceType,
+    *,
+    feedback: ValidationFeedback | None = None,
+    sample: list[FeedSampleEntry] | None = None,
+) -> JsonRecord:
     if sample is None:
         parsed = validate_feed(feed_url, source_type=source_type)
         sample = feed_sample(parsed)

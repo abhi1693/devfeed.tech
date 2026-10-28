@@ -5,6 +5,8 @@ persistence/eviction determines durability; these are troubleshooting logs,
 not a permanent audit trail.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -120,7 +122,7 @@ class JobLogHandler(logging.Handler):
     Nothing is buffered in process, so completed records survive a worker crash.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(logging.DEBUG)
         self.payload_formatter = JsonFormatter("worker")
         self.client: Redis | None = None

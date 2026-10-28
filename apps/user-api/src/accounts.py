@@ -4,6 +4,7 @@ import logging
 from datetime import timedelta
 
 from devfeed_core.db import session_factory
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import UserAccount, utcnow
 from sqlalchemy import text, update
 from sqlalchemy.dialects.postgresql import insert
@@ -12,11 +13,11 @@ from sqlalchemy.exc import SQLAlchemyError
 logger = logging.getLogger(__name__)
 
 
-def save_user(identity: dict) -> str:
+def save_user(identity: JsonRecord) -> str:
     return save_user_with_status(identity)[0]
 
 
-def save_user_with_status(identity: dict) -> tuple[str, bool]:
+def save_user_with_status(identity: JsonRecord) -> tuple[str, bool]:
     """Return the committed account ID and whether this request created it."""
     values = {
         name: identity[name] for name in ("issuer", "subject", "organization_id", "name", "email")

@@ -1,12 +1,38 @@
+from __future__ import annotations
+
 import uuid
 from datetime import timedelta
+from typing import TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from devfeed_core.job_lifecycle import DEFAULT_RETRY, fail_or_retry, start_job
-from devfeed_core.models import IngestionJob, Source, utcnow
+from devfeed_core.models import (
+    ArticleAnalysisJob,
+    ArticleEnrichmentJob,
+    ArticleImageJob,
+    IngestionJob,
+    NotificationDelivery,
+    ResearchVerificationJob,
+    Source,
+    SourceEnrichmentJob,
+    TopicAnalysisJob,
+    utcnow,
+)
 from devfeed_core.polling import schedule
+
+JobT = TypeVar(
+    "JobT",
+    IngestionJob,
+    ArticleAnalysisJob,
+    ArticleEnrichmentJob,
+    ArticleImageJob,
+    SourceEnrichmentJob,
+    TopicAnalysisJob,
+    ResearchVerificationJob,
+    NotificationDelivery,
+)
 
 MAX_ATTEMPTS = DEFAULT_RETRY.max_attempts
 JOB_TIMEOUT_SECONDS = 180
@@ -26,7 +52,18 @@ def lock_ingestion_source(session: Session, job_id: uuid.UUID) -> Source | None:
     )
 
 
-def owned_job(session: Session, model, job_id: uuid.UUID, token: uuid.UUID):
+def owned_job[
+    JobT: (
+        IngestionJob,
+        ArticleAnalysisJob,
+        ArticleEnrichmentJob,
+        ArticleImageJob,
+        SourceEnrichmentJob,
+        TopicAnalysisJob,
+        ResearchVerificationJob,
+        NotificationDelivery,
+    )
+](session: Session, model: type[JobT], job_id: uuid.UUID, token: uuid.UUID) -> JobT | None:
     """Lock a running job and recheck ownership after external work.
 
     Callers own the transaction. Wait for concurrent recovery to commit before

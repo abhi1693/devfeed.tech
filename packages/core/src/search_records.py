@@ -1,17 +1,75 @@
 """Bounded primary-key hydration and public visibility shared by search and indexing."""
 
+from __future__ import annotations
+
 import uuid
-from typing import Any
+from collections.abc import Iterable
+from datetime import datetime
+from typing import Any, NotRequired, Required, TypedDict, cast
 from urllib.parse import quote
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import InstrumentedAttribute
+from sqlalchemy.orm import InstrumentedAttribute, Session
 from sqlalchemy.sql import Select
 
 from devfeed_core.feeds.parser import plain_text
+from devfeed_core.json_types import JsonRecord
+from devfeed_core.managed_images import ImageVariant
 from devfeed_core.models import Article, ArticleOrigin, ArticleTag, ArticleTopic, Source, Tag, Topic
-from devfeed_core.partner_link_rel import default_link_rel, sponsored_article_link_rel
+from devfeed_core.partner_link_rel import LinkRel, default_link_rel, sponsored_article_link_rel
 from devfeed_core.publication import visible_article
+
+
+class PublicSearchRecord(TypedDict, total=False):
+    id: Required[uuid.UUID]
+    title: str
+    name: str
+    slug: str
+    summary: str
+    ai_summary: str | None
+    ai_description: str | None
+    description: str | None
+    author: str | None
+    feed_at: datetime
+    image_url: str | None
+    content_type: str
+    sponsor_names: list[str]
+    sponsor_link_rel: list[LinkRel]
+    website_url: str | None
+    feed_url: str | None
+    logo_url: str | None
+    managed_logo: JsonRecord
+    logo_variants: list[ImageVariant]
+    aliases: list[str]
+    keywords: list[str]
+
+
+class SearchHitData(TypedDict):
+    id: str
+    title: str
+    description: str
+    href: str
+    image_url: str | None
+    logo_variants: list[ImageVariant]
+    sponsor_names: list[str]
+    sponsor_link_rel: list[LinkRel]
+    label: str
+    published_at: str | None
+    click_token: NotRequired[str | None]
+
+
+class SearchDocument(TypedDict):
+    id: str
+    title: str
+    description: str
+    terms: list[str]
+    author: str
+    published_at: int
+    topics: list[str]
+    sources: list[str]
+    tags: list[str]
+    content_type: str
+
 
 MODELS: dict[str, type[Article] | type[Source] | type[Tag] | type[Topic]] = {
     "articles": Article,
@@ -20,7 +78,11 @@ MODELS: dict[str, type[Article] | type[Source] | type[Tag] | type[Topic]] = {
     "tags": Tag,
 }
 LINKS: dict[
-    str, tuple[type[ArticleTopic] | type[ArticleOrigin] | type[ArticleTag], InstrumentedAttribute]
+    str,
+    tuple[
+        type[ArticleTopic] | type[ArticleOrigin] | type[ArticleTag],
+        InstrumentedAttribute[uuid.UUID],
+    ],
 ] = {
     "topics": (ArticleTopic, ArticleTopic.topic_id),
     "sources": (ArticleOrigin, ArticleOrigin.source_id),
@@ -28,7 +90,9 @@ LINKS: dict[
 }
 
 
-def public_records(session, kind, ids):
+def public_records(
+    session: Session, kind: str, ids: Iterable[uuid.UUID]
+) -> dict[uuid.UUID, PublicSearchRecord]:
     if not ids:
         return {}
     model = MODELS[kind]
@@ -84,7 +148,7 @@ def public_records(session, kind, ids):
             eligible = eligible.where(ArticleTopic.role.in_(["primary", "supporting"]))
         statement = statement.where(eligible.exists())
     records = {
-        row["id"]: dict(row)
+        row["id"]: cast(PublicSearchRecord, dict(row))
         for row in session.execute(statement.where(model.id.in_(ids))).mappings()
     }
     if kind == "articles":
@@ -97,7 +161,7 @@ def public_records(session, kind, ids):
     return records
 
 
-def hit(kind, record):
+def hit(kind: str, record: PublicSearchRecord) -> SearchHitData:
     if kind in {"topics", "sources"}:
         from types import SimpleNamespace
 
@@ -138,7 +202,9 @@ def hit(kind, record):
     }
 
 
-def documents(session, kind, ids):
+def documents(
+    session: Session, kind: str, ids: Iterable[uuid.UUID]
+) -> tuple[list[SearchDocument], set[uuid.UUID]]:
     records = public_records(session, kind, ids)
     terms: dict[uuid.UUID, list[str]] = {identifier: [] for identifier in records}
     related_ids: dict[str, dict[uuid.UUID, set[str]]] = {
@@ -169,14 +235,14 @@ def documents(session, kind, ids):
                 related_ids[related][row[0]].add(str(row[1]))
                 for value in row[2:]:
                     terms[row[0]].extend(value if isinstance(value, list) else [value])
-    result = []
+    result: list[SearchDocument] = []
     for identifier, record in records.items():
         own_terms = [
             *record.get("aliases", []),
             *record.get("keywords", []),
             record.get("slug", ""),
-            record.get("website_url", ""),
-            record.get("feed_url", ""),
+            record.get("website_url") or "",
+            record.get("feed_url") or "",
         ]
         result.append(
             {

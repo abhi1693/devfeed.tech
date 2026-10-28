@@ -5,9 +5,9 @@ import uuid
 from devfeed_core.models import Topic, TopicProposal
 from devfeed_core.schemas import ORMModel
 from devfeed_core.text_search import text_search
-from devfeed_http.pagination import Listing, Page
+from devfeed_http.pagination import Listing, Page, PageData
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import UUID, String, cast, func, literal, or_, select, union_all
+from sqlalchemy import UUID, RowMapping, String, cast, func, literal, or_, select, union_all
 
 from devfeed_admin_api.auth import require_admin
 from devfeed_admin_api.dependencies import DB
@@ -30,7 +30,9 @@ class TopicReplacementOut(ORMModel):
     response_model=Page[TopicReplacementOut],
     operation_id="admin_topic_replacements_list",
 )
-def replacements(session: DB, query: Listing, exclude_topic_id: uuid.UUID | None = None):
+def replacements(
+    session: DB, query: Listing, exclude_topic_id: uuid.UUID | None = None
+) -> PageData[RowMapping]:
     rows = union_all(
         select(
             cast(Topic.id, String).label("id"),
@@ -83,4 +85,4 @@ def replacements(session: DB, query: Listing, exclude_topic_id: uuid.UUID | None
         .mappings()
         .all()
     )
-    return {"items": items, "total": total, "offset": query.offset, "limit": query.limit}
+    return {"items": list(items), "total": total or 0, "offset": query.offset, "limit": query.limit}

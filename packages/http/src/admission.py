@@ -70,7 +70,7 @@ class _AdmissionContext:
 class AdmissionController:
     """One process budget; route selection supplies the request's lane."""
 
-    def __init__(self, *, requests: int, streams: int):
+    def __init__(self, *, requests: int, streams: int) -> None:
         self.limits = {"request": requests, "stream": streams}
         self.active = {"request": 0, "stream": 0}
 
@@ -141,7 +141,7 @@ class AdmissionController:
 
 
 class AdmissionMiddleware:
-    def __init__(self, app: ASGIApp, *, requests: int, streams: int):
+    def __init__(self, app: ASGIApp, *, requests: int, streams: int) -> None:
         self.app = app
         self.controller = AdmissionController(requests=requests, streams=streams)
 

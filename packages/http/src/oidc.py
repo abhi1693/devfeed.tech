@@ -9,13 +9,17 @@ import re
 import secrets
 import time
 from base64 import urlsafe_b64encode
-from typing import Protocol
+from collections.abc import Generator
+from typing import Protocol, TypedDict, Unpack
 from urllib.parse import urlencode, urlsplit
 
 import httpx
 import jwt
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.telemetry import observed_dependency
 from pydantic import SecretStr
+from redis import Redis
+from starlette.datastructures import QueryParams
 
 ALGORITHMS = ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"]
 FLOW_TTL = 600
@@ -57,8 +61,8 @@ def cookie_name(service: str, kind: str, *, secure: bool) -> str:
 
 
 def consume_callback_flow(
-    *, query_params, state: str, browser: str, redis, flow_key: str, policy: str
-) -> dict:
+    *, query_params: QueryParams, state: str, browser: str, redis: Redis, flow_key: str, policy: str
+) -> JsonRecord:
     """Validate and atomically consume a browser-bound OIDC callback flow."""
     if any(len(query_params.getlist(name)) > 1 for name in ("state", "code", "error", "iss")):
         raise OIDCError("Ambiguous callback")
@@ -70,7 +74,7 @@ def consume_callback_flow(
     if not raw:
         raise OIDCFlowUnavailable("Expired login state")
     try:
-        flow = json.loads(raw)
+        flow: JsonRecord = json.loads(raw)
         flow_browser = flow["browser"]
         flow_policy = flow["policy"]
     except (ValueError, TypeError, KeyError) as exc:
@@ -140,8 +144,13 @@ def endpoint(value: object, settings: ProviderSettings) -> str:
     return value
 
 
+class OIDCRequestOptions(TypedDict, total=False):
+    data: dict[str, str]
+    auth: httpx.Auth | None
+
+
 @observed_dependency("oidc", "request")
-def request_json(method: str, url: str, **kwargs) -> dict:
+def request_json(method: str, url: str, **kwargs: Unpack[OIDCRequestOptions]) -> JsonRecord:
     # Bounded requests; never follow redirects carrying a secret or bearer token.
     try:
         with (
@@ -163,7 +172,7 @@ def request_json(method: str, url: str, **kwargs) -> dict:
         raise OIDCDependencyError("OIDC provider request failed") from exc
 
 
-def discovery(settings: ProviderSettings) -> dict:
+def discovery(settings: ProviderSettings) -> JsonRecord:
     issuer = str(settings.oidc_issuer_url)
     metadata = request_json("GET", f"{issuer.rstrip('/')}/.well-known/openid-configuration")
     if metadata.get("issuer") != issuer:
@@ -194,7 +203,7 @@ def discovery(settings: ProviderSettings) -> dict:
 
 def start(
     settings: ProviderSettings,
-    metadata: dict,
+    metadata: JsonRecord,
     *,
     redirect_uri: str,
     policy: str,
@@ -202,7 +211,7 @@ def start(
     register: bool = False,
     role_scope: str | None = None,
     identity_provider_id: str | None = None,
-) -> tuple[str, dict]:
+) -> tuple[str, JsonRecord]:
     state, nonce, verifier, browser = (secrets.token_urlsafe(32) for _ in range(4))
     challenge = urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     scopes = list(dict.fromkeys(["openid", *settings.oidc_scopes]))
@@ -248,13 +257,13 @@ def start(
 
 def identity(
     settings: ProviderSettings,
-    metadata: dict,
-    flow: dict,
+    metadata: JsonRecord,
+    flow: JsonRecord,
     code: str,
     *,
     redirect_uri: str,
     session_ttl: int,
-) -> dict:
+) -> JsonRecord:
     data = {
         "grant_type": "authorization_code",
         "code": code,
@@ -319,7 +328,7 @@ def identity(
             ):
                 raise OIDCError("Fresh authentication was not completed")
         profile = dict(claims)
-        info: dict = {}
+        info: JsonRecord = {}
         # Profile/organization claims may be delivered via UserInfo instead. Never
         # overwrite token security claims, and require an exact subject match.
         if metadata.get("userinfo_endpoint") and tokens.get("access_token"):
@@ -359,9 +368,9 @@ def identity(
 
 
 class BearerToken(httpx.Auth):
-    def __init__(self, token: str):
+    def __init__(self, token: str) -> None:
         self.token = token
 
-    def auth_flow(self, request):
+    def auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response, None]:
         request.headers["Authorization"] = f"Bearer {self.token}"
         yield request

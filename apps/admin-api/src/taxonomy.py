@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import uuid
 
@@ -10,9 +12,10 @@ from devfeed_core.schemas import (
     TagWrite,
 )
 from devfeed_core.text_search import text_search
-from devfeed_http.pagination import Listing, Page, paginate, prohibit_references, record
+from devfeed_http.pagination import Listing, Page, PageData, paginate, prohibit_references, record
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
 
 from devfeed_admin_api.auth import require_admin
 from devfeed_admin_api.dependencies import DB
@@ -28,7 +31,7 @@ def tags(
     session: DB,
     query: Listing,
     topic_id: uuid.UUID | None = None,
-):
+) -> PageData[Tag]:
     statement = select(Tag)
     if topic_id:
         statement = statement.where(Tag.topic_id == topic_id)
@@ -38,12 +41,12 @@ def tags(
 
 
 @router.get("/tags/{tag_id}", response_model=TagOut, operation_id="admin_tag_get")
-def tag_detail(tag_id: uuid.UUID, session: DB):
+def tag_detail(tag_id: uuid.UUID, session: DB) -> Tag:
     return record(session, Tag, tag_id)
 
 
 @router.post("/tags", response_model=TagOut, status_code=201, operation_id="admin_tag_create")
-def create_tag(body: TagWrite, session: DB):
+def create_tag(body: TagWrite, session: DB) -> Tag:
     tag = services.create_tag(session, body)
     session.commit()
     logger.info("tag_created", extra={"tag_id": tag.id})
@@ -51,16 +54,16 @@ def create_tag(body: TagWrite, session: DB):
 
 
 @router.put("/tags/{tag_id}", response_model=TagOut, operation_id="admin_tag_update")
-def update_tag(tag_id: uuid.UUID, body: TagWrite, session: DB):
+def update_tag(tag_id: uuid.UUID, body: TagWrite, session: DB) -> Tag:
     return save_tag(tag_id, body, session)
 
 
 @router.patch("/tags/{tag_id}", response_model=TagOut)
-def patch_tag(tag_id: uuid.UUID, body: TagPatch, session: DB):
+def patch_tag(tag_id: uuid.UUID, body: TagPatch, session: DB) -> Tag:
     return save_tag(tag_id, body, session)
 
 
-def save_tag(tag_id, body: TagWrite | TagPatch, session):
+def save_tag(tag_id: uuid.UUID, body: TagWrite | TagPatch, session: Session) -> Tag:
     tag = services.update_tag(session, tag_id, body)
     session.commit()
     logger.info(

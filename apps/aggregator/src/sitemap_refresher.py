@@ -2,6 +2,7 @@
 
 import logging
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 
 from devfeed_core.sitemaps import refresh_snapshot
@@ -10,10 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def sitemap_refresher(*, interval=60):
+def sitemap_refresher(*, interval: float = 60) -> Iterator[None]:
     stop = threading.Event()
 
-    def run():
+    def run() -> None:
         while not stop.is_set():
             try:
                 refresh_snapshot()

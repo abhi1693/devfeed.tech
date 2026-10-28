@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import uuid
+from collections.abc import Sequence
 from typing import Annotated
 
 from devfeed_core.models import Article, ArticleOrigin, Source
@@ -31,7 +34,7 @@ def sources(
     ),
     q: Annotated[TextInput, Query(max_length=200)] = "",
     languages: Annotated[list[LanguageCode] | None, Query(min_length=1, max_length=75)] = None,
-):
+) -> Sequence[Source]:
     statement = select(Source).where(Source.approval_status == "approved")
     if q.strip():
         statement = statement.where(Source.name.icontains(q.strip(), autoescape=True))
@@ -61,7 +64,7 @@ def sources(
     response_model=SourcePublicOut,
     openapi_extra=CachePolicy(namespace="source", revision=1, ttl="metadata").openapi_extra(),
 )
-def source_detail(source_id: TextInput, session: DB):
+def source_detail(source_id: TextInput, session: DB) -> Source:
     if not 1 <= len(source_id) <= 200:
         raise HTTPException(404, "Source not found")
     try:

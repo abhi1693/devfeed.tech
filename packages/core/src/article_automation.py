@@ -1,15 +1,21 @@
 """Resume pending articles and give every completed attempt an editorial outcome."""
 
+from __future__ import annotations
+
 import uuid
 from datetime import timedelta
+from typing import cast
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import defer, lazyload
+from sqlalchemy.orm import Session, defer, lazyload, sessionmaker
 
 from devfeed_core.ai_content import eligible_article, eligible_articles
 from devfeed_core.analysis import (
     PROMPT_VERSION,
     VALIDATION_VERSION,
+    AnalysisCatalog,
+    CatalogItem,
+    SourceSnapshot,
     analysis_catalog_current,
     candidate_evidence,
     candidate_score,
@@ -51,7 +57,7 @@ TOPIC_WAIT = timedelta(hours=24)
 SOURCE_ACTOR = "devfeed:source-automation"
 
 
-def lock_article_catalog(session):
+def lock_article_catalog(session: Session) -> None:
     # Serialize only proposal creation; ordinary classification applications use
     # a shared catalog lock. Acquire this before any catalog lock to avoid upgrades.
     # DFR namespace, source proposals; lane 0 is topic decision admission.
@@ -59,7 +65,7 @@ def lock_article_catalog(session):
     lock_topics(session, read=True)
 
 
-def pending_topic_matches(session, snapshot) -> bool:
+def pending_topic_matches(session: Session, snapshot: SourceSnapshot) -> bool:
     # Matching consumes identities only. Avoid transferring full descriptions,
     # facts and evidence for every pending draft while holding publication locks.
     proposed = TopicProposal.proposed
@@ -79,10 +85,13 @@ def pending_topic_matches(session, snapshot) -> bool:
         session, ("topic_proposals",), lambda: list(session.scalars(statement))
     )
     evidence = candidate_evidence(snapshot)
-    return any(candidate_score(draft, snapshot, evidence=evidence) > 0 for draft in candidates)
+    return any(
+        candidate_score(cast(CatalogItem, draft), snapshot, evidence=evidence) > 0
+        for draft in candidates
+    )
 
 
-def propose_source_topics(session, article) -> int:
+def propose_source_topics(session: Session, article: Article) -> int:
     """Serialize only actual proposal candidates; never approve identities."""
     if (
         not get_settings().full_automation
@@ -157,13 +166,13 @@ def propose_source_topics(session, article) -> int:
     return count
 
 
-def schedule_source_admission(factory) -> int:
+def schedule_source_admission(factory: sessionmaker[Session]) -> int:
     from devfeed_core.source_relevance import schedule_pending_reviews
 
     return schedule_pending_reviews(factory, get_settings().automation_batch_size)
 
 
-def reject_known_paywalled_articles(factory) -> int:
+def reject_known_paywalled_articles(factory: sessionmaker[Session]) -> int:
     """Apply the explicit paywall policy to pending records enriched before this policy."""
     latest_enrichment_id = (
         select(ArticleEnrichmentJob.id)
@@ -213,12 +222,14 @@ def reject_known_paywalled_articles(factory) -> int:
     return rejected
 
 
-def schedule_article_automation(factory) -> dict[str, int]:
+def schedule_article_automation(factory: sessionmaker[Session]) -> dict[str, int]:
     with reuse_snapshots(), reuse_candidates():
         return _schedule_article_automation(factory)
 
 
-def _prepare_article_candidates(factory, identifier):
+def _prepare_article_candidates(
+    factory: sessionmaker[Session], identifier: uuid.UUID
+) -> tuple[AnalysisCatalog, SourceSnapshot] | None:
     from devfeed_core.analysis import analysis_candidates
 
     with factory() as session:
@@ -252,7 +263,7 @@ def _prepare_article_candidates(factory, identifier):
     return taxonomy, snapshot
 
 
-def _schedule_article_automation(factory) -> dict[str, int]:
+def _schedule_article_automation(factory: sessionmaker[Session]) -> dict[str, int]:
     counts = {
         "articles_checked": 0,
         "articles_published": 0,
@@ -435,13 +446,14 @@ def _schedule_article_automation(factory) -> dict[str, int]:
                 # A current editorial revision is required even when the input hash is unchanged.
                 request_analysis(session, identifier, automatic=True, force=True, taxonomy=taxonomy)
                 continue
-            elif job.status == "failed":
+            elif job is not None and job.status == "failed":
                 reasons = ["analysis_failed", job.error or "analysis_attempts_exhausted"]
-            elif job.result.get("topic_match_status") == "no_topic_match":
+            elif job is not None and job.result.get("topic_match_status") == "no_topic_match":
                 reasons = ["no_supported_topic_match"]
-            elif job.result.get("topic_match_status") == "no_primary_topic":
+            elif job is not None and job.result.get("topic_match_status") == "no_primary_topic":
                 reasons = ["no_supported_primary_topic"]
             else:
+                assert job is not None  # A current analysis above requires an existing job.
                 evaluation = evaluate_publication(session, article, job, taxonomy=taxonomy)
                 decision = evaluation
                 if decision["status"] == "would_publish":

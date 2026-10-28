@@ -1,11 +1,18 @@
 """Managed logo presentation and durable scheduling; no remote I/O on reads."""
 
+from __future__ import annotations
+
 import uuid
 from dataclasses import dataclass
+from typing import Protocol, cast
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import InstrumentedAttribute, Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from devfeed_core.config import get_settings
+from devfeed_core.json_types import JsonRecord
+from devfeed_core.managed_images import ImageVariant
 from devfeed_core.models import ArticleImageJob, PartnerProduct, Source, Topic, utcnow
 from devfeed_core.services import OperationConflict, RecordNotFound
 
@@ -16,6 +23,16 @@ LOGO_SIZES = (32, 64, 96)
 SOURCE_LOGO_SIZES = (16, 32, 64, 96)
 
 
+class LogoPresentation(Protocol):
+    """Read-only metadata shared by ORM subjects and detached search projections."""
+
+    @property
+    def logo_url(self) -> str | None: ...
+
+    @property
+    def managed_logo(self) -> JsonRecord | None: ...
+
+
 @dataclass(frozen=True)
 class LogoTarget:
     model: type[Topic] | type[Source] | type[PartnerProduct]
@@ -23,10 +40,16 @@ class LogoTarget:
     sizes: tuple[int, ...]
 
     @property
-    def job_column(self):
-        return getattr(ArticleImageJob, self.job_field)
+    def job_column(self) -> ColumnElement[uuid.UUID | None]:
+        # Expose the SQL expression, not its ORM descriptor's instance value.
+        attribute: InstrumentedAttribute[uuid.UUID | None] = getattr(
+            ArticleImageJob, self.job_field
+        )
+        return attribute.expression
 
-    def new_job(self, subject, *, refresh=False):
+    def new_job(
+        self, subject: Source | Topic | PartnerProduct, *, refresh: bool = False
+    ) -> ArticleImageJob:
         relationship = self.job_field.removesuffix("_id")
         operation = f"{relationship}-logo"
         if self.model is Source and refresh:
@@ -44,13 +67,13 @@ SOURCE_LOGO = LogoTarget(Source, "source_id", SOURCE_LOGO_SIZES)
 PRODUCT_LOGO = LogoTarget(PartnerProduct, "product_id", LOGO_SIZES)
 
 
-def logo_target(model):
+def logo_target(model: type[LogoPresentation] | type[PartnerProduct]) -> LogoTarget:
     if model is PartnerProduct:
         return PRODUCT_LOGO
     return SOURCE_LOGO if model is Source else TOPIC_LOGO
 
 
-def logo_job_target(job):
+def logo_job_target(job: ArticleImageJob) -> LogoTarget | None:
     if getattr(job, "operation", None) in {"product-image", "product-ad-image"}:
         return None
     if getattr(job, "product_id", None) is not None:
@@ -60,19 +83,25 @@ def logo_job_target(job):
     return TOPIC_LOGO if job.topic_id is not None else None
 
 
-def logo_sizes(model):
+def logo_sizes(model: type[LogoPresentation] | type[PartnerProduct]) -> tuple[int, ...]:
     return logo_target(model).sizes
 
 
-def logo_source(subject):
+def logo_source(subject: LogoPresentation | PartnerProduct) -> str | None:
     return subject.product_url if isinstance(subject, PartnerProduct) else subject.logo_url
 
 
-def logo_source_column(model):
-    return model.product_url if model is PartnerProduct else model.logo_url
+def logo_source_column(
+    model: type[Source] | type[Topic] | type[PartnerProduct],
+) -> InstrumentedAttribute[str] | InstrumentedAttribute[str | None]:
+    return (
+        model.product_url
+        if model is PartnerProduct
+        else cast(type[Source] | type[Topic], model).logo_url
+    )
 
 
-def logo_variants(subject) -> list[dict]:
+def logo_variants(subject: LogoPresentation | PartnerProduct) -> list[ImageVariant]:
     settings = get_settings()
     asset = getattr(subject, "managed_logo", None) or {}
     # A replacement can fail: continue serving the last complete asset. Clearing
@@ -85,7 +114,7 @@ def logo_variants(subject) -> list[dict]:
     ]
 
 
-def logo_url(subject, size=64) -> str | None:
+def logo_url(subject: LogoPresentation | PartnerProduct, size: int = 64) -> str | None:
     variants = logo_variants(subject)
     if variants:
         return next((v["url"] for v in variants if v["width"] >= size), variants[-1]["url"])
@@ -96,7 +125,7 @@ def logo_url(subject, size=64) -> str | None:
     return None
 
 
-def logo_current(subject) -> bool:
+def logo_current(subject: LogoPresentation | PartnerProduct) -> bool:
     asset = subject.managed_logo or {}
     return (
         asset.get("source_url") == logo_source(subject)
@@ -105,8 +134,19 @@ def logo_current(subject) -> bool:
     )
 
 
-def request_logo(session, model, subject_id, *, automatic=False, refresh=False):
-    subject = session.scalar(select(model).where(model.id == subject_id).with_for_update())
+def request_logo(
+    session: Session,
+    model: type[Source] | type[Topic] | type[PartnerProduct],
+    subject_id: uuid.UUID,
+    *,
+    automatic: bool = False,
+    refresh: bool = False,
+) -> ArticleImageJob | None:
+    # The supported model union is erased to Base by SQLAlchemy's heterogeneous select overload.
+    subject = cast(
+        Source | Topic | PartnerProduct | None,
+        session.scalar(select(model).where(model.id == subject_id).with_for_update()),
+    )
     if subject is None:
         raise RecordNotFound(f"{model.__name__} not found")
     job = queue_logo(session, subject, automatic=automatic, refresh=refresh)
@@ -115,7 +155,13 @@ def request_logo(session, model, subject_id, *, automatic=False, refresh=False):
     return job
 
 
-def queue_logo(session, subject, *, automatic=False, refresh=False):
+def queue_logo(
+    session: Session,
+    subject: Source | Topic | PartnerProduct,
+    *,
+    automatic: bool = False,
+    refresh: bool = False,
+) -> ArticleImageJob | None:
     """Add to the outbox without flushing; callers lock persisted subjects first."""
     if (
         not get_settings().image_storage_enabled
@@ -157,7 +203,9 @@ def queue_logo(session, subject, *, automatic=False, refresh=False):
     return job
 
 
-def backfill_logos(session, model, limit=100):
+def backfill_logos(
+    session: Session, model: type[Source] | type[Topic] | type[PartnerProduct], limit: int = 100
+) -> list[ArticleImageJob]:
     target = logo_target(model)
     source = logo_source_column(model)
     if not 1 <= limit <= 500:
@@ -205,7 +253,9 @@ def backfill_logos(session, model, limit=100):
     ]
 
 
-def product_logo_filters(model):
+def product_logo_filters(
+    model: type[Source] | type[Topic] | type[PartnerProduct],
+) -> list[ColumnElement[bool]]:
     if model is not PartnerProduct:
         return []
     from datetime import timedelta

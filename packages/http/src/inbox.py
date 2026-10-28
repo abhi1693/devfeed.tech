@@ -132,7 +132,7 @@ class InboxSession:
 
 
 class InboxConnection:
-    def __init__(self, client: httpx.AsyncClient):
+    def __init__(self, client: httpx.AsyncClient) -> None:
         self.client = client
         self.upstream: httpx.Response | None = None
         self.closed = False
@@ -158,7 +158,7 @@ class InboxStreamResponse(StreamingResponse):
         *,
         connection: InboxConnection,
         headers: dict[str, str],
-    ):
+    ) -> None:
         super().__init__(content, media_type="text/event-stream", headers=headers)
         self.event_iterator = content
         self.connection = connection
@@ -334,7 +334,7 @@ class InboxRouter(APIRouter):
         session_dependency: Callable[..., Any],
         operation_prefix: str,
         gateway_policy: GatewayPolicy,
-    ):
+    ) -> None:
         super().__init__(prefix="/chimely/v1/inbox")
         proxy = InboxProxy()
         for operation in INBOX_OPERATIONS:

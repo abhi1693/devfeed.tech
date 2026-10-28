@@ -1,12 +1,19 @@
 """Connection-owned raster logos share bounded uploads, safe fetching and R2 compensation."""
 
+from __future__ import annotations
+
 import hashlib
 import logging
 import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from enum import Enum
+from typing import Final, Literal, Self, TypedDict
 
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, _fetch
+from devfeed_core.models import PartnerConnection
+from devfeed_core.object_storage import R2Storage
 from devfeed_core.partner_connection_logos import (
     CONNECTION_LOGO_SIZES,
     ConnectionLogoInput,
@@ -14,17 +21,35 @@ from devfeed_core.partner_connection_logos import (
     connection_logo_variants,
 )
 from devfeed_core.urls import validate_public_url
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from devfeed_http.image_uploads import MAX_BYTES, ImageUploadStorage
 
 logger = logging.getLogger(__name__)
-_UNSET = object()
+
+
+class _Unset(Enum):
+    VALUE = "unset"
+
+
+_UNSET: Final = _Unset.VALUE
+
+
+class LogoVariant(TypedDict):
+    width: int
+
+
+class ManagedLogo(TypedDict, total=False):
+    object_prefix: str
+    cache_version: str
+    source_url: str
+    variants: list[LogoVariant]
 
 
 class ConnectionLogoStorage(ImageUploadStorage):
-    def __init__(self, provider, *, storage=None):
+    def __init__(self, provider: str, *, storage: R2Storage | None = None) -> None:
         super().__init__(
             connection_logo_prefix(provider),
             CONNECTION_LOGO_SIZES,
@@ -35,7 +60,7 @@ class ConnectionLogoStorage(ImageUploadStorage):
 
 
 @contextmanager
-def connection_logo_guard(session, provider):
+def connection_logo_guard(session: Session, provider: str) -> Iterator[None]:
     """Serialize fixed-key replacements through rollback without locking the catalog."""
     key = int.from_bytes(
         hashlib.sha256(f"connection-logo\0{provider}".encode()).digest()[:8],
@@ -73,9 +98,15 @@ def connection_logo_guard(session, provider):
 class ConnectionLogoEdit:
     """Prepare outside locks, stage under a source guard, then publish in a short transaction."""
 
-    def __init__(self, connection, *, source_url=_UNSET, file=None):
+    def __init__(
+        self,
+        connection: PartnerConnection,
+        *,
+        source_url: str | None | Literal[_Unset.VALUE] = _UNSET,
+        file: UploadFile | None = None,
+    ) -> None:
         self.provider, self.file = connection.provider, file
-        self.source_url = (
+        self.source_url: str | None = (
             None
             if file is not None
             else connection.logo_url
@@ -90,12 +121,12 @@ class ConnectionLogoEdit:
                 or bool(source_url is None and connection.managed_logo)
             )
         )
-        self.encoded = None
+        self.encoded: dict[int, bytes] | None = None
         self.base = ""
-        self.asset = {}
-        self.published_url = None
+        self.asset: ManagedLogo = {}
+        self.published_url: str | None = None
 
-    def prepare(self):
+    def prepare(self) -> None:
         if not self.changed:
             return
         settings = get_settings()
@@ -138,7 +169,7 @@ class ConnectionLogoEdit:
         self.encoded, _widths = ConnectionLogoStorage(self.provider).normalize(body)
 
     @contextmanager
-    def stage(self, session, authorize):
+    def stage(self, session: Session, authorize: Callable[[], object]) -> Iterator[Self]:
         if not self.changed:
             yield self
             return
@@ -172,7 +203,7 @@ class ConnectionLogoEdit:
                 session.rollback()
                 raise
 
-    def apply(self, connection):
+    def apply(self, connection: PartnerConnection) -> None:
         if self.changed:
-            connection.logo_url, connection.managed_logo = self.published_url, self.asset
+            connection.logo_url, connection.managed_logo = self.published_url, dict(self.asset)
             connection.revision = (connection.revision or 1) + 1

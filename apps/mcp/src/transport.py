@@ -42,7 +42,7 @@ OAuthHandler = Callable[[Request], Response | Awaitable[Response]]
 class BrowserNegotiation:
     """Offer reader instructions only on the bound MCP transport operation."""
 
-    def __init__(self, app: ASGIApp, web_url: str):
+    def __init__(self, app: ASGIApp, web_url: str) -> None:
         self.app = app
         self.destination = web_url.rstrip("/") + "/mcp"
 
@@ -84,7 +84,7 @@ class BrowserNegotiation:
 class OAuthRoutes:
     """Construct named OAuth operations from SDK handlers and explicit policies."""
 
-    def __init__(self, provider: OAuthProvider, settings: AuthSettings):
+    def __init__(self, provider: OAuthProvider, settings: AuthSettings) -> None:
         validate_issuer_url(settings.issuer_url)
         assert settings.resource_server_url
         registration = settings.client_registration_options
@@ -160,7 +160,7 @@ class MCPRoutes:
 
     def __init__(
         self, server: MCPServer, settings: Settings, provider: OAuthProvider | None = None
-    ):
+    ) -> None:
         self.app = server.streamable_http_app(
             json_response=True,
             stateless_http=True,

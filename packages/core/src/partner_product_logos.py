@@ -3,11 +3,13 @@
 from html.parser import HTMLParser
 from urllib.parse import urljoin
 
+from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.images import decode_html, image_url
 from devfeed_core.logos import logo_url
+from devfeed_core.models import PartnerProduct
 
 
-def product_logo_url(product) -> str | None:
+def product_logo_url(product: PartnerProduct) -> str | None:
     asset = getattr(product, "managed_logo", None) or {}
     if not asset or asset.get("source_url") != product.product_url:
         return None
@@ -15,13 +17,13 @@ def product_logo_url(product) -> str | None:
 
 
 class ProductIconParser(HTMLParser):
-    def __init__(self, base):
+    def __init__(self, base: str) -> None:
         super().__init__(convert_charrefs=True)
         self.base = base
         self.icons: list[tuple[int, str]] = []
         self.ignored = 0
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in {"template", "noscript"}:
             self.ignored += 1
         if self.ignored or tag != "link" or len(self.icons) >= 20:
@@ -35,12 +37,12 @@ class ProductIconParser(HTMLParser):
             # Touch icons are usually larger and more legible than legacy favicons.
             self.icons.append((0 if "apple-touch-icon" in rel else 1, url))
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag in {"template", "noscript"}:
             self.ignored = max(0, self.ignored - 1)
 
 
-def product_icon_urls(result):
+def product_icon_urls(result: FetchResult) -> list[str]:
     parser = ProductIconParser(result.final_url)
     parser.feed(decode_html(result))
     fallback = image_url(urljoin(result.final_url, "/favicon.ico"), result.final_url)

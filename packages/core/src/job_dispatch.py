@@ -1,13 +1,17 @@
 """Common durable outbox publication. The database lock encloses Redis publication."""
 
+from __future__ import annotations
+
 import logging
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Protocol, cast
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.sql.elements import ColumnElement
 
 from devfeed_core.delivery import delivery_id
 from devfeed_core.job_definitions import (
@@ -30,10 +34,12 @@ class QueuedJob(Protocol):
 
 
 class JobQueue(Protocol):
-    def enqueue(self, function: str, /, *args, **kwargs) -> QueuedJob: ...
+    def enqueue(self, f: str, *args: str, **kwargs: str | int | bool | None) -> QueuedJob: ...
 
 
-def _lane_condition(kind, relationships, source_analysis, solver):
+def _lane_condition(
+    kind: PipelineKind, relationships: bool | None, source_analysis: bool, solver: bool
+) -> ColumnElement[bool] | None:
     if kind not in JOB_DEFINITIONS:
         raise ValueError("Unknown job type")
     definition = JOB_DEFINITIONS[kind]
@@ -58,7 +64,7 @@ class DispatchLane:
     solver: bool = False
 
 
-def _due_conditions(model, now):
+def _due_conditions(model: type[Job], now: datetime) -> tuple[ColumnElement[bool], ...]:
     return (
         model.status == "queued",
         model.available_at <= now,
@@ -76,10 +82,10 @@ class JobDispatcher:
     make a partially published, rolled-back batch safe to replay.
     """
 
-    def __init__(self, factory, queue: JobQueue, now: datetime):
+    def __init__(self, factory: sessionmaker[Session], queue: JobQueue, now: datetime) -> None:
         self.factory, self.queue, self.now = factory, queue, now
 
-    def _statement(self, lane: DispatchLane, *, fresh: bool | None = None):
+    def _statement(self, lane: DispatchLane, *, fresh: bool | None = None) -> Select[Job]:
         condition = _lane_condition(
             lane.kind, lane.relationships, lane.source_analysis, lane.solver
         )
@@ -97,9 +103,12 @@ class JobDispatcher:
             .where(*_due_conditions(model, self.now))
             .order_by(model.available_at, model.created_at, model.id)
         )
-        return statement.where(condition) if condition is not None else statement
+        # SQLAlchemy infers the common Base for a union of mapped entity classes.
+        return cast(Select[Job], statement.where(condition) if condition is not None else statement)
 
-    def _publish(self, jobs):
+    def _publish(
+        self, jobs: Iterable[tuple[PipelineKind, Job, bool, bool]]
+    ) -> list[tuple[str, dict[str, uuid.UUID | str]]]:
         logs = []
         for kind, job, solver, source_analysis in jobs:
             definition = JOB_DEFINITIONS[kind]
@@ -126,11 +135,18 @@ class JobDispatcher:
         return logs
 
     @staticmethod
-    def _log(logs):
+    def _log(logs: Iterable[tuple[str, dict[str, uuid.UUID | str]]]) -> None:
         for event, fields in logs:
             logger.info(event + "_dispatched", extra=fields)
 
-    def publish(self, batch, lane: DispatchLane, *, job_id=None, fresh=None) -> int:
+    def publish(
+        self,
+        batch: int,
+        lane: DispatchLane,
+        *,
+        job_id: uuid.UUID | None = None,
+        fresh: bool | None = None,
+    ) -> int:
         statement = self._statement(lane, fresh=fresh)
         if batch < 1:
             return 0
@@ -149,7 +165,7 @@ class JobDispatcher:
         self._log(logs)
         return len(logs)
 
-    def publish_lanes(self, batch: int, lanes: list[DispatchLane]):
+    def publish_lanes(self, batch: int, lanes: list[DispatchLane]) -> dict[PipelineKind, int]:
         counts = {lane.kind: 0 for lane in lanes}
         candidates: list[tuple[datetime, datetime, uuid.UUID, DispatchLane]] = []
         statements = {lane: self._statement(lane) for lane in lanes}
@@ -198,7 +214,13 @@ class JobDispatcher:
         return counts
 
 
-def dispatch_lanes(factory, queue, batch: int, now: datetime, lanes: list[DispatchLane]):
+def dispatch_lanes(
+    factory: sessionmaker[Session],
+    queue: JobQueue,
+    batch: int,
+    now: datetime,
+    lanes: list[DispatchLane],
+) -> dict[PipelineKind, int]:
     """Publish oldest eligible jobs across lanes in one bounded transaction."""
     return JobDispatcher(factory, queue, now).publish_lanes(batch, lanes)
 

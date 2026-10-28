@@ -1,8 +1,11 @@
 """Configurable content age boundary; topic and relationship research is independent."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, time
 
 from sqlalchemy import true
+from sqlalchemy.sql.elements import ColumnElement
 
 from devfeed_core.config import get_settings
 from devfeed_core.models import Article
@@ -28,6 +31,6 @@ def eligible_article(article: Article) -> bool:
     return eligible_content(article.published_at)
 
 
-def eligible_articles():
+def eligible_articles() -> ColumnElement[bool]:
     cutoff = content_cutoff()
     return Article.published_at >= cutoff if cutoff is not None else true()

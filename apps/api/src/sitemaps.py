@@ -36,7 +36,7 @@ class SitemapPart(BaseModel):
 
 
 @router.get("", response_model=SitemapManifest)
-def sitemap_index(response: Response):
+def sitemap_index(response: Response) -> sitemaps.SitemapManifest:
     response.headers["Cache-Control"] = "public, max-age=60, s-maxage=60"
     try:
         return sitemaps.manifest()
@@ -54,7 +54,7 @@ def sitemap_part(
     kind: str,
     page: int,
     v: str | None = Query(None, pattern="^[a-f0-9]{32}$"),
-):
+) -> sitemaps.SitemapPart:
     if kind not in sitemaps.KINDS or not 1 <= page <= sitemaps.MAX_PARTS:
         raise HTTPException(404, "Sitemap not found")
     try:

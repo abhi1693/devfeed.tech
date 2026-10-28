@@ -3,6 +3,8 @@ import importlib.util
 import logging
 import os
 import uuid
+from resource import struct_rusage
+from types import TracebackType
 from typing import get_args
 
 from devfeed_core.analytics_producer import shutdown as drain_analytics
@@ -15,6 +17,7 @@ from devfeed_core.services import OperationConflict
 from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import __version__
 from devfeed_core.worker_queues import WorkerQueue, worker_queues
+from rq.job import Job
 from rq.serializers import JSONSerializer
 from rq.worker import DequeueStrategy
 
@@ -32,7 +35,7 @@ JOB_FUNCTIONS["devfeed_aggregator.partner_tasks.process_evaluation"] = "partner-
 JOB_FUNCTIONS["devfeed_aggregator.partner_sync_tasks.process_pipeline"] = "partner-pipeline"
 
 
-def job_fields(job):
+def job_fields(job: Job) -> dict[str, object]:
     return {
         "job_id": job.args[0] if job.args else job.id,
         "rq_job_id": job.id,
@@ -40,7 +43,9 @@ def job_fields(job):
     }
 
 
-def log_job_exception(job, exc_type, exc_value, tb):
+def log_job_exception(
+    job: Job, exc_type: type[BaseException], exc_value: BaseException, tb: TracebackType | None
+) -> bool:
     logger.error(
         "rq_job_failed",
         extra=job_fields(job),
@@ -49,7 +54,7 @@ def log_job_exception(job, exc_type, exc_value, tb):
     return True  # Retain RQ's normal failure handling.
 
 
-def log_work_horse_killed(job, retpid, ret_val, rusage):
+def log_work_horse_killed(job: Job, retpid: int, ret_val: int, rusage: struct_rusage) -> None:
     logger.error("rq_work_horse_killed", extra={**job_fields(job), "exit_code": ret_val})
 
 
@@ -139,7 +144,7 @@ def queue_worker_main(queue_name: str, description: str) -> int:
     return start_queue_worker(worker_parser(description).parse_args(), queue_name)
 
 
-def worker_parser(description):
+def worker_parser(description: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--burst", action="store_true", help="Exit when the queue is empty")
@@ -148,7 +153,7 @@ def worker_parser(description):
     return parser
 
 
-def start_queue_worker(args, queue_name):
+def start_queue_worker(args: argparse.Namespace, queue_name: str) -> int:
     worker_name = args.name or f"{os.uname().nodename}-{uuid.uuid4().hex}"
     write_runtime_marker(runtime_marker("worker-name"), worker_name)
     run(burst=args.burst, name=worker_name, max_jobs=args.max_jobs, queue_name=queue_name)

@@ -1,11 +1,14 @@
 """Share provider cooldowns across workers; never copy provider messages to Redis."""
 
+from __future__ import annotations
+
 import hashlib
 
 from redis.exceptions import RedisError
 
 from devfeed_core.config import get_settings
 from devfeed_core.redis import create_redis
+from redis import Redis
 
 CAPACITY_ERRORS = {
     "codex_rate_limited",
@@ -21,7 +24,7 @@ def cooldown_key() -> str:
     return "devfeed:ai:cooldown:" + hashlib.sha256(endpoint.encode()).hexdigest()
 
 
-def cooldown_remaining(connection) -> int:
+def cooldown_remaining(connection: Redis) -> int:
     return max(0, connection.ttl(cooldown_key()))
 
 

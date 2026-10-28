@@ -16,6 +16,7 @@ from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.logos import logo_job_target
 from devfeed_core.models import Article, ArticleImageJob, utcnow
 from sqlalchemy import select, update
+from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_aggregator.solver_jobs import defer_to_solver
 
@@ -48,8 +49,10 @@ def _enrich(job_id: str) -> None:
         cleanup_upload = bool((getattr(job, "storage", None) or {}).get("cleanup_upload"))
         target = logo_job_target(job)
         subject_id = getattr(job, target.job_field) if target else None
+    assert token is not None  # claim_image initialized ownership.
     with log_context(article_id=article_id, attempt=attempt):
         if operation == "product-ad-image":
+            assert account_id is not None and product_id is not None
             from devfeed_aggregator.image_storage_tasks import store_product_ad_image
 
             if cleanup_upload:
@@ -60,24 +63,35 @@ def _enrich(job_id: str) -> None:
                 store_product_ad_image(factory, identifier, token, account_id, product_id, url)
             return
         if operation == "product-image":
+            assert product_id is not None
             from devfeed_aggregator.image_storage_tasks import store_product_image
 
             store_product_image(factory, identifier, token, product_id, url)
             return
         if target:
+            assert subject_id is not None
             from devfeed_aggregator.image_storage_tasks import store_logo
 
             store_logo(factory, identifier, token, subject_id, url, model=target.model)
             return
         if operation == "store":
+            assert article_id is not None
             from devfeed_aggregator.image_storage_tasks import store_image
 
             store_image(factory, identifier, token, article_id, url)
             return
+        assert article_id is not None
         _enrich_claimed(factory, identifier, token, article_id, url, started)
 
 
-def _enrich_claimed(factory, identifier, token, article_id, url, started):
+def _enrich_claimed(
+    factory: sessionmaker[Session],
+    identifier: uuid.UUID,
+    token: uuid.UUID,
+    article_id: uuid.UUID,
+    url: str,
+    started: float,
+) -> None:
     logger.info("image_lookup_started")
     try:
         # No database connection/transaction held during HTTP or parsing.

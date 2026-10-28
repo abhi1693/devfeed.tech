@@ -1,25 +1,33 @@
 """Scheduled shuffled article-ID sequences. Candidate ranking stays in PostgreSQL."""
 
+from __future__ import annotations
+
 import hashlib
 import math
 import uuid
 from collections import Counter
+from collections.abc import Mapping, Sequence
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from devfeed_core.cache import CacheUnavailable, get_feed_sequence_cache
-from devfeed_core.models import ArticleOrigin, Source, UserRecommendation
+from devfeed_core.models import ArticleOrigin, Source, UserRecommendation, UserRecommendationState
 
 RETENTION_HOURS = 9
 
 
-def shuffled_ids(candidates, generation, publishers):
+def shuffled_ids(
+    candidates: Sequence[UserRecommendation],
+    generation: uuid.UUID,
+    publishers: Mapping[uuid.UUID, uuid.UUID],
+) -> list[uuid.UUID]:
     """Seeded weighted permutation, with a soft first-screen publisher limit."""
     size = len(candidates)
 
     ranks = {row.article_id: index for index, row in enumerate(candidates)}
 
-    def priority(row):
+    def priority(row: UserRecommendation) -> tuple[float, uuid.UUID]:
         digest = hashlib.blake2b(generation.bytes + row.article_id.bytes, digest_size=8).digest()
         uniform = ((int.from_bytes(digest, "big") >> 11) + 0.5) / (1 << 53)
         weight = 1 + 3 * (size - 1 - ranks[row.article_id]) / max(1, size - 1)
@@ -27,7 +35,7 @@ def shuffled_ids(candidates, generation, publishers):
 
     pending = sorted(candidates, key=priority)
     result: list[uuid.UUID] = []
-    counts: Counter = Counter()
+    counts: Counter[uuid.UUID | None] = Counter()
     while pending:
         choice = 0
         if len(result) < 8:
@@ -41,11 +49,11 @@ def shuffled_ids(candidates, generation, publishers):
     return result
 
 
-def sequence_key(user_id, revision, generation):
+def sequence_key(user_id: uuid.UUID, revision: int, generation: uuid.UUID) -> str:
     return f"v1:{user_id}:{revision}:{generation}"
 
 
-def publish_generation(session, state):
+def publish_generation(session: Session, state: UserRecommendationState) -> int:
     candidates = list(
         session.scalars(
             select(UserRecommendation)
@@ -83,7 +91,9 @@ def publish_generation(session, state):
     return len(identifiers)
 
 
-def generation_ids(user_id, revision, generation, offset, count):
+def generation_ids(
+    user_id: uuid.UUID, revision: int, generation: uuid.UUID, offset: int, count: int
+) -> list[uuid.UUID] | None:
     rows = get_feed_sequence_cache().read_sequence(
         sequence_key(user_id, revision, generation), offset, offset + count - 1
     )

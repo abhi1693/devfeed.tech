@@ -1,16 +1,22 @@
 """Strict context-only placement requests shared by public and personalized APIs."""
 
 import uuid
-from typing import Literal
+from typing import Literal, Self, TypedDict
 
 from devfeed_core.partner_ad_formats import AdFormat, default_ad_formats
 from devfeed_core.partner_connection_logos import PlacementPlatform
 from devfeed_core.partner_link_rel import LinkRelationships
+from devfeed_core.partner_placement_types import PlacementData
 from devfeed_core.partner_surfaces import PromotionSurface
 from devfeed_core.partner_taglines import Tagline
 from devfeed_core.schemas import ArticleOut
 from devfeed_core.search_suggestions import normalize_query
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+class PlacementsData(TypedDict):
+    items: list[PlacementData]
+
 
 SEARCH_PLACEMENT_RESULT_LIMIT = 120
 
@@ -26,7 +32,7 @@ class SearchPlacementContext(BaseModel):
         return normalize_query(value, casefold=False)
 
     @model_validator(mode="after")
-    def bounded_results(self):
+    def bounded_results(self) -> Self:
         count = sum(len(values) for values in self.results.values())
         if not 1 <= count <= SEARCH_PLACEMENT_RESULT_LIMIT:
             raise ValueError("Supply between one and 120 loaded search results")
@@ -49,7 +55,7 @@ class PlacementQuery(BaseModel):
     exclude_product_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
-    def valid_context(self):
+    def valid_context(self) -> Self:
         if self.search is not None and (
             self.surface != "search" or self.article_ids or "article_ids" in self.model_fields_set
         ):

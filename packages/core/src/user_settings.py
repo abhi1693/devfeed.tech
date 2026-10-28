@@ -1,5 +1,7 @@
 """Validated personal preferences; identities and permissions stay with OIDC."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import re
@@ -21,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import AdminPreference, utcnow
 from devfeed_core.partner_audiences import ExperienceLevel
 from devfeed_core.schemas import ContentType, DatabaseText, ImageVariant, TextInput, TopicKind
@@ -39,7 +42,7 @@ class UserStackItem(SettingsModel):
 
     @field_validator("since_year")
     @classmethod
-    def not_future(cls, value):
+    def not_future(cls, value: int | None) -> int | None:
         if value is not None and value > utcnow().year:
             raise ValueError("Using-since year cannot be in the future")
         return value
@@ -86,7 +89,9 @@ class DevCardSettings(SettingsModel):
 
     @field_validator("technologies", "stats")
     @classmethod
-    def unique_card_content(cls, value):
+    def unique_card_content(
+        cls, value: list[uuid.UUID] | list[DevCardStat] | None
+    ) -> list[uuid.UUID] | list[DevCardStat] | None:
         if value is None:
             return value
         if len(value) != len(set(value)):
@@ -102,7 +107,7 @@ class ProfileLink(SettingsModel):
 
     @field_validator("label")
     @classmethod
-    def empty_label(cls, value):
+    def empty_label(cls, value: str | None) -> str | None:
         return value or None
 
 
@@ -137,12 +142,12 @@ class ProfileSettings(SettingsModel):
 
     @field_validator("display_name", "avatar_url")
     @classmethod
-    def empty_as_none(cls, value):
+    def empty_as_none(cls, value: str | None) -> str | None:
         return value or None
 
     @field_validator("avatar_url")
     @classmethod
-    def public_avatar(cls, value):
+    def public_avatar(cls, value: str | None) -> str | None:
         return validate_public_url(value) if value else None
 
 
@@ -161,41 +166,41 @@ class UserProfileUpdate(ProfileSettings):
 
     @field_validator("username")
     @classmethod
-    def empty_username_as_none(cls, value):
+    def empty_username_as_none(cls, value: str | None) -> str | None:
         return normalize_username(value)
 
     @field_validator("bio")
     @classmethod
-    def empty_bio_as_none(cls, value):
+    def empty_bio_as_none(cls, value: str | None) -> str | None:
         return value or None
 
     @field_validator("location")
     @classmethod
-    def empty_location_as_none(cls, value):
+    def empty_location_as_none(cls, value: str | None) -> str | None:
         return value or None
 
     @field_validator("about")
     @classmethod
-    def empty_about_as_none(cls, value):
+    def empty_about_as_none(cls, value: str | None) -> str | None:
         return value or None
 
     @field_validator("links", mode="before")
     @classmethod
-    def legacy_links(cls, value):
+    def legacy_links(cls, value: object) -> object:
         if isinstance(value, list):
             return [{"url": link} if isinstance(link, str) else link for link in value]
         return value
 
     @field_validator("links")
     @classmethod
-    def public_unique_links(cls, value):
+    def public_unique_links(cls, value: list[ProfileLink]) -> list[ProfileLink]:
         if len(value) != len({link.url for link in value}):
             raise ValueError("Links must be unique")
         return value
 
     @field_validator("stack")
     @classmethod
-    def unique_stack(cls, value):
+    def unique_stack(cls, value: list[UserStackItem]) -> list[UserStackItem]:
         if len(value) != len({item.topic_id for item in value}):
             raise ValueError("Stack topics must be unique")
         return value
@@ -363,7 +368,7 @@ class FeedSettings(SettingsModel):
 
     @field_validator("languages")
     @classmethod
-    def unique_languages(cls, value):
+    def unique_languages(cls, value: list[LanguageCode]) -> list[LanguageCode]:
         return sorted(set(value))
 
     content_types: list[ContentType] = Field(
@@ -372,7 +377,7 @@ class FeedSettings(SettingsModel):
 
     @field_validator("content_types")
     @classmethod
-    def unique_types(cls, value):
+    def unique_types(cls, value: list[ContentType]) -> list[ContentType]:
         return [kind for kind in get_args(ContentType) if kind in value]
 
 
@@ -431,7 +436,7 @@ def reader_feed_view(value: object, feed: str) -> FeedViewSettings:
     return selected
 
 
-def update_reader_feed_view(value: object, feed: str, payload: FeedViewSettings) -> dict:
+def update_reader_feed_view(value: object, feed: str, payload: FeedViewSettings) -> JsonRecord:
     """Update just one layout and freeze the legacy default for untouched feeds."""
     scope = normalize_feed_view_scope(feed)
     if payload.view == "columns" and scope != "my_feed":
@@ -530,7 +535,7 @@ def reader_columns_state(
     return ReaderColumnsState(initialized=initialized, columns=columns)
 
 
-def preserve_my_feed_columns(value: object) -> dict:
+def preserve_my_feed_columns(value: object) -> JsonRecord:
     """Freeze the prior shared workspace before a Latest-only change can replace it."""
     stored = dict(value) if isinstance(value, dict) else {}
     if "my_feed_columns" not in stored and "my_feed_columns_initialized" not in stored:
@@ -549,7 +554,7 @@ class UserAppearanceSettings(SettingsModel):
 
     @field_validator("timezone")
     @classmethod
-    def valid_timezone(cls, value):
+    def valid_timezone(cls, value: str) -> str:
         if value != "local":
             try:
                 ZoneInfo(value)
@@ -606,7 +611,7 @@ def read_settings(session: Session, owner: str) -> UserSettings:
 
 
 def write_settings(
-    session: Session, owner: str, section: str, value: dict, *, table: str | None = None
+    session: Session, owner: str, section: str, value: JsonRecord, *, table: str | None = None
 ) -> UserSettings:
     # Serialize updates for this account only. A saved column choice cannot
     # overwrite a simultaneous profile/appearance change from another tab.

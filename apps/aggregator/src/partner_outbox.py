@@ -30,7 +30,7 @@ class PartnerOutbox:
         *,
         batch_size: int,
         now: datetime,
-    ):
+    ) -> None:
         if batch_size < 1:
             raise ValueError("Partner publication batch size must be positive")
         self.factory = factory

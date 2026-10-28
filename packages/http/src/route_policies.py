@@ -37,7 +37,7 @@ DEFAULT_RUNTIME_POLICY = RouteRuntimePolicy()
 
 
 class _RouteBoundary:
-    def __init__(self, handle: ASGIApp, route: BaseRoute | None = None):
+    def __init__(self, handle: ASGIApp, route: BaseRoute | None = None) -> None:
         self.handle, self.route = handle, route
         extra = getattr(route, "openapi_extra", None) or {}
         self.policy = RouteRuntimePolicy.model_validate(extra.get(RUNTIME_POLICY_EXTENSION, {}))
@@ -73,7 +73,7 @@ class _RouteBoundary:
 
 
 class _MountBoundary:
-    def __init__(self, handle: ASGIApp, route: Mount):
+    def __init__(self, handle: ASGIApp, route: Mount) -> None:
         self.handle, self.route = handle, route
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -90,7 +90,7 @@ class _MountBoundary:
 class RuntimePolicyBinding:
     """Decorate native route objects once; the framework still selects routes."""
 
-    def __init__(self, app: FastAPI):
+    def __init__(self, app: FastAPI) -> None:
         from devfeed_http.native_telemetry import NativeRouteTelemetry
 
         self.app = app
@@ -123,9 +123,7 @@ class RuntimePolicyBinding:
                     route.handle, context.original_route
                 )
         if not isinstance(self.app.router.default, _RouteBoundary):
-            self.app.router.default = _RouteBoundary(  # type: ignore[method-assign]
-                self.app.router.default
-            )
+            self.app.router.default = _RouteBoundary(self.app.router.default)
 
 
 def install_runtime_policies(app: FastAPI) -> None:

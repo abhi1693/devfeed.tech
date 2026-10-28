@@ -4,12 +4,16 @@ Only selected identities are evaluated. This module owns no serving table or
 request route; private evidence never leaves the background classification step.
 """
 
+from __future__ import annotations
+
 import uuid
-from typing import Literal
+from collections.abc import Iterable
+from typing import Literal, Protocol
 
 from pydantic import BaseModel
 from sqlalchemy import String, and_, case, cast, false, func, literal, or_, select, true, union_all
 from sqlalchemy.dialects.postgresql import JSONPATH
+from sqlalchemy.orm import Session
 
 from devfeed_core.ai_content import eligible_articles
 from devfeed_core.config import get_settings
@@ -44,15 +48,24 @@ class AutomationBlocker(BaseModel):
     targets: list[RecoveryTarget]
 
 
+class BlockerTarget(Protocol):
+    """Columns emitted by the bounded blocker target projection."""
+
+    id: uuid.UUID
+    title: str
+    editorial_revision: int
+    total: int
+
+
 def automation_blockers(
-    session,
-    article_ids,
+    session: Session,
+    article_ids: Iterable[uuid.UUID],
     *,
-    topic_ids=(),
-    relationship_ids=(),
-    include_proposals=True,
-    target_limit=5,
-):
+    topic_ids: Iterable[uuid.UUID] = (),
+    relationship_ids: Iterable[uuid.UUID] = (),
+    include_proposals: bool = True,
+    target_limit: int = 5,
+) -> list[AutomationBlocker]:
     if article_ids is None:
         raise ValueError("Article blocker classification requires explicit bounded IDs")
     article_ids = list(dict.fromkeys(article_ids))
@@ -335,7 +348,7 @@ def automation_blockers(
         .over(partition_by=matches.c.code, order_by=(matches.c.discovered_at, matches.c.id))
         .label("position"),
     ).subquery()
-    targets: dict[str, list] = {}
+    targets: dict[str, list[BlockerTarget]] = {}
     for row in (
         ()
         if not article_ids
@@ -407,21 +420,21 @@ def automation_blockers(
         .order_by(TopicProposal.created_at, TopicProposal.id)
         .limit(target_limit)
     )
-    rows = session.execute(query).all() if topic_ids else []
+    proposal_rows = session.execute(query).all() if topic_ids else []
     blockers.append(
         AutomationBlocker(
             code="evidence_unverified",
             label="Topic research in progress"
             if full
             else "Research evidence or identity needs review",
-            count=rows[0].total if rows else 0,
+            count=proposal_rows[0].total if proposal_rows else 0,
             targets=[
                 RecoveryTarget(
                     id=row.id,
                     title=row.proposed.get("name", "Unnamed topic"),
                     kind="topic-proposal",
                 )
-                for row in rows
+                for row in proposal_rows
             ],
         )
     )
@@ -466,7 +479,7 @@ def automation_blockers(
         if relationship_ids
         else 0
     )
-    relation_rows = (
+    relation_rows: Iterable[TopicRelationProposal] = (
         []
         if not relationship_ids
         else session.scalars(
@@ -498,7 +511,9 @@ def automation_blockers(
     return blockers
 
 
-def automation_blocker_rows(session, article_ids):
+def automation_blocker_rows(
+    session: Session, article_ids: Iterable[uuid.UUID]
+) -> dict[uuid.UUID, list[dict[str, str | None]]]:
     """Compact exact blocker classifications for one bounded native observation.
 
     The native publisher stores only codes beside current card metadata. Serving
@@ -522,7 +537,7 @@ def automation_blocker_rows(session, article_ids):
     return output
 
 
-def blocker_catalog(*, full_automation=None):
+def blocker_catalog(*, full_automation: bool | None = None) -> list[AutomationBlocker]:
     """Return all safe labels/actions without querying authoritative records."""
     full = get_settings().full_automation if full_automation is None else full_automation
     definitions = (

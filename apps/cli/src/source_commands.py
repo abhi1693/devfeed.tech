@@ -53,7 +53,7 @@ def add(
         str | None, typer.Option(help="Attribution, not verified identity.")
     ] = None,
     submitter_url: str | None = None,
-):
+) -> None:
     """Validate before saving; trust new sources, preserve existing source review/settings."""
     invoke(ctx, commands.source_add, locals())
 
@@ -64,7 +64,7 @@ def import_sources(
     file: Annotated[str, typer.Argument(help="UTF-8 file of feed URLs, or - for stdin.")],
     source_type: Annotated[SourceType, typer.Option("--type")],
     poll_interval: PollInterval = 43200,
-):
+) -> None:
     """Validate every unique feed before saving the batch; one URL per line."""
     invoke(ctx, commands.source_import, locals())
 
@@ -78,7 +78,7 @@ def list_sources(
     approval_status: Annotated[ReviewStatus | None, typer.Option("--status")] = None,
     enabled: Annotated[bool, typer.Option("--enabled")] = False,
     disabled: Annotated[bool, typer.Option("--disabled")] = False,
-):
+) -> None:
     """List sources, including disabled ones unless filtered."""
     invoke(
         ctx,
@@ -89,7 +89,7 @@ def list_sources(
 
 
 @app.command()
-def show(ctx: typer.Context, id: Identifier):
+def show(ctx: typer.Context, id: Identifier) -> None:
     """Inspect source profile, review and polling state."""
     invoke(ctx, commands.source_show, locals())
 
@@ -115,7 +115,7 @@ def update(
     polling_mode: PollingMode | None = None,
     enable: Annotated[bool, typer.Option("--enable")] = False,
     disable: Annotated[bool, typer.Option("--disable")] = False,
-):
+) -> None:
     """Change only specified source fields; feed URL and source type are immutable."""
     fields = ("name", "description", "website_url", "logo_url", "image_url", "language")
     values = updates(
@@ -135,13 +135,15 @@ def update(
 
 
 @app.command()
-def fetch(ctx: typer.Context, id: Identifier, force: Force = False):
+def fetch(ctx: typer.Context, id: Identifier, force: Force = False) -> None:
     """Queue a refresh, coalescing an existing active job."""
     invoke(ctx, commands.source_fetch, locals())
 
 
 @app.command()
-def approve(ctx: typer.Context, id: Identifier, by: str | None = None, note: str | None = None):
+def approve(
+    ctx: typer.Context, id: Identifier, by: str | None = None, note: str | None = None
+) -> None:
     """Record an explicit source approval."""
     invoke(ctx, commands.source_review, locals(), decision="approved")
 
@@ -152,19 +154,21 @@ def reject(
     id: Identifier,
     note: Annotated[str, typer.Option("--reason")],
     by: str | None = None,
-):
+) -> None:
     """Reject a source with a required reason."""
     invoke(ctx, commands.source_review, locals(), decision="rejected")
 
 
 @app.command("review-history")
-def review_history(ctx: typer.Context, id: Identifier, limit: Limit = 100, offset: Offset = 0):
+def review_history(
+    ctx: typer.Context, id: Identifier, limit: Limit = 100, offset: Offset = 0
+) -> None:
     """Inspect source approval/rejection history."""
     invoke(ctx, commands.source_review_history, locals())
 
 
 @app.command()
-def enrich(ctx: typer.Context, id: Identifier, force: Force = False):
+def enrich(ctx: typer.Context, id: Identifier, force: Force = False) -> None:
     """Queue missing source profile metadata, including sources pending review."""
     invoke(ctx, commands.source_enrich, locals())
 
@@ -176,12 +180,12 @@ def enrichment_jobs(
     status: JobStatus | None = None,
     limit: Limit = 100,
     offset: Offset = 0,
-):
+) -> None:
     """Inspect source metadata jobs and failures."""
     invoke(ctx, commands.source_enrichment_jobs, locals())
 
 
 @app.command("enrichment-dispatch")
-def enrichment_dispatch(ctx: typer.Context, id: Identifier):
+def enrichment_dispatch(ctx: typer.Context, id: Identifier) -> None:
     """Dispatch a queued source enrichment job ID."""
     invoke(ctx, commands.source_enrichment_dispatch, locals())

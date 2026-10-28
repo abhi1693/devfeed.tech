@@ -35,7 +35,7 @@ from devfeed_api.dependencies import database_session, get_rate_limit_redis, get
 logger = logging.getLogger(__name__)
 
 
-def close_clients():
+def close_clients() -> None:
     close_shared_clients(get_redis, get_rate_limit_redis)
 
 
@@ -55,7 +55,7 @@ def create_app() -> FastAPI:
         description="Developer article ingestion, taxonomy and discovery. No account layer.",
     )
 
-    def cors(app):
+    def cors(app: FastAPI) -> None:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=settings.cors_origins,
@@ -67,7 +67,7 @@ def create_app() -> FastAPI:
     service.configure(app, settings, middleware=cors)
 
     @app.exception_handler(FeedValidationError)
-    async def invalid_feed(request: Request, exc: FeedValidationError):
+    async def invalid_feed(request: Request, exc: FeedValidationError) -> JSONResponse:
         return JSONResponse(
             status_code=422,
             content=FeedValidationResponse(
@@ -89,7 +89,7 @@ def create_app() -> FastAPI:
         response_model=VersionResponse,
         openapi_extra=RouteRuntimePolicy(telemetry_excluded=True).openapi_extra(),
     )
-    def app_version(response: Response):
+    def app_version(response: Response) -> VersionResponse:
         response.headers["Cache-Control"] = "no-store"
         return VersionResponse(version=__version__, required_schema_revision=SCHEMA_REVISION)
 

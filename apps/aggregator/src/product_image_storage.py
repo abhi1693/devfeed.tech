@@ -4,10 +4,11 @@ from devfeed_core.feeds.fetcher import FeedError, fetch_page
 from devfeed_core.images import extract_image
 
 from devfeed_aggregator.image_storage import ImageOriginalStore
+from devfeed_aggregator.image_storage_base import StoredImage
 
 
 class ProductImageOriginalStore(ImageOriginalStore):
-    def store(self, source: str) -> dict:
+    def store(self, source: str) -> StoredImage:
         page = fetch_page(source)
         if page.status != 200 or not page.body:
             raise FeedError("Product page unavailable", reason="invalid_product_page")

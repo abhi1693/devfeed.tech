@@ -1,5 +1,7 @@
 """Original-page enrichment outbox and exclusive leases. No HTTP in transactions."""
 
+from __future__ import annotations
+
 import uuid
 
 from sqlalchemy import select
@@ -13,7 +15,9 @@ from devfeed_core.services import OperationConflict, RecordNotFound
 EXTRACTION_VERSION = "article-extraction-v2-full-evidence"
 
 
-def approved_sources(session: Session, article_id: uuid.UUID, *, lock=False) -> list[uuid.UUID]:
+def approved_sources(
+    session: Session, article_id: uuid.UUID, *, lock: bool = False
+) -> list[uuid.UUID]:
     statement = (
         select(Source.id)
         .where(
@@ -32,7 +36,7 @@ def approved_sources(session: Session, article_id: uuid.UUID, *, lock=False) -> 
 
 
 def request_article_enrichment(
-    session: Session, article_id: uuid.UUID, *, automatic=False
+    session: Session, article_id: uuid.UUID, *, automatic: bool = False
 ) -> ArticleEnrichmentJob | None:
     article = session.scalar(
         select(Article)
@@ -72,7 +76,9 @@ def request_article_enrichment(
     return job
 
 
-def backfill_articles(session: Session, limit: int, *, source_id: uuid.UUID | None = None):
+def backfill_articles(
+    session: Session, limit: int, *, source_id: uuid.UUID | None = None
+) -> list[ArticleEnrichmentJob]:
     if not 1 <= limit <= 500:
         raise ValueError("Backfill limit must be between 1 and 500")
     attempted = select(ArticleEnrichmentJob.id).where(ArticleEnrichmentJob.article_id == Article.id)
@@ -100,7 +106,7 @@ def backfill_articles(session: Session, limit: int, *, source_id: uuid.UUID | No
     ]
 
 
-def claim_article(session: Session, job_id: uuid.UUID):
+def claim_article(session: Session, job_id: uuid.UUID) -> tuple[ArticleEnrichmentJob, str] | None:
     # Wait out the dispatch transaction rather than consuming a still-locked job.
     job = session.scalar(
         select(ArticleEnrichmentJob).where(ArticleEnrichmentJob.id == job_id).with_for_update()
@@ -119,7 +125,7 @@ def claim_article(session: Session, job_id: uuid.UUID):
     return job, article.canonical_url
 
 
-def retry_article(session: Session, job_id: uuid.UUID):
+def retry_article(session: Session, job_id: uuid.UUID) -> ArticleEnrichmentJob | None:
     job = session.get(ArticleEnrichmentJob, job_id)
     if job is None:
         raise RecordNotFound("Article enrichment job not found")
@@ -130,7 +136,7 @@ def retry_article(session: Session, job_id: uuid.UUID):
     return request_article_enrichment(session, job.article_id)
 
 
-def prepare_article_dispatch(session: Session, job_id: uuid.UUID):
+def prepare_article_dispatch(session: Session, job_id: uuid.UUID) -> ArticleEnrichmentJob:
     job = session.scalar(
         select(ArticleEnrichmentJob).where(ArticleEnrichmentJob.id == job_id).with_for_update()
     )

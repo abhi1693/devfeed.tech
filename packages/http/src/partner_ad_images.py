@@ -1,11 +1,13 @@
 """Private product image uploads share avatar storage and account-scoped placement policy."""
 
+import uuid
 from contextlib import ExitStack
+from typing import TypedDict
 from urllib.parse import unquote, urlsplit
 
 from devfeed_core.config import get_settings
 from devfeed_core.managed_images import IMAGE_VERSION
-from devfeed_core.models import PartnerProduct, PartnerProductPromotion
+from devfeed_core.models import PartnerAccount, PartnerProduct, PartnerProductPromotion
 from devfeed_core.object_storage import R2Storage
 from devfeed_core.partner_product_images import (
     AD_IMAGE_SIZES,
@@ -15,17 +17,26 @@ from devfeed_core.partner_product_images import (
 )
 from devfeed_core.partner_promotions import associated_products_query
 from devfeed_core.urls import validate_public_url
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.orm import Session
+from sqlalchemy.sql import Select
 
 from devfeed_http.image_uploads import MAX_BYTES, ImageUploadStorage
 from devfeed_http.partner_portal import (
+    ProductPromotionInput,
+    ProductPromotionOut,
     _product_promotion_policy,
     product_promotion,
     save_product_promotion,
 )
+
+
+class StoredVariant(TypedDict):
+    key: str
+    width: int
 
 
 class ProductAdImageStorage(ImageUploadStorage):
@@ -33,11 +44,11 @@ class ProductAdImageStorage(ImageUploadStorage):
 
     sizes = AD_IMAGE_SIZES
 
-    def __init__(self, prefix, *, storage: R2Storage | None = None):
+    def __init__(self, prefix: str, *, storage: R2Storage | None = None) -> None:
         super().__init__(prefix, self.sizes, storage=storage)
 
 
-def lock_image_product(session, account_id, product_id):
+def lock_image_product(session: Session, account_id: uuid.UUID, product_id: uuid.UUID) -> None:
     if (
         session.execute(
             associated_products_query(account_id).where(PartnerProduct.id == product_id)
@@ -56,7 +67,7 @@ def lock_image_product(session, account_id, product_id):
         raise HTTPException(404, "Product not found in this account's active resolved catalog")
 
 
-def lock_image_account(session, query):
+def lock_image_account(session: Session, query: Select[PartnerAccount]) -> PartnerAccount | None:
     try:
         return session.scalar(
             query.with_for_update(nowait=True).execution_options(populate_existing=True)
@@ -72,7 +83,9 @@ def lock_image_account(session, query):
         ) from None
 
 
-def save_product_promotion_with_images(session, account, product_id, payload):
+def save_product_promotion_with_images(
+    session: Session, account: PartnerAccount, product_id: uuid.UUID, payload: ProductPromotionInput
+) -> ProductPromotionOut:
     previous = _product_promotion_policy(session, account, product_id, lock=True)
     prefix = uploaded_ad_image_prefix(previous.managed_ad_image, account.id)
     removing = (
@@ -81,6 +94,7 @@ def save_product_promotion_with_images(session, account, product_id, payload):
         and payload.ad_image_url != previous.ad_image_url
     )
     if removing and payload.ad_image_url:
+        assert previous.ad_image_url is not None
         current, incoming = urlsplit(previous.ad_image_url), urlsplit(payload.ad_image_url)
         directory = current.path.rsplit("/", 1)[0] + "/"
         if (incoming.scheme, incoming.netloc) == (current.scheme, current.netloc) and unquote(
@@ -91,6 +105,7 @@ def save_product_promotion_with_images(session, account, product_id, payload):
             )
     with ExitStack() as stack:
         if removing:
+            assert prefix is not None
             objects = stack.enter_context(ProductAdImageStorage(prefix))
             objects.remove()
         result = save_product_promotion(session, account, product_id, payload)
@@ -98,7 +113,9 @@ def save_product_promotion_with_images(session, account, product_id, payload):
         return result
 
 
-def upload_product_ad_image(session, account, product_id, file):
+def upload_product_ad_image(
+    session: Session, account: PartnerAccount, product_id: uuid.UUID, file: UploadFile
+) -> ProductPromotionOut:
     previous = _product_promotion_policy(session, account, product_id, lock=True)
     if file.content_type not in {"image/jpeg", "image/png", "image/webp"}:
         raise HTTPException(415, "Choose a JPEG, PNG or WebP image")
@@ -119,7 +136,7 @@ def upload_product_ad_image(session, account, product_id, file):
         objects = stack.enter_context(upload)
         objects.replace(encoded, widths=widths)
         # Fixed slots stay bounded; actual widths are unique srcset descriptors.
-        by_width = {
+        by_width: dict[int, StoredVariant] = {
             widths[size]: {"key": f"{prefix}/{size}.webp", "width": widths[size]}
             for size in AD_IMAGE_SIZES
         }

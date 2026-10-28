@@ -1,10 +1,17 @@
 """Canonical product identity and independent launch platform provenance."""
 
+from __future__ import annotations
+
 import logging
 import uuid
+from collections.abc import Iterable
+from typing import cast
 from urllib.parse import urlsplit
 
 from sqlalchemy import exists, or_, select, text, update
+from sqlalchemy.engine import ScalarResult
+from sqlalchemy.orm import Session
+from sqlalchemy.sql import ColumnElement
 
 from devfeed_core.job_lifecycle import fail_or_retry, finish_job
 from devfeed_core.models import (
@@ -21,19 +28,19 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.partner_link_rel import configured_link_rel
-from devfeed_core.partner_tools import ProductFacts, eligible
+from devfeed_core.partner_tools import ListingData, ProductFacts, ProductInput, eligible
 from devfeed_core.urls import canonicalize_url, fingerprint
 
 logger = logging.getLogger(__name__)
 
 
-def lock_catalog(session):
+def lock_catalog(session: Session) -> None:
     # Only short database mutations are serialized. Network/AI work runs outside this lock.
     # This also orders cross-provider merges, exclusions and job cancellation consistently.
     session.execute(text("SELECT pg_advisory_xact_lock(734819025)"))
 
 
-def active_provider(session, product_id):
+def active_provider(session: Session, product_id: uuid.UUID) -> str | None:
     return session.scalar(
         select(PartnerListing.provider)
         .join(PartnerConnection, PartnerConnection.provider == PartnerListing.provider)
@@ -49,11 +56,11 @@ def active_provider(session, product_id):
     )
 
 
-def has_listings():
+def has_listings() -> ColumnElement[bool]:
     return exists(select(PartnerListing.id).where(PartnerListing.product_id == PartnerProduct.id))
 
 
-def has_active_listing():
+def has_active_listing() -> ColumnElement[bool]:
     return exists(
         select(PartnerListing.id)
         .join(PartnerConnection, PartnerConnection.provider == PartnerListing.provider)
@@ -67,7 +74,7 @@ def has_active_listing():
     )
 
 
-def has_sources():
+def has_sources() -> ColumnElement[bool]:
     return or_(
         has_listings(),
         exists(
@@ -78,7 +85,7 @@ def has_sources():
     )
 
 
-def has_active_source():
+def has_active_source() -> ColumnElement[bool]:
     """Qualification and image preparation work without any import connection."""
     return or_(
         has_active_listing(),
@@ -91,7 +98,7 @@ def has_active_source():
     )
 
 
-def product_has_active_source(session, product_id):
+def product_has_active_source(session: Session, product_id: uuid.UUID | None) -> bool:
     return bool(
         session.scalar(
             select(PartnerProduct.id).where(PartnerProduct.id == product_id, has_active_source())
@@ -99,8 +106,10 @@ def product_has_active_source(session, product_id):
     )
 
 
-def listing_views(session, product_ids):
-    result: dict[uuid.UUID, list[dict]] = {identifier: [] for identifier in product_ids}
+def listing_views(
+    session: Session, product_ids: Iterable[uuid.UUID]
+) -> dict[uuid.UUID, list[ListingData]]:
+    result: dict[uuid.UUID, list[ListingData]] = {identifier: [] for identifier in product_ids}
     if not result:
         return result
     for listing, enabled, name, account, promotion, product in session.execute(
@@ -142,41 +151,44 @@ def listing_views(session, product_ids):
             and (eligible(product) or trusted)
         )
         result[listing.product_id].append(
-            {
-                **{
-                    field: getattr(listing, field)
-                    for field in (
-                        "id",
-                        "provider",
-                        "external_id",
-                        "name",
-                        "product_url",
-                        "listing_url",
-                        "tagline",
-                        "pricing",
-                        "attribution",
-                        "active",
-                        "identity_status",
-                        "identity_reason",
-                        "updated_at",
-                    )
+            cast(
+                ListingData,
+                {
+                    **{
+                        field: getattr(listing, field)
+                        for field in (
+                            "id",
+                            "provider",
+                            "external_id",
+                            "name",
+                            "product_url",
+                            "listing_url",
+                            "tagline",
+                            "pricing",
+                            "attribution",
+                            "active",
+                            "identity_status",
+                            "identity_reason",
+                            "updated_at",
+                        )
+                    },
+                    "platform_name": name or listing.provider.replace("-", " ").title(),
+                    "connection_enabled": enabled,
+                    "account_id": account.id if account else None,
+                    "account_name": account.name if account else None,
+                    "commercial_approved": accepted,
+                    "approval_source": "trusted"
+                    if trusted
+                    else "qualified"
+                    if eligible(product)
+                    else None,
                 },
-                "platform_name": name or listing.provider.replace("-", " ").title(),
-                "connection_enabled": enabled,
-                "account_id": account.id if account else None,
-                "account_name": account.name if account else None,
-                "commercial_approved": accepted,
-                "approval_source": "trusted"
-                if trusted
-                else "qualified"
-                if eligible(product)
-                else None,
-            }
+            )
         )
     return result
 
 
-def refresh_availability(session, product):
+def refresh_availability(session: Session, product: PartnerProduct) -> None:
     if product.merged_into_id:
         return
     available = session.scalar(
@@ -206,7 +218,7 @@ def refresh_availability(session, product):
         product.assessment_revision = 0
 
 
-def upsert_listing(session, item, generation):
+def upsert_listing(session: Session, item: ProductInput, generation: uuid.UUID) -> PartnerProduct:
     from devfeed_core.partner_connections import queue_evaluation, request_assessment
 
     lock_catalog(session)
@@ -290,7 +302,9 @@ def upsert_listing(session, item, generation):
     return product
 
 
-def withdraw_missing_listings(session, provider, generation, *, limit=None):
+def withdraw_missing_listings(
+    session: Session, provider: str, generation: uuid.UUID, *, limit: int | None = None
+) -> int:
     missing = session.scalars(
         select(PartnerListing)
         .where(
@@ -309,11 +323,15 @@ def withdraw_missing_listings(session, provider, generation, *, limit=None):
         products.add(listing.product_id)
     session.flush()
     for identifier in sorted(products):
-        refresh_availability(session, session.get(PartnerProduct, identifier))
+        product = session.get(PartnerProduct, identifier)
+        assert product is not None
+        refresh_availability(session, product)
     return len(missing)
 
 
-def record_verified_redirect(session, product, final_url):
+def record_verified_redirect(
+    session: Session, product: PartnerProduct, final_url: str
+) -> PartnerProduct:
     """Only observed scheme/www redirects with identical resource paths establish aliases.
 
     Cross-domain redirects or path changes may lead to login/parking/umbrella pages, so
@@ -332,7 +350,9 @@ def record_verified_redirect(session, product, final_url):
         return product
     alias = session.get(PartnerProductURL, fingerprint(target_url))
     if alias and alias.product_id != product.id:
-        return merge_products(session, product, session.get(PartnerProduct, alias.product_id))
+        recipient = session.get(PartnerProduct, alias.product_id)
+        assert recipient is not None
+        return merge_products(session, product, recipient)
     if not alias:
         alias = PartnerProductURL(
             url_hash=fingerprint(target_url), url=target_url, product_id=product.id
@@ -350,7 +370,22 @@ def record_verified_redirect(session, product, final_url):
     return product
 
 
-def merge_products(session, donor, recipient):
+def _active_merge_jobs[T: PartnerPipelineJob | PartnerEvaluation](
+    session: Session,
+    model: type[T],
+    identifiers: list[uuid.UUID],
+) -> ScalarResult[T]:
+    return session.scalars(
+        select(model).where(
+            model.product_id.in_(identifiers),
+            model.status.in_(["queued", "running"]),
+        )
+    )
+
+
+def merge_products(
+    session: Session, donor: PartnerProduct, recipient: PartnerProduct
+) -> PartnerProduct:
     """Preserve provenance, exclusions and valid qualification when merging aliases."""
     from devfeed_core.partner_connections import request_assessment
 
@@ -367,13 +402,12 @@ def merge_products(session, donor, recipient):
     cancelled_products = [donor.id, recipient.id] if recipient.excluded else [donor.id]
     donor.merged_into_id, donor.status, donor.verified_at = recipient.id, "withdrawn", None
     donor.revision += 1
-    for model in (PartnerPipelineJob, PartnerEvaluation):
-        for job in session.scalars(
-            select(model).where(
-                model.product_id.in_(cancelled_products),
-                model.status.in_(["queued", "running"]),
-            )
-        ):
+    job_models: tuple[type[PartnerPipelineJob] | type[PartnerEvaluation], ...] = (
+        PartnerPipelineJob,
+        PartnerEvaluation,
+    )
+    for model in job_models:
+        for job in _active_merge_jobs(session, model, cancelled_products):
             fail_or_retry(
                 job,
                 "Product identities merged; use the canonical product job",
@@ -397,8 +431,8 @@ def merge_products(session, donor, recipient):
             select(PartnerManualProduct).where(PartnerManualProduct.product_id == donor.id)
         )
     ):
-        current = session.get(PartnerManualProduct, (source.account_id, recipient.id))
-        if current is None:
+        current_manual = session.get(PartnerManualProduct, (source.account_id, recipient.id))
+        if current_manual is None:
             session.add(
                 PartnerManualProduct(
                     account_id=source.account_id,
@@ -425,6 +459,7 @@ def merge_products(session, donor, recipient):
         account = session.scalar(
             select(PartnerAccount).where(PartnerAccount.id == policy.account_id).with_for_update()
         )
+        assert account is not None
         # The account may have been edited while this merge waited for its lock.
         session.refresh(policy)
         current = session.get(PartnerProductPromotion, (policy.account_id, recipient.id))
@@ -465,7 +500,7 @@ def merge_products(session, donor, recipient):
             current.commercial_approved_at = policy.commercial_approved_at
             current.approval_source = policy.approval_source
     session.flush()
-    for job in session.scalars(
+    for image_job in session.scalars(
         select(ArticleImageJob)
         .where(
             ArticleImageJob.product_id == donor.id,
@@ -474,7 +509,7 @@ def merge_products(session, donor, recipient):
         )
         .with_for_update()
     ):
-        finish_job(job, "already_present", utcnow())
+        finish_job(image_job, "already_present", utcnow())
     if discarded_images:
         from devfeed_core.partner_product_images import request_ad_image_cleanup
 

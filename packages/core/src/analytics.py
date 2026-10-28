@@ -1,25 +1,44 @@
 """Bounded native asynchronous ClickHouse Connect access for analytical workloads."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import re
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from functools import lru_cache
-from typing import Any
+from typing import Any, Protocol, Self
 
 import aiohttp
 import clickhouse_connect
+from clickhouse_connect.driver.asyncclient import AsyncClient
 from clickhouse_connect.driver.exceptions import Error as ClickHouseError
+from clickhouse_connect.driver.external import ExternalData
 
 from devfeed_core.config import Settings, get_settings
+from devfeed_core.json_types import JsonValue
+
+# Arbitrary SQL selects and native driver dispatch are dynamic SDK boundaries.
+# Domain services expose concrete records when a stable projection is known.
+type SqlRecord = dict[str, Any]
+type SqlTuple = tuple[Any, ...]
+
+
+class AnalyticsQueries(Protocol):
+    """The read capability shared by direct clients and scoped report adapters."""
+
+    async def query(
+        self, sql: str, /, parameters: Mapping[str, object] | None = None
+    ) -> list[SqlRecord]: ...
 
 
 class AnalyticsUnavailable(RuntimeError):
     """Analytics cannot currently serve a complete result."""
 
 
-def _parameter(value):
+def _parameter(value: object) -> JsonValue:
     if isinstance(value, datetime):
         return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
     if isinstance(value, date):
@@ -33,7 +52,7 @@ def _parameter(value):
     return str(value)
 
 
-def _insert_datetime(value):
+def _insert_datetime(value: object) -> object:
     if value is None:
         return None
     if isinstance(value, str):
@@ -45,7 +64,7 @@ def _insert_datetime(value):
     return value
 
 
-def _insert_date(value):
+def _insert_date(value: object) -> object:
     if isinstance(value, str):
         return date.fromisoformat(value)
     if isinstance(value, datetime):
@@ -54,7 +73,7 @@ def _insert_date(value):
 
 
 @lru_cache(maxsize=128)
-def _insert_converter(kind: str):
+def _insert_converter(kind: str) -> Callable[[Any], Any] | None:
     """Compile only necessary coercions; numeric/string columns stay untouched."""
     while kind.startswith(("Nullable(", "LowCardinality(")):
         kind = kind[kind.index("(") + 1 : -1]
@@ -74,7 +93,9 @@ def _insert_converter(kind: str):
 
 
 class AnalyticsClient:
-    def __init__(self, settings: Settings | None = None, *, driver=None):
+    def __init__(
+        self, settings: Settings | None = None, *, driver: AsyncClient | None = None
+    ) -> None:
         self.settings = settings or get_settings()
         self._semaphore = asyncio.Semaphore(self.settings.clickhouse_max_concurrent_queries)
         self._external_query_admission = asyncio.Semaphore(1)
@@ -84,18 +105,18 @@ class AnalyticsClient:
         self._driver = driver
         self.insert_settings: dict[str, Any] = {}
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> Self:
         return self
 
-    async def __aexit__(self, *_args):
+    async def __aexit__(self, *_args: object) -> None:
         await self.close()
 
-    async def close(self):
+    async def close(self) -> None:
         if self._driver is not None:
             await self._driver.close()
             self._driver = None
 
-    def _limits(self):
+    def _limits(self) -> dict[str, str | int]:
         return {
             "max_threads": self.settings.clickhouse_max_threads,
             "max_memory_usage": self.settings.clickhouse_max_memory_bytes,
@@ -107,7 +128,7 @@ class AnalyticsClient:
             "prefer_column_name_to_alias": 1,
         }
 
-    async def _get_driver(self):
+    async def _get_driver(self) -> AsyncClient:
         async with self._connect_lock:
             if self._driver is None:
                 self._driver = await clickhouse_connect.get_async_client(
@@ -125,7 +146,7 @@ class AnalyticsClient:
                 )
         return self._driver
 
-    async def _operation(self, method, *args, **kwargs):
+    async def _operation(self, method: str, *args: object, **kwargs: object) -> Any:
         try:
             # Includes pool admission and lazy driver initialization, so a queue
             # cannot make the complete analytical request wait without a deadline.
@@ -137,12 +158,12 @@ class AnalyticsClient:
             raise AnalyticsUnavailable("ClickHouse request failed") from error
 
     @asynccontextmanager
-    async def external_query_slot(self):
+    async def external_query_slot(self) -> AsyncIterator[None]:
         """Bound materialized external-input snapshots across concurrent requests."""
         async with self._external_query_admission:
             yield
 
-    async def execute(self, sql: str, parameters: dict[str, Any] | None = None):
+    async def execute(self, sql: str, parameters: Mapping[str, object] | None = None) -> None:
         await self._operation(
             "command",
             sql,
@@ -151,8 +172,12 @@ class AnalyticsClient:
         )
 
     async def query(
-        self, sql: str, parameters: dict[str, Any] | None = None, *, external_data=None
-    ) -> list[dict[str, Any]]:
+        self,
+        sql: str,
+        parameters: Mapping[str, object] | None = None,
+        *,
+        external_data: ExternalData | None = None,
+    ) -> list[SqlRecord]:
         response = await self._operation(
             "raw_query",
             sql.rstrip("; \n"),
@@ -168,13 +193,13 @@ class AnalyticsClient:
                 "ClickHouse returned an invalid analytical result"
             ) from error
 
-    async def initialize(self):
+    async def initialize(self) -> tuple[int, ...]:
         """Apply the packaged, versioned schema during explicit initialization."""
         from devfeed_core.analytics_migrations import ClickHouseMigrationRunner
 
         return await ClickHouseMigrationRunner(self).upgrade()
 
-    async def _insert_types(self, table: str, columns: tuple[str, ...]):
+    async def _insert_types(self, table: str, columns: tuple[str, ...]) -> tuple[str, ...]:
         key = (table, columns)
         if key in self._insert_schemas:
             return self._insert_schemas[key]
@@ -186,7 +211,7 @@ class AnalyticsClient:
                 self._insert_schemas[key] = tuple(schema[name] for name in columns)
             return self._insert_schemas[key]
 
-    async def insert(self, table: str, rows: list[dict[str, Any]]):
+    async def insert(self, table: str, rows: Sequence[Mapping[str, object]]) -> None:
         if not rows:
             return
         if re.fullmatch(r"analytics_[a-z][a-z0-9_]*", table) is None:
@@ -236,7 +261,7 @@ class AnalyticsClient:
         except TimeoutError as error:
             raise AnalyticsUnavailable("ClickHouse request failed") from error
 
-    async def status(self) -> dict[str, Any]:
+    async def status(self) -> SqlRecord:
         from devfeed_core.analytics_status import AnalyticsStatus
 
         return await AnalyticsStatus(self).read()

@@ -3,13 +3,15 @@
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import timedelta
-from typing import Literal, get_args
+from datetime import datetime, timedelta
+from typing import Literal, Self, TypedDict, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session
 
 from devfeed_core.models import (
+    PartnerAccount,
     PartnerCampaign,
     Topic,
     UserAccount,
@@ -19,6 +21,20 @@ from devfeed_core.models import (
     UserTopic,
 )
 from devfeed_core.partner_tiers import tier_policy
+
+
+class AudienceTopicData(TypedDict):
+    id: uuid.UUID
+    name: str
+    slug: str
+    kind: str
+    status: str
+
+
+class AudienceTopicsData(TypedDict):
+    items: list[AudienceTopicData]
+    total: int
+
 
 ExperienceLevel = Literal["aspiring", "entry_level", "mid_level", "senior"]
 AudienceDimension = Literal["languages", "tools"]
@@ -47,7 +63,7 @@ class AudienceInput(BaseModel):
     tool_topic_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
-    def unique_selections(self):
+    def unique_selections(self) -> Self:
         for values in (self.experience_levels, self.language_topic_ids, self.tool_topic_ids):
             if len(values) != len(set(values)):
                 raise ValueError("Audience selections must be unique")
@@ -58,7 +74,9 @@ class AudienceInput(BaseModel):
         return bool(self.experience_levels or self.language_topic_ids or self.tool_topic_ids)
 
 
-def effective_audience(account, campaign=None) -> AudienceInput | None:
+def effective_audience(
+    account: PartnerAccount, campaign: PartnerCampaign | None = None
+) -> AudienceInput | None:
     raw = getattr(campaign, "audience", None) if campaign is not None else None
     if raw is None:
         raw = getattr(account, "audience", None)
@@ -71,7 +89,7 @@ def effective_audience(account, campaign=None) -> AudienceInput | None:
         return None
 
 
-def audience_entitled(account, campaign=None) -> bool:
+def audience_entitled(account: PartnerAccount, campaign: PartnerCampaign | None = None) -> bool:
     """Shared issuance/tracking tier fence, without retaining reader identity."""
     audience = effective_audience(account, campaign)
     return bool(
@@ -80,7 +98,9 @@ def audience_entitled(account, campaign=None) -> bool:
     )
 
 
-def audience_topics_current(session, audience: AudienceInput, *, lock=False) -> bool:
+def audience_topics_current(
+    session: Session, audience: AudienceInput, *, lock: bool = False
+) -> bool:
     wanted = set(audience.language_topic_ids) | set(audience.tool_topic_ids)
     if not wanted:
         return True
@@ -98,7 +118,9 @@ def audience_topic_kinds_match(audience: AudienceInput, kinds: dict[uuid.UUID, s
     ) and all(kinds.get(identifier) in TOOL_KINDS for identifier in audience.tool_topic_ids)
 
 
-def validate_audience(session, tier: str, audience: AudienceInput, *, previous=None):
+def validate_audience(
+    session: Session, tier: str, audience: AudienceInput, *, previous: object = None
+) -> None:
     """Allow explicit clearing or unchanged retained policy, never a silent downgrade reset."""
     if not audience.populated:
         return
@@ -120,7 +142,9 @@ class ReaderAudience:
     topic_ids: set[uuid.UUID] = field(default_factory=set)
 
 
-def reader_audience(session, user_id, now) -> ReaderAudience | None:
+def reader_audience(
+    session: Session, user_id: uuid.UUID | str | None, now: datetime
+) -> ReaderAudience | None:
     if user_id is None:
         return None
     # Preferences/profile writes share this account lock. A busy profile fails
@@ -194,8 +218,15 @@ def audience_matches(audience: AudienceInput, reader: ReaderAudience | None) -> 
 
 
 def audience_topic_options(
-    session, dimension, *, account=None, q="", topic_id=None, offset=0, limit=25
-):
+    session: Session,
+    dimension: AudienceDimension,
+    *,
+    account: PartnerAccount | None = None,
+    q: str = "",
+    topic_id: uuid.UUID | None = None,
+    offset: int = 0,
+    limit: int = 25,
+) -> AudienceTopicsData:
     """Search active taxonomy; resolve saved unavailable selections without admitting them."""
     kinds = ("language",) if dimension == "languages" else TOOL_KINDS
     query = select(Topic).where(Topic.kind.in_(kinds), Topic.status == "active")
@@ -234,8 +265,10 @@ def audience_topic_options(
     )
     return {
         "items": [
-            dict(id=row.id, name=row.name, slug=row.slug, kind=row.kind, status=row.status)
+            AudienceTopicData(
+                id=row.id, name=row.name, slug=row.slug, kind=row.kind, status=row.status
+            )
             for row in rows
         ],
-        "total": total,
+        "total": total or 0,
     }

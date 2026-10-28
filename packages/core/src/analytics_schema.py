@@ -4,6 +4,9 @@ Only columns required for reporting are exported. Authentication, email addresse
 article bodies, prompts, evidence, and arbitrary inference payloads stay in PostgreSQL.
 """
 
+from __future__ import annotations
+
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from devfeed_core.models import Base
@@ -141,7 +144,7 @@ class AnalyticsTable:
         return "jsonb_build_object(" + ", ".join(values) + ")"
 
 
-def _table(name, fields):
+def _table(name: str, fields: Sequence[str]) -> AnalyticsTable:
     legacy_keys = {
         "article_opens": ("article_id", "viewer_key", "opened_hour"),
         "inference_calls": ("id",),

@@ -1,14 +1,22 @@
 """Shared delivery accounting for advisory and locked campaign capacity checks."""
 
-from datetime import timedelta
+from __future__ import annotations
+
+import uuid
+from collections.abc import Iterable
+from datetime import datetime, timedelta
 
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.orm import Session
+from sqlalchemy.sql import Select
 
-from devfeed_core.models import PartnerAsset, PartnerPlacementDelivery
+from devfeed_core.models import PartnerAsset, PartnerCampaign, PartnerPlacementDelivery
 from devfeed_core.partner_tracking import RECEIPT_TTL
 
 
-def campaign_delivery_usage(campaign_ids, now):
+def campaign_delivery_usage(
+    campaign_ids: Iterable[uuid.UUID], now: datetime
+) -> Select[uuid.UUID | None, int]:
     """Count impressions and valid reservations once per delivery for these campaigns."""
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     delivered = and_(
@@ -33,7 +41,7 @@ def campaign_delivery_usage(campaign_ids, now):
     )
 
 
-def campaign_capacity(session, campaign, now):
+def campaign_capacity(session: Session, campaign: PartnerCampaign, now: datetime) -> bool:
     if campaign.daily_impression_limit is None:
         return True
     # The caller holds the campaign lock, serializing issuance across its products.

@@ -1,7 +1,8 @@
 import logging
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Literal, cast
+from typing import Literal, TypedDict, cast
 
 from devfeed_core.models import (
     ArticleEnrichmentJob,
@@ -31,7 +32,7 @@ def article_jobs(
     status: Literal["queued", "running", "succeeded", "failed"] | None = None,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
-):
+) -> Sequence[ArticleEnrichmentJob]:
     statement = select(ArticleEnrichmentJob)
     if article_id:
         statement = statement.where(ArticleEnrichmentJob.article_id == article_id)
@@ -45,7 +46,7 @@ def article_jobs(
 
 
 @router.get("/article-jobs/{job_id}", response_model=ArticleEnrichmentJobOut)
-def article_job_detail(job_id: uuid.UUID, session: DB):
+def article_job_detail(job_id: uuid.UUID, session: DB) -> ArticleEnrichmentJob:
     job = session.get(ArticleEnrichmentJob, job_id)
     if job is None:
         raise HTTPException(404, "Article enrichment job not found")
@@ -59,7 +60,7 @@ def jobs(
     status: Literal["queued", "running", "succeeded", "failed"] | None = None,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
-):
+) -> Sequence[IngestionJob]:
     statement = select(IngestionJob)
     if source_id:
         statement = statement.where(IngestionJob.source_id == source_id)
@@ -73,7 +74,7 @@ def jobs(
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut)
-def job_detail(job_id: uuid.UUID, session: DB):
+def job_detail(job_id: uuid.UUID, session: DB) -> IngestionJob:
     job = session.get(IngestionJob, job_id)
     if job is None:
         raise HTTPException(404, "Job not found")
@@ -92,8 +93,20 @@ class IngestionStatus(BaseModel):
     queue_depth: int | None
 
 
+class IngestionData(TypedDict):
+    jobs: dict[str, int]
+    image_jobs: dict[str, int]
+    source_enrichment_jobs: dict[str, int]
+    article_enrichment_jobs: dict[str, int]
+    oldest_active_image_job_at: datetime | None
+    oldest_active_job_at: datetime | None
+    scheduler_last_seen: str | None
+    redis_available: bool
+    queue_depth: int | None
+
+
 @router.get("/status", response_model=IngestionStatus)
-def status(session: DB):
+def status(session: DB) -> IngestionData:
     counts = {
         state: count
         for state, count in session.execute(

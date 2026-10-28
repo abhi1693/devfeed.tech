@@ -32,6 +32,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql.elements import ColumnElement
 
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.partner_link_rel import default_link_rel
 from devfeed_core.partner_surfaces import default_campaign_surfaces, default_promotion_surfaces
 from devfeed_core.topic_kinds import TOPIC_KINDS
@@ -70,7 +71,7 @@ class AdminPreference(Base):
     __tablename__ = "admin_preferences"
 
     owner_key: Mapped[str] = mapped_column(String(64), primary_key=True)
-    settings: Mapped[dict] = mapped_column(JSONB, default=dict)
+    settings: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -112,12 +113,14 @@ class Source(Base):
     description: Mapped[str | None] = mapped_column(String(500))
     website_url: Mapped[str | None] = mapped_column(String(2048))
     logo_url: Mapped[str | None] = mapped_column(String(2048))
-    managed_logo: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    managed_logo: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
     image_url: Mapped[str | None] = mapped_column(String(2048))
     language: Mapped[str | None] = mapped_column(String(35))
-    relevance_assessment: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
-    processing_request: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
-    submitted_by: Mapped[dict | None] = mapped_column(JSONB)
+    relevance_assessment: Mapped[JsonRecord] = mapped_column(
+        JSONB, default=dict, server_default="{}"
+    )
+    processing_request: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
+    submitted_by: Mapped[JsonRecord | None] = mapped_column(JSONB)
     submission_channel: Mapped[str] = mapped_column(String(20), default="cli")
     approval_status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -134,7 +137,7 @@ class Source(Base):
     )
     publication_policy_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     polling_mode: Mapped[str] = mapped_column(String(20), default="fixed", server_default="fixed")
-    polling_state: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    polling_state: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
     scheduled_polling_mode: Mapped[str | None] = mapped_column(String(20))
     scheduled_interval_seconds: Mapped[int | None] = mapped_column(Integer)
     poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=43200)
@@ -214,7 +217,7 @@ class SourceEnrichmentJob(LeasedJobMixin, Base):
     )
     error: Mapped[str | None] = mapped_column(String(1000))
     operation: Mapped[str] = mapped_column(String(20), default="legacy", server_default="legacy")
-    result: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    result: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
     changed_fields: Mapped[list[str]] = mapped_column(ARRAY(String(30)), default=list)
     requires_solver: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
@@ -245,7 +248,7 @@ class TaxonomyMigrationArchive(Base):
     __tablename__ = "taxonomy_migration_archive"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     source_table: Mapped[str] = mapped_column(String(50))
-    record: Mapped[dict] = mapped_column(JSONB)
+    record: Mapped[JsonRecord] = mapped_column(JSONB)
 
 
 class TopicProposal(Base):
@@ -269,16 +272,16 @@ class TopicProposal(Base):
     action: Mapped[str] = mapped_column(String(10))
     origin: Mapped[str] = mapped_column(String(30))
     source_name: Mapped[str] = mapped_column(String(200))
-    proposed: Mapped[dict] = mapped_column(JSONB)
-    baseline: Mapped[dict | None] = mapped_column(JSONB)
-    evidence: Mapped[list[dict]] = mapped_column(JSONB, default=list)
+    proposed: Mapped[JsonRecord] = mapped_column(JSONB)
+    baseline: Mapped[JsonRecord | None] = mapped_column(JSONB)
+    evidence: Mapped[list[JsonRecord]] = mapped_column(JSONB, default=list)
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    created_by: Mapped[dict] = mapped_column(JSONB)
+    created_by: Mapped[JsonRecord] = mapped_column(JSONB)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
-    reviewed_by: Mapped[dict | None] = mapped_column(JSONB)
+    reviewed_by: Mapped[JsonRecord | None] = mapped_column(JSONB)
     review_note: Mapped[str | None] = mapped_column(String(1000))
-    applied: Mapped[dict | None] = mapped_column(JSONB)
+    applied: Mapped[JsonRecord | None] = mapped_column(JSONB)
     research_requested: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
@@ -317,14 +320,14 @@ class TopicAnalysisJob(LeasedJobMixin, Base):
         ForeignKey("topics.id", ondelete="RESTRICT"), index=True
     )
     input_hash: Mapped[str] = mapped_column(String(64))
-    input_snapshot: Mapped[dict] = mapped_column(JSONB)
-    requested_by: Mapped[dict] = mapped_column(JSONB)
+    input_snapshot: Mapped[JsonRecord] = mapped_column(JSONB)
+    requested_by: Mapped[JsonRecord] = mapped_column(JSONB)
     model: Mapped[str | None] = mapped_column(String(100))
     prompt_version: Mapped[str] = mapped_column(String(50))
-    result: Mapped[dict] = mapped_column(JSONB, default=dict)
+    result: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
     outcome: Mapped[str | None] = mapped_column(String(30))
     error: Mapped[str | None] = mapped_column(String(1000))
-    usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    usage: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
     duration_ms: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     inputs_pruned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -362,7 +365,7 @@ class ResearchVerificationJob(LeasedJobMixin, Base):
     relationships: Mapped[bool] = mapped_column(Boolean)
     outcome: Mapped[str | None] = mapped_column(String(30))
     error: Mapped[str | None] = mapped_column(String(1000))
-    usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    usage: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
     duration_ms: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
@@ -399,13 +402,13 @@ class TopicRelationProposal(Base):
     evidence_url: Mapped[str] = mapped_column(String(2048))
     evidence_title: Mapped[str] = mapped_column(String(300))
     evidence_quote: Mapped[str] = mapped_column(String(500))
-    topic_snapshot: Mapped[dict] = mapped_column(JSONB)
-    related_topic_snapshot: Mapped[dict] = mapped_column(JSONB)
+    topic_snapshot: Mapped[JsonRecord] = mapped_column(JSONB)
+    related_topic_snapshot: Mapped[JsonRecord] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    created_by: Mapped[dict] = mapped_column(JSONB)
+    created_by: Mapped[JsonRecord] = mapped_column(JSONB)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    reviewed_by: Mapped[dict | None] = mapped_column(JSONB)
+    reviewed_by: Mapped[JsonRecord | None] = mapped_column(JSONB)
     review_note: Mapped[str | None] = mapped_column(String(1000))
 
 
@@ -489,14 +492,14 @@ class Article(Base):
     # All explicit editorial decisions increment this token. Workers compare it
     # before applying results, so a late result cannot undo an operator decision.
     editorial_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    classification_provenance: Mapped[dict] = mapped_column(
+    classification_provenance: Mapped[JsonRecord] = mapped_column(
         JSONB, default=dict, server_default="{}"
     )
     # Historical commercial disclosure survives campaign expiry and withdrawal.
-    sponsor_names: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    sponsor_names: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
     author: Mapped[str | None] = mapped_column(String(200))
     image_url: Mapped[str | None] = mapped_column(String(2048))
-    managed_image: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    managed_image: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
     language: Mapped[str | None] = mapped_column(String(35))
     content_type: Mapped[str] = mapped_column(String(30), default="article")
     content_format: Mapped[str] = mapped_column(
@@ -579,7 +582,7 @@ class ArticleOrigin(Base):
     entry_key: Mapped[str] = mapped_column(String(64))
     original_url: Mapped[str] = mapped_column(String(2048))
     # Bounded entry evidence, not authoritative metadata of the linked resource.
-    source_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    source_metadata: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
     source: Mapped[Source] = relationship(lazy="joined")
 
 
@@ -622,7 +625,7 @@ class ArticleImageJob(LeasedJobMixin, Base):
     operation: Mapped[str] = mapped_column(
         String(20), default="discover", server_default="discover"
     )
-    storage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    storage: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
     __table_args__ = (
         CheckConstraint(
             "(article_id IS NOT NULL AND topic_id IS NULL AND source_id IS NULL "
@@ -743,7 +746,7 @@ class ArticleEnrichmentJob(LeasedJobMixin, Base):
     http_status: Mapped[int | None] = mapped_column(Integer)
     outcome: Mapped[str | None] = mapped_column(String(20))
     changed_fields: Mapped[list[str]] = mapped_column(ARRAY(String(30)), default=list)
-    result: Mapped[dict] = mapped_column(JSONB, default=dict)
+    result: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
     error: Mapped[str | None] = mapped_column(Text)
     requires_solver: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
@@ -787,9 +790,9 @@ class Topic(Base):
     ai_description: Mapped[str | None] = mapped_column(Text)
     website_url: Mapped[str | None] = mapped_column(String(2048))
     logo_url: Mapped[str | None] = mapped_column(String(2048))
-    managed_logo: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    managed_logo: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
     # Typed and source-attributed facts are validated at the service boundary.
-    facts: Mapped[list[dict]] = mapped_column(JSONB, default=list)
+    facts: Mapped[list[JsonRecord]] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -862,7 +865,7 @@ class ArticleReview(Base):
     actor: Mapped[str | None] = mapped_column(String(200))
     note: Mapped[str | None] = mapped_column(String(1000))
     revision: Mapped[int] = mapped_column(Integer)
-    automation: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    automation: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -895,21 +898,21 @@ class ArticleAnalysisJob(LeasedJobMixin, Base):
         ForeignKey("articles.id", ondelete="CASCADE"), index=True
     )
     input_hash: Mapped[str | None] = mapped_column(String(64))
-    input_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)
-    catalog_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)
+    input_snapshot: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
+    catalog_snapshot: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
     catalog_hash: Mapped[str | None] = mapped_column(String(64))
     editorial_revision: Mapped[int | None] = mapped_column(Integer)
     model: Mapped[str | None] = mapped_column(String(100))
     prompt_version: Mapped[str | None] = mapped_column(String(50))
-    result: Mapped[dict] = mapped_column(JSONB, default=dict)
+    result: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
     outcome: Mapped[str | None] = mapped_column(String(30))
     error: Mapped[str | None] = mapped_column(String(1000))
-    usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    usage: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
     duration_ms: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     inputs_pruned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     @property
-    def steps(self) -> dict:
+    def steps(self) -> dict[str, JsonRecord]:
         """Durable specialist progress in the existing parent outbox row.
 
         Assign a new dictionary through the setter when changing a step. This
@@ -920,7 +923,7 @@ class ArticleAnalysisJob(LeasedJobMixin, Base):
         return value if isinstance(value, dict) else {}
 
     @steps.setter
-    def steps(self, value: dict) -> None:
+    def steps(self, value: dict[str, JsonRecord]) -> None:
         self.usage = {**(self.usage or {}), "article_steps": value}
 
     @property
@@ -947,7 +950,7 @@ class TopicReanalysis(Base):
     __tablename__ = "topic_reanalysis"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     topic_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"))
-    topic_snapshot: Mapped[dict] = mapped_column(JSONB)
+    topic_snapshot: Mapped[JsonRecord] = mapped_column(JSONB)
     topic: Mapped["Topic"] = relationship(lazy="raise")
     after_article_id: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -976,7 +979,7 @@ class TopicRelationshipScan(Base):
     generation: Mapped[int] = mapped_column(
         BigInteger, server_default=RELATIONSHIP_GENERATION.next_value(), index=True
     )
-    topic_snapshot: Mapped[dict] = mapped_column(JSONB)
+    topic_snapshot: Mapped[JsonRecord] = mapped_column(JSONB)
     after_topic_id: Mapped[uuid.UUID | None]
     job_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("topic_analysis_jobs.id", ondelete="SET NULL"), index=True
@@ -1013,7 +1016,7 @@ class ArticlePublicationDecision(Base):
         ForeignKey("articles.id", ondelete="CASCADE"), index=True
     )
     fingerprint: Mapped[str] = mapped_column(String(64), unique=True)
-    decision: Mapped[dict] = mapped_column(JSONB)
+    decision: Mapped[JsonRecord] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -1046,7 +1049,7 @@ class NotificationDelivery(LeasedJobMixin, Base):
     audience: Mapped[str] = mapped_column(String(16))
     subscriber_id: Mapped[str | None] = mapped_column(String(128))
     category: Mapped[str] = mapped_column(String(100))
-    payload: Mapped[dict] = mapped_column(JSONB)
+    payload: Mapped[JsonRecord] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(String(200))
 
 
@@ -1103,14 +1106,16 @@ class UserAccount(Base):
     email: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    profile: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
-    notification_settings: Mapped[dict] = mapped_column(
+    profile: Mapped[JsonRecord] = mapped_column(
         JSONB, default=dict, server_default=text("'{}'::jsonb")
     )
-    appearance_settings: Mapped[dict] = mapped_column(
+    notification_settings: Mapped[JsonRecord] = mapped_column(
         JSONB, default=dict, server_default=text("'{}'::jsonb")
     )
-    feed_settings: Mapped[dict] = mapped_column(
+    appearance_settings: Mapped[JsonRecord] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb")
+    )
+    feed_settings: Mapped[JsonRecord] = mapped_column(
         JSONB, default=dict, server_default=text("'{}'::jsonb")
     )
 
@@ -1457,7 +1462,7 @@ class TopicDecisionRun(Base):
     input_hash: Mapped[str] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(20), default="active", index=True)
     reason: Mapped[str | None] = mapped_column(String(100))
-    state: Mapped[dict] = mapped_column(JSONB, default=dict)
+    state: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -1495,7 +1500,7 @@ class SourceCandidate(Base):
     source_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("sources.id", ondelete="SET NULL")
     )
-    review: Mapped[dict] = mapped_column(JSONB, default=dict)
+    review: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -1523,7 +1528,7 @@ class CandidateFeed(Base):
         ForeignKey("source_candidates.id", ondelete="CASCADE"), index=True
     )
     url: Mapped[str] = mapped_column(String(2048))
-    evidence: Mapped[dict] = mapped_column(JSONB, default=dict)
+    evidence: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -1538,7 +1543,7 @@ class CandidateAssessment(Base):
     )
     feed_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("candidate_feeds.id"))
     version: Mapped[str] = mapped_column(String(40))
-    evidence: Mapped[dict] = mapped_column(JSONB)
+    evidence: Mapped[JsonRecord] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -1569,7 +1574,7 @@ class SourceDiscoveryJob(LeasedJobMixin, Base):
     )
     stage: Mapped[str] = mapped_column(String(20), default="discover")
     error: Mapped[str | None] = mapped_column(String(100))
-    result: Mapped[dict] = mapped_column(JSONB, default=dict)
+    result: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
 
 
 Index("ix_topics_active_name", Topic.name, Topic.id, postgresql_where=Topic.status == "active")
@@ -1638,22 +1643,22 @@ class PartnerProduct(Base):
     product_url: Mapped[str] = mapped_column(String(2048))
     tagline: Mapped[str] = mapped_column(String(160))
     pricing: Mapped[str] = mapped_column(String(20), default="unknown")
-    technologies: Mapped[list] = mapped_column(JSONB, default=list)
+    technologies: Mapped[list[str]] = mapped_column(JSONB, default=list)
     # Each Unicode or punctuation-only technology adds __any__; exact rules remain authoritative.
     matching_tokens: Mapped[list[str]] = mapped_column(
         ARRAY(Text), server_default="{}", server_onupdate=FetchedValue()
     )
-    evidence: Mapped[list] = mapped_column(JSONB, default=list)
-    managed_logo: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
-    managed_image: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    evidence: Mapped[list[JsonRecord]] = mapped_column(JSONB, default=list)
+    managed_logo: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
+    managed_image: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
     revision: Mapped[int] = mapped_column(default=1)
     status: Mapped[str] = mapped_column(String(20), default="pending")
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_onupdate=FetchedValue()
     )
-    reviews: Mapped[list] = mapped_column(JSONB, default=list)
-    assessment: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    reviews: Mapped[list[JsonRecord]] = mapped_column(JSONB, default=list)
+    assessment: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
     assessment_revision: Mapped[int] = mapped_column(default=0, server_default="0")
     excluded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
@@ -1715,10 +1720,10 @@ class PartnerEvaluation(LeasedJobMixin, Base):
     product_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("partner_products.id", ondelete="CASCADE"), index=True
     )
-    snapshot: Mapped[dict] = mapped_column(JSONB)
-    result: Mapped[dict] = mapped_column(JSONB, default=dict)
-    reviews: Mapped[list] = mapped_column(JSONB, default=list)
-    requested_by: Mapped[dict] = mapped_column(JSONB)
+    snapshot: Mapped[JsonRecord] = mapped_column(JSONB)
+    result: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
+    reviews: Mapped[list[JsonRecord]] = mapped_column(JSONB, default=list)
+    requested_by: Mapped[JsonRecord] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(Text)
 
 
@@ -1746,8 +1751,8 @@ class PartnerConnection(Base):
     provider: Mapped[str] = mapped_column(String(200), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), default="", server_default="")
     logo_url: Mapped[str | None] = mapped_column(String(2048))
-    managed_logo: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
-    connector: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    managed_logo: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
+    connector: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
     encrypted_credential: Mapped[str | None] = mapped_column(Text)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -1757,7 +1762,7 @@ class PartnerConnection(Base):
     next_sync_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
-    updated_by: Mapped[dict] = mapped_column(JSONB, default=dict)
+    updated_by: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
 
 
 class PartnerPipelineJob(LeasedJobMixin, Base):
@@ -1794,7 +1799,7 @@ class PartnerPipelineJob(LeasedJobMixin, Base):
         ForeignKey("partner_pipeline_jobs.id"), index=True
     )
     external_id: Mapped[str | None] = mapped_column(String(200))
-    payload: Mapped[dict] = mapped_column(JSONB, default=dict)
+    payload: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
     error: Mapped[str | None] = mapped_column(Text)
 
     @hybrid_property
@@ -1890,7 +1895,7 @@ class PartnerAccount(Base):
     auto_include_products: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"
     )
-    promotion_surfaces: Mapped[list] = mapped_column(
+    promotion_surfaces: Mapped[list[str]] = mapped_column(
         JSONB,
         default=default_promotion_surfaces,
         server_default='["article","topic","feed","search","header"]',
@@ -1902,11 +1907,11 @@ class PartnerAccount(Base):
     outbound_destination: Mapped[str] = mapped_column(
         String(20), default="product_url", server_default="product_url"
     )
-    audience: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
-    ad_formats: Mapped[list] = mapped_column(
+    audience: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
+    ad_formats: Mapped[list[str]] = mapped_column(
         JSONB, default=lambda: ["feed"], server_default='["feed"]'
     )
-    link_rel: Mapped[list] = mapped_column(
+    link_rel: Mapped[list[str]] = mapped_column(
         JSONB, default=default_link_rel, server_default='["nofollow"]'
     )
 
@@ -2078,11 +2083,11 @@ class PartnerCampaign(Base):
     article_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("articles.id", ondelete="RESTRICT")
     )
-    product_ids: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
-    topic_ids: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
-    technologies: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
-    audience: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
-    surfaces: Mapped[list] = mapped_column(
+    product_ids: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
+    topic_ids: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
+    technologies: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
+    audience: Mapped[JsonRecord | None] = mapped_column(JSONB(none_as_null=True))
+    surfaces: Mapped[list[str]] = mapped_column(
         JSONB,
         default=lambda context: default_campaign_surfaces(
             context.get_current_parameters().get("ad_format", "feed")
@@ -2139,11 +2144,11 @@ class PartnerProductPromotion(Base):
         ForeignKey("partner_products.id", ondelete="CASCADE"), primary_key=True
     )
     excluded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    promotion_surfaces: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
-    ad_formats: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
-    link_rel: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
+    promotion_surfaces: Mapped[list[str] | None] = mapped_column(JSONB(none_as_null=True))
+    ad_formats: Mapped[list[str] | None] = mapped_column(JSONB(none_as_null=True))
+    link_rel: Mapped[list[str] | None] = mapped_column(JSONB(none_as_null=True))
     ad_image_url: Mapped[str | None] = mapped_column(String(2048))
-    managed_ad_image: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    managed_ad_image: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
     ad_image_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     commercial_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     approval_source: Mapped[str | None] = mapped_column(String(20))
@@ -2326,7 +2331,7 @@ class UserMustRead(Base):
     )
     selection_date: Mapped[date] = mapped_column(Date, primary_key=True)
     timezone: Mapped[str] = mapped_column(String(100))
-    picks: Mapped[list] = mapped_column(JSONB, default=list)
+    picks: Mapped[list[JsonRecord]] = mapped_column(JSONB, default=list)
     presented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

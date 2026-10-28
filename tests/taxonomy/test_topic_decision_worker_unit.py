@@ -252,6 +252,28 @@ def test_proposal_changed_during_transport_is_superseded(harness, change):
     harness.approve.assert_not_called()
 
 
+@pytest.mark.parametrize("missing", ["proposal", "run"])
+def test_removed_decision_state_during_transport_defers_without_applying_results(harness, missing):
+    def decision(*_args, **_kwargs):
+        setattr(harness.state, missing, None)
+        return {
+            "decision": "approved",
+            "topic": {**TOPIC, "description": "Do not apply this result"},
+            "sources": [],
+        }
+
+    harness.execute(decision)
+
+    assert harness.job.outcome == "decision_deferred"
+    assert harness.job.result["deferred_reason"] == "decision_dependency_failure"
+    assert harness.job.lease_token is harness.job.lease_until is None
+    assert harness.proposal.proposed == TOPIC and harness.proposal.evidence == []
+    harness.approve.assert_not_called()
+    harness.review.assert_not_called()
+    if missing == "proposal":
+        assert harness.state.run.status == "deferred"
+
+
 @pytest.mark.parametrize(
     "error",
     [

@@ -21,7 +21,7 @@ def detect_languages(
     after: UUID | None = None,
     source_id: UUID | None = None,
     dry_run: DryRun = False,
-):
+) -> None:
     """Detect languages offline; correct old feed hints in a bounded batch."""
     invoke(ctx, articles.detect_languages, locals())
 
@@ -33,25 +33,25 @@ def backfill_tags(
     after: UUID | None = None,
     source_id: UUID | None = None,
     dry_run: DryRun = False,
-):
+) -> None:
     """Restore tags from saved feed evidence, preserving manual classifications."""
     invoke(ctx, articles.restore_tags, locals())
 
 
 @app.command("enrich", help="Queue original-page lookup for an article ID.")
 @app.command("retry", help="Retry a failed article enrichment job ID.")
-def enrich_or_retry(ctx: typer.Context, id: Identifier, force: Force = False):
+def enrich_or_retry(ctx: typer.Context, id: Identifier, force: Force = False) -> None:
     invoke(ctx, articles.enrich if ctx.info_name == "enrich" else articles.retry, locals())
 
 
 @app.command()
-def show(ctx: typer.Context, id: Identifier):
+def show(ctx: typer.Context, id: Identifier) -> None:
     """Inspect an article enrichment job ID (use inspect for the article itself)."""
     invoke(ctx, articles.show, locals())
 
 
 @app.command()
-def dispatch(ctx: typer.Context, id: Identifier):
+def dispatch(ctx: typer.Context, id: Identifier) -> None:
     """Send a queued article enrichment job ID to RQ immediately."""
     invoke(ctx, articles.dispatch, locals())
 
@@ -64,7 +64,7 @@ def backfill(
     dispatch: Annotated[
         bool, typer.Option("--dispatch", help="Publish saved jobs immediately.")
     ] = False,
-):
+) -> None:
     """Queue original-page enrichment for never-checked articles."""
     invoke(ctx, articles.backfill, locals())
 
@@ -76,7 +76,7 @@ def jobs(
     offset: Offset = 0,
     article_id: UUID | None = None,
     status: JobStatus | None = None,
-):
+) -> None:
     """List article enrichment outcomes and failures."""
     invoke(ctx, articles.jobs, locals())
 
@@ -91,7 +91,7 @@ def decide(
     note: str | None = None,
     revision: Revision = None,
     dry_run: DryRun = False,
-):
+) -> None:
     invoke(ctx, editorial.decide, locals())
 
 
@@ -103,19 +103,21 @@ def reject(
     by: str | None = None,
     revision: Revision = None,
     dry_run: DryRun = False,
-):
+) -> None:
     """Reject an article with a required reason."""
     invoke(ctx, editorial.decide, locals())
 
 
 @app.command("inspect")
-def inspect_article(ctx: typer.Context, id: Identifier):
+def inspect_article(ctx: typer.Context, id: Identifier) -> None:
     """Inspect an article and its publication blockers."""
     invoke(ctx, editorial.inspect_article, locals())
 
 
 @app.command()
-def classify(ctx: typer.Context, id: Identifier, file: Annotated[str, typer.Option("--file")]):
+def classify(
+    ctx: typer.Context, id: Identifier, file: Annotated[str, typer.Option("--file")]
+) -> None:
     """Replace classifications from evidence-backed operator JSON."""
     invoke(ctx, editorial.classify, locals())
 
@@ -127,31 +129,31 @@ def list_articles(
     after: UUID | None = None,
     review_status: ReviewStatus | None = None,
     publication_status: Literal["published", "unpublished"] | None = None,
-):
+) -> None:
     """List articles including unpublished candidates."""
     invoke(ctx, editorial.list_articles, locals())
 
 
 @app.command("review-history")
-def review_history(ctx: typer.Context, id: Identifier, limit: Limit = 50):
+def review_history(ctx: typer.Context, id: Identifier, limit: Limit = 50) -> None:
     """Inspect article editorial decisions."""
     invoke(ctx, editorial.history, locals())
 
 
 @app.command("analyze", help="Queue AI analysis of an article.")
 @app.command("analysis-retry", help="Retry a failed AI analysis job.")
-def analyze(ctx: typer.Context, id: Identifier, force: Force = False):
+def analyze(ctx: typer.Context, id: Identifier, force: Force = False) -> None:
     invoke(ctx, editorial.analyze, locals())
 
 
 @app.command()
-def analyses(ctx: typer.Context, article_id: UUID | None = None, limit: Limit = 50):
+def analyses(ctx: typer.Context, article_id: UUID | None = None, limit: Limit = 50) -> None:
     """Inspect AI results, proposals and failures."""
     invoke(ctx, editorial.analyses, locals())
 
 
 @app.command("analysis-dispatch")
-def analysis_dispatch(ctx: typer.Context, id: Identifier):
+def analysis_dispatch(ctx: typer.Context, id: Identifier) -> None:
     """Send a queued AI analysis job to RQ immediately."""
     invoke(ctx, lambda args: editorial.dispatch_analysis(args.id), locals())
 
@@ -166,6 +168,6 @@ def analysis_backfill(
         bool,
         typer.Option("--force", help="Reanalyze previously attempted input; skip active jobs."),
     ] = False,
-):
+) -> None:
     """Queue a bounded batch of unreviewed article analyses."""
     invoke(ctx, editorial.analysis_backfill, locals())

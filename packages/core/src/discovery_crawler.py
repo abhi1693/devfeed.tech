@@ -1,21 +1,24 @@
 """Bounded, robots-aware discovery using the ingestion network guard."""
 
+from __future__ import annotations
+
 import time
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from protego import Protego
 
-from devfeed_core.feeds.fetcher import FeedError, _fetch
+from devfeed_core.feeds.fetcher import FeedError, FetchResult, _fetch
 from devfeed_core.feeds.parser import parse_feed
 from devfeed_core.feeds.validation import validate_admission_entries
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import utcnow
 from devfeed_core.source_types import SourceType
 from devfeed_core.urls import validate_public_url
 
 
 class CrawlSession:
-    def __init__(self):
+    def __init__(self) -> None:
         self.deadline = time.monotonic() + 120
         self.requests = 0
         self.last_request: dict[str, float] = {}
@@ -23,7 +26,7 @@ class CrawlSession:
         self.blocked: dict[str, FeedError] = {}
         self.active_origin: str | None = None
 
-    def before_request(self, url: str, *, robots: bool = False):
+    def before_request(self, url: str, *, robots: bool = False) -> None:
         url = validate_public_url(url)
         parts = urlsplit(url)
         origin = urlunsplit((parts.scheme, parts.netloc, "", "", ""))
@@ -65,7 +68,7 @@ class CrawlSession:
         self.active_origin = origin
         self.requests += 1
 
-    def get(self, url: str, *, robots: bool = False):
+    def get(self, url: str, *, robots: bool = False) -> FetchResult:
         try:
             return _fetch(
                 url,
@@ -87,14 +90,14 @@ class CrawlSession:
 
 
 class Links(HTMLParser):
-    def __init__(self, base: str):
+    def __init__(self, base: str) -> None:
         super().__init__(convert_charrefs=True)
         self.base = base
         self.feeds: list[str] = []
         self.pages: list[str] = []
         self.base_seen = False
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
         href = values.get("href")
         if not href:
@@ -123,7 +126,7 @@ class Links(HTMLParser):
                 self.pages.append(url)
 
 
-def feed_evidence(body: bytes, url: str, homepage: str) -> dict:
+def feed_evidence(body: bytes, url: str, homepage: str) -> JsonRecord:
     now = utcnow()
     parsed = parse_feed(body, url, now, source_type=SourceType.PUBLISHER)
     if not parsed.entries:
@@ -134,7 +137,7 @@ def feed_evidence(body: bytes, url: str, homepage: str) -> dict:
     shared = home.hostname in {"medium.com", "www.medium.com", "blogger.com", "www.blogger.com"}
     prefix = home.path.rstrip("/") + "/"
 
-    def owned(value):
+    def owned(value: str) -> bool:
         part = urlsplit(value)
         return part.hostname == home.hostname and (
             not shared or (prefix != "/" and part.path.startswith(prefix))
@@ -177,10 +180,10 @@ def feed_evidence(body: bytes, url: str, homepage: str) -> dict:
     }
 
 
-def discover(homepage: str, hints: list[str]) -> dict:
+def discover(homepage: str, hints: list[str]) -> JsonRecord:
     client = CrawlSession()
-    feeds: dict[str, dict] = {}
-    attempts: list[dict] = []
+    feeds: dict[str, JsonRecord] = {}
+    attempts: list[JsonRecord] = []
     visited: set[str] = set()
     pending = [(url, "hint") for url in hints[:5]] + [(homepage, "homepage")]
     scope = homepage.rstrip("/") + "/"

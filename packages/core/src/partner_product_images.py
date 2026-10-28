@@ -4,10 +4,12 @@ import hashlib
 import uuid
 
 from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
 
 from devfeed_core.config import get_settings
 from devfeed_core.job_lifecycle import finish_job
-from devfeed_core.managed_images import IMAGE_VERSION, THUMBNAIL_VERSION
+from devfeed_core.json_types import JsonRecord
+from devfeed_core.managed_images import IMAGE_VERSION, THUMBNAIL_VERSION, ImageVariant
 from devfeed_core.models import ArticleImageJob, PartnerProduct, PartnerProductPromotion, utcnow
 from devfeed_core.partner_catalog import has_active_source
 from devfeed_core.services import RecordNotFound
@@ -15,27 +17,29 @@ from devfeed_core.services import RecordNotFound
 AD_IMAGE_SIZES = (400, 800, 1200)
 
 
-def ad_image_prefix(account_id, product_id):
+def ad_image_prefix(account_id: uuid.UUID, product_id: uuid.UUID) -> str:
     digest = hashlib.sha256(f"{account_id}:{product_id}".encode()).hexdigest()
     return f"partner-ad-images/{digest}"
 
 
-def uploaded_ad_image_prefix(asset, account_id):
+def uploaded_ad_image_prefix(asset: JsonRecord | None, account_id: uuid.UUID) -> str | None:
     asset = asset or {}
     try:
         origin = uuid.UUID(asset.get("object_product_id", ""))
     except (ValueError, TypeError, AttributeError):
         return None
     prefix = asset.get("object_prefix", "")
+    if not isinstance(prefix, str):
+        return None
     return prefix if asset.get("upload") and prefix == ad_image_prefix(account_id, origin) else None
 
 
-def _managed_url(asset, key):
+def _managed_url(asset: JsonRecord, key: str) -> str:
     suffix = f"?v={asset['cache_version']}" if asset.get("upload") else ""
     return f"{(get_settings().image_public_url or '').rstrip('/')}/{key}{suffix}"
 
 
-def product_ad_image_current(policy) -> bool:
+def product_ad_image_current(policy: PartnerProductPromotion | None) -> bool:
     if policy is None or not policy.ad_image_url:
         return False
     asset = policy.managed_ad_image or {}
@@ -47,11 +51,14 @@ def product_ad_image_current(policy) -> bool:
     )
 
 
-def _presentation_asset(product, policy=None) -> dict:
+def _presentation_asset(
+    product: PartnerProduct, policy: PartnerProductPromotion | None = None
+) -> JsonRecord:
     settings = get_settings()
     if not settings.image_storage_enabled or not settings.image_public_url:
         return {}
     if product_ad_image_current(policy):
+        assert policy is not None
         return policy.managed_ad_image
     asset = getattr(product, "managed_image", None) or {}
     if asset.get("page_url") != product.product_url or asset.get("version") != IMAGE_VERSION:
@@ -59,7 +66,9 @@ def _presentation_asset(product, policy=None) -> dict:
     return asset
 
 
-def product_image_variants(product, policy=None) -> list[dict]:
+def product_image_variants(
+    product: PartnerProduct, policy: PartnerProductPromotion | None = None
+) -> list[ImageVariant]:
     asset = _presentation_asset(product, policy)
     return [
         {"url": _managed_url(asset, item["key"]), "width": item["width"]}
@@ -67,7 +76,9 @@ def product_image_variants(product, policy=None) -> list[dict]:
     ]
 
 
-def product_image_url(product, policy=None) -> str | None:
+def product_image_url(
+    product: PartnerProduct, policy: PartnerProductPromotion | None = None
+) -> str | None:
     variants = product_image_variants(product, policy)
     if variants:
         return next((item["url"] for item in variants if item["width"] >= 640), variants[-1]["url"])
@@ -77,7 +88,9 @@ def product_image_url(product, policy=None) -> str | None:
     return None
 
 
-def request_product_ad_image(session, account_id: uuid.UUID, product_id: uuid.UUID):
+def request_product_ad_image(
+    session: Session, account_id: uuid.UUID, product_id: uuid.UUID
+) -> ArticleImageJob | None:
     """Coalesce one account's durable custom-image work; replacement invalidates its lease."""
     product = session.scalar(
         select(PartnerProduct).where(PartnerProduct.id == product_id).with_for_update()
@@ -107,6 +120,7 @@ def request_product_ad_image(session, account_id: uuid.UUID, product_id: uuid.UU
     if active is not None:
         if (
             wanted
+            and policy is not None
             and active.image_url == policy.ad_image_url
             and active.subject_revision == policy.ad_image_revision
         ):
@@ -115,6 +129,7 @@ def request_product_ad_image(session, account_id: uuid.UUID, product_id: uuid.UU
         session.flush()
     if not wanted or not get_settings().image_storage_enabled or product_ad_image_current(policy):
         return None
+    assert policy is not None
     job = ArticleImageJob(
         account_id=account_id,
         product_id=product_id,
@@ -128,7 +143,9 @@ def request_product_ad_image(session, account_id: uuid.UUID, product_id: uuid.UU
     return job
 
 
-def request_ad_image_cleanup(session, policy):
+def request_ad_image_cleanup(
+    session: Session, policy: PartnerProductPromotion
+) -> ArticleImageJob | None:
     prefix = uploaded_ad_image_prefix(policy.managed_ad_image, policy.account_id)
     if not prefix:
         return None
@@ -156,7 +173,7 @@ def request_ad_image_cleanup(session, policy):
     return job
 
 
-def product_ad_image_status(session, policy):
+def product_ad_image_status(session: Session, policy: PartnerProductPromotion | None) -> str:
     if not policy or not policy.ad_image_url:
         return "default"
     if product_ad_image_current(policy):
@@ -175,7 +192,7 @@ def product_ad_image_status(session, policy):
     return status if status in {"queued", "running"} else "failed"
 
 
-def product_image_current(product) -> bool:
+def product_image_current(product: PartnerProduct) -> bool:
     asset = product.managed_image or {}
     return bool(
         asset.get("page_url") == product.product_url
@@ -184,7 +201,9 @@ def product_image_current(product) -> bool:
     )
 
 
-def request_product_image(session, product_id: uuid.UUID, *, automatic=False):
+def request_product_image(
+    session: Session, product_id: uuid.UUID, *, automatic: bool = False
+) -> ArticleImageJob | None:
     if not get_settings().image_storage_enabled:
         return None
     product = session.scalar(
@@ -230,7 +249,7 @@ def request_product_image(session, product_id: uuid.UUID, *, automatic=False):
     return job
 
 
-def backfill_product_images(session, limit=100):
+def backfill_product_images(session: Session, limit: int = 100) -> list[ArticleImageJob]:
     """Explicit bounded backfill for approved imports, including trusted account acceptance."""
     if not 1 <= limit <= 500:
         raise ValueError("Backfill limit must be between 1 and 500")

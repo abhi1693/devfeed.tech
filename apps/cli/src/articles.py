@@ -1,5 +1,7 @@
 """Article metadata maintenance and durable background page-enrichment commands."""
 
+from types import SimpleNamespace
+
 from devfeed_aggregator.dispatch import dispatch_now
 from devfeed_aggregator.language_backfill import backfill_languages
 from devfeed_aggregator.tag_backfill import backfill_tags
@@ -10,20 +12,22 @@ from devfeed_core.schemas import ArticleEnrichmentJobOut
 from devfeed_core.services import RecordNotFound
 from sqlalchemy import select
 
+from devfeed_cli.contracts import CommandOutput
 
-def detect_languages(args):
+
+def detect_languages(args: SimpleNamespace) -> CommandOutput:
     return backfill_languages(
         limit=args.limit, after=args.after, source_id=args.source_id, dry_run=args.dry_run
     )
 
 
-def restore_tags(args):
+def restore_tags(args: SimpleNamespace) -> CommandOutput:
     return backfill_tags(
         limit=args.limit, after=args.after, source_id=args.source_id, dry_run=args.dry_run
     )
 
 
-def enrich(args):
+def enrich(args: SimpleNamespace) -> CommandOutput:
     with session_factory().begin() as session:
         job = request_article_enrichment(session, args.id)
         result = (
@@ -35,7 +39,7 @@ def enrich(args):
     return {"article_id": str(args.id), "publisher_metadata_present": result is None, "job": result}
 
 
-def backfill(args):
+def backfill(args: SimpleNamespace) -> CommandOutput:
     with session_factory().begin() as session:
         queued = backfill_articles(session, args.limit, source_id=args.source_id)
         result = [
@@ -48,7 +52,7 @@ def backfill(args):
     return {"queued": len(identifiers), "jobs": result}
 
 
-def jobs(args):
+def jobs(args: SimpleNamespace) -> list[CommandOutput]:
     statement = select(ArticleEnrichmentJob)
     if args.status:
         statement = statement.where(ArticleEnrichmentJob.status == args.status)
@@ -65,7 +69,7 @@ def jobs(args):
         ]
 
 
-def show(args):
+def show(args: SimpleNamespace) -> CommandOutput:
     with session_factory()() as session:
         job = session.get(ArticleEnrichmentJob, args.id)
         if job is None:
@@ -73,7 +77,7 @@ def show(args):
         return ArticleEnrichmentJobOut.model_validate(job).model_dump(mode="json")
 
 
-def retry(args):
+def retry(args: SimpleNamespace) -> CommandOutput:
     with session_factory().begin() as session:
         job = retry_article(session, args.id)
         result = (
@@ -85,5 +89,5 @@ def retry(args):
     return {"publisher_metadata_present": result is None, "job": result}
 
 
-def dispatch(args):
+def dispatch(args: SimpleNamespace) -> CommandOutput:
     return dispatch_now(args.id, kind="article-enrichment")

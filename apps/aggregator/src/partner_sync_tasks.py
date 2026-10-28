@@ -3,13 +3,15 @@
 import logging
 import time
 import uuid
-from datetime import timedelta
+from collections.abc import Callable, Sequence
+from datetime import datetime, timedelta
 
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, start_job
 from devfeed_core.job_logs import job_log_context
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.logging import elapsed_ms
 from devfeed_core.models import (
     PartnerConnection,
@@ -39,11 +41,12 @@ from devfeed_core.partner_connections import (
 from devfeed_core.partner_connectors import ConnectorClient, ProductCandidate, connector_snapshot
 from devfeed_core.partner_credentials import connection_credential
 from devfeed_core.partner_tools import QUALIFICATION_TTL, ProductInput, product_snapshot
-from devfeed_core.research_evidence import fetched_page
+from devfeed_core.research_evidence import FetchedPage, fetched_page
 from devfeed_core.urls import canonicalize_url, fingerprint
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import Session, aliased, sessionmaker
+from sqlalchemy.sql import ColumnElement
 
 from devfeed_aggregator.partner_outbox import PartnerOutbox
 from devfeed_aggregator.queue import get_queue
@@ -53,7 +56,7 @@ ASSESSMENT_RENEWAL_LEAD_TIME = timedelta(days=7)
 ASSESSMENT_RENEWAL_RETRY_INTERVAL = timedelta(days=1)
 
 
-def job_fields(job):
+def job_fields(job: PartnerPipelineJob) -> dict[str, object]:
     return {
         "job_kind": "partner-pipeline",
         "job_id": str(job.id),
@@ -67,7 +70,7 @@ def job_fields(job):
     }
 
 
-def qualify(product, page):
+def qualify(product: JsonRecord, page: FetchedPage) -> JsonRecord:
     from devfeed_aggregator.codex_client import CodexClient
 
     client = CodexClient(get_settings())
@@ -75,14 +78,18 @@ def qualify(product, page):
     return client.complete(qualification_prompt(product, page), Qualification.model_json_schema())
 
 
-def runnable(now):
+def runnable(now: datetime) -> ColumnElement[bool]:
     return or_(
         (PartnerPipelineJob.status == "queued") & (PartnerPipelineJob.available_at <= now),
         (PartnerPipelineJob.status == "running") & (PartnerPipelineJob.lease_until < now),
     )
 
 
-def pending_redirect_proofs(factory, items, fetcher):
+def pending_redirect_proofs(
+    factory: sessionmaker[Session],
+    items: Sequence[ProductInput],
+    fetcher: Callable[[str, float], FetchedPage],
+) -> list[tuple[uuid.UUID, int, str]]:
     candidates = []
     with factory() as session:
         for item in items:
@@ -115,8 +122,15 @@ def pending_redirect_proofs(factory, items, fetcher):
 
 
 def process_pipeline(
-    job_id: str, *, factory=None, reader=None, page_fetcher=None, assessor=None, product_reader=None
-):
+    job_id: str,
+    *,
+    factory: sessionmaker[Session] | None = None,
+    reader: Callable[[str | None], tuple[Sequence[ProductCandidate | ProductInput], str | None]]
+    | None = None,
+    page_fetcher: Callable[[str, float], FetchedPage] | None = None,
+    assessor: Callable[[JsonRecord, FetchedPage], JsonRecord] | None = None,
+    product_reader: Callable[[str, ProductCandidate], ProductInput] | None = None,
+) -> None:
     with job_log_context("partner-pipeline", job_id):
         try:
             factory = factory or session_factory()
@@ -145,7 +159,9 @@ def process_pipeline(
             raise
 
 
-def finish_discovery(session, job, connection):
+def finish_discovery(
+    session: Session, job: PartnerPipelineJob, connection: PartnerConnection
+) -> None:
     """Finalize only after all individual writes succeed; cleanup is bounded per transaction."""
     states = dict(
         session.execute(
@@ -168,6 +184,7 @@ def finish_discovery(session, job, connection):
         fail_or_retry(job, error, utcnow(), retryable=False)
         connection.last_error = error
         return
+    assert job.provider is not None  # Discovery finalization belongs to a sync connection.
     withdrawn = withdraw_missing_listings(
         session, job.provider, uuid.UUID(job.payload["generation"]), limit=25
     )
@@ -199,7 +216,15 @@ def finish_discovery(session, job, connection):
     )
 
 
-def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=None, assessor=None):
+def _process_pipeline(
+    job_id: str,
+    *,
+    factory: sessionmaker[Session] | None = None,
+    reader: Callable[[str | None], tuple[Sequence[ProductCandidate | ProductInput], str | None]]
+    | None = None,
+    page_fetcher: Callable[[str, float], FetchedPage] | None = None,
+    assessor: Callable[[JsonRecord, FetchedPage], JsonRecord] | None = None,
+) -> None:
     started = time.perf_counter()
     factory = factory or session_factory()
     identifier = uuid.UUID(job_id)
@@ -242,7 +267,10 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
                 retryable=False,
             )
             return
+        if job.operation == "sync":
+            assert connection is not None  # The available check above admits a live connection.
         if job.operation == "sync" and job.payload.get("discovery_complete"):
+            assert connection is not None
             if connection.sync_revision != job.payload["connection_revision"]:
                 fail_or_retry(job, "Connection changed", utcnow(), retryable=False)
                 return
@@ -253,6 +281,7 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
             exhausted_reason = "Automatic checks exhausted their retry limit"
             fail_or_retry(job, exhausted_reason, utcnow(), retryable=False)
             if job.operation == "sync":
+                assert connection is not None
                 connection.last_error = exhausted_reason
             else:
                 exhausted_product = session.get(PartnerProduct, job.product_id)
@@ -292,22 +321,24 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
             if product:
                 request_assessment(session, product)
             return
-        connector = (
-            payload.get("connector") or connector_snapshot(connection)
-            if operation == "sync"
-            else None
-        )
+        if operation == "sync":
+            assert connection is not None
+            connector = payload.get("connector") or connector_snapshot(connection)
+        else:
+            connector = None
         snapshot = product_snapshot(product) if product else None
         token = start_job(job, utcnow(), 360)
         fields = job_fields(job)
     logger.info("partner_pipeline_started", extra=fields)
     error, retryable, retry_after = None, True, 0
-    products, cursor, result = [], None, None
+    products: Sequence[ProductCandidate | ProductInput] = []
+    cursor: str | None = None
+    result: Qualification | None = None
     error_fields: dict[str, str | int | None] = {}
     assessment_stage = "preparation"
     try:
         if operation == "sync":
-            if connector is None:
+            if provider is None or connection is None or connector is None:
                 raise ValueError("Missing import connection API snapshot")
             products, cursor = (
                 reader(payload["cursor"])
@@ -481,6 +512,7 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
                 },
             )
             if operation == "sync":
+                assert connection is not None
                 connection.last_error = error
             elif product and job.status == "failed":
                 product.assessment = {"state": "attention", "reason": error}
@@ -522,6 +554,7 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
                 job.error = None
                 clear_lease(job)
             else:
+                assert connection is not None
                 finish_discovery(session, job, connection)
             return
         else:
@@ -572,7 +605,7 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
         clear_lease(job)
 
 
-def schedule_partner_syncs(factory):
+def schedule_partner_syncs(factory: sessionmaker[Session]) -> None:
     now = utcnow()
     with factory.begin() as session:
         lock_catalog(session)
@@ -641,7 +674,9 @@ def schedule_partner_syncs(factory):
             )
 
 
-def dispatch_partner_pipeline(factory, limit=None, *, schedule=True):
+def dispatch_partner_pipeline(
+    factory: sessionmaker[Session], limit: int | None = None, *, schedule: bool = True
+) -> int:
     if limit is not None and limit < 1:
         raise ValueError("Partner dispatch limit must be positive")
     if schedule:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import calendar
 import logging
 import time
@@ -15,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class FeedValidationError(ValueError):
-    def __init__(self, cause: FeedError):
+    def __init__(self, cause: FeedError) -> None:
         super().__init__(f"Feed validation failed: {cause}")
         self.reason = cause.reason
         self.upstream_status = cause.status

@@ -4,6 +4,8 @@ This module defines no application instruments. Scrapes collect the SDK's
 in-memory observations, never database queries or network-dependent callbacks.
 """
 
+from __future__ import annotations
+
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -13,7 +15,7 @@ DURATION_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30)
 
 
 class MetricServer:
-    def __init__(self):
+    def __init__(self) -> None:
         self.registry = CollectorRegistry()
         self.server: ThreadingHTTPServer | None = None
         self.thread: threading.Thread | None = None
@@ -22,7 +24,7 @@ class MetricServer:
         registry = self.registry
 
         class Handler(BaseHTTPRequestHandler):
-            def do_GET(self):
+            def do_GET(self) -> None:
                 if self.path != "/metrics":
                     self.send_error(404)
                     return
@@ -34,7 +36,7 @@ class MetricServer:
                 self.end_headers()
                 self.wfile.write(payload)
 
-            def log_message(self, *_args):
+            def log_message(self, *_args: object) -> None:
                 pass
 
         self.server = ThreadingHTTPServer((host, port), Handler)

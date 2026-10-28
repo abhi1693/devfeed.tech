@@ -5,15 +5,17 @@ history is served. Each destination writer must use stable identities so that
 replaying a page after a failed checkpoint is safe.
 """
 
+from __future__ import annotations
+
 import json
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from psycopg import sql
+from psycopg import AsyncConnection, sql
 
-from devfeed_core.analytics import AnalyticsUnavailable
+from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable, SqlRecord
 
 MAX_PAGE_SIZE = 1000
 
@@ -28,10 +30,10 @@ class BackfillSource:
     table: str
     fields: tuple[str, ...]
     keys: tuple[str, ...]
-    write: Callable[[list[dict[str, Any]]], Awaitable[None]]
+    write: Callable[[list[dict[str, Any]]], Awaitable[object]]
     before: tuple[str, str] | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         names = (self.table, *self.fields, *self.keys)
         if (
             not self.table
@@ -56,7 +58,7 @@ class BackfillSource:
         ):
             raise ValueError("Invalid historical analytics source")
 
-    def query(self, *, has_cursor):
+    def query(self, *, has_cursor: bool) -> sql.Composed:
         columns: list[sql.Composable] = []
         for name in self.fields:
             columns.extend((sql.Literal(name), sql.Identifier("source", name)))
@@ -78,7 +80,14 @@ class BackfillSource:
 class AnalyticsBackfill:
     """Resume one idempotent page at a time without PostgreSQL state tables."""
 
-    def __init__(self, client, import_id, sources, *, page_size=MAX_PAGE_SIZE):
+    def __init__(
+        self,
+        client: AnalyticsClient,
+        import_id: str,
+        sources: Iterable[BackfillSource],
+        *,
+        page_size: int = MAX_PAGE_SIZE,
+    ) -> None:
         if not isinstance(import_id, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", import_id):
             raise ValueError("A stable historical import identity is required")
         if type(page_size) is not int or not 1 <= page_size <= MAX_PAGE_SIZE:
@@ -93,7 +102,7 @@ class AnalyticsBackfill:
         self.sources = {source.table: source for source in sources}
         self.page_size = page_size
 
-    async def _progress(self, name):
+    async def _progress(self, name: str) -> tuple[list[object] | None, int, bool]:
         rows = await self.client.query(
             "SELECT cursor,page,complete,boundary FROM analytics_backfill_progress FINAL "
             "WHERE import_id={import_id:String} AND source={source:String}",
@@ -109,14 +118,15 @@ class AnalyticsBackfill:
             page = int(row["page"])
             complete = int(row["complete"])
             boundary = row["boundary"]
-            expected_boundary = self.sources[name].before[1] if self.sources[name].before else ""
+            boundary_source = self.sources[name].before
+            expected_boundary = boundary_source[1] if boundary_source else ""
             if boundary != expected_boundary or page <= 0 or complete not in (0, 1):
                 raise ValueError
         except (KeyError, TypeError, ValueError) as error:
             raise AnalyticsUnavailable("Invalid historical import checkpoint") from error
         return cursor, page, bool(complete)
 
-    async def complete(self, names):
+    async def complete(self, names: Iterable[str]) -> bool:
         """Check that every named historical source has a durable final page."""
         names = tuple(names)
         if (
@@ -131,7 +141,7 @@ class AnalyticsBackfill:
                 return False
         return True
 
-    async def scan_one(self, connection, name):
+    async def scan_one(self, connection: AsyncConnection[SqlRecord], name: str) -> bool:
         """Read and write at most one page; never checkpoint before its insert."""
         source = self.sources.get(name)
         if source is None:

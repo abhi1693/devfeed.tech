@@ -432,6 +432,17 @@ async def test_optional_redis_failure_queries_clickhouse_without_using_cached_ol
 
 
 @run_async
+async def test_cache_write_without_a_payload_does_not_send_invalid_data_to_redis():
+    cache = SimpleNamespace(get=AsyncMock(), set=AsyncMock())
+    reads = runtime(redis=lambda: cache, cache_enabled=True)
+
+    assert await reads._redis("set", "missing-payload", None, ex=30) is None
+
+    cache.get.assert_not_awaited()
+    cache.set.assert_not_awaited()
+
+
+@run_async
 async def test_waiting_for_redis_does_not_block_other_analytics_requests():
     started, release = asyncio.Event(), asyncio.Event()
 

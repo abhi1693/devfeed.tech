@@ -64,7 +64,7 @@ def analyze_topic(job_id: str) -> None:
             raise
 
 
-def _analyze(identifier):
+def _analyze(identifier: uuid.UUID) -> None:
     settings, factory = get_settings(), session_factory()
     with factory.begin() as session:
         job = session.scalar(
@@ -144,6 +144,7 @@ def _analyze(identifier):
     if settings.ai_bounded_topics_enabled and not relationships and not branding:
         from devfeed_aggregator.topic_decision_tasks import execute_decision
 
+        assert proposal_id is not None  # Non-relationship metadata research owns a proposal.
         execute_decision(factory, identifier, token, proposal_id, snapshot["topic"])
         return
     logger.info(

@@ -1,8 +1,12 @@
 """Small personal workspace suggestions from current follows and bounded recent likes."""
 
+from __future__ import annotations
+
+import uuid
 from itertools import zip_longest
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from devfeed_core.models import (
     Article,
@@ -23,7 +27,9 @@ from devfeed_core.user_settings import FeedSettings, SelectionColumnFeed
 MAX_STARTER_FEEDS = 4
 
 
-def personal_column_starters(session, user_id, settings: FeedSettings) -> list[SelectionColumnFeed]:
+def personal_column_starters(
+    session: Session, user_id: uuid.UUID, settings: FeedSettings
+) -> list[SelectionColumnFeed]:
     """Inspect at most four eligible candidates per signal, without a recommendation rebuild."""
     eligible_article = (
         visible_article(),

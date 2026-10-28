@@ -1,6 +1,7 @@
 """Profile-specific square variants over shared bounded upload storage."""
 
 import hashlib
+import uuid
 
 from devfeed_core.object_storage import R2Storage
 from devfeed_http.image_uploads import ImageUploadStorage
@@ -11,6 +12,6 @@ class AvatarStorage(ImageUploadStorage):
 
     sizes = (32, 64, 128, 256, 512)
 
-    def __init__(self, account_id, *, storage: R2Storage | None = None):
+    def __init__(self, account_id: uuid.UUID, *, storage: R2Storage | None = None) -> None:
         prefix = f"avatars/{hashlib.sha256(str(account_id).encode()).hexdigest()}"
         super().__init__(prefix, self.sizes, square=True, storage=storage)

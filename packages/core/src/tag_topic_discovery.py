@@ -1,5 +1,7 @@
 """Resolve tag identities against active topics without inference or AI calls."""
 
+from __future__ import annotations
+
 import re
 import unicodedata
 import uuid
@@ -7,7 +9,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 
 from sqlalchemy import select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_core.config import get_settings
 from devfeed_core.models import TAG_TOPIC_CATALOG_REVISION, Tag, Topic, utcnow
@@ -37,7 +39,7 @@ def catalog_changed(session: Session) -> None:
     session.execute(select(TAG_TOPIC_CATALOG_REVISION.next_value()))
 
 
-def schedule_tag_topic_discovery(factory) -> dict[str, int]:
+def schedule_tag_topic_discovery(factory: sessionmaker[Session]) -> dict[str, int]:
     counts = {"tags_scanned": 0, "tags_linked": 0, "tags_unlinked": 0, "tags_ambiguous": 0}
     settings = get_settings()
     if not settings.auto_link_tags:

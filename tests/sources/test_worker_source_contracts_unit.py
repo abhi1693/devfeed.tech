@@ -177,6 +177,18 @@ def runtime(monkeypatch):
     )
 
 
+def test_missing_feed_url_keeps_profile_retry_and_releases_lease(runtime: SimpleNamespace) -> None:
+    runtime.source.feed_url = None
+    runtime.job.result["input"] = source_identity(runtime.source)
+
+    source_tasks.enrich_source(str(runtime.job.id))
+
+    runtime.lookup.assert_not_called()
+    assert runtime.job.status == "queued" and runtime.job.available_at > NOW
+    assert runtime.job.error == "Source enrichment error: TypeError"
+    assert runtime.job.lease_token is runtime.job.lease_until is None
+
+
 def relevance(runtime, monkeypatch):
     current = runtime.source
     prior = profile(current, created_at=NOW - timedelta(minutes=2))

@@ -1,13 +1,17 @@
 """Checkpointed, bounded sweeps of duplicate successful-job input payloads."""
 
-import logging
-from datetime import timedelta
+from __future__ import annotations
 
-from sqlalchemy import String, exists, literal_column, or_, select, text, tuple_
-from sqlalchemy.orm import load_only
+import logging
+import uuid
+from collections.abc import Sequence
+from datetime import datetime, timedelta
+
+from sqlalchemy import Row, String, exists, literal_column, or_, select, text, tuple_
+from sqlalchemy.orm import Session, load_only, sessionmaker
 from sqlalchemy.sql.elements import ColumnElement
 
-from devfeed_core.config import get_settings
+from devfeed_core.config import Settings, get_settings
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
@@ -25,7 +29,9 @@ logger = logging.getLogger(__name__)
 _SUCCEEDED: ColumnElement[str] = literal_column("'succeeded'")
 
 
-def _eligible_conditions(model):
+def _eligible_conditions[T: ArticleAnalysisJob | TopicAnalysisJob](
+    model: type[T],
+) -> list[ColumnElement[bool]]:
     newer = model.__table__.alias("newer")
     subjects = (
         (newer.c.article_id == ArticleAnalysisJob.article_id,)
@@ -65,7 +71,7 @@ def _eligible_conditions(model):
     if model is ArticleAnalysisJob:
         conditions.append(
             exists().where(
-                Article.id == model.article_id,
+                Article.id == ArticleAnalysisJob.article_id,
                 Article.review_status != "pending",
                 Article.classification_provenance["analysis_id"].astext.is_distinct_from(
                     model.id.cast(String)
@@ -95,7 +101,7 @@ def _eligible_conditions(model):
     return conditions
 
 
-def _prune_payload(job, now):
+def _prune_payload(job: ArticleAnalysisJob | TopicAnalysisJob, now: datetime) -> None:
     job.input_snapshot = {}
     if isinstance(job, ArticleAnalysisJob):
         job.catalog_snapshot = {}
@@ -108,14 +114,24 @@ def _prune_payload(job, now):
     job.usage = {**job.usage, "input_payload_pruned_at": now.isoformat()}
 
 
-def _prune_page(session, model, state, now, settings):
+def _prune_page[T: ArticleAnalysisJob | TopicAnalysisJob](
+    session: Session,
+    model: type[T],
+    state: JobPayloadRetention,
+    now: datetime,
+    settings: Settings,
+) -> int:
     current_cutoff = now - timedelta(days=settings.job_payload_retention_days)
     # Freeze the upper age boundary so arrivals cannot extend a sweep. A restart
     # with a longer retention policy must immediately protect younger evidence.
     state.cutoff = current_cutoff if state.cutoff is None else min(state.cutoff, current_cutoff)
-    columns = (model.article_id,) if model is ArticleAnalysisJob else (model.proposal_id,)
+    subject_column = (
+        ArticleAnalysisJob.article_id
+        if model is ArticleAnalysisJob
+        else TopicAnalysisJob.proposal_id
+    )
     page_query = (
-        select(model.id, model.finished_at, *columns)
+        select(model.id, model.finished_at, subject_column)
         .where(
             model.status == _SUCCEEDED,
             model.inputs_pruned_at.is_(None),
@@ -131,11 +147,11 @@ def _prune_page(session, model, state, now, settings):
     # This LIMIT applies BEFORE any history/provenance/verification probes. In
     # particular a permanently protected prefix cannot make selection unbounded.
     page = session.execute(page_query).all()
-    candidates = []
-    jobs = []
+    candidates: Sequence[Row[uuid.UUID, datetime | None, uuid.UUID | None]] = []
+    jobs: Sequence[T] = []
     if page:
         candidates = session.execute(
-            select(model.id, model.finished_at, *columns)
+            select(model.id, model.finished_at, subject_column)
             .where(
                 model.id.in_([row.id for row in page]),
                 model.finished_at < state.cutoff,
@@ -164,9 +180,12 @@ def _prune_page(session, model, state, now, settings):
             .with_for_update(key_share=True, skip_locked=True)
         ).all()
         unlocked_subject = (
-            model.article_id.in_(locked_parents)
+            ArticleAnalysisJob.article_id.in_(locked_parents)
             if model is ArticleAnalysisJob
-            else or_(model.proposal_id.is_(None), model.proposal_id.in_(locked_parents))
+            else or_(
+                TopicAnalysisJob.proposal_id.is_(None),
+                TopicAnalysisJob.proposal_id.in_(locked_parents),
+            )
         )
         locked_jobs = session.scalars(
             select(model.id)
@@ -218,7 +237,7 @@ def _prune_page(session, model, state, now, settings):
     return len(jobs)
 
 
-def prune_job_payloads(factory) -> int:
+def prune_job_payloads(factory: sessionmaker[Session]) -> int:
     """Run at most one due page per history; ownership/checkpoint commit together.
 
     Ordinary ticks only probe two primary-key maintenance rows. A process crash
@@ -226,7 +245,11 @@ def prune_job_payloads(factory) -> int:
     """
     settings = get_settings()
     pruned = 0
-    for kind, model in (("article", ArticleAnalysisJob), ("topic", TopicAnalysisJob)):
+    histories: tuple[tuple[str, type[ArticleAnalysisJob] | type[TopicAnalysisJob]], ...] = (
+        ("article", ArticleAnalysisJob),
+        ("topic", TopicAnalysisJob),
+    )
+    for kind, model in histories:
         with factory.begin() as session:
             now = utcnow()
             state = session.scalar(

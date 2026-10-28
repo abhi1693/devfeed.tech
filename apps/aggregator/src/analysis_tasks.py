@@ -13,7 +13,9 @@ from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
 from devfeed_core.ai_content import eligible_article
 from devfeed_core.analysis import (
     TERMINAL_ANALYSIS_ERRORS,
+    AnalysisCatalog,
     AnalysisResult,
+    SourceSnapshot,
     analysis_candidates,
     analysis_catalog_current,
     apply_analysis,
@@ -39,10 +41,11 @@ from devfeed_core.article_quality import identifying_title
 from devfeed_core.catalog_cache import reuse_snapshots, snapshot_current
 from devfeed_core.config import Settings, get_settings
 from devfeed_core.db import session_factory
-from devfeed_core.inference_validation import validation_feedback
+from devfeed_core.inference_validation import ValidationFeedback, validation_feedback
 from devfeed_core.job_lifecycle import fail_or_retry, finish_job, start_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import owned_job
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.logging import log_context
 from devfeed_core.models import Article, ArticleAnalysisJob, ArticleContent, utcnow
 from devfeed_core.publication_policy import apply_publication_policy
@@ -66,7 +69,9 @@ class _AnalysisStopped(Exception):
     """A lost lease or superseded input stops further external inference."""
 
 
-def _prepare_application(factory, article_id, snapshot):
+def _prepare_application(
+    factory: sessionmaker[Session], article_id: uuid.UUID, snapshot: SourceSnapshot
+) -> tuple[AnalysisCatalog, SourceSnapshot | None]:
     with factory() as session:
         current_catalog = catalog(session)
         article = session.scalar(
@@ -84,7 +89,12 @@ def _prepare_application(factory, article_id, snapshot):
     return current_catalog, current
 
 
-def _apply_prepared(factory, article_id, snapshot, operation):
+def _apply_prepared[T](
+    factory: sessionmaker[Session],
+    article_id: uuid.UUID,
+    snapshot: SourceSnapshot,
+    operation: Callable[[Session, AnalysisCatalog, SourceSnapshot | None], T],
+) -> T | None:
     from devfeed_core.transaction_retry import run_transaction
 
     for attempt in range(3):
@@ -92,15 +102,19 @@ def _apply_prepared(factory, article_id, snapshot, operation):
         with reuse_snapshots(), reuse_candidates():
             taxonomy, current = _prepare_application(factory, article_id, snapshot)
             try:
-                return run_transaction(
-                    factory,
-                    lambda session, taxonomy=taxonomy, current=current: operation(
-                        session, taxonomy, current
-                    ),
-                )
+
+                def apply(
+                    session: Session,
+                    taxonomy: AnalysisCatalog = taxonomy,
+                    current: SourceSnapshot | None = current,
+                ) -> T:
+                    return operation(session, taxonomy, current)
+
+                return run_transaction(factory, apply)
             except _ApplicationInputsChanged:
                 if attempt == 2:
                     raise  # Existing durable dependency retries handle continued churn.
+    return None
 
 
 def analyze_article(job_id: str) -> None:
@@ -112,7 +126,7 @@ def analyze_article(job_id: str) -> None:
             raise
 
 
-def _analyze(identifier):
+def _analyze(identifier: uuid.UUID) -> None:
     settings, factory = get_settings(), session_factory()
     with factory.begin() as session:
         job = session.scalar(
@@ -175,24 +189,24 @@ def _analyze(identifier):
 class AnalysisContext:
     identifier: uuid.UUID
     token: uuid.UUID
-    snapshot: dict
+    snapshot: SourceSnapshot
     article_id: uuid.UUID
 
 
 class AnalysisClient(Protocol):
     operation: str
-    job_id: uuid.UUID | None
+    job_id: uuid.UUID | str | None
     attempt: int | None
     reason: str | None
     quality_failure: bool
 
-    def complete(self, prompt: str, schema: dict) -> dict: ...
+    def complete(self, prompt: str, schema: JsonRecord) -> JsonRecord: ...
 
 
 @dataclass(frozen=True)
 class PreparedAnalysis:
-    taxonomy: dict
-    feedback: dict | None
+    taxonomy: AnalysisCatalog
+    feedback: JsonRecord | None
     compact: bool
     reason: str
 
@@ -202,9 +216,9 @@ class AnalysisAttempt:
     started: float = field(default_factory=time.perf_counter)
     client: AnalysisClient | None = None
     number: int | None = None
-    output: dict | None = None
+    output: JsonRecord | None = None
     step: str | None = None
-    clients: list = field(default_factory=list)
+    clients: list[object] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -304,7 +318,7 @@ class ArticleAnalysisService:
     def infer(
         self, context: AnalysisContext, prepared: PreparedAnalysis, attempt: AnalysisAttempt
     ) -> tuple[AnalysisResult, str | None]:
-        outputs: dict[str, dict] = {}
+        outputs: dict[str, JsonRecord] = {}
         while name := next_article_step(context.snapshot, outputs):
             prompt, schema, digest = prepare_article_step(
                 name, context.snapshot, prepared.taxonomy, outputs
@@ -369,7 +383,14 @@ class ArticleAnalysisService:
         return result, topic_match_status
 
     @staticmethod
-    def validate_step(name, output, context, prepared, outputs):
+    def validate_step(
+        name: str,
+        output: JsonRecord | None,
+        context: AnalysisContext,
+        prepared: PreparedAnalysis,
+        outputs: dict[str, JsonRecord],
+    ) -> JsonRecord:
+        assert output is not None  # Validation runs only after a returned specialist response.
         value = validate_article_step(name, output, context.snapshot, prepared.taxonomy, outputs)
         if name == "overview":
             validate_english_ai_prose(value.get("ai_summary"), None)
@@ -377,7 +398,7 @@ class ArticleAnalysisService:
             validate_english_ai_prose(None, value.get("ai_description"))
         return value
 
-    def start_step(self, context: AnalysisContext, name: str, digest: str) -> dict | None:
+    def start_step(self, context: AnalysisContext, name: str, digest: str) -> JsonRecord | None:
         with self.factory.begin() as session:
             job = owned_job(session, ArticleAnalysisJob, context.identifier, context.token)
             if job is None:
@@ -447,7 +468,9 @@ class ArticleAnalysisService:
             )
             return step
 
-    def complete_step(self, context, name, output, client) -> None:
+    def complete_step(
+        self, context: AnalysisContext, name: str, output: JsonRecord, client: AnalysisClient
+    ) -> None:
         with self.factory.begin() as session:
             job = owned_job(session, ArticleAnalysisJob, context.identifier, context.token)
             if job is None:
@@ -497,8 +520,8 @@ class ArticleAnalysisService:
         result: AnalysisResult,
         topic_match_status: str | None,
         attempt: AnalysisAttempt,
-        current_catalog: dict,
-        prepared_snapshot: dict | None,
+        current_catalog: AnalysisCatalog,
+        prepared_snapshot: SourceSnapshot | None,
     ) -> str | None:
         job = owned_job(session, ArticleAnalysisJob, context.identifier, context.token)
         if job is None:
@@ -527,7 +550,13 @@ class ArticleAnalysisService:
 
     @staticmethod
     def apply_current(
-        session, context, result, article, job, current_catalog, prepared_snapshot
+        session: Session,
+        context: AnalysisContext,
+        result: AnalysisResult,
+        article: Article,
+        job: ArticleAnalysisJob,
+        current_catalog: AnalysisCatalog,
+        prepared_snapshot: SourceSnapshot | None,
     ) -> None:
         lock_topics(session, read=True)
         if source_snapshot(
@@ -586,8 +615,16 @@ class ArticleAnalysisService:
             exc_info=True,
         )
 
-    def fail_step(self, job, attempt, feedback, reason, cooldown) -> None:
+    def fail_step(
+        self,
+        job: ArticleAnalysisJob,
+        attempt: AnalysisAttempt,
+        feedback: ValidationFeedback | None,
+        reason: str,
+        cooldown: int,
+    ) -> None:
         name = attempt.step
+        assert name is not None  # This branch is entered only for an active step.
         step = dict(job.steps[name])
         repeated = False
         if feedback and isinstance(attempt.output, dict):
@@ -619,7 +656,9 @@ class ArticleAnalysisService:
         job.steps = {**job.steps, name: step}
 
     @staticmethod
-    def save_feedback(job, attempt: AnalysisAttempt, feedback: dict | None) -> bool:
+    def save_feedback(
+        job: ArticleAnalysisJob, attempt: AnalysisAttempt, feedback: ValidationFeedback | None
+    ) -> bool:
         if feedback is None:
             return False
         repeated = False

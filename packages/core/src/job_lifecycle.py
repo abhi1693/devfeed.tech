@@ -30,7 +30,8 @@ class RetryPolicy:
     def delay(self, attempts: int, retry_after: int = 0) -> float:
         if self.max_retry_after is not None:
             retry_after = min(self.max_retry_after, retry_after)
-        return max(self.initial_delay * 2 ** (attempts - 1), retry_after)
+        delay: float = self.initial_delay * 2 ** (attempts - 1)
+        return max(delay, retry_after)
 
 
 DEFAULT_RETRY = RetryPolicy()

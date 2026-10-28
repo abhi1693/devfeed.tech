@@ -25,8 +25,8 @@ from sqlalchemy.exc import SQLAlchemyError
 logger = logging.getLogger(__name__)
 
 
-def snapshot() -> dict:
-    result: dict = {"database_available": False, "redis_available": False}
+def snapshot() -> dict[str, object]:
+    result: dict[str, object] = {"database_available": False, "redis_available": False}
     try:
         with session_factory()() as session:
             result.update(

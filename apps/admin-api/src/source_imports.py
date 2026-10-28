@@ -1,9 +1,11 @@
 """Admin imports enter discovery, never the trusted source-create approval path."""
 
+from __future__ import annotations
+
 import hashlib
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Literal, TypedDict
 
 from devfeed_core import discovery
 from devfeed_core.config import get_settings
@@ -11,6 +13,7 @@ from devfeed_core.discovery_crawler import CrawlSession
 from devfeed_core.discovery_import import parse_import
 from devfeed_core.discovery_quality import Quality
 from devfeed_core.feeds.fetcher import FeedError
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import Source, SourceCandidate
 from devfeed_core.schemas import DatabaseText, InputModel, ORMModel, ReviewNote
 from devfeed_core.urls import validate_public_url
@@ -35,11 +38,11 @@ class SourceImportRequest(InputModel):
 
     @field_validator("url")
     @classmethod
-    def public_url(cls, value):
+    def public_url(cls, value: str | None) -> str | None:
         return validate_public_url(value) if value is not None else None
 
     @model_validator(mode="after")
-    def one_input(self):
+    def one_input(self) -> SourceImportRequest:
         if bool(self.url) == bool(self.content):
             raise ValueError("Provide either a collection URL or file/pasted content")
         return self
@@ -139,7 +142,7 @@ class ImportAction(InputModel):
     note: ReviewNote | None = None
 
 
-def require_ai():
+def require_ai() -> None:
     if not get_settings().ai_enabled:
         raise HTTPException(409, "AI is not enabled. Choose manual review or enable AI first.")
 
@@ -153,7 +156,7 @@ def require_ai():
         upstream_timeout_ms=150_000, body_limit=6_100_000, body_timeout_ms=10_000
     ).openapi_extra(),
 )
-def submit(body: SourceImportRequest, admin: Admin):
+def submit(body: SourceImportRequest, admin: Admin) -> SourceImportResult:
     try:
         if body.url:
             content = CrawlSession().get(body.url).body
@@ -192,7 +195,7 @@ def candidates(
         "pending", "ready", "unresolved", "retry_wait", "rejected", "admitted", "linked"
     ]
     | None = None,
-):
+) -> ImportCandidatePage:
     if not 1 <= limit <= 100 or offset < 0:
         raise HTTPException(422, "Invalid pagination")
     approval = func.coalesce(Source.approval_status, SourceCandidate.approval_status)
@@ -232,7 +235,7 @@ def candidates(
     response_model=ImportCandidateDetail,
     operation_id="admin_source_import_candidate",
 )
-def detail(candidate_id: uuid.UUID):
+def detail(candidate_id: uuid.UUID) -> JsonRecord:
     return discovery.show(candidate_id)
 
 
@@ -242,7 +245,7 @@ def detail(candidate_id: uuid.UUID):
     operation_id="admin_source_import_review",
     openapi_extra=GatewayPolicy(upstream_timeout_ms=150_000).openapi_extra(),
 )
-def review(candidate_id: uuid.UUID, body: ImportAction, admin: Admin):
+def review(candidate_id: uuid.UUID, body: ImportAction, admin: Admin) -> JsonRecord:
     try:
         if body.action == "select":
             if not body.feed_id:
@@ -268,6 +271,10 @@ class DeleteImportedPublishers(InputModel):
     ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
 
 
+class DeletedPublishersData(TypedDict):
+    deleted: int
+
+
 class DeletedImportedPublishers(ORMModel):
     deleted: int
 
@@ -277,7 +284,7 @@ class DeletedImportedPublishers(ORMModel):
     response_model=DeletedImportedPublishers,
     operation_id="admin_source_import_delete",
 )
-def delete_import(candidate_id: uuid.UUID):
+def delete_import(candidate_id: uuid.UUID) -> DeletedPublishersData:
     return discovery.delete_candidates([candidate_id])
 
 
@@ -286,5 +293,5 @@ def delete_import(candidate_id: uuid.UUID):
     response_model=DeletedImportedPublishers,
     operation_id="admin_source_import_bulk_delete",
 )
-def bulk_delete_imports(body: DeleteImportedPublishers):
+def bulk_delete_imports(body: DeleteImportedPublishers) -> DeletedPublishersData:
     return discovery.delete_candidates(body.ids)

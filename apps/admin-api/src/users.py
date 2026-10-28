@@ -1,9 +1,12 @@
 """User inspection and recommendation refresh through the admin contract."""
 
+from __future__ import annotations
+
 import logging
 import uuid
+from collections.abc import Iterable
 from datetime import date, datetime
-from typing import Literal
+from typing import Literal, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from devfeed_core.models import (
@@ -44,10 +47,11 @@ from devfeed_core.user_settings import (
 from devfeed_core.user_settings import (
     UserReadingStreak as ReadingStreakSettings,
 )
-from devfeed_http.pagination import Listing, Page, paginate, record, require_record
+from devfeed_http.pagination import Listing, Page, PageData, paginate, record, require_record
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import String, cast, func, select
+from sqlalchemy import Row, String, cast, func, select
+from sqlalchemy.orm import Session
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
@@ -74,7 +78,7 @@ class AdminUserOut(BaseModel):
     last_read_at: datetime | None = None
 
     @classmethod
-    def from_account(cls, account):
+    def from_account(cls, account: UserAccount) -> AdminUserOut:
         return cls(
             id=account.id,
             name=account.profile.get("display_name") or account.name or "Unnamed user",
@@ -102,9 +106,9 @@ class AdminUserDetail(AdminUserOut):
     profile_about: str | None
     profile_public: bool
     profile_links: list[ProfileLink]
-    stack: list["AdminUserStack"]
+    stack: list[AdminUserStack]
     dev_card: DevCardSettings
-    dev_card_technologies: list["AdminUserTechnology"]
+    dev_card_technologies: list[AdminUserTechnology]
     reading_streak: ReadingStreakSettings
     feed_preferences: FeedSettings
     appearance_preferences: UserAppearanceSettings
@@ -213,6 +217,75 @@ class AdminUserRecommendation(BaseModel):
     source_name: str | None = None
 
 
+class AdminUserTopicData(TypedDict):
+    id: uuid.UUID
+    name: str
+    status: str
+    followed_at: datetime
+
+
+class AdminUserSourceData(TypedDict):
+    id: uuid.UUID
+    name: str
+    status: str
+    followed_at: datetime
+
+
+class AdminUserLikeData(TypedDict):
+    id: uuid.UUID
+    title: str
+    publication_status: str
+    liked_at: datetime
+
+
+class AdminUserBookmarkData(TypedDict):
+    id: uuid.UUID
+    title: str
+    publication_status: str
+    bookmarked_at: datetime
+
+
+class AdminUserReadData(TypedDict):
+    id: str
+    article_id: uuid.UUID
+    title: str | None
+    publication_status: str | None
+    opened_at: datetime
+    read_date: date
+
+
+class AdminUserReadingDayData(TypedDict):
+    id: date
+    read_date: date
+    article_count: int
+    last_read_at: datetime
+
+
+class AdminUserInterestData(TypedDict):
+    id: uuid.UUID
+    name: str | None
+    status: str | None
+    seed_topic_id: uuid.UUID
+    seed_topic_name: str | None
+    weight: int
+    reason: str
+
+
+class AdminUserRecommendationData(TypedDict):
+    id: uuid.UUID
+    title: str
+    publication_status: str
+    position: int
+    score: float
+    reason: str
+    topic_id: uuid.UUID | None
+    topic_name: str | None
+    seed_topic_id: uuid.UUID | None
+    seed_topic_name: str | None
+    source_id: uuid.UUID | None
+    source_name: str | None
+
+
 @router.get("", response_model=Page[AdminUserOut], operation_id="admin_users_list")
 def users(
     session: DB,
@@ -220,7 +293,7 @@ def users(
     admin: Admin,
     identity_only: bool = False,
     interests: Literal["following", "liked", "none"] | None = None,
-):
+) -> PageData[AdminUserOut]:
     name = func.coalesce(
         UserAccount.profile["display_name"].astext, UserAccount.name, "Unnamed user"
     )
@@ -230,10 +303,9 @@ def users(
             UserAccount.issuer == admin.issuer, UserAccount.organization_id == admin.organization_id
         )
     if query.q:
+        identifier_text = cast(UserAccount.id, String)
         statement = statement.where(
-            text_search(
-                query.q, name, UserAccount.username, UserAccount.email, cast(UserAccount.id, String)
-            )
+            text_search(query.q, name, UserAccount.username, UserAccount.email, identifier_text)
         )
     follows = (
         select(UserTopic.user_id).where(UserTopic.user_id == UserAccount.id).exists()
@@ -260,6 +332,7 @@ def users(
         default="-created_at",
     )
     accounts = page["items"]
+    items: list[AdminUserOut] = []
     if accounts:
         ids = [account.id for account in accounts]
         counts = {
@@ -294,7 +367,7 @@ def users(
                 ).where(UserAccount.id.in_(ids))
             )
         }
-        page["items"] = [
+        items = [
             AdminUserOut.from_account(account).model_copy(
                 update={
                     "followed_topics": counts[account.id].topics,
@@ -306,11 +379,11 @@ def users(
             )
             for account in accounts
         ]
-    return page
+    return {**page, "items": items}
 
 
 @router.get("/{user_id}", response_model=AdminUserDetail, operation_id="admin_user_get")
-def user(user_id: uuid.UUID, session: DB):
+def user(user_id: uuid.UUID, session: DB) -> AdminUserDetail:
     account = record(session, UserAccount, user_id)
     models = (
         UserTopic,
@@ -438,7 +511,7 @@ def user(user_id: uuid.UUID, session: DB):
     status_code=202,
     operation_id="admin_user_analysis",
 )
-def analyze_user(user_id: uuid.UUID, session: DB):
+def analyze_user(user_id: uuid.UUID, session: DB) -> AdminUserDetail:
     require_record(session, UserAccount, user_id)
     if not request_recommendation_refresh(session, user_id):
         raise OperationConflict("No follows, likes, interests, or recommendations to analyze")
@@ -450,7 +523,7 @@ def analyze_user(user_id: uuid.UUID, session: DB):
 @router.get(
     "/{user_id}/topics", response_model=Page[AdminUserTopic], operation_id="admin_user_topics"
 )
-def topics(user_id: uuid.UUID, session: DB, query: Listing):
+def topics(user_id: uuid.UUID, session: DB, query: Listing) -> PageData[AdminUserTopicData]:
     require_record(session, UserAccount, user_id)
     statement = select(UserTopic).join(Topic).where(UserTopic.user_id == user_id)
     if query.q:
@@ -463,7 +536,7 @@ def topics(user_id: uuid.UUID, session: DB, query: Listing):
         "-followed_at",
     )
     labels = topic_labels(session, [row.topic_id for row in page["items"]])
-    page["items"] = [
+    items: list[AdminUserTopicData] = [
         dict(
             id=row.topic_id,
             name=labels[row.topic_id].name,
@@ -473,13 +546,13 @@ def topics(user_id: uuid.UUID, session: DB, query: Listing):
         for row in page["items"]
         if row.topic_id in labels
     ]
-    return page
+    return {**page, "items": items}
 
 
 @router.get(
     "/{user_id}/sources", response_model=Page[AdminUserSource], operation_id="admin_user_sources"
 )
-def sources(user_id: uuid.UUID, session: DB, query: Listing):
+def sources(user_id: uuid.UUID, session: DB, query: Listing) -> PageData[AdminUserSourceData]:
     require_record(session, UserAccount, user_id)
     statement = select(UserSource).join(Source).where(UserSource.user_id == user_id)
     if query.q:
@@ -499,7 +572,7 @@ def sources(user_id: uuid.UUID, session: DB, query: Listing):
             )
         )
     }
-    page["items"] = [
+    items: list[AdminUserSourceData] = [
         dict(
             id=row.source_id,
             name=labels[row.source_id].name,
@@ -508,11 +581,11 @@ def sources(user_id: uuid.UUID, session: DB, query: Listing):
         )
         for row in page["items"]
     ]
-    return page
+    return {**page, "items": items}
 
 
 @router.get("/{user_id}/likes", response_model=Page[AdminUserLike], operation_id="admin_user_likes")
-def likes(user_id: uuid.UUID, session: DB, query: Listing):
+def likes(user_id: uuid.UUID, session: DB, query: Listing) -> PageData[AdminUserLikeData]:
     require_record(session, UserAccount, user_id)
     statement = select(ArticleLike).join(Article).where(ArticleLike.user_id == user_id)
     if query.q:
@@ -525,7 +598,7 @@ def likes(user_id: uuid.UUID, session: DB, query: Listing):
         "-liked_at",
     )
     labels = article_labels(session, [row.article_id for row in page["items"]])
-    page["items"] = [
+    items: list[AdminUserLikeData] = [
         dict(
             id=row.article_id,
             title=labels[row.article_id].title,
@@ -535,7 +608,7 @@ def likes(user_id: uuid.UUID, session: DB, query: Listing):
         for row in page["items"]
         if row.article_id in labels
     ]
-    return page
+    return {**page, "items": items}
 
 
 @router.get(
@@ -543,7 +616,7 @@ def likes(user_id: uuid.UUID, session: DB, query: Listing):
     response_model=Page[AdminUserBookmark],
     operation_id="admin_user_bookmarks",
 )
-def bookmarks(user_id: uuid.UUID, session: DB, query: Listing):
+def bookmarks(user_id: uuid.UUID, session: DB, query: Listing) -> PageData[AdminUserBookmarkData]:
     require_record(session, UserAccount, user_id)
     statement = select(ArticleBookmark).join(Article).where(ArticleBookmark.user_id == user_id)
     if query.q:
@@ -556,7 +629,7 @@ def bookmarks(user_id: uuid.UUID, session: DB, query: Listing):
         "-bookmarked_at",
     )
     labels = article_labels(session, [row.article_id for row in page["items"]])
-    page["items"] = [
+    items: list[AdminUserBookmarkData] = [
         dict(
             id=row.article_id,
             title=labels[row.article_id].title,
@@ -565,11 +638,11 @@ def bookmarks(user_id: uuid.UUID, session: DB, query: Listing):
         )
         for row in page["items"]
     ]
-    return page
+    return {**page, "items": items}
 
 
 @router.get("/{user_id}/reads", response_model=Page[AdminUserRead], operation_id="admin_user_reads")
-def reads(user_id: uuid.UUID, session: DB, query: Listing):
+def reads(user_id: uuid.UUID, session: DB, query: Listing) -> PageData[AdminUserReadData]:
     require_record(session, UserAccount, user_id)
     statement = (
         select(UserReadingEvent)
@@ -586,7 +659,7 @@ def reads(user_id: uuid.UUID, session: DB, query: Listing):
         "-opened_at",
     )
     labels = article_labels(session, [row.article_id for row in page["items"]])
-    page["items"] = [
+    items: list[AdminUserReadData] = [
         dict(
             id=f"{row.read_date}:{row.article_id}",
             article_id=row.article_id,
@@ -599,7 +672,7 @@ def reads(user_id: uuid.UUID, session: DB, query: Listing):
         )
         for row in page["items"]
     ]
-    return page
+    return {**page, "items": items}
 
 
 @router.get(
@@ -607,11 +680,14 @@ def reads(user_id: uuid.UUID, session: DB, query: Listing):
     response_model=Page[AdminUserReadingDay],
     operation_id="admin_user_reading_days",
 )
-def reading_days(user_id: uuid.UUID, session: DB, query: Listing):
+def reading_days(
+    user_id: uuid.UUID, session: DB, query: Listing
+) -> PageData[AdminUserReadingDayData]:
     require_record(session, UserAccount, user_id)
     statement = select(UserReadingDay).where(UserReadingDay.user_id == user_id)
     if query.q:
-        statement = statement.where(text_search(query.q, cast(UserReadingDay.read_date, String)))
+        date_text = cast(UserReadingDay.read_date, String)
+        statement = statement.where(text_search(query.q, date_text))
     page = paginate(
         session,
         statement,
@@ -619,7 +695,7 @@ def reading_days(user_id: uuid.UUID, session: DB, query: Listing):
         {"read_date": UserReadingDay.read_date, "article_count": UserReadingDay.article_count},
         "-read_date",
     )
-    page["items"] = [
+    items: list[AdminUserReadingDayData] = [
         dict(
             id=row.read_date,
             read_date=row.read_date,
@@ -628,7 +704,7 @@ def reading_days(user_id: uuid.UUID, session: DB, query: Listing):
         )
         for row in page["items"]
     ]
-    return page
+    return {**page, "items": items}
 
 
 @router.get(
@@ -636,7 +712,9 @@ def reading_days(user_id: uuid.UUID, session: DB, query: Listing):
     response_model=Page[AdminUserInterest],
     operation_id="admin_user_interests",
 )
-def inferred_interests(user_id: uuid.UUID, session: DB, query: Listing):
+def inferred_interests(
+    user_id: uuid.UUID, session: DB, query: Listing
+) -> PageData[AdminUserInterestData]:
     require_record(session, UserAccount, user_id)
     statement = (
         select(UserInterest)
@@ -661,7 +739,7 @@ def inferred_interests(user_id: uuid.UUID, session: DB, query: Listing):
             if tid is not None
         },
     )
-    page["items"] = [
+    items: list[AdminUserInterestData] = [
         dict(
             id=row.topic_id,
             name=labels[row.topic_id].name if row.topic_id in labels else None,
@@ -673,7 +751,7 @@ def inferred_interests(user_id: uuid.UUID, session: DB, query: Listing):
         )
         for row in page["items"]
     ]
-    return page
+    return {**page, "items": items}
 
 
 @router.get(
@@ -681,7 +759,9 @@ def inferred_interests(user_id: uuid.UUID, session: DB, query: Listing):
     response_model=AdminUserMustReads,
     operation_id="admin_user_must_reads",
 )
-def must_reads(user_id: uuid.UUID, session: DB, timezone: str | None = Query(None, max_length=100)):
+def must_reads(
+    user_id: uuid.UUID, session: DB, timezone: str | None = Query(None, max_length=100)
+) -> AdminUserMustReads:
     account = record(session, UserAccount, user_id)
     if timezone is None:
         previous = session.scalar(
@@ -728,7 +808,9 @@ def must_reads(user_id: uuid.UUID, session: DB, timezone: str | None = Query(Non
     response_model=Page[AdminUserRecommendation],
     operation_id="admin_user_recommendations",
 )
-def recommendations(user_id: uuid.UUID, session: DB, query: Listing):
+def recommendations(
+    user_id: uuid.UUID, session: DB, query: Listing
+) -> PageData[AdminUserRecommendationData]:
     require_record(session, UserAccount, user_id)
     statement = (
         select(UserRecommendation).join(Article).where(UserRecommendation.user_id == user_id)
@@ -767,7 +849,7 @@ def recommendations(user_id: uuid.UUID, session: DB, query: Listing):
             if tid is not None
         },
     )
-    page["items"] = [
+    items: list[AdminUserRecommendationData] = [
         dict(
             id=row.article_id,
             title=articles[row.article_id].title,
@@ -785,10 +867,12 @@ def recommendations(user_id: uuid.UUID, session: DB, query: Listing):
         for row in page["items"]
         if row.article_id in articles
     ]
-    return page
+    return {**page, "items": items}
 
 
-def topic_labels(session, ids):
+def topic_labels(
+    session: Session, ids: Iterable[uuid.UUID]
+) -> dict[uuid.UUID, Row[uuid.UUID, str, str]]:
     return (
         {
             row.id: row
@@ -801,7 +885,9 @@ def topic_labels(session, ids):
     )
 
 
-def article_labels(session, ids):
+def article_labels(
+    session: Session, ids: Iterable[uuid.UUID]
+) -> dict[uuid.UUID, Row[uuid.UUID, str, str]]:
     return (
         {
             row.id: row
