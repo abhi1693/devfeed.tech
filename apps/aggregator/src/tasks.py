@@ -313,7 +313,8 @@ def _ingest_claimed(
                 else result.last_modified or source.last_modified
             )
             attempted_at = source.last_attempt_at
-            assert attempted_at is not None  # claim_job records the attempt timestamp.
+            if attempted_at is None:
+                raise RuntimeError("Ingestion claim is missing its attempt timestamp")
             metrics: PollingMetrics = {
                 "new_source_entries": job.new_source_entries,
                 "interval_seconds": source.effective_interval_seconds,

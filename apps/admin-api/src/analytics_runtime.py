@@ -170,7 +170,8 @@ class AnalyticsRuntime:
                 return None
             if method == "get":
                 return await client.get(key)
-            assert value is not None
+            if value is None:
+                return None
             await client.set(key, value, ex=ex)
         except Exception:
             # An unavailable cache is a miss; every result still comes from the

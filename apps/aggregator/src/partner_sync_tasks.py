@@ -338,8 +338,7 @@ def _process_pipeline(
     assessment_stage = "preparation"
     try:
         if operation == "sync":
-            assert provider is not None and connection is not None
-            if connector is None:
+            if provider is None or connection is None or connector is None:
                 raise ValueError("Missing import connection API snapshot")
             products, cursor = (
                 reader(payload["cursor"])

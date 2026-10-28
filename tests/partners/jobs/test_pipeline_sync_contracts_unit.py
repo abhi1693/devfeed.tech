@@ -234,6 +234,26 @@ def test_import_guard_prevents_external_calls_for_unavailable_or_stale_work(pipe
         assert value.connection.last_error == value.job.error
 
 
+def test_missing_import_api_snapshot_retries_without_external_calls(pipeline_case, monkeypatch):
+    value = pipeline_case
+    value.job.payload = {**value.job.payload, "connector": None}
+    monkeypatch.setattr(pipeline, "connector_snapshot", lambda _connection: None)
+    reader = Mock()
+
+    process(value, reader=reader)
+
+    reader.assert_not_called()
+    assert value.job.status == "queued" and value.job.attempts == 1
+    assert value.job.lease_token is value.job.lease_until is None
+    assert value.job.available_at > NOW
+    assert (
+        value.job.error
+        == value.connection.last_error
+        == "Platform API returned invalid product data"
+    )
+    value.withdrawn.assert_not_called()
+
+
 @pytest.mark.parametrize("mode", ["same", "seen", "page_cap"])
 def test_nonadvancing_or_over_budget_pagination_preserves_catalog_and_safe_diagnostic(
     pipeline_case, mode

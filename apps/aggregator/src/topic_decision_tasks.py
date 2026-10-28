@@ -183,9 +183,8 @@ def execute_decision(
             lock_topics(session)
             proposal = session.get(TopicProposal, proposal_id, with_for_update=True)
             run = session.get(TopicDecisionRun, proposal_id, with_for_update=True)
-            assert (
-                proposal is not None and run is not None
-            )  # locked() verified this decision input.
+            if proposal is None or run is None:
+                raise RuntimeError("Topic decision state disappeared before applying results")
             if proposal.status != "pending" or snapshot_hash(proposal.proposed) != job.input_hash:
                 run.status, run.reason = "deferred", "proposal_changed"
                 finish_job(job, "superseded", utcnow())
