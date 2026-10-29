@@ -1,6 +1,33 @@
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 
+// Google's service frame emits this non-enforcing ancestor report with no console source location.
+const preferredSourceReportOnly =
+  "Framing 'https://news.google.com/' violates the following report-only Content Security Policy directive: \"frame-ancestors 'self'\". The violation has been logged, but no further action has been taken.";
+
+/** Keep enforced/application policy failures fatal and retain the exact vendor-only report. */
+export function collectReaderPageErrors(page) {
+  const errors = [];
+  const preferredSourceReports = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    const text = message.text();
+    if (
+      !/Content Security Policy/.test(text) &&
+      !(message.type() === "error" && /Refused to/.test(text))
+    )
+      return;
+    if (text.trimEnd() === preferredSourceReportOnly)
+      preferredSourceReports.push({
+        message: text,
+        location: message.location(),
+        page: page.url(),
+      });
+    else errors.push(text);
+  });
+  return { errors, preferredSourceReports };
+}
+
 // Exercise real production HTML, including framework and inline bootstrap scripts.
 export async function checkNonceCsp(context, url) {
   const page = await context.newPage();

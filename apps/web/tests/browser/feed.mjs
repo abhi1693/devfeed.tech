@@ -30,6 +30,7 @@ import { checkPreviewCover } from "../../../../scripts/testing/preview-cover.mjs
 import {
   checkNonceCsp,
   checkCloudflareScriptsCsp,
+  collectReaderPageErrors,
 } from "../../../../scripts/testing/nonce-csp.mjs";
 import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
 import { checkDefaultAll, defaultAllFeed } from "../../../../scripts/testing/default-all.mjs";
@@ -1435,25 +1436,29 @@ async function createReaderFixture(
   };
 }
 
+let readerPageSequence = 0;
 async function withReaderPage(browser, check, options = {}) {
   const context = await browser.newContext({ reducedMotion: "reduce", ...options });
-  const errors = [];
+  const reportPath = artifactPath(`preferred-source-report-only-${++readerPageSequence}.json`);
+  let errors = [];
+  let preferredSourceReports = [];
   try {
     await mockManagedImages(context);
     await mockSourceLogos(context);
     const page = await context.newPage();
-    page.on("pageerror", (error) => errors.push(error.message));
-    page.on("console", (message) => {
-      if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
-        errors.push(message.text());
-    });
+    ({ errors, preferredSourceReports } = collectReaderPageErrors(page));
     await check(page, context);
     assert.deepEqual(errors, []);
   } catch (error) {
     if (errors.length) console.error("Reader browser errors", errors);
     throw error;
   } finally {
-    await context.close();
+    try {
+      if (preferredSourceReports.length)
+        await writeFile(reportPath, JSON.stringify(preferredSourceReports, null, 2));
+    } finally {
+      await context.close();
+    }
   }
 }
 
@@ -1646,6 +1651,98 @@ test(
         artifactPath("columns-sponsored/web"),
       );
     });
+  },
+);
+
+test(
+  "reader console guard distinguishes the exact Google ancestor report from policy failures",
+  { timeout: 30000 },
+  async (t) => {
+    const browser = await chromium.launch({ headless: true });
+    t.after(() => browser.close());
+    const policy = "frame-ancestors 'self'; report-uri https://reader-csp.test/report";
+    for (const fixture of [
+      { name: "Google ancestor report", childPolicy: policy, diagnostic: true },
+      { name: "Google enforced ancestor policy", childPolicy: policy, enforced: true },
+      { name: "another origin's ancestor report", childPolicy: policy, otherOrigin: true },
+      { name: "application enforced script policy", appScript: true, enforced: true },
+      { name: "application script report", appScript: true },
+      {
+        name: "Google script report",
+        childPolicy: "script-src 'none'; report-uri https://reader-csp.test/report",
+      },
+    ])
+      await t.test(fixture.name, async () => {
+        const context = await browser.newContext();
+        try {
+          const page = await context.newPage();
+          const { errors, preferredSourceReports } = collectReaderPageErrors(page);
+          const childOrigin = fixture.otherOrigin
+            ? "https://other-vendor.test"
+            : "https://news.google.com";
+          const header = fixture.enforced
+            ? "content-security-policy"
+            : "content-security-policy-report-only";
+          const script = "<script>window.__policyProbe = true</script>";
+          await context.route("https://reader-csp.test/report", (route) =>
+            route.fulfill({ status: 204 }),
+          );
+          await context.route("https://reader-csp.test/", (route) =>
+            route.fulfill({
+              contentType: "text/html",
+              headers: fixture.appScript
+                ? { [header]: "script-src 'none'; report-uri https://reader-csp.test/report" }
+                : {},
+              body: fixture.appScript
+                ? `<!doctype html>${script}`
+                : `<!doctype html><iframe src="${childOrigin}/swg/ui/v1/serviceiframe"></iframe>`,
+            }),
+          );
+          await context.route(`${childOrigin}/swg/ui/v1/serviceiframe`, (route) =>
+            route.fulfill({
+              contentType: "text/html",
+              headers: { [header]: fixture.childPolicy },
+              body: `<!doctype html>${script}<button>Vendor frame rendered</button>`,
+            }),
+          );
+          const reported = page.waitForEvent("console", (message) =>
+            /Content Security Policy/.test(message.text()),
+          );
+          await page.goto("https://reader-csp.test/");
+          await reported;
+          if (fixture.diagnostic) {
+            await page
+              .frameLocator("iframe")
+              .getByRole("button", { name: "Vendor frame rendered" })
+              .waitFor();
+            assert.deepEqual(errors, []);
+            assert.equal(
+              preferredSourceReports.length,
+              1,
+              "The vendor report remains available as evidence",
+            );
+            assert.match(preferredSourceReports[0].message, /report-only.*frame-ancestors/);
+            const failed = page.waitForEvent("pageerror");
+            await page.evaluate(() =>
+              setTimeout(() => {
+                throw new Error("Application error remains fatal");
+              }, 0),
+            );
+            await failed;
+            assert.deepEqual(errors, ["Application error remains fatal"]);
+          } else {
+            assert.ok(errors.length > 0, `${fixture.name} remains fatal`);
+            assert.deepEqual(preferredSourceReports, []);
+            if (fixture.appScript)
+              assert.equal(
+                await page.evaluate(() => window.__policyProbe === true),
+                !fixture.enforced,
+              );
+          }
+        } finally {
+          await context.close();
+        }
+      });
   },
 );
 
