@@ -24,6 +24,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 
 from devfeed_admin_api.overview_sections import OverviewSectionReport
+from devfeed_admin_api.overview_windows import ReportWindow
 
 Card = TypeVar("Card", bound=BaseModel)
 
@@ -412,7 +413,7 @@ class CurrentCards:
             snapshot=selected.snapshot,
         )
 
-    async def operations(self) -> OverviewSectionReport:
+    async def operations(self, window: ReportWindow) -> OverviewSectionReport:
         from devfeed_core.analytics_blockers import RecoveryTarget, blocker_catalog
         from devfeed_core.config import get_settings
 
@@ -422,28 +423,38 @@ class CurrentCards:
             ReviewQueue,
         )
 
+        start, end = window.bounds
         selected = await self.selection(CARD_KINDS)
         observed = await self._query(
             selected,
             """/* admin:operations */ WITH cards AS (SELECT c.kind,c.created_at,
+                c.created_at>={start:DateTime64(6,'UTC')}
+                  AND c.created_at<{end:DateTime64(6,'UTC')} AS created_in_period,
+                c.activity_at>={start:DateTime64(6,'UTC')}
+                  AND c.activity_at<{end:DateTime64(6,'UTC')} AS active_in_period,
                 c.review_pending,c.enabled,c.approval_status,c.consecutive_failures,
                 c.blocker_codes,c.entity_id,c.title,c.editorial_revision FROM """
             + selected.source()
-            + """), reviews AS (
-                SELECT kind,countIf(review_pending=1) AS pending,
-                  minIf(toNullable(created_at),review_pending=1) AS oldest,
+            + """ AND ((c.created_at>={start:DateTime64(6,'UTC')}
+                  AND c.created_at<{end:DateTime64(6,'UTC')})
+                OR (c.kind='source' AND c.activity_at>={start:DateTime64(6,'UTC')}
+                  AND c.activity_at<{end:DateTime64(6,'UTC')}))), reviews AS (
+                SELECT kind,countIf(review_pending=1 AND created_in_period) AS pending,
+                  minIf(toNullable(created_at),review_pending=1 AND created_in_period) AS oldest,
                   countIf(kind='source' AND enabled=1 AND approval_status='approved'
-                    AND consecutive_failures>0) AS failures
+                    AND consecutive_failures>0 AND active_in_period) AS failures
                 FROM cards GROUP BY kind
               ), blockers AS (
                 SELECT code,count() AS total,
                   groupArraySorted(5)(tuple(created_at,toString(entity_id),kind,
                     title,editorial_revision)) AS targets
-                FROM (SELECT *,arrayJoin(blocker_codes) AS code FROM cards)
+                FROM (SELECT *,arrayJoin(blocker_codes) AS code FROM cards WHERE created_in_period)
                 GROUP BY code
               ) SELECT (SELECT groupArray(tuple(kind,pending,oldest,failures)) FROM reviews)
                   AS reviews,
                 (SELECT groupArray(tuple(code,total,targets)) FROM blockers) AS blockers""",
+            start=start,
+            end=end,
         )
         row = observed[0] if observed else {"reviews": [], "blockers": []}
         reviews = {
@@ -478,7 +489,9 @@ class CurrentCards:
         }
         return OverviewSectionReport(
             generated_at=self.now,
-            days=1,
+            days=window.days,
+            start=window.start,
+            end=window.inclusive_end,
             snapshot=selected.snapshot,
             data=OperationsSection(
                 full_automation=settings.full_automation,

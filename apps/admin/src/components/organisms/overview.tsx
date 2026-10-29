@@ -1,7 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { DateRangePicker, defaultDateRange, type DateRange } from "@devfeed/ui/date-range-picker";
+import { useEffect, useState } from "react";
+import {
+  DateRangePicker,
+  dateRangeBounds,
+  defaultDateRange,
+  type DateRange,
+} from "@devfeed/ui/date-range-picker";
+import { runWhenPageActive } from "@devfeed/ui/page-activity";
 import { OverviewChart } from "./overview-chart";
 import { overviewCharts } from "@/lib/overview-charts";
 
@@ -16,6 +22,28 @@ const sections = [
 
 export function Overview({ initialRange = defaultDateRange }: { initialRange?: DateRange }) {
   const [range, setRange] = useState(initialRange);
+  const [today, setToday] = useState(() => new Date().toISOString().slice(0, 10));
+  useEffect(
+    () =>
+      runWhenPageActive(
+        () => {
+          let timer: ReturnType<typeof setTimeout>;
+          const update = () => {
+            const now = new Date();
+            setToday(now.toISOString().slice(0, 10));
+            const next = new Date(now);
+            next.setUTCHours(24, 0, 0, 0);
+            timer = setTimeout(update, Math.max(1, next.getTime() - now.getTime()));
+          };
+          update();
+          return () => clearTimeout(timer);
+        },
+        { requireFocus: false },
+      ),
+    [],
+  );
+  const bounds = dateRangeBounds(range, new Date(`${today}T00:00:00Z`));
+  const requestedRange = bounds ? { from: bounds.start, to: bounds.end } : range;
   function changeRange(next: DateRange) {
     setRange(next);
     const url = new URL(window.location.href);
@@ -43,7 +71,7 @@ export function Overview({ initialRange = defaultDateRange }: { initialRange?: D
           {overviewCharts
             .filter((chart) => chart.section === section.name)
             .map((chart) => (
-              <OverviewChart key={chart.id} chart={chart.id} range={range} />
+              <OverviewChart key={chart.id} chart={chart.id} range={requestedRange} />
             ))}
         </section>
       ))}

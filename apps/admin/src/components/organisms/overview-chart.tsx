@@ -22,9 +22,8 @@ export function OverviewChart({ chart, range }: { chart: ChartName; range: DateR
   const definition = chartDefinition(chart);
   const { title } = definition;
   const { ref, near, visible } = usePanelVisibility();
-  const from = chart === "attention" ? undefined : range.from;
-  const to = chart === "attention" ? undefined : range.to;
-  const key = chart === "attention" ? "attention:current" : `${chart}:${from ?? ""}:${to ?? ""}`;
+  const { from, to } = range;
+  const key = `${chart}:${from ?? ""}:${to ?? ""}`;
   const [stored, setStored] = useState<{ key: string; report: OverviewChartReport }>();
   const [loadingKey, setLoadingKey] = useState<string>();
   const loading = loadingKey === key;

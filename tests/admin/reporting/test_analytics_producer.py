@@ -710,6 +710,8 @@ def test_publication_and_feed_rows_shape_authoritative_inputs_and_skip_empty_que
                 [
                     {
                         "id": user,
+                        "created_at": now,
+                        "computed_at": None,
                         "interest_count": 1,
                         "generation": None,
                         "invalidated": None,
@@ -737,6 +739,8 @@ def test_publication_and_feed_rows_shape_authoritative_inputs_and_skip_empty_que
         }
         assert feed[str(user)] == {
             "user_id": str(user),
+            "created_at": now,
+            "computed_at": None,
             "interest_count": 1,
             "has_generation": False,
             "invalidated": False,

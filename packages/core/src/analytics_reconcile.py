@@ -23,6 +23,7 @@ from typing import Any, TypedDict
 from psycopg import AsyncConnection, sql
 
 from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable, SqlRecord
+from devfeed_core.analytics_audience_refresh import AudienceMetadataRefresh
 from devfeed_core.analytics_direct_cards import CARD_SOURCES, card_identities
 from devfeed_core.analytics_observation import pipeline_policy_version
 from devfeed_core.analytics_overview_direct import _base, _identity
@@ -184,6 +185,7 @@ class CurrentStateReconciler:
         self._version = 0
         self._turn = 0
         self._builder: asyncio.Task[list[SqlRecord]] | None = None
+        self._audience_metadata = AudienceMetadataRefresh(client, self._source_snapshot)
 
     async def close(self) -> None:
         context, self._leader_context = self._leader_context, None
@@ -729,6 +731,7 @@ class CurrentStateReconciler:
                 await self._load()
                 last_sweep = _timestamp(self._state("sweep").get("last_page_at"))
                 due = {
+                    "audience-metadata": self._audience_metadata.due,
                     "queues": self.queue_cycle is not None
                     or self._due("queues", self.settings.analytics_reconcile_poll_seconds),
                     "todo": bool(self._state("cards").get("todo")),
@@ -740,7 +743,16 @@ class CurrentStateReconciler:
                     or (self.clock() - last_sweep).total_seconds()
                     >= self.settings.analytics_reconcile_sweep_seconds,
                 }
-                slots = ("queues", "todo", "queues", "active-cards", "cards", "todo", "sweep")
+                slots = (
+                    "queues",
+                    "todo",
+                    "queues",
+                    "active-cards",
+                    "cards",
+                    "todo",
+                    "sweep",
+                    "audience-metadata",
+                )
                 for offset in range(len(slots)):
                     index = (self._turn + offset) % len(slots)
                     scope = slots[index]
@@ -750,6 +762,8 @@ class CurrentStateReconciler:
                             return await self._queue_step()
                         if scope == "todo":
                             return await self._todo()
+                        if scope == "audience-metadata":
+                            return await self._audience_metadata.once()
                         return await self._card_page(
                             scope, current_only=scope != "sweep", fast=scope == "active-cards"
                         )

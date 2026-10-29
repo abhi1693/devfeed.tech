@@ -5,21 +5,21 @@ export const overviewCharts = [
     section: "operations",
     title: "Review and recovery",
     description:
-      "Current decisions and recovery controls. Empty queues are hidden; review a record or retry a failed step.",
+      "Current reviews and recovery controls for items created during the selected period, plus active source failures observed in that period. Empty queues are hidden.",
   },
   {
     id: "publication-rate",
     section: "publishing",
     title: "Publication output",
     description:
-      "First publications by UTC bucket. Automatic publication excludes manual intervention. Historical totals without automation details have no automatic percentage.",
+      "Articles first published during the selected UTC period, including articles discovered earlier. Automatic publication excludes manual intervention; missing historical automation details leave the percentage unavailable.",
   },
   {
     id: "publication-latency",
     section: "publishing",
     title: "Time to publication",
     description:
-      "Estimated median and 95th percentile from discovery to first publication. Percentiles are merged across the selected period. Unavailable historical delay measurements remain gaps.",
+      "Estimated discovery-to-first-publication median and 95th percentile for articles published during the selected UTC period. The full wait includes discovery on earlier dates; unavailable measurements remain gaps.",
   },
   {
     id: "audience-activity",
@@ -33,14 +33,14 @@ export const overviewCharts = [
     section: "audience",
     title: "Personalized feed health",
     description:
-      "Current feed readiness. These account counts are a snapshot rather than period totals.",
+      "Current health of feeds last refreshed during the selected period, including new accounts awaiting their first refresh.",
   },
   {
     id: "queue-pressure",
     section: "processing",
     title: "Queue pressure",
     description:
-      "Current queued and running jobs across all eight job types. Queue size is not a completion percentage.",
+      "Currently queued and running jobs created during the selected period. Queue size is not a completion percentage.",
   },
   {
     id: "throughput",
@@ -75,14 +75,14 @@ export const overviewCharts = [
     section: "coverage",
     title: "Source output",
     description:
-      "Leading sources by published articles. An article can be attributed to more than one source.",
+      "Leading sources by articles published during the selected period. An article can be attributed to more than one source.",
   },
   {
     id: "topic-coverage",
     section: "coverage",
     title: "Topic demand and coverage",
     description:
-      "The ten most followed topics with current explicit and inferred interest, alongside publications in this period.",
+      "Active follows created during the selected period and current inferred interests from feeds computed in that period, alongside publications in the same period.",
   },
 ] as const;
 

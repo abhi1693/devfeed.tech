@@ -184,9 +184,11 @@ const fixture = createServer(async (req, res) => {
     };
     assert.deepEqual(
       [...url.searchParams.keys()].sort(),
-      chart === "attention" ? [] : ["from", "to"],
-      "Chart requests send only Grafana from/to parameters",
+      ["from", "to"],
+      "Every chart request sends one bounded UTC interval",
     );
+    assert.match(request.from ?? "", /^\d{4}-\d{2}-\d{2}$/);
+    assert.match(request.to ?? "", /^\d{4}-\d{2}-\d{2}$/);
     requests.push(request);
     res.once("close", () => {
       request.closed = true;
@@ -686,7 +688,6 @@ try {
     await page.getByRole("button", { name: "Chart date range", exact: true }).click();
     await page.getByRole("button", { name: label, exact: true }).click();
   };
-  const operationsBeforeDates = requests.filter(({ section }) => section === "operations").length;
   await page.getByRole("button", { name: "Chart date range", exact: true }).click();
   for (const label of [
     "Today",
@@ -704,9 +705,36 @@ try {
     assert.equal(await page.getByRole("button", { name: label, exact: true }).count(), 1);
   await page.screenshot({ path: `${output}/date-range-picker-mobile.png` });
   await page.keyboard.press("Escape");
+  const beforeToday = requests.length;
+  await chooseRange("Today");
+  for (const chart of charts) {
+    await page.locator(`[data-overview-chart="${chart}"]`).scrollIntoViewIfNeeded();
+    await settled();
+  }
+  const todayWindow = reportForRange(populatedCharts["publication-rate"], {
+    from: "now/d",
+    to: "now",
+  });
+  for (const chart of charts)
+    assert.ok(
+      requests
+        .slice(beforeToday)
+        .some(
+          (request) =>
+            request.chart === chart &&
+            request.from === todayWindow.start &&
+            request.to === todayWindow.end,
+        ),
+      `${chart} receives Today's bounded UTC dates`,
+    );
+  assert.equal(new URL(page.url()).searchParams.get("from"), "now/d");
   await chooseRange("Last 3 months");
   await settled();
-  assert.ok(requests.some(({ from, to }) => from === "now-3M" && to === "now"));
+  const monthWindow = reportForRange(populatedCharts["publication-rate"], {
+    from: "now-3M",
+    to: "now",
+  });
+  assert.ok(requests.some(({ from, to }) => from === monthWindow.start && to === monthWindow.end));
   assert.equal(new URL(page.url()).searchParams.get("from"), "now-3M");
   assert.equal(new URL(page.url()).searchParams.get("to"), "now");
   await chooseRange("Last 30 days");
@@ -730,10 +758,13 @@ try {
   );
   assert.equal(new URL(page.url()).searchParams.get("from"), customFrom);
   assert.equal(new URL(page.url()).searchParams.get("to"), customTo);
-  assert.equal(
-    requests.filter(({ section }) => section === "operations").length,
-    operationsBeforeDates,
-    "Date changes keep the current Operations document",
+  await page.locator("#operations").scrollIntoViewIfNeeded();
+  await settled();
+  assert.ok(
+    requests.some(
+      ({ chart, from, to }) => chart === "attention" && from === customFrom && to === customTo,
+    ),
+    "Review and recovery follows the selected bounded interval",
   );
   const beforeDateReload = requests.length;
   const restoredChart = page.waitForResponse((response) => {

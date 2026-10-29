@@ -69,6 +69,40 @@ Overview accepts `from`/`to` date math or inclusive UTC dates. Exact resolved bo
 identify caches and filter data before aggregation. Distinct-reader sketches and
 percentiles remain estimates; integer accounting remains exact.
 
+Every Overview panel uses the selected period. Event panels filter their activity
+timestamp: publication time, job completion, inference start, reader opens or
+account creation. Publication latency measures the complete wait from discovery
+for articles published in the period; selecting Today does not cap that wait at
+24 hours.
+
+Current-state panels use explicit period cohorts rather than lifetime totals:
+
+| Panel                     | Period cohort                                                                                                                                       |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Review and recovery       | Current review items created in the period; source failures with source activity in the period                                                      |
+| Queue pressure            | Jobs created in the period that are currently queued or running                                                                                     |
+| Personalized feed health  | Feeds computed in the period, or accounts created in the period when no computation exists                                                          |
+| Topic demand and coverage | Active explicit follows created in the period, current inferred interests belonging to feeds computed in the period, and publications in the period |
+
+These current cohorts describe retained state, not a reconstruction of queue or
+membership state at an earlier date. The UI resolves relative calendar ranges
+once for all panels and invalidates them together at UTC midnight. Absolute
+custom ranges retain their original dates.
+
+Versioned audience metadata repair seeds actual account, feed and follow times
+and membership user identities into existing ClickHouse observations. It advances
+bounded primary-key pages only after acknowledged writes, protects newer live
+publications, and resumes interrupted work. It neither resets finite import
+checkpoints nor reconstructs immutable history. After completion, normal
+application delivery maintains the metadata. A low-rate ClickHouse check detects
+missing required metadata, including late writes from an older process during
+rollout, and restarts bounded repair only when needed. Healthy metadata causes no
+further PostgreSQL source scans. Feed and topic reports return `analytics_preparing`
+until repair completes and required metadata is present, preventing partial
+timestamps from appearing as complete zero counts. Inferred membership
+queries join current feed computation times instead of rewriting every membership
+when an unchanged feed refreshes.
+
 `analytics_direct_status` contains historical readiness, the current card policy
 and the fixed reader cutoff. A policy change requires bounded current-card import
 before that policy is served. Operator actions always validate and lock current
@@ -142,10 +176,11 @@ ClickHouse database ports stay private. CH-UI publishes port 4000 on
 `DEVFEED_CH_UI_BIND_IP`; set `DEVFEED_CH_UI_URL` to its browser origin for LAN use.
 
 Prepare ClickHouse and apply PostgreSQL schema `0039` and versioned ClickHouse
-migrations through `0003` before starting new application producers. PostgreSQL
+migrations through `0004` before starting new application producers. PostgreSQL
 `0039` creates the two card dependency lookup indexes concurrently and recovers
 interrupted builds. ClickHouse `0003` adds durable reconciliation progress and
-fingerprints. The migration container runs
+fingerprints; `0004` adds the membership user identity used by bounded topic
+cohorts. The migration container runs
 `devfeed db upgrade` followed by `devfeed analytics upgrade` with schema-owner
 credentials after ClickHouse becomes healthy. The latter applies the packaged SQL
 history and fixes the reader cutoff under the import advisory lock; it never scans

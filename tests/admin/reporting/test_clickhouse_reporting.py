@@ -59,7 +59,7 @@ def seed_dashboard(session):
     session.add_all(
         [
             UserSource(user_id=user.id, source_id=source.id),
-            UserTopic(user_id=user.id, topic_id=topic.id),
+            UserTopic(user_id=user.id, topic_id=topic.id, created_at=NOW - timedelta(days=1)),
             ArticleLike(user_id=user.id, article_id=articles[0].id),
             IngestionJob(
                 source_id=source.id,

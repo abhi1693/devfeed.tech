@@ -113,6 +113,8 @@ class Sink:
         if self.fail_query is not None:
             raise self.fail_query
         self.world.events.append("ch:query")
+        if "analytics_user_events" in statement:
+            return []  # This current-card fixture has no audience observations.
         if reconcile.PROGRESS_TABLE in statement:
             rows = list(self.rows.get(reconcile.PROGRESS_TABLE, {}).values())
             return deepcopy([row for row in rows if row["policy"] == params["policy"]])

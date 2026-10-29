@@ -129,7 +129,7 @@ class AnalyticsRuntime:
         self.clock = clock or (lambda: datetime.now(UTC))
         self.policy = pipeline_policy_version(settings)
         namespace = settings.database_url + ":" + settings.clickhouse_database
-        self.prefix = "admin:analytics:v3:" + hashlib.sha256(namespace.encode()).hexdigest()[:20]
+        self.prefix = "admin:analytics:v4:" + hashlib.sha256(namespace.encode()).hexdigest()[:20]
         self.max_entry_bytes = settings.cache_max_bytes
         self.cache: OrderedDict[str, bytes | str] = OrderedDict()
         self.cache_bytes = 0
@@ -258,7 +258,7 @@ class AnalyticsRuntime:
         self, group: SectionName | Literal["queues"], window: ReportWindow, now: datetime
     ) -> OverviewSectionReport:
         if group == "operations":
-            return await CurrentCards(self.client, now=now).operations()
+            return await CurrentCards(self.client, now=now).operations(window)
         status = await self.client.status()
         if not status.get("ready"):
             raise AnalyticsPreparing("Analytics is being prepared")

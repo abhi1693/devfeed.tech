@@ -591,7 +591,8 @@ async def _feed_rows(
         return {}
     rows = await (
         await connection.execute(
-            "SELECT a.id,greatest(coalesce(s.interest_count,0),CASE WHEN "
+            "SELECT a.id,a.created_at,s.computed_at,"
+            "greatest(coalesce(s.interest_count,0),CASE WHEN "
             "EXISTS(SELECT 1 FROM user_topics t WHERE t.user_id=a.id) OR "
             "EXISTS(SELECT 1 FROM user_sources f WHERE f.user_id=a.id) OR "
             "EXISTS(SELECT 1 FROM user_tags t WHERE t.user_id=a.id) THEN 1 ELSE 0 END) AS "
@@ -606,6 +607,8 @@ async def _feed_rows(
     return {
         str(row["id"]): {
             "user_id": str(row["id"]),
+            "created_at": row["created_at"],
+            "computed_at": row["computed_at"],
             "interest_count": row["interest_count"],
             "has_generation": row["generation"] is not None,
             "invalidated": bool(row["invalidated"]),
@@ -638,7 +641,16 @@ async def hydrate_changes(
                     users.add(str(value))
     publications = await _publication_rows(connection, articles)
     feeds = await _feed_rows(connection, users)
-    result = list(changes)
+    result = [
+        change
+        | {
+            "record": change["record"]
+            | {"computed_at": feeds.get(str(change["record"]["user_id"]), {}).get("computed_at")}
+        }
+        if change["source_table"] == "user_interests" and change.get("record")
+        else change
+        for change in changes
+    ]
     for identity in sorted(articles):
         result.append(
             {
