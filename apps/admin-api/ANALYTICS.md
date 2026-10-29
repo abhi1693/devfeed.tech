@@ -46,8 +46,11 @@ The supported query API accepts allowlisted analytical query identifiers and
 validated parameters. It does not accept browser-supplied SQL. Related overview
 charts share section calculations, resolved UTC windows and cached responses.
 Each process owns one asynchronous client with bounded query admission. Expired
-cache results are discarded; query or readiness failures return the retryable
-`analytics_preparing` response. The admin retries preparing results automatically.
+cache results are discarded. An incomplete import or policy returns
+`analytics_preparing`, which the admin retries automatically. Query failures,
+exhausted admission and deadlines return `analytics_unavailable`; the chart shows
+an error with a Retry action. Safe server diagnostics include the section, error
+class and structured ClickHouse error code, without SQL or parameter values.
 Only Queue pressure continues polling after a successful response.
 
 Overview accepts `from`/`to` date math or inclusive UTC dates. Exact resolved bounds

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal, NotRequired, Protocol, TypedDict, TypeVar
 
-from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable, SqlRecord
+from devfeed_core.analytics import AnalyticsClient, AnalyticsPreparing, SqlRecord
 from devfeed_core.analytics_card_types import (
     PipelineBoard,
     SourcePipelineBoard,
@@ -438,7 +438,7 @@ class CurrentCards:
         ]
         for row in groups:
             if row["code"] not in by_code:
-                raise AnalyticsUnavailable("Current blocker policy is being prepared")
+                raise AnalyticsPreparing("Current blocker policy is being prepared")
             item = by_code[row["code"]]
             item.count = int(row["total"])
             item.targets = [

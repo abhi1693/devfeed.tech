@@ -35,7 +35,7 @@ class AnalyticsStatus:
         )
 
     async def read(self) -> SqlRecord:
-        from devfeed_core.analytics import AnalyticsUnavailable
+        from devfeed_core.analytics import AnalyticsPreparing
 
         rows = await self.client.query(
             "SELECT version,ready,updated_at,capture_started_at,reader_coverage_start,"
@@ -44,7 +44,7 @@ class AnalyticsStatus:
             {"import_id": IMPORT_ID},
         )
         if len(rows) != 1:
-            raise AnalyticsUnavailable("Analytics historical import is still running")
+            raise AnalyticsPreparing("Analytics historical import is still running")
         result = rows[0]
         result["generated_at"] = result["updated_at"]
         return result

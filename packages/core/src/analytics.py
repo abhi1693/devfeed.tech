@@ -38,6 +38,10 @@ class AnalyticsUnavailable(RuntimeError):
     """Analytics cannot currently serve a complete result."""
 
 
+class AnalyticsPreparing(AnalyticsUnavailable):
+    """A required import or serving policy has not completed yet."""
+
+
 def _parameter(value: object) -> JsonValue:
     if isinstance(value, datetime):
         return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")

@@ -5,13 +5,15 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import uuid
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Literal, Protocol, Required, TypedDict, TypeVar, Unpack, overload
 
-from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
+from clickhouse_connect.driver.exceptions import Error as ClickHouseError
+from devfeed_core.analytics import AnalyticsClient, AnalyticsPreparing, AnalyticsUnavailable
 from devfeed_core.analytics_card_types import (
     PipelineBoard,
     SourcePipelineBoard,
@@ -34,6 +36,27 @@ FRESH_SECONDS = 30
 MAX_ENTRIES = 64
 MAX_CACHE_BYTES = 16_000_000
 MAX_INFLIGHT = 32
+logger = logging.getLogger(__name__)
+
+
+def unavailable(group: str, error: BaseException) -> HTTPException:
+    fields: dict[str, object] = {"section": group, "error_type": type(error).__name__}
+    cause: BaseException | None = error
+    # Only inspect structured metadata. Driver messages and tracebacks may
+    # contain SQL, parameters or credentials, and must never reach these logs.
+    for _ in range(4):
+        if cause is None:
+            break
+        fields["cause_type"] = type(cause).__name__
+        if isinstance(cause, ClickHouseError):
+            if type(cause.code) is int:
+                fields["clickhouse_code"] = cause.code
+            break
+        cause = cause.__cause__
+    logger.warning("analytics_overview_unavailable", extra=fields)
+    return HTTPException(
+        503, {"code": "analytics_unavailable", "message": "This chart is unavailable. Try again."}
+    )
 
 
 class CacheRedis(Protocol):
@@ -214,7 +237,9 @@ class AnalyticsRuntime:
         task = self.inflight.get(key)
         if task is None:
             if len(self.inflight) >= MAX_INFLIGHT:
-                raise preparing("This chart is being prepared.", retry_after=5)
+                raise unavailable(
+                    group, AnalyticsUnavailable("Analytical request capacity reached")
+                )
             task = asyncio.create_task(self._section(key, group, window))
             self.inflight[key] = task
             task.add_done_callback(lambda completed: self.inflight.pop(key, None))
@@ -228,7 +253,7 @@ class AnalyticsRuntime:
             return await CurrentCards(self.client, now=now).operations()
         status = await self.client.status()
         if not status.get("ready"):
-            raise AnalyticsUnavailable("Analytics is being prepared")
+            raise AnalyticsPreparing("Analytics is being prepared")
         report = await Reports(
             self.client,
             window,
@@ -260,7 +285,13 @@ class AnalyticsRuntime:
         except (AnalyticsUnavailable, TimeoutError, HTTPException) as error:
             if isinstance(error, HTTPException) and error.status_code != 503:
                 raise
-            raise preparing("This chart is being prepared.", retry_after=5) from error
+            if isinstance(error, AnalyticsPreparing) or (
+                isinstance(error, HTTPException)
+                and isinstance(error.detail, dict)
+                and error.detail.get("code") == "analytics_preparing"
+            ):
+                raise preparing("This chart is being prepared.", retry_after=5) from error
+            raise unavailable(group, error) from error
         envelope = json.dumps(
             {
                 "expires_at": (now + timedelta(seconds=FRESH_SECONDS)).isoformat(),

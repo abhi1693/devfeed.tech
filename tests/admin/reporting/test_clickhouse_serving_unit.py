@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from clickhouse_connect.driver.exceptions import DatabaseError
 from devfeed_admin_api import analytics_runtime, article_pipeline, overview, source_pipeline
 from devfeed_admin_api.analytics_current import CurrentCards
 from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
@@ -339,7 +340,7 @@ async def test_queue_polling_coalesces_and_refreshes_without_recalculating_histo
     with pytest.raises(HTTPException) as caught:
         await reads.section(queue_group, window)
     assert caught.value.status_code == 503
-    assert caught.value.detail["code"] == "analytics_preparing"
+    assert caught.value.detail["code"] == "analytics_unavailable"
     assert len(client.queries) == 4
 
 
@@ -366,8 +367,108 @@ async def test_expired_cache_never_serves_old_data_when_clickhouse_cannot_refres
     with pytest.raises(HTTPException) as caught:
         await reads.section("publishing", window)
     assert caught.value.status_code == 503
+    assert caught.value.detail["code"] == (
+        "analytics_preparing" if failure == "not-ready" else "analytics_unavailable"
+    )
+    assert caught.value.headers == ({"Retry-After": "5"} if failure == "not-ready" else None)
+
+
+@pytest.mark.parametrize("code", [432, 202, None, "private SQL or token", True])
+@run_async
+async def test_query_failures_expose_only_safe_structured_diagnostics(caplog, code):
+    client = Client()
+    original = client.query
+    secret = "SELECT private_body WHERE credential='secret-token'"
+
+    async def query(sql, parameters=None):
+        if "overview:publishing" in sql:
+            raise AnalyticsUnavailable(secret) from DatabaseError(secret, code=code)
+        return await original(sql, parameters)
+
+    client.query = query
+    reads = runtime(client)
+    window = recent_window(30, NOW)
+    with (
+        caplog.at_level("WARNING", logger=analytics_runtime.__name__),
+        pytest.raises(HTTPException) as caught,
+    ):
+        await reads.section("publishing", window)
+    assert caught.value.status_code == 503
+    assert caught.value.detail == {
+        "code": "analytics_unavailable",
+        "message": "This chart is unavailable. Try again.",
+    }
+    assert caught.value.headers is None
+    record = caplog.records[-1]
+    assert record.message == "analytics_overview_unavailable"
+    assert record.section == "publishing"
+    assert record.error_type == "AnalyticsUnavailable" and record.cause_type == "DatabaseError"
+    assert getattr(record, "clickhouse_code", None) == (code if type(code) is int else None)
+    assert record.exc_info is None and secret not in caplog.text
+    assert secret not in json.dumps(caught.value.detail)
+    # Another section and a later manual retry remain independently available.
+    assert (await reads.section("audience", window)).data.section == "audience"
+    client.query = original
+    assert (await reads.section("publishing", window)).data.section == "publishing"
+
+
+@pytest.mark.parametrize("gate", ["missing-status", "inference", "policy", "blocker-policy"])
+@run_async
+async def test_real_import_and_policy_gates_still_return_retryable_preparation(gate, caplog):
+    client = Client()
+    group = "inference" if gate == "inference" else "operations"
+    if gate == "missing-status":
+        from devfeed_core.analytics_status import AnalyticsStatus
+
+        client.status = AnalyticsStatus(SimpleNamespace(query=AsyncMock(return_value=[]))).read
+    elif gate == "inference":
+        client.query = AsyncMock(return_value=[])
+    elif gate == "policy":
+        client.card_status["policy"] = "old-policy"
+    else:
+        client.results["admin:operations"] = [
+            {"reviews": [], "blockers": [["future-policy", 1, []]]}
+        ]
+    reads = runtime(client)
+    window = current_window() if group == "operations" else recent_window(30, NOW)
+    with pytest.raises(HTTPException) as caught:
+        await reads.section(group, window)
+    assert caught.value.status_code == 503
     assert caught.value.detail["code"] == "analytics_preparing"
-    assert caught.value.headers["Retry-After"] == "5"
+    assert caught.value.headers == {"Retry-After": "5"}
+    assert not any(row.message == "analytics_overview_unavailable" for row in caplog.records)
+
+
+@pytest.mark.parametrize("detail", ["private diagnostic", {"code": "other_error"}])
+@run_async
+async def test_unrelated_service_503_does_not_masquerade_as_import_preparation(detail, monkeypatch):
+    reads = runtime()
+    monkeypatch.setattr(reads, "_calculate", AsyncMock(side_effect=HTTPException(503, detail)))
+    with pytest.raises(HTTPException) as caught:
+        await reads.section("publishing", recent_window(30, NOW))
+    assert caught.value.detail["code"] == "analytics_unavailable"
+
+
+@run_async
+async def test_non_service_http_failures_keep_their_status(monkeypatch):
+    reads = runtime()
+    error = HTTPException(403, "forbidden")
+    monkeypatch.setattr(reads, "_calculate", AsyncMock(side_effect=error))
+    with pytest.raises(HTTPException) as caught:
+        await reads.section("publishing", recent_window(30, NOW))
+    assert caught.value is error
+
+
+def test_query_diagnostic_cause_inspection_is_bounded_and_never_formats_exception_text(caplog):
+    class PrivateFailure(Exception):
+        def __str__(self):
+            pytest.fail("Private exception text was formatted")
+
+    error = PrivateFailure()
+    error.__cause__ = error
+    result = analytics_runtime.unavailable("publishing", error)
+    assert result.detail["code"] == "analytics_unavailable"
+    assert caplog.records[-1].cause_type == "PrivateFailure"
 
 
 @run_async
@@ -495,8 +596,8 @@ async def test_admission_rejects_expired_cache_instead_of_serving_a_fallback(mon
         with pytest.raises(HTTPException) as caught:
             await reads.section("publishing", window)
         assert caught.value.status_code == 503
-        assert caught.value.detail["code"] == "analytics_preparing"
-        assert caught.value.headers["Retry-After"] == "5"
+        assert caught.value.detail["code"] == "analytics_unavailable"
+        assert caught.value.headers is None
     finally:
         release.set()
         await pending
@@ -532,7 +633,7 @@ def test_overview_http_never_opens_postgres_and_keeps_all_twelve_chart_contracts
         assert http.get("/v1/admin/overview/charts/publication-rate?days=30").status_code == 422
 
 
-def test_overview_http_expired_chart_returns_preparing_until_clickhouse_recovers(monkeypatch):
+def test_overview_http_expired_chart_returns_unavailable_until_clickhouse_recovers(monkeypatch):
     app = FastAPI()
     app.include_router(overview.router)
     time = [NOW]
@@ -550,8 +651,8 @@ def test_overview_http_expired_chart_returns_preparing_until_clickhouse_recovers
         time[0] += timedelta(seconds=30)
         failed = http.get(path)
         assert failed.status_code == 503
-        assert failed.json()["detail"]["code"] == "analytics_preparing"
-        assert failed.headers["retry-after"] == "5"
+        assert failed.json()["detail"]["code"] == "analytics_unavailable"
+        assert "retry-after" not in failed.headers
         assert "data" not in failed.json()
         client.failed = False
         recovered = http.get(path)
