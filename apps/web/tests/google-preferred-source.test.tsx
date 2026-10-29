@@ -134,9 +134,9 @@ it("uses packaged official artwork and Google's documented selection link in ext
   expect(link.hasAttribute("data-google-preferred-source")).toBe(true);
   expect(link.hasAttribute("aria-pressed")).toBe(false);
   const image = screen.getByRole("img", { name: "Add DevFeed as a preferred source on Google" });
-  expect(image.getAttribute("src")).toBe("/google-preferred-source/light.png");
+  expect(image.getAttribute("src")).toBe("/google-preferred-source/light.webp");
   await act(async () => document.documentElement.classList.add("dark"));
-  expect(image.getAttribute("src")).toBe("/google-preferred-source/dark.png");
+  expect(image.getAttribute("src")).toBe("/google-preferred-source/dark.webp");
   expect(document.querySelector("iframe")).toBeNull();
   expect(trackEvent).not.toHaveBeenCalled();
 });

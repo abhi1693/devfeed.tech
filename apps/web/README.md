@@ -675,7 +675,7 @@ its required script, icon and Google service/toast frames, and confines the SDK'
 inline styles to that document. A blocked SDK shows a retry control; the website
 does not substitute a selection deeplink.
 
-Chrome and Edge use Google's official light/dark PNG badges, bundled locally with
+Chrome and Edge use lossless WebP copies of Google's official light/dark badges, bundled locally with
 each extension. Their link opens
 `https://www.google.com/preferences/source?q=devfeed.tech` in a separate tab,
 following Google's documented deeplink implementation. Extension pages execute no

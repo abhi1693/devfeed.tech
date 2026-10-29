@@ -62,14 +62,29 @@ export async function checkGooglePreferredSource(page, screenshot, options = {})
     const image = control.locator("img");
     assert.match(
       await image.getAttribute("src"),
-      /^\/google-preferred-source\/(?:light|dark)\.png$/,
+      /^\/google-preferred-source\/(?:light|dark)\.webp$/,
     );
     await image.evaluate((node) => node.decode());
     assert.equal(await image.evaluate((node) => node.naturalWidth), 676);
+    assert.equal(await image.evaluate((node) => node.naturalHeight), 213);
     assert.equal(
       await image.evaluate((node) => new URL(node.src).origin),
       await page.evaluate(() => window.location.origin),
     );
+    const themes = await page.evaluate(async () => {
+      const decoded = [];
+      for (const theme of ["light", "dark"]) {
+        const badge = new Image();
+        badge.src = `/google-preferred-source/${theme}.webp`;
+        await badge.decode();
+        decoded.push({ width: badge.naturalWidth, height: badge.naturalHeight });
+      }
+      return decoded;
+    });
+    assert.deepEqual(themes, [
+      { width: 676, height: 213 },
+      { width: 676, height: 213 },
+    ]);
     assert.equal(await page.locator('script[src*="news.google.com/swg/"]').count(), 0);
   }
   const metricCount = async () => {

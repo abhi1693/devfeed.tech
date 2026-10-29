@@ -73,7 +73,7 @@ export function GooglePreferredSource() {
       {/* Google's packaged artwork is also available when the extension is offline. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={`/google-preferred-source/${theme}.png`}
+        src={`/google-preferred-source/${theme}.webp`}
         width={676}
         height={213}
         alt="Add DevFeed as a preferred source on Google"
