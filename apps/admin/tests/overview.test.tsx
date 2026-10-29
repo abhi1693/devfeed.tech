@@ -291,19 +291,40 @@ it("pauses preparing checks while hidden and checks immediately when the page re
   }
 });
 
-it("stops preparation polling after an error when refresh is paused and keeps its manual retry", async () => {
+it.each([new ApiError(500), new ApiError(503, undefined, {}, "analytics_unavailable")])(
+  "stops preparation polling after %s and keeps its manual retry",
+  async (failure) => {
+    vi.useFakeTimers();
+    vi.mocked(adminOverviewChart)
+      .mockRejectedValueOnce(new ApiError(503, undefined, {}, "analytics_preparing"))
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValue(populatedCharts["publication-rate"]);
+    render(publication());
+    await act(async () => {});
+    await saveRefresh(0);
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(within(publicationCard()).getByRole("alert")).toBeTruthy();
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(adminOverviewChart).toHaveBeenCalledTimes(2);
+    await act(async () =>
+      fireEvent.click(within(publicationCard()).getByRole("button", { name: "Try again" })),
+    );
+    expect(screen.getByText("publication-rate ready")).toBeTruthy();
+  },
+);
+
+it("shows unavailable analytics as an error without automatic preparation polling", async () => {
   vi.useFakeTimers();
   vi.mocked(adminOverviewChart)
-    .mockRejectedValueOnce(new ApiError(503, undefined, {}, "analytics_preparing"))
-    .mockRejectedValueOnce(new ApiError(500))
+    .mockRejectedValueOnce(new ApiError(503, undefined, {}, "analytics_unavailable"))
     .mockResolvedValue(populatedCharts["publication-rate"]);
   render(publication());
   await act(async () => {});
-  await saveRefresh(0);
-  await act(() => vi.advanceTimersByTimeAsync(5000));
   expect(within(publicationCard()).getByRole("alert")).toBeTruthy();
+  expect(screen.queryByText("Still preparing this chart")).toBeNull();
+  expect(screen.queryByRole("status", { name: "Loading Publication output" })).toBeNull();
   await act(() => vi.advanceTimersByTimeAsync(60_000));
-  expect(adminOverviewChart).toHaveBeenCalledTimes(2);
+  expect(adminOverviewChart).toHaveBeenCalledTimes(1);
   await act(async () =>
     fireEvent.click(within(publicationCard()).getByRole("button", { name: "Try again" })),
   );

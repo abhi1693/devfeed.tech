@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from datetime import UTC, datetime, time, timedelta
 from typing import Literal, TypeVar, get_args
 
-from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable, SqlRecord
+from devfeed_core.analytics import AnalyticsClient, AnalyticsPreparing, SqlRecord
 from devfeed_core.analytics_inference_store import InferenceStore
 from devfeed_core.analytics_overview_direct import DirectOverviewReader
 from pydantic import BaseModel
@@ -328,7 +328,7 @@ class Reports:
             FROM analytics_backfill_progress FINAL WHERE import_id='direct-v1'
             AND source='inference_calls'""")
         if len(ready) != 1 or int(ready[0].get("complete", 0)) != 1:
-            raise AnalyticsUnavailable("Inference history is still importing")
+            raise AnalyticsPreparing("Inference history is still importing")
         rows = await InferenceStore(self.client).aggregate(
             self.start, min(self.end, self.observed_end), granularity=self.granularity
         )
