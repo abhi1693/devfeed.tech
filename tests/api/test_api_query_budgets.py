@@ -671,13 +671,15 @@ def test_populated_topic_admission_profile(profile_data, database, monkeypatch):
         session.execute(text("DELETE FROM topic_decision_runs"))
     started = time.perf_counter()
     admitted = schedule_decisions(
-        database, capacity={"observed": True, "cooldown_seconds": 0, "topic_workers": 3}
+        database,
+        capacity={"observed": True, "cooldown_seconds": 0, "eligible_topic_workers": 3},
     )
     seconds = time.perf_counter() - started
     assert admitted == 6
     assert (
         schedule_decisions(
-            database, capacity={"observed": True, "cooldown_seconds": 0, "topic_workers": 3}
+            database,
+            capacity={"observed": True, "cooldown_seconds": 0, "eligible_topic_workers": 3},
         )
         == 0
     )

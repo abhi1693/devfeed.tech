@@ -310,7 +310,7 @@ def test_broker_outage_keeps_job_for_later_dispatch(database, monkeypatch):
 
     with monkeypatch.context() as patch:
         patch.setattr(queue, "enqueue", fail_publish)
-        patch.setattr(scheduler, "get_queue", lambda: queue)
+        patch.setattr(scheduler, "get_queue", lambda name="ingestion": queue)
         with pytest.raises(RedisConnectionError):
             scheduler.tick()
     with database() as session:

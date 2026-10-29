@@ -218,7 +218,7 @@ def test_pause_fences_product_result(admin_client, database, product_payload):
 
 
 def test_dispatches_product_jobs_without_ai_or_waiting_parent(
-    admin_client, database, product_payload
+    admin_client, database, product_payload, priority_queue_routes
 ):
     from devfeed_aggregator.partner_sync_tasks import dispatch_partner_pipeline
     from devfeed_aggregator.queue import get_queue
@@ -226,9 +226,14 @@ def test_dispatches_product_jobs_without_ai_or_waiting_parent(
     parent, children = discover(admin_client, database, product_payload)
     due(database, parent)
     assert dispatch_partner_pipeline(database, limit=10) == 3
-    queue = get_queue("ingestion")
+    queue = get_queue("partner-pipeline")
     try:
+        assert queue.name == "default"
         assert {job.args[0] for job in queue.jobs} == set(children)
+        assert all(
+            job.meta["devfeed_queue"] == "partner-pipeline" and job.meta["devfeed_ai"] is False
+            for job in queue.jobs
+        )
     finally:
         queue.connection.close()
 

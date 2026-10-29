@@ -156,11 +156,15 @@ without waiting for the main scheduler's ingestion cycle. Each physical queue ha
 when a queue has two batches waiting and resumes as workers consume them; other publishers
 can also add work to these shared queues. Worker concurrency controls actual execution.
 
-Qualification and evaluation alternate first access to their shared analysis queue. Each
+The refill loop alternates first access between pipeline and evaluation publishers.
+Within the pipeline, import and qualification stages also alternate first access to shared
+capacity, including when workers free only one slot at a time. The pipeline turn is stored
+in Redis for its physical destination so concurrent publishers share that ordering. Each
 refill reserves a quarter of its slots for delivery recovery, with the rest for new work;
 either path can use the other's empty share. Redis connections are reused within a batch.
-Queue-specific publication locks and job row locks protect retries without holding the
-catalog lock during Redis I/O. Failed
+Publication locks use the physical destination, so logical kinds sharing a queue also share
+its capacity lock. Job row locks protect retries without holding the catalog lock during
+Redis I/O. Failed
 publication remains in the PostgreSQL outbox and unique delivery IDs prevent duplicate work.
 The main scheduler retains bounded dispatch as a fallback and schedules source imports and
 qualification renewal separately from the fast refill loop.

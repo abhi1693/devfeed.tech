@@ -407,7 +407,7 @@ def test_orphaned_recommendation_delivery_returns_to_real_queue(user_data, datab
 
     client, _, user, _, topics = user_data
     client.put("/v1/user/preferences", json={"topic_ids": [str(topics[0])]})
-    queue = get_queue()
+    queue = get_queue("recommendations")
     assert dispatch_recommendations(database, queue) == 1
     delivery = queue.jobs[0]
     queue.connection.lrem(queue.key, 0, delivery.id)
@@ -975,7 +975,7 @@ def test_recommendation_dispatch_uses_one_locked_batch_and_recovers_partial_publ
     def committed(_connection):
         counts["commit"] += 1
 
-    queue = get_queue()
+    queue = get_queue("recommendations")
     enqueue = queue.enqueue
     attempts = 0
 

@@ -3,7 +3,9 @@
 import logging
 import time
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from devfeed_core.config import get_settings
@@ -43,17 +45,59 @@ from devfeed_core.partner_credentials import connection_credential
 from devfeed_core.partner_tools import QUALIFICATION_TTL, ProductInput, product_snapshot
 from devfeed_core.research_evidence import FetchedPage, fetched_page
 from devfeed_core.urls import canonicalize_url, fingerprint
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, aliased, sessionmaker
 from sqlalchemy.sql import ColumnElement
 
-from devfeed_aggregator.partner_outbox import PartnerOutbox
+from devfeed_aggregator.partner_outbox import DispatchLog, PartnerOutbox, emit_dispatch_logs
 from devfeed_aggregator.queue import get_queue
 
 logger = logging.getLogger(__name__)
 ASSESSMENT_RENEWAL_LEAD_TIME = timedelta(days=7)
 ASSESSMENT_RENEWAL_RETRY_INTERVAL = timedelta(days=1)
+
+
+@dataclass
+class _PipelineTurn:
+    session: Session | None = None
+    assessment_first: bool = False
+    published: int = 0
+    pending_logs: list[DispatchLog] | None = None
+
+
+@contextmanager
+def _pipeline_turn(
+    factory: sessionmaker[Session], statement: Select[PartnerPipelineJob], batch_size: int
+) -> Iterator[_PipelineTurn | None]:
+    with factory.begin() as session:
+        if not session.scalar(select(statement.order_by(None).exists())):
+            yield None
+            return
+        queue = get_queue("partner-pipeline")
+        try:
+            # Serialize turn selection and successful publication. Busy/full
+            # callers cannot consume another stage's next opportunity.
+            locked = session.scalar(
+                select(
+                    func.pg_try_advisory_xact_lock(
+                        func.hashtextextended("devfeed:partner-pipeline-turn:" + queue.name, 0)
+                    )
+                )
+            )
+            if not locked or queue.count >= batch_size * 2:
+                yield None
+                return
+            key = f"devfeed:partner-dispatch:lane-turn:{queue.name}"
+            state = _PipelineTurn(
+                session, bool(int(queue.connection.get(key) or 0) % 2), pending_logs=[]
+            )
+            yield state
+            if state.published:
+                queue.connection.incr(key)
+        finally:
+            queue.connection.close()
+    emit_dispatch_logs(state.pending_logs or [])
 
 
 def job_fields(job: PartnerPipelineJob) -> dict[str, object]:
@@ -716,31 +760,44 @@ def dispatch_partner_pipeline(
     lanes = [("ingestion", ["sync", "sync_product"])]
     if settings.ai_enabled:
         lanes.append(("source-analysis", ["assess"]))
+    turn_context = (
+        _pipeline_turn(factory, statement, settings.scheduler_batch_size)
+        if settings.ai_enabled
+        else nullcontext(_PipelineTurn())
+    )
     error = None
-    for queue_name, operations in lanes:
+    with turn_context as turn:
+        if turn is None:
+            return 0
+        if turn.assessment_first:
+            lanes.reverse()
+        for queue_name, operations in lanes:
 
-        def delivery_id(job: PartnerPipelineJob, queue_name: str = queue_name) -> str:
-            # Routing keeps an old optional-queue delivery from suppressing active workers.
-            return (
-                f"partner-pipeline-{queue_name}-{job.id}-{job.payload.get('pages', 0)}-"
-                f"{job.payload.get('finalize_batches', 0)}-{job.attempts}"
-            )
+            def delivery_id(job: PartnerPipelineJob, queue_name: str = queue_name) -> str:
+                # Routing keeps an old optional-queue delivery from suppressing active workers.
+                return (
+                    f"partner-pipeline-{queue_name}-{job.id}-{job.payload.get('pages', 0)}-"
+                    f"{job.payload.get('finalize_batches', 0)}-{job.attempts}"
+                )
 
-        try:
-            dispatched += outbox.publish(
-                queue_name,
-                statement.where(PartnerPipelineJob.operation.in_(operations)),
-                model=PartnerPipelineJob,
-                limit=limit,
-                handler="devfeed_aggregator.partner_sync_tasks.process_pipeline",
-                delivery_id=delivery_id,
-                event="partner_pipeline_dispatched",
-                fields=job_fields,
-            )
-        except Exception as exc:
-            # A broken network queue must not consume the AI lane's publication budget.
-            if error is None:
-                error = exc
+            try:
+                dispatched += outbox.publish(
+                    queue_name,
+                    statement.where(PartnerPipelineJob.operation.in_(operations)),
+                    model=PartnerPipelineJob,
+                    limit=limit,
+                    handler="devfeed_aggregator.partner_sync_tasks.process_pipeline",
+                    delivery_id=delivery_id,
+                    event="partner_pipeline_dispatched",
+                    fields=job_fields,
+                    session=turn.session,
+                    pending_logs=turn.pending_logs,
+                )
+            except Exception as exc:
+                # A failed sync delivery must not consume assessment's publication budget.
+                if error is None:
+                    error = exc
+        turn.published = dispatched
     if error is not None:
         raise error
     return dispatched

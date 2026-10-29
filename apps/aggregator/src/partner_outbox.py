@@ -1,7 +1,8 @@
 """Publish bounded partner work without overfilling shared worker queues."""
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, TypeVar
 
@@ -13,7 +14,25 @@ from sqlalchemy.orm import Session, sessionmaker
 logger = logging.getLogger(__name__)
 
 Job = TypeVar("Job", PartnerPipelineJob, PartnerEvaluation)
-_QUEUE_LOCKS = {"ingestion": 734819026, "source-analysis": 734819027}
+_LANES = {"ingestion", "source-analysis"}
+DispatchLog = tuple[str, dict[str, Any]]
+
+
+def emit_dispatch_logs(records: list[DispatchLog]) -> None:
+    for event, fields in records:
+        logger.info(event, extra=fields)
+
+
+@contextmanager
+def _publication_session(
+    factory: sessionmaker[Session], session: Session | None
+) -> Iterator[Session]:
+    if session is None:
+        with factory.begin() as current:
+            yield current
+    else:
+        with session.begin_nested():
+            yield session
 
 
 class PartnerOutbox:
@@ -49,8 +68,10 @@ class PartnerOutbox:
         event: str,
         fields: Callable[[Job], dict[str, Any]],
         limit: int | None = None,
+        session: Session | None = None,
+        pending_logs: list[DispatchLog] | None = None,
     ) -> int:
-        if queue_name not in _QUEUE_LOCKS:
+        if queue_name not in _LANES:
             raise ValueError("Unsupported partner worker queue")
         requested = self.batch_size if limit is None else limit
         if requested < 1:
@@ -58,17 +79,23 @@ class PartnerOutbox:
         queue = None
         dispatch_logs = []
         try:
-            with self.factory.begin() as session:
+            with _publication_session(self.factory, session) as session:
                 # Empty partner lanes need no Redis connection, queue lock or
                 # two claim queries. Claims are still rechecked under the lock.
                 if not session.scalar(select(statement.order_by(None).exists())):
                     return 0
-                if not session.scalar(
-                    select(func.pg_try_advisory_xact_lock(_QUEUE_LOCKS[queue_name]))
-                ):
-                    return 0
                 logical = "partner-evaluation" if model is PartnerEvaluation else "partner-pipeline"
                 queue = self.get_queue(logical)
+                # Different job kinds and pipeline stages can share one physical
+                # queue. Serialize its capacity check and publication together.
+                if not session.scalar(
+                    select(
+                        func.pg_try_advisory_xact_lock(
+                            func.hashtextextended("devfeed:partner-outbox:" + queue.name, 0)
+                        )
+                    )
+                ):
+                    return 0
                 remaining = min(requested, self.batch_size * 2 - queue.count)
                 if remaining <= 0:
                     return 0
@@ -114,6 +141,9 @@ class PartnerOutbox:
         finally:
             if queue is not None:
                 queue.connection.close()
-        for entry in dispatch_logs:
-            logger.info(event, extra=entry)
+        records = [(event, entry) for entry in dispatch_logs]
+        if pending_logs is not None:
+            pending_logs.extend(records)
+        else:
+            emit_dispatch_logs(records)
         return len(dispatch_logs)

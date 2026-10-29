@@ -1,3 +1,4 @@
+import json
 import uuid
 from types import SimpleNamespace
 
@@ -197,14 +198,22 @@ def test_source_confidence_allows_mixed_samples_but_requires_grounded_relevance(
 
 @pytest.mark.integration
 @pytest.mark.parametrize("supported", [False, True])
-@pytest.mark.parametrize("origin", ["analysis", "source-analysis"])
+@pytest.mark.parametrize(
+    "origin,logical,overrides",
+    [
+        ("default", "source-analysis", {}),
+        ("assessment", None, {"source-analysis": "assessment"}),
+        ("solver", "solver", {}),
+    ],
+)
 def test_full_automation_requires_relevance_not_just_valid_feed(
-    suggested_client, database, monkeypatch, supported, origin
+    suggested_client, database, monkeypatch, supported, origin, logical, overrides
 ):
     from devfeed_aggregator import source_tasks
 
     monkeypatch.setenv("DEVFEED_FULL_AUTOMATION", "true")
     monkeypatch.setenv("DEVFEED_AI_ENABLED", "true")
+    monkeypatch.setenv("DEVFEED_JOB_QUEUE_OVERRIDES", json.dumps(overrides))
     get_settings.cache_clear()
     result = suggested_client.post(PATH, json=BODY)
     assert result.status_code == 201
@@ -215,7 +224,8 @@ def test_full_automation_requires_relevance_not_just_valid_feed(
         job = session.scalar(select(SourceEnrichmentJob))
         job_id = str(job.id)
     assert schedule_source_admission(database) == 0
-    monkeypatch.setattr(source_tasks, "get_current_job", lambda: SimpleNamespace(origin=origin))
+    delivery = SimpleNamespace(origin=origin, meta={"devfeed_queue": logical} if logical else {})
+    monkeypatch.setattr(source_tasks, "get_current_job", lambda: delivery)
     monkeypatch.setattr(
         source_tasks,
         "assess_source",

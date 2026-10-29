@@ -25,6 +25,7 @@ def publisher(*, jobs=(), recovery=(), count=0, locked=True, pending=True, batch
 
     session.scalars.side_effect = claims
     queue = Mock(count=count)
+    queue.name = "default"
     lookup = Mock(return_value=queue)
     transaction = NS(committed=False, rolled_back=False)
 
@@ -67,12 +68,12 @@ def job():
     return NS(id=uuid.uuid4(), dispatched_at=None)
 
 
-@pytest.mark.parametrize(
-    "queue_name,lock", [("ingestion", 734819026), ("source-analysis", 734819027)]
-)
-def test_queue_lock_covers_backpressure_and_publication(queue_name, lock):
+@pytest.mark.parametrize("queue_name", ["ingestion", "source-analysis"])
+@pytest.mark.parametrize("destination", ["default", "catalog-pipeline"])
+def test_physical_queue_lock_covers_backpressure_and_publication(queue_name, destination):
     first, second = job(), job()
     state = publisher(jobs=[first, second])
+    state.queue.name = destination
     events = []
 
     def scalar(statement):
@@ -82,7 +83,7 @@ def test_queue_lock_covers_backpressure_and_publication(queue_name, lock):
     state.session.scalar.side_effect = scalar
 
     def lookup(name):
-        assert events == ["pending", "lock"]
+        assert events == ["pending"]
         events.append("queue")
         return state.queue
 
@@ -100,9 +101,10 @@ def test_queue_lock_covers_backpressure_and_publication(queue_name, lock):
     assert state.queue.enqueue.call_args.kwargs["meta"] == {
         "devfeed_ai": queue_name == "source-analysis"
     }
-    assert events == ["pending", "lock", "queue", "enqueue", "enqueue"]
+    assert events == ["pending", "queue", "lock", "enqueue", "enqueue"]
     assert state.session.scalar.call_args.args[0].compile().params == {
-        "pg_try_advisory_xact_lock_2": lock
+        "hashtextextended_1": "devfeed:partner-outbox:" + destination,
+        "hashtextextended_2": 0,
     }
     assert first.dispatched_at == second.dispatched_at == state.outbox.now
     assert state.transaction.committed
@@ -132,11 +134,13 @@ def test_empty_lane_uses_one_bounded_probe_without_redis_or_advisory_lock():
     assert state.transaction.committed
 
 
-def test_busy_queue_lock_skips_redis_and_job_reads():
+def test_busy_physical_queue_lock_closes_lookup_without_reading_or_publishing():
     state = publisher(locked=False)
     assert publish(state) == 0
-    state.lookup.assert_not_called()
+    state.lookup.assert_called_once_with("partner-pipeline")
     state.session.scalars.assert_not_called()
+    state.queue.enqueue.assert_not_called()
+    state.queue.connection.close.assert_called_once()
 
 
 @pytest.mark.parametrize("count", [200, 201, 1000])

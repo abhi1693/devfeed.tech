@@ -11,7 +11,7 @@ from devfeed_core.config import get_settings
 
 from tests.partners.jobs.test_pipeline_dispatch import published_count, seed_jobs
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("priority_queue_routes")]
 
 
 def wait_for_publications(database, expected):
@@ -28,7 +28,7 @@ def test_refill_progresses_without_a_main_scheduler_cycle(database, monkeypatch)
     batch = get_settings().scheduler_batch_size
     schedule = Mock(side_effect=AssertionError("Fast refill must not schedule source imports"))
     monkeypatch.setattr(partner_sync_tasks, "schedule_partner_syncs", schedule)
-    queue = get_queue("ingestion")
+    queue = get_queue("partner-pipeline")
     try:
         with partner_dispatcher(database, interval=0.01):
             wait_for_publications(database, 2 * batch)

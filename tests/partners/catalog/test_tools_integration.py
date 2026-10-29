@@ -329,8 +329,8 @@ def test_changed_synced_product_automatically_requalifies(
     assert updated["evidence"] == [] and updated["verified_at"] is None
 
 
-def test_dispatch_uses_separate_network_and_ai_queues(
-    admin_client, database, product_payload, monkeypatch
+def test_dispatch_shares_priority_queue_with_per_delivery_ai_admission(
+    admin_client, database, product_payload, monkeypatch, priority_queue_routes
 ):
     from devfeed_aggregator.partner_sync_tasks import dispatch_partner_pipeline
     from devfeed_aggregator.queue import get_queue
@@ -339,19 +339,21 @@ def test_dispatch_uses_separate_network_and_ai_queues(
     connect(admin_client)
     assert dispatch_partner_pipeline(database) == 1
     assert dispatch_partner_pipeline(database) == 0
-    network = get_queue("ingestion")
-    analysis = get_queue("source-analysis")
+    network = get_queue("partner-pipeline")
     try:
-        assert len(network.jobs) == 1 and not analysis.jobs
+        assert network.name == "default" and len(network.jobs) == 1
         assert network.jobs[0].func_name == "devfeed_aggregator.partner_sync_tasks.process_pipeline"
+        assert network.jobs[0].meta["devfeed_queue"] == "partner-pipeline"
+        assert network.jobs[0].meta["devfeed_ai"] is False
         synced(admin_client, database, product_payload)
         assert dispatch_partner_pipeline(database) == 0
         monkeypatch.setattr(get_settings(), "ai_enabled", True)
         assert dispatch_partner_pipeline(database) == 1
-        assert len(analysis.jobs) == 1
+        assert len(network.jobs) == 2
+        assert [job.meta["devfeed_ai"] for job in network.jobs] == [False, True]
+        assert all(job.meta["devfeed_queue"] == "partner-pipeline" for job in network.jobs)
     finally:
         network.connection.close()
-        analysis.connection.close()
 
 
 def test_pause_resume_recovers_expired_qualification(
@@ -584,7 +586,12 @@ def test_fast_evaluation_delivery_waits_for_its_publisher_to_commit(
             consumers.append(consumer)
             claim.assert_blocked(consumer)
 
-        queue = SimpleNamespace(count=0, connection=SimpleNamespace(close=Mock()), enqueue=enqueue)
+        queue = SimpleNamespace(
+            name="partner-evaluation",
+            count=0,
+            connection=SimpleNamespace(close=Mock()),
+            enqueue=enqueue,
+        )
         monkeypatch.setattr(partner_tasks, "get_queue", lambda _name: queue)
         assert partner_tasks.dispatch_partner_evaluations(database, limit=25) == 1
         assert consumers[0].result(timeout=5) is None
