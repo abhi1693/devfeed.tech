@@ -2,6 +2,7 @@
 
 import logging
 import threading
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -101,3 +102,34 @@ def test_refill_shutdown_uses_a_bounded_join(monkeypatch):
     assert constructor.call_args.kwargs["daemon"] is True
     stop.set.assert_called_once()
     thread.join.assert_called_once_with(timeout=5)
+
+
+def test_shutdown_does_not_start_another_batch_after_blocked_io_finishes(monkeypatch):
+    stop, entered, release = threading.Event(), threading.Event(), threading.Event()
+    monkeypatch.setattr(
+        dispatcher, "threading", SimpleNamespace(Event=lambda: stop, Thread=threading.Thread)
+    )
+
+    def pipeline(*_args, **_kwargs):
+        entered.set()
+        assert release.wait(timeout=2)
+        return 1
+
+    def unblock():
+        assert stop.wait(timeout=2)
+        release.set()
+
+    evaluations = Mock(return_value=0)
+    monkeypatch.setattr(dispatcher, "dispatch_partner_pipeline", pipeline)
+    monkeypatch.setattr(dispatcher, "dispatch_partner_evaluations", evaluations)
+    unblocking = threading.Thread(target=unblock)
+    try:
+        with dispatcher.partner_dispatcher("factory"):
+            assert entered.wait(timeout=2)
+            unblocking.start()
+    finally:
+        release.set()
+        if unblocking.ident is not None:
+            unblocking.join(timeout=2)
+    evaluations.assert_not_called()
+    assert not any(thread.name == "partner-dispatch" for thread in threading.enumerate())

@@ -564,7 +564,7 @@ def test_fast_evaluation_delivery_waits_for_its_publisher_to_commit(
 
     from devfeed_aggregator import partner_tasks
 
-    from tests.support.database_waits import RowLockWait
+    from tests.support.partner_claims import paused_claim_retry
 
     article(database)
     qualified(admin_client, database, product_payload, monkeypatch)
@@ -574,9 +574,7 @@ def test_fast_evaluation_delivery_waits_for_its_publisher_to_commit(
     assessor = Mock(side_effect=answer)
     with (
         ThreadPoolExecutor(max_workers=1, thread_name_prefix="partner-fast-consumer") as pool,
-        RowLockWait(
-            database, thread_prefix="partner-fast-consumer", table="partner_evaluations"
-        ) as claim,
+        paused_claim_retry(monkeypatch, database) as claim,
     ):
 
         def enqueue(_handler, evaluation_id, **_kwargs):
@@ -584,7 +582,7 @@ def test_fast_evaluation_delivery_waits_for_its_publisher_to_commit(
                 process_evaluation, evaluation_id, factory=database, assessor=assessor
             )
             consumers.append(consumer)
-            claim.assert_blocked(consumer)
+            claim.assert_waiting(consumer)
 
         queue = SimpleNamespace(
             name="partner-evaluation",
@@ -594,6 +592,7 @@ def test_fast_evaluation_delivery_waits_for_its_publisher_to_commit(
         )
         monkeypatch.setattr(partner_tasks, "get_queue", lambda _name: queue)
         assert partner_tasks.dispatch_partner_evaluations(database, limit=25) == 1
+        claim.resume()
         assert consumers[0].result(timeout=5) is None
     assessor.assert_called_once()
     queue.connection.close.assert_called_once()

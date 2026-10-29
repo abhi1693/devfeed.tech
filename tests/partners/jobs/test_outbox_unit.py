@@ -26,6 +26,7 @@ def publisher(*, jobs=(), recovery=(), count=0, locked=True, pending=True, batch
     session.scalars.side_effect = claims
     queue = Mock(count=count)
     queue.name = "default"
+    queue.connection.get.return_value = None
     lookup = Mock(return_value=queue)
     transaction = NS(committed=False, rolled_back=False)
 
@@ -167,6 +168,62 @@ def test_claim_is_bounded_by_requested_batch_and_queue_headroom(batch_size, coun
         assert "FOR UPDATE SKIP LOCKED" in str(compiled)
 
 
+def test_slow_successful_enqueues_stop_at_the_shared_wall_time_budget(monkeypatch):
+    from devfeed_aggregator import partner_outbox
+
+    clock = [0.0]
+    monkeypatch.setattr(partner_outbox, "time", NS(monotonic=lambda: clock[0]))
+    jobs = [job() for _ in range(5)]
+    state = publisher(jobs=jobs)
+
+    def enqueue(*_args, **_kwargs):
+        clock[0] += 0.6
+
+    state.queue.enqueue.side_effect = enqueue
+    assert publish(state) == 2
+    assert state.queue.enqueue.call_count == 2
+    assert all(item.dispatched_at == state.outbox.now for item in jobs[:2])
+    assert all(item.dispatched_at is None for item in jobs[2:])
+    assert state.transaction.committed
+    state.queue.connection.close.assert_called_once()
+
+
+@pytest.mark.parametrize("stage", ["entry", "pending", "lock", "queue-depth"])
+def test_slow_prechecks_still_allow_one_delivery_without_starting_a_second(monkeypatch, stage):
+    from devfeed_aggregator import partner_outbox
+
+    clock = [0.0]
+    monkeypatch.setattr(partner_outbox, "time", NS(monotonic=lambda: clock[0]))
+    jobs = [job(), job()]
+    state = publisher(jobs=jobs)
+    if stage == "entry":
+        monkeypatch.setattr(partner_outbox, "PUBLICATION_BATCH_SECONDS", 0)
+    else:
+        calls = []
+
+        def scalar(_statement):
+            calls.append(True)
+            if len(calls) == (1 if stage == "pending" else 2) and stage != "queue-depth":
+                clock[0] = 1.1
+            return True
+
+        state.session.scalar.side_effect = scalar
+        if stage == "queue-depth":
+
+            def count():
+                clock[0] = 1.1
+                return 0
+
+            monkeypatch.setattr(
+                type(state.queue), "count", PropertyMock(side_effect=count), raising=False
+            )
+    assert publish(state) == 1
+    state.queue.enqueue.assert_called_once()
+    assert jobs[0].dispatched_at == state.outbox.now
+    assert jobs[1].dispatched_at is None
+    state.queue.connection.close.assert_called_once()
+
+
 @pytest.mark.parametrize("fresh_count,recovery_count", [(1000, 1000), (1000, 25), (75, 1000)])
 def test_fresh_and_recovery_backlogs_both_make_progress(fresh_count, recovery_count):
     fresh = [job() for _ in range(fresh_count)]
@@ -191,7 +248,10 @@ def test_unused_fresh_or_recovery_share_fills_the_same_batch(fresh_count, recove
     recovery_dispatched = len(dispatched & {str(item.id) for item in recovery})
     assert fresh_dispatched == min(fresh_count, max(75, 100 - recovery_count))
     assert recovery_dispatched == 100 - fresh_dispatched
-    state.queue.connection.incr.assert_not_called()
+    if fresh_count and recovery_count:
+        state.queue.connection.incr.assert_called_once()
+    else:
+        state.queue.connection.incr.assert_not_called()
 
 
 @pytest.mark.parametrize("queue_name", ["ingestion", "source-analysis"])
@@ -200,6 +260,7 @@ def test_one_free_slot_recovers_work_every_fourth_contended_refill(queue_name):
     for turn in range(1, 5):
         fresh, recovery = job(), job()
         state = publisher(jobs=[fresh], recovery=[recovery], count=199)
+        state.queue.connection.get.return_value = turn - 1
         state.queue.connection.incr = counter
         assert publish(state, queue_name=queue_name) == 1
         selected = recovery if turn == 4 else fresh
@@ -222,6 +283,7 @@ def test_shared_ai_queue_keeps_independent_recovery_turns_for_both_models():
         for model in (PartnerPipelineJob, PartnerEvaluation):
             fresh, recovery = job(), job()
             state = publisher(jobs=[fresh], recovery=[recovery], count=199)
+            state.queue.connection.get.return_value = turn - 1
             state.queue.connection.incr = counter
             assert publish(state, queue_name="source-analysis", model=model) == 1
             selected = recovery if turn == 4 else fresh
@@ -230,6 +292,47 @@ def test_shared_ai_queue_keeps_independent_recovery_turns_for_both_models():
         f"devfeed:partner-dispatch:recovery-turn:source-analysis:{model.__tablename__}": 4
         for model in (PartnerPipelineJob, PartnerEvaluation)
     }
+
+
+def test_slow_trickle_batches_keep_fresh_and_recovery_work_progressing(monkeypatch):
+    from devfeed_aggregator import partner_outbox
+
+    clock, turns, choices = [0.0], {}, []
+    monkeypatch.setattr(partner_outbox, "time", NS(monotonic=lambda: clock[0]))
+
+    def increment(key):
+        turns[key] = turns.get(key, 0) + 1
+        return turns[key]
+
+    for turn in range(8):
+        fresh, recovery = job(), job()
+        state = publisher(jobs=[fresh], recovery=[recovery])
+        state.queue.connection.get.side_effect = lambda key: turns.get(key)
+        state.queue.connection.incr.side_effect = increment
+
+        def enqueue(*_args, **_kwargs):
+            clock[0] += 1.1
+
+        state.queue.enqueue.side_effect = enqueue
+        assert publish(state) == 1
+        selected = state.queue.enqueue.call_args.args[1]
+        choices.append("recovery" if selected == str(recovery.id) else "fresh")
+        before = dict(turns)
+        full = publisher(count=200)
+        assert publish(full) == 0
+        full.queue.connection.get.assert_not_called()
+        full.queue.connection.incr.assert_not_called()
+        assert turns == before
+        assert sum(turns.values()) == turn + 1
+    assert choices == ["fresh", "fresh", "fresh", "recovery"] * 2
+
+
+def test_first_enqueue_failure_does_not_advance_the_recovery_turn():
+    state = publisher(jobs=[job()], recovery=[job()])
+    state.queue.enqueue.side_effect = RuntimeError("transport unavailable")
+    with pytest.raises(RuntimeError, match="transport unavailable"):
+        publish(state)
+    state.queue.connection.incr.assert_not_called()
 
 
 @pytest.mark.parametrize("fresh_only", [True, False])
@@ -253,7 +356,7 @@ def test_turn_counter_failure_rolls_back_and_closes_queue():
         publish(state)
     assert fresh.dispatched_at is None and recovery.dispatched_at is None
     assert state.transaction.rolled_back
-    state.queue.enqueue.assert_not_called()
+    state.queue.enqueue.assert_called_once()
     state.queue.connection.close.assert_called_once()
 
 

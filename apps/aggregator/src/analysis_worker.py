@@ -3,7 +3,7 @@
 import logging
 import os
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,15 +12,19 @@ from devfeed_core.ai_capacity import cooldown_key
 from devfeed_core.analytics_producer import shutdown as drain_analytics
 from devfeed_core.config import get_settings
 from devfeed_core.quota_pacing import quota_key, snapshot_pause_reason
+from devfeed_core.redis import configure_redis_io, create_redis
 from devfeed_core.runtime_files import write_runtime_marker
 from devfeed_core.telemetry import current, extract_context, span, start_runtime, stop_runtime
 from devfeed_core.worker_queues import AI_QUEUES, ROUTABLE_QUEUES, configured_queue
 from opentelemetry.trace import StatusCode
+from redis import Redis
+from redis.backoff import NoBackoff
 from redis.client import Pipeline
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
+from redis.retry import Retry
 from rq import Worker
-from rq.exceptions import DeserializationError, NoSuchJobError, StopRequested
+from rq.exceptions import DeserializationError, StopRequested
 from rq.job import Job
 from rq.queue import Queue
 from rq.suspension import WORKERS_SUSPENDED
@@ -32,6 +36,52 @@ POLL_INTERVAL = 1
 HEARTBEAT_INTERVAL = 30
 SHUTDOWN_CHECK_INTERVAL = 10
 ADMISSION_SCAN_SIZE = 100
+ADMISSION_FETCH_SIZE = 20
+ADMISSION_SCAN_SECONDS = 5
+CONTROL_TIMEOUT_SECONDS = 5
+
+
+class BoundedDequeueQueue(Queue):
+    """Only Redis's blocking pop uses the longer, independent wait socket."""
+
+    @classmethod
+    def lmove(cls, connection: Redis, queue_key: str, timeout: int | None) -> Any:
+        if timeout is None:
+            return super().lmove(connection, queue_key, timeout)
+        wait = min(timeout, SHUTDOWN_CHECK_INTERVAL)
+        with create_redis(
+            get_settings(),
+            socket_connect_timeout=CONTROL_TIMEOUT_SECONDS,
+            socket_timeout=wait + 1,
+            retry=Retry(NoBackoff(), 0),
+        ) as waiting:
+            configure_redis_io(
+                waiting,
+                socket_timeout=wait + 1,
+                socket_connect_timeout=CONTROL_TIMEOUT_SECONDS,
+            )
+            return super().lmove(waiting, queue_key, wait)
+
+    @classmethod
+    def lpop(
+        cls, queue_keys: Sequence[str], timeout: int | None, connection: Redis | None = None
+    ) -> Any:
+        if timeout is None:
+            return super().lpop(queue_keys, timeout, connection)
+        wait = min(timeout, SHUTDOWN_CHECK_INTERVAL)
+        with create_redis(
+            get_settings(),
+            socket_connect_timeout=CONTROL_TIMEOUT_SECONDS,
+            socket_timeout=wait + 1,
+            retry=Retry(NoBackoff(), 0),
+        ) as waiting:
+            configure_redis_io(
+                waiting,
+                socket_timeout=wait + 1,
+                socket_connect_timeout=CONTROL_TIMEOUT_SECONDS,
+            )
+            return super().lpop(queue_keys, wait, waiting)
+
 
 # Match RQ's LMOVE claim: a delivery is never absent from both transport lists.
 # Compare status/origin as well as membership so racing workers cannot claim twice.
@@ -123,9 +173,28 @@ class CodexReadiness:
 
 
 class AnalysisAwareWorker(Worker):
+    # RQ also retries failed dequeue exchanges outside redis-py's own retry.
+    # Keep that sleep short enough to observe a pending warm shutdown.
+    max_connection_wait_time = POLL_INTERVAL
+
+    def _set_connection(self, connection: Redis) -> Redis:
+        # RQ normally increases this shared pool's socket timeout to worker_ttl
+        # minus five seconds. Admission, job fetches and heartbeats never block
+        # intentionally; only BoundedDequeueQueue owns the longer wait socket.
+        configure_redis_io(
+            connection,
+            socket_timeout=CONTROL_TIMEOUT_SECONDS,
+            socket_connect_timeout=CONTROL_TIMEOUT_SECONDS,
+        )
+        return connection
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         # RQ owns this variadic constructor contract; preserve SDK forwarding.
         super().__init__(*args, **kwargs)
+        if self.queue_class is Queue:
+            # Validate caller-supplied Queue subclasses through RQ first. The
+            # specialized backend only changes the subsequent dequeue command.
+            self.queue_class = BoundedDequeueQueue
         queues = args[0] if args else kwargs.get("queues", [])
         ai_kinds = (*AI_QUEUES, "partner-evaluation", "partner-pipeline")
         self.ai_queue_names = {configured_queue(name) for name in ai_kinds}
@@ -342,23 +411,54 @@ class AnalysisAwareWorker(Worker):
             yield from ((job, queue) for job in self.priority_page(queue))
 
     def priority_page(self, queue: Queue) -> Iterator[Job]:
+        started = time.monotonic()
         offset = self.scan_offsets.get(queue.name, 0)
         identifiers = self.connection.lrange(queue.key, offset, offset + ADMISSION_SCAN_SIZE - 1)
-        self.scan_offsets[queue.name] = (
-            offset + len(identifiers) if len(identifiers) == ADMISSION_SCAN_SIZE else 0
-        )
-        for identifier in identifiers:
+        if not identifiers:
+            self.scan_offsets[queue.name] = 0
+        for index, identifier, job in self._priority_hashes(identifiers, started):
             if self._stop_requested:
                 return
-            job_id = identifier.decode() if isinstance(identifier, bytes) else identifier
-            try:
-                yield self.job_class.fetch(
-                    job_id, connection=self.connection, serializer=self.serializer
-                )
-            except NoSuchJobError:
+            if index and time.monotonic() - started >= ADMISSION_SCAN_SECONDS:
+                return
+            position = index + 1
+            self.scan_offsets[queue.name] = (
+                0
+                if position == len(identifiers) and len(identifiers) < ADMISSION_SCAN_SIZE
+                else offset + position
+            )
+            if job is not None:
+                yield job
+            else:
                 self.connection.eval(
-                    REMOVE_MISSING_DELIVERY, 2, queue.key, Job.key_for(job_id), job_id
+                    REMOVE_MISSING_DELIVERY,
+                    2,
+                    queue.key,
+                    Job.key_for(identifier),
+                    identifier,
                 )
+
+    def _priority_hashes(
+        self, identifiers: Sequence[bytes | str], started: float
+    ) -> Iterator[tuple[int, str, Job | None]]:
+        """Fetch one short batch at a time, keeping control exchanges interruptible."""
+        for start in range(0, len(identifiers), ADMISSION_FETCH_SIZE):
+            if self._stop_requested:
+                return
+            if time.monotonic() >= self.next_admission_heartbeat:
+                self.heartbeat()
+            if self._stop_requested:
+                return
+            if start and time.monotonic() - started >= ADMISSION_SCAN_SECONDS:
+                return
+            batch = [
+                identifier.decode() if isinstance(identifier, bytes) else identifier
+                for identifier in identifiers[start : start + ADMISSION_FETCH_SIZE]
+            ]
+            jobs = self.job_class.fetch_many(
+                batch, connection=self.connection, serializer=self.serializer
+            )
+            yield from zip(range(start, start + len(batch)), batch, jobs, strict=True)
 
     def priority_admission(self, job: Job, queue: Queue, *, ai_blocked: bool) -> bool | None:
         if not job_requires_ai(job, queue):

@@ -45,13 +45,20 @@ from devfeed_core.partner_credentials import connection_credential
 from devfeed_core.partner_tools import QUALIFICATION_TTL, ProductInput, product_snapshot
 from devfeed_core.research_evidence import FetchedPage, fetched_page
 from devfeed_core.urls import canonicalize_url, fingerprint
+from rq import Queue
 from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, aliased, sessionmaker
 from sqlalchemy.sql import ColumnElement
 
-from devfeed_aggregator.partner_outbox import DispatchLog, PartnerOutbox, emit_dispatch_logs
-from devfeed_aggregator.queue import get_queue
+from devfeed_aggregator.partner_claim import claim_partner_job
+from devfeed_aggregator.partner_outbox import (
+    PUBLICATION_BATCH_SECONDS,
+    DispatchLog,
+    PartnerOutbox,
+    emit_dispatch_logs,
+)
+from devfeed_aggregator.queue import get_publication_queue as get_queue
 
 logger = logging.getLogger(__name__)
 ASSESSMENT_RENEWAL_LEAD_TIME = timedelta(days=7)
@@ -64,13 +71,38 @@ class _PipelineTurn:
     assessment_first: bool = False
     published: int = 0
     pending_logs: list[DispatchLog] | None = None
+    deadline: float | None = None
+
+
+@contextmanager
+def _committed_dispatch_logs(records: list[DispatchLog]) -> Iterator[None]:
+    succeeded = False
+    try:
+        yield
+        succeeded = True
+    finally:
+        if succeeded:
+            emit_dispatch_logs(records)
+
+
+@contextmanager
+def _advance_pipeline_turn(queue: Queue, state: _PipelineTurn, key: str) -> Iterator[None]:
+    succeeded = False
+    try:
+        yield
+        succeeded = True
+    finally:
+        if succeeded and state.published:
+            queue.connection.incr(key)
 
 
 @contextmanager
 def _pipeline_turn(
     factory: sessionmaker[Session], statement: Select[PartnerPipelineJob], batch_size: int
 ) -> Iterator[_PipelineTurn | None]:
-    with factory.begin() as session:
+    deadline = time.monotonic() + PUBLICATION_BATCH_SECONDS
+    records: list[DispatchLog] = []
+    with _committed_dispatch_logs(records), factory.begin() as session:
         if not session.scalar(select(statement.order_by(None).exists())):
             yield None
             return
@@ -90,14 +122,15 @@ def _pipeline_turn(
                 return
             key = f"devfeed:partner-dispatch:lane-turn:{queue.name}"
             state = _PipelineTurn(
-                session, bool(int(queue.connection.get(key) or 0) % 2), pending_logs=[]
+                session,
+                bool(int(queue.connection.get(key) or 0) % 2),
+                pending_logs=records,
+                deadline=deadline,
             )
-            yield state
-            if state.published:
-                queue.connection.incr(key)
+            with _advance_pipeline_turn(queue, state, key):
+                yield state
         finally:
             queue.connection.close()
-    emit_dispatch_logs(state.pending_logs or [])
 
 
 def job_fields(job: PartnerPipelineJob) -> dict[str, object]:
@@ -272,23 +305,32 @@ def _process_pipeline(
     started = time.perf_counter()
     factory = factory or session_factory()
     identifier = uuid.UUID(job_id)
-    with factory.begin() as session:
-        lock_catalog(session)
+
+    def acquire(
+        session: Session,
+    ) -> tuple[PartnerPipelineJob | None, PartnerConnection | None, PartnerPipelineJob | None]:
         existing_job = session.get(PartnerPipelineJob, identifier)
         if existing_job is None:
-            logger.debug("partner_pipeline_not_found")
-            return
+            return None, None, None
         provider = existing_job.provider
         connection = session.scalar(
             select(PartnerConnection)
             .where(PartnerConnection.provider == provider)
-            .with_for_update()
+            .with_for_update(nowait=True)
         )
         job = session.scalar(
             select(PartnerPipelineJob)
             .where(PartnerPipelineJob.id == identifier, runnable(utcnow()))
-            .with_for_update()
+            .with_for_update(nowait=True)
         )
+        return existing_job, connection, job
+
+    with claim_partner_job(factory, acquire) as (session, claimed):
+        existing_job, connection, job = claimed
+        if existing_job is None:
+            logger.debug("partner_pipeline_not_found")
+            return
+        provider = existing_job.provider
         if not job:
             logger.debug("partner_pipeline_not_claimed", extra={"provider": provider})
             return
@@ -412,10 +454,16 @@ def _process_pipeline(
             page = (page_fetcher or fetched_page)(snapshot["product_url"], 15)
             page = {"final_url": page["final_url"], "text": page["text"][:20000]}
             assessment_stage = "redirect_verification"
+
             # Resolve observed redirects before paying for a second assessment of the same tool.
-            with factory.begin() as session:
-                lock_catalog(session)
-                current_job = session.get(PartnerPipelineJob, identifier)
+            def acquire_current(session: Session) -> PartnerPipelineJob | None:
+                return session.scalar(
+                    select(PartnerPipelineJob)
+                    .where(PartnerPipelineJob.id == identifier)
+                    .with_for_update(nowait=True)
+                )
+
+            with claim_partner_job(factory, acquire_current) as (session, current_job):
                 current_product = (
                     session.get(PartnerProduct, current_job.product_id) if current_job else None
                 )
@@ -474,16 +522,24 @@ def _process_pipeline(
     if error and operation == "assess":
         error_fields.setdefault("diagnostic_code", "assessment_failed")
         error_fields.setdefault("assessment_stage", assessment_stage)
-    with factory.begin() as session:
-        lock_catalog(session)
+
+    def acquire_result(
+        session: Session,
+    ) -> tuple[PartnerConnection | None, PartnerPipelineJob | None]:
         connection = session.scalar(
             select(PartnerConnection)
             .where(PartnerConnection.provider == provider)
-            .with_for_update()
+            .with_for_update(nowait=True)
         )
         job = session.scalar(
-            select(PartnerPipelineJob).where(PartnerPipelineJob.id == identifier).with_for_update()
+            select(PartnerPipelineJob)
+            .where(PartnerPipelineJob.id == identifier)
+            .with_for_update(nowait=True)
         )
+        return connection, job
+
+    with claim_partner_job(factory, acquire_result) as (session, claimed_result):
+        connection, job = claimed_result
         if not job or job.status != "running" or job.lease_token != token:
             logger.warning(
                 "partner_pipeline_result_discarded",
@@ -763,7 +819,7 @@ def dispatch_partner_pipeline(
     turn_context = (
         _pipeline_turn(factory, statement, settings.scheduler_batch_size)
         if settings.ai_enabled
-        else nullcontext(_PipelineTurn())
+        else nullcontext(_PipelineTurn(deadline=time.monotonic() + PUBLICATION_BATCH_SECONDS))
     )
     error = None
     with turn_context as turn:
@@ -792,6 +848,7 @@ def dispatch_partner_pipeline(
                     fields=job_fields,
                     session=turn.session,
                     pending_logs=turn.pending_logs,
+                    deadline=turn.deadline,
                 )
             except Exception as exc:
                 # A failed sync delivery must not consume assessment's publication budget.

@@ -128,6 +128,51 @@ def test_unknown_queue_is_rejected_before_creating_a_redis_connection(monkeypatc
     connect.assert_not_called()
 
 
+def test_publication_client_has_an_independent_single_attempt_io_budget(monkeypatch):
+    config = queues.get_settings()
+    monkeypatch.setattr(config, "job_queue_overrides", {"partner-pipeline": "catalog"})
+    monkeypatch.setattr(
+        config, "redis_url", "redis://ignored:6379/15?socket_timeout=85&socket_connect_timeout=85"
+    )
+    publication = queues.get_publication_queue("partner-pipeline")
+    ordinary = queues.get_queue("partner-pipeline")
+    try:
+        assert publication.name == ordinary.name == "catalog"
+        assert publication.logical_name == "partner-pipeline"
+        assert publication.redirect_queue is queues.get_publication_queue
+        assert publication.serializer is JSONSerializer
+        assert publication.connection.connection_pool is not ordinary.connection.connection_pool
+        options = publication.connection.connection_pool.connection_kwargs
+        assert options["socket_timeout"] == options["socket_connect_timeout"] == 1
+        assert options["retry"].get_retries() == 0
+        assert options["db"] == 15
+        assert ordinary.connection.connection_pool.connection_kwargs["socket_timeout"] == 85
+    finally:
+        publication.connection.close()
+        ordinary.connection.close()
+
+
+@pytest.mark.parametrize(
+    "handler,logical",
+    [
+        ("devfeed_aggregator.partner_sync_tasks.process_pipeline", "partner-pipeline"),
+        ("devfeed_aggregator.partner_tasks.process_evaluation", "partner-evaluation"),
+        ("devfeed_aggregator.recommendation_tasks.refresh", "recommendations"),
+    ],
+)
+def test_handler_redirection_retains_its_publication_client_factory(runtime, handler, logical):
+    runtime.queue.logical_name = "ingestion"
+    target = Mock()
+    target.enqueue.return_value = object()
+    redirect = Mock(return_value=target)
+    runtime.queue.redirect_queue = redirect
+    assert runtime.queue.enqueue(handler, "id", unique=True) is target.enqueue.return_value
+    redirect.assert_called_once_with(logical)
+    target.enqueue.assert_called_once_with(handler, "id", unique=True)
+    target.connection.close.assert_called_once()
+    runtime.base.assert_not_called()
+
+
 def test_owned_delivery_on_an_old_custom_route_is_repaired_in_place(runtime):
     row = existing(runtime, JobStatus.QUEUED, origin="retired-dedicated")
     row.meta = {"devfeed_queue": "article-analysis"}

@@ -53,7 +53,6 @@ def test_evaluation_rejects_stale_or_unowned_results(monkeypatch, mode):
     job = leased_job(attempts=3 if mode == "exhausted" else 0)
     session.scalar.return_value = None if mode == "missing" else job
     monkeypatch.setattr(evaluations, "get_settings", lambda: NS(ai_enabled=mode != "disabled"))
-    monkeypatch.setattr(evaluations, "lock_catalog", Mock())
     publish = Mock()
     monkeypatch.setattr(evaluations, "save_evaluation_matches", publish)
     current = Mock(
@@ -97,7 +96,6 @@ def test_evaluation_dispatch_closes_queue_even_on_delivery_failure(monkeypatch, 
         evaluations, "get_settings", lambda: NS(ai_enabled=enabled, scheduler_batch_size=100)
     )
     monkeypatch.setattr(evaluations, "get_queue", lambda _: queue)
-    monkeypatch.setattr(evaluations, "lock_catalog", Mock())
     if failed:
         queue.enqueue.side_effect = RuntimeError("redis unavailable")
         with pytest.raises(RuntimeError):
@@ -150,7 +148,6 @@ def test_product_sync_preserves_generation_and_fences_results(monkeypatch, mode)
     session.get.side_effect = lambda model, identifier: (
         connection if model is PartnerConnection else parent if identifier == parent.id else job
     )
-    monkeypatch.setattr(products, "lock_catalog", Mock())
     monkeypatch.setattr(pipeline, "pending_redirect_proofs", lambda *_: [])
     monkeypatch.setattr(products, "ProductCandidate", Mock())
     products.ProductCandidate.model_validate.return_value = NS(external_id="checker")
@@ -353,6 +350,79 @@ def test_shared_lane_dispatch_logs_wait_for_the_outer_commit(monkeypatch, mode):
         record.assert_not_called()
     queue.enqueue.assert_called_once()
     assert queue.connection.close.call_count == 3
+
+
+def test_pipeline_turn_body_failure_cannot_advance_or_log_uncommitted_work(monkeypatch):
+    from devfeed_aggregator import partner_outbox
+    from devfeed_core.models import PartnerPipelineJob
+    from sqlalchemy import select
+
+    session, queue = Mock(), Mock()
+    queue.name, queue.count = "default", 0
+    queue.connection.get.return_value = None
+    monkeypatch.setattr(pipeline, "get_queue", Mock(return_value=queue))
+    record = Mock()
+    monkeypatch.setattr(partner_outbox.logger, "info", record)
+    with (
+        pytest.raises(RuntimeError, match="cancelled"),
+        pipeline._pipeline_turn(
+            transaction_factory(session), select(PartnerPipelineJob), 100
+        ) as turn,
+    ):
+        turn.published = 1
+        turn.pending_logs.append(("partner_pipeline_dispatched", {"job_id": "never-committed"}))
+        raise RuntimeError("cancelled")
+    queue.connection.incr.assert_not_called()
+    record.assert_not_called()
+    queue.connection.close.assert_called_once()
+
+
+@pytest.mark.parametrize("network_fails", [False, True])
+def test_pipeline_shares_the_batch_deadline_without_starving_the_second_lane(
+    monkeypatch, network_fails
+):
+    from devfeed_aggregator import partner_outbox
+
+    clock = [0.0]
+    monkeypatch.setattr(pipeline, "time", NS(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(partner_outbox, "time", NS(monotonic=lambda: clock[0]))
+    session, queue = Mock(), Mock()
+    queue.name, queue.count = "default", 0
+    queue.connection.get.return_value = None
+    jobs = [leased_job(operation=operation) for operation in ["sync_product"] * 3 + ["assess"] * 3]
+
+    def claims(statement):
+        operations = next(
+            value
+            for key, value in statement.compile().params.items()
+            if key.startswith("operation_") and isinstance(value, list)
+        )
+        fresh = "dispatched_at IS NOT NULL" not in str(statement)
+        selected = [job for job in jobs if fresh and job.operation in operations]
+        return NS(all=lambda: selected)
+
+    def enqueue(*_args, **kwargs):
+        clock[0] += 0.6
+        if network_fails and not kwargs["meta"]["devfeed_ai"]:
+            clock[0] += 0.6
+            raise RuntimeError("network publication failed")
+
+    session.scalars.side_effect = claims
+    queue.enqueue.side_effect = enqueue
+    monkeypatch.setattr(pipeline, "schedule_partner_syncs", Mock())
+    monkeypatch.setattr(
+        pipeline, "get_settings", lambda: NS(ai_enabled=True, scheduler_batch_size=100)
+    )
+    monkeypatch.setattr(pipeline, "get_queue", Mock(return_value=queue))
+    if network_fails:
+        with pytest.raises(RuntimeError, match="network publication failed"):
+            pipeline.dispatch_partner_pipeline(transaction_factory(session))
+        assert all(job.dispatched_at is None for job in jobs[:3])
+    else:
+        assert pipeline.dispatch_partner_pipeline(transaction_factory(session)) == 3
+        assert [job.dispatched_at is not None for job in jobs[:3]] == [True, True, False]
+    assert [job.dispatched_at is not None for job in jobs[3:]] == [True, False, False]
+    queue.connection.incr.assert_called_once_with("devfeed:partner-dispatch:lane-turn:default")
 
 
 @pytest.mark.parametrize("created", [False, True])

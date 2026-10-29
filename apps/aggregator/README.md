@@ -169,6 +169,15 @@ publication remains in the PostgreSQL outbox and unique delivery IDs prevent dup
 The main scheduler retains bounded dispatch as a fallback and schedules source imports and
 qualification renewal separately from the fast refill loop.
 
+Publication uses independent Redis clients with one-second connect/read timeouts and no
+automatic command retries. A one-second batch budget stops additional enqueues; each eligible
+stage can still attempt its first delivery so slow transport cannot permanently prevent
+progress. An enqueue can use multiple Redis commands; these limits are not a hard deadline
+for the whole transaction. Unattempted durable jobs remain unmarked for the next refill.
+Worker claims retry contention outside the catalog transaction, with a five-second retry
+budget. A contended claim releases the global catalog lock before its retry wait. A failed claim remains
+recoverable from the durable outbox.
+
 `partner_pipeline_dispatched` and `partner_evaluations_dispatched` count fallback publication
 in scheduler tick logs; `partner_pipeline_refilled` and `partner_evaluation_refilled` report
 the independent dispatcher. These counts measure publication, not completed imports or a
@@ -343,6 +352,14 @@ During an AI-provider pause, workers perform a bounded forward scan for runnable
 non-AI deliveries without moving paused AI jobs. This permits a runnable delivery
 to pass paused work rather than enforcing strict FIFO during the pause.
 The scheduler, search indexer and temporary analytics importer remain separate.
+
+Worker Redis control calls have connect/read limits of at most five seconds and no command
+retries. Intentional idle dequeue waits use a separate connection and wait at most ten
+seconds; they cannot enlarge the control connection's timeout. Admission reads job hashes in
+small batches, checks its scan time budget and confirms heartbeats between batches. Provider
+readiness has a five-second RPC budget and can still delay selection. Work already
+running occupies its RQ consumer until it completes or reaches its job timeout; use a
+dedicated job queue override when a kind needs independent execution capacity.
 
 Images and solver work keep separate physical queues and credentialed workers.
 Image-storage credentials and solver endpoints are never mounted on general

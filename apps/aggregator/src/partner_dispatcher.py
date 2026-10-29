@@ -24,6 +24,8 @@ def partner_dispatcher(factory: sessionmaker[Session], *, interval: float = 1.0)
         )
         while not stop.is_set():
             for operation, dispatch in dispatches:
+                if stop.is_set():
+                    break
                 try:
                     count = dispatch()
                     if count:
@@ -34,7 +36,7 @@ def partner_dispatcher(factory: sessionmaker[Session], *, interval: float = 1.0)
                         "partner_" + operation + "_refill_failed",
                         extra={"error_type": type(exc).__name__},
                     )
-            # Both operations share source-analysis capacity. Rotate first access.
+            # The operations may share a physical queue. Rotate first access.
             dispatches = dispatches[::-1]
             stop.wait(interval)
 

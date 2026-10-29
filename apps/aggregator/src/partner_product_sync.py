@@ -7,13 +7,15 @@ from collections.abc import Callable
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, start_job
 from devfeed_core.models import PartnerConnection, PartnerPipelineJob, PartnerProduct, utcnow
-from devfeed_core.partner_catalog import lock_catalog, record_verified_redirect, upsert_listing
+from devfeed_core.partner_catalog import record_verified_redirect, upsert_listing
 from devfeed_core.partner_connectors import ConnectorClient, ProductCandidate, connector_snapshot
 from devfeed_core.partner_credentials import connection_credential
 from devfeed_core.partner_tools import ProductInput
 from devfeed_core.research_evidence import FetchedPage, fetched_page
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
+
+from devfeed_aggregator.partner_claim import claim_partner_job
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +29,13 @@ def process_product_sync(
 ) -> None:
     from devfeed_aggregator.partner_sync_tasks import job_fields, pending_redirect_proofs, runnable
 
-    with factory.begin() as session:
-        lock_catalog(session)
-        job = session.scalar(
-            select(PartnerPipelineJob)
-            .where(PartnerPipelineJob.id == identifier, runnable(utcnow()))
-            .with_for_update()
-        )
+    def acquire(session: Session, *, ready_only: bool = True) -> PartnerPipelineJob | None:
+        statement = select(PartnerPipelineJob).where(PartnerPipelineJob.id == identifier)
+        if ready_only:
+            statement = statement.where(runnable(utcnow()))
+        return session.scalar(statement.with_for_update(nowait=True))
+
+    with claim_partner_job(factory, acquire) as (session, job):
         if not job:
             return
         connection = session.get(PartnerConnection, job.provider)
@@ -72,9 +74,10 @@ def process_product_sync(
         if item.provider != provider or item.external_id != candidate.external_id:
             raise ValueError("Partner product identity changed")
         proofs = pending_redirect_proofs(factory, [item], page_fetcher or fetched_page)
-        with factory.begin() as session:
-            lock_catalog(session)
-            job = session.get(PartnerPipelineJob, identifier)
+        with claim_partner_job(factory, lambda session: acquire(session, ready_only=False)) as (
+            session,
+            job,
+        ):
             connection = session.get(PartnerConnection, provider)
             parent = session.get(PartnerPipelineJob, parent_id)
             if not job or job.status != "running" or job.lease_token != token:
@@ -115,9 +118,10 @@ def process_product_sync(
         retryable = not isinstance(exc, ValueError)
         error_fields = {"error_type": type(exc).__name__}
     # Catalog failures roll back only this product; record its retry in a fresh transaction.
-    with factory.begin() as session:
-        lock_catalog(session)
-        job = session.get(PartnerPipelineJob, identifier)
+    with claim_partner_job(factory, lambda session: acquire(session, ready_only=False)) as (
+        session,
+        job,
+    ):
         if not job or job.status != "running" or job.lease_token != token:
             return
         fail_or_retry(job, error, utcnow(), retryable=retryable, retry_after=retry_after)

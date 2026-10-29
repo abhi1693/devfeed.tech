@@ -1,6 +1,7 @@
 """Publish bounded partner work without overfilling shared worker queues."""
 
 import logging
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 Job = TypeVar("Job", PartnerPipelineJob, PartnerEvaluation)
 _LANES = {"ingestion", "source-analysis"}
 DispatchLog = tuple[str, dict[str, Any]]
+PUBLICATION_BATCH_SECONDS = 1.0
 
 
 def emit_dispatch_logs(records: list[DispatchLog]) -> None:
@@ -70,14 +72,16 @@ class PartnerOutbox:
         limit: int | None = None,
         session: Session | None = None,
         pending_logs: list[DispatchLog] | None = None,
+        deadline: float | None = None,
     ) -> int:
         if queue_name not in _LANES:
             raise ValueError("Unsupported partner worker queue")
         requested = self.batch_size if limit is None else limit
         if requested < 1:
             raise ValueError("Partner publication limit must be positive")
+        deadline = time.monotonic() + PUBLICATION_BATCH_SECONDS if deadline is None else deadline
         queue = None
-        dispatch_logs = []
+        dispatch_logs: list[dict[str, Any]] = []
         try:
             with _publication_session(self.factory, session) as session:
                 # Empty partner lanes need no Redis connection, queue lock or
@@ -118,14 +122,28 @@ class PartnerOutbox:
                         .with_for_update(skip_locked=True)
                     ).all()
                 )
-                if remaining == 1 and fresh and recovery:
-                    turn = queue.connection.incr(
+                turn_key = None
+                turn = 0
+                if fresh and recovery:
+                    turn_key = (
                         f"devfeed:partner-dispatch:recovery-turn:{queue_name}:{model.__tablename__}"
                     )
+                    turn = int(queue.connection.get(turn_key) or 0) + 1
+                if remaining == 1 and fresh and recovery:
                     jobs = recovery if turn % 4 == 0 else fresh
                 else:
-                    jobs = fresh[: remaining - len(recovery)] + recovery
+                    selected_fresh = fresh[: remaining - len(recovery)]
+                    jobs = (
+                        recovery + selected_fresh
+                        if turn_key and turn % 4 == 0
+                        else selected_fresh + recovery
+                    )
                 for job in jobs:
+                    # A successful but slow response must not extend this batch
+                    # by another enqueue. One attempt per eligible lane still
+                    # makes progress when prechecks consume the shared budget.
+                    if dispatch_logs and time.monotonic() >= deadline:
+                        break
                     queue.enqueue(
                         handler,
                         str(job.id),
@@ -136,6 +154,9 @@ class PartnerOutbox:
                         failure_ttl=60,
                         meta={"devfeed_ai": queue_name == "source-analysis"},
                     )
+                    if turn_key and not dispatch_logs:
+                        # Full/no-op/failed admissions must not consume a turn.
+                        queue.connection.incr(turn_key)
                     job.dispatched_at = self.now
                     dispatch_logs.append({**fields(job), "queue": queue_name})
         finally:

@@ -218,7 +218,7 @@ def test_pause_fences_product_result(admin_client, database, product_payload):
 
 
 def test_dispatches_product_jobs_without_ai_or_waiting_parent(
-    admin_client, database, product_payload, priority_queue_routes
+    admin_client, database, product_payload, priority_queue_routes, publication_capacity_budget
 ):
     from devfeed_aggregator.partner_sync_tasks import dispatch_partner_pipeline
     from devfeed_aggregator.queue import get_queue

@@ -643,7 +643,11 @@ def test_priority_scan_reaches_io_behind_more_than_one_page_of_paused_ai(
     monkeypatch.setattr(worker.connection, "lrange", read)
     claim = Mock(return_value=1)
     monkeypatch.setattr(worker.connection, "eval", claim)
-    monkeypatch.setattr(worker.job_class, "fetch", lambda identifier, **kwargs: jobs[identifier])
+    monkeypatch.setattr(
+        worker.job_class,
+        "fetch_many",
+        lambda identifiers, **kwargs: [jobs[key] for key in identifiers],
+    )
     snapshot = analysis_worker.AdmissionSnapshot({"default": True})
     assert worker.dequeue_priority(snapshot) is None
     result = worker.dequeue_priority(snapshot)
@@ -666,7 +670,11 @@ def test_priority_quota_gate_skips_ai_but_executes_io_without_clearing_ai_work(
     monkeypatch.setattr(worker.connection, "lrange", lambda *args: list(jobs))
     claim = Mock(return_value=1)
     monkeypatch.setattr(worker.connection, "eval", claim)
-    monkeypatch.setattr(worker.job_class, "fetch", lambda identifier, **kwargs: jobs[identifier])
+    monkeypatch.setattr(
+        worker.job_class,
+        "fetch_many",
+        lambda identifiers, **kwargs: [jobs[key] for key in identifiers],
+    )
     assert worker.dequeue_priority(snapshot)[0].id == "io"
     worker.codex_readiness.ready.assert_not_called()
     assert claim.call_args.args[-2:] == ("io", "default")
@@ -683,7 +691,11 @@ def test_priority_claim_race_does_not_execute_a_delivery_claimed_by_another_work
     monkeypatch.setattr(worker.connection, "lrange", lambda *args: list(jobs))
     claim = Mock(side_effect=[0, 1])
     monkeypatch.setattr(worker.connection, "eval", claim)
-    monkeypatch.setattr(worker.job_class, "fetch", lambda identifier, **kwargs: jobs[identifier])
+    monkeypatch.setattr(
+        worker.job_class,
+        "fetch_many",
+        lambda identifiers, **kwargs: [jobs[key] for key in identifiers],
+    )
     assert (
         worker.dequeue_priority(analysis_worker.AdmissionSnapshot({"default": True}))[0].id
         == "second"
@@ -698,12 +710,120 @@ def test_priority_ai_claim_requires_a_fresh_readiness_check_for_each_delivery(
     job = queued_delivery("ai", "partner-evaluation")
     monkeypatch.setattr(worker.connection, "lrange", lambda *args: ["ai"])
     monkeypatch.setattr(worker.connection, "eval", lambda *args: 1)
-    monkeypatch.setattr(worker.job_class, "fetch", lambda *args, **kwargs: job)
+    monkeypatch.setattr(worker.job_class, "fetch_many", lambda *args, **kwargs: [job])
     worker.codex_readiness.ready = Mock(return_value=True)
     snapshot = analysis_worker.AdmissionSnapshot({"default": True})
     assert worker.dequeue_priority(snapshot)[0] is job
     assert worker.dequeue_priority(snapshot)[0] is job
     assert worker.codex_readiness.ready.call_args_list == [call(pending=True), call(pending=True)]
+
+
+def test_priority_scan_batches_reads_and_resumes_after_its_wall_time_budget(
+    monkeypatch, worker_factory, clock
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    identifiers = [str(index) for index in range(50)]
+    pages, batches, heartbeats = [], [], []
+
+    def page(_key, start, end):
+        pages.append((start, end))
+        return identifiers[start : end + 1]
+
+    def fetch(keys, **_kwargs):
+        batches.append(list(keys))
+        clock.now += 2
+        return [queued_delivery(key, "article-analysis") for key in keys]
+
+    def heartbeat():
+        heartbeats.append(clock.now)
+        worker.next_admission_heartbeat = clock.now + 3
+
+    monkeypatch.setattr(worker.connection, "lrange", page)
+    monkeypatch.setattr(worker.job_class, "fetch_many", fetch)
+    worker.heartbeat = heartbeat
+    assert [job.id for job in worker.priority_page(worker.queues[0])] == identifiers[:40]
+    assert worker.scan_offsets == {"default": 40}
+    assert [len(batch) for batch in batches] == [20, 20, 10]
+    assert heartbeats == [0, 4]
+    assert [job.id for job in worker.priority_page(worker.queues[0])] == identifiers[40:]
+    assert pages == [(0, 99), (40, 139)]
+    assert worker.scan_offsets == {"default": 0}
+
+
+@pytest.mark.parametrize("stop_during", ["heartbeat", "fetch"])
+def test_priority_scan_stops_before_yielding_or_claiming_after_a_slow_exchange(
+    monkeypatch, worker_factory, stop_during
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    monkeypatch.setattr(worker.connection, "lrange", lambda *_args: ["queued"])
+    fetch = Mock(return_value=[queued_delivery("queued", "ingestion")])
+    if stop_during == "heartbeat":
+        worker.heartbeat = worker._shutdown
+    else:
+
+        def stopped_fetch(*_args, **_kwargs):
+            worker._shutdown()
+            return [queued_delivery("queued", "ingestion")]
+
+        fetch.side_effect = stopped_fetch
+    monkeypatch.setattr(worker.job_class, "fetch_many", fetch)
+    claim = Mock()
+    monkeypatch.setattr(worker.connection, "eval", claim)
+    assert worker.dequeue_priority(analysis_worker.AdmissionSnapshot({"default": True})) is None
+    claim.assert_not_called()
+    if stop_during == "heartbeat":
+        fetch.assert_not_called()
+
+
+def test_priority_scan_removes_only_still_missing_hashes_and_stops_on_failed_heartbeat(
+    monkeypatch, worker_factory
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    monkeypatch.setattr(worker.connection, "lrange", lambda *_args: ["missing", "ready"])
+    fetch = Mock(return_value=[None, queued_delivery("ready", "ingestion")])
+    monkeypatch.setattr(worker.job_class, "fetch_many", fetch)
+    cleanup = Mock(return_value=1)
+    monkeypatch.setattr(worker.connection, "eval", cleanup)
+    assert [job.id for job in worker.priority_page(worker.queues[0])] == ["ready"]
+    cleanup.assert_called_once_with(
+        analysis_worker.REMOVE_MISSING_DELIVERY,
+        2,
+        worker.queues[0].key,
+        "rq:job:missing",
+        "missing",
+    )
+    worker.heartbeat = Mock(side_effect=RedisError("unconfirmed heartbeat"))
+    fetch.reset_mock()
+    with pytest.raises(RedisError, match="unconfirmed heartbeat"):
+        list(worker.priority_page(worker.queues[0]))
+    fetch.assert_not_called()
+
+
+@pytest.mark.parametrize("boundary", ["empty", "stopped", "budget"])
+def test_priority_scan_rechecks_limits_before_reading_another_batch(
+    monkeypatch, worker_factory, clock, boundary
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    identifiers = [] if boundary == "empty" else [str(index) for index in range(40)]
+    worker.scan_offsets["default"] = 0
+    monkeypatch.setattr(worker.connection, "lrange", lambda *_args: identifiers)
+    fetch = Mock(
+        side_effect=lambda keys, **_kwargs: [queued_delivery(key, "ingestion") for key in keys]
+    )
+    monkeypatch.setattr(worker.job_class, "fetch_many", fetch)
+    page = worker.priority_page(worker.queues[0])
+    if boundary == "empty":
+        assert list(page) == [] and worker.scan_offsets["default"] == 0
+        fetch.assert_not_called()
+        return
+    assert [next(page).id for _ in range(20)] == identifiers[:20]
+    if boundary == "stopped":
+        worker._shutdown()
+    else:
+        clock.now = analysis_worker.ADMISSION_SCAN_SECONDS
+    assert list(page) == []
+    fetch.assert_called_once()
+    assert worker.scan_offsets["default"] == 20
 
 
 @pytest.mark.parametrize(

@@ -20,7 +20,10 @@ from devfeed_core.models import (
 from devfeed_core.partner_catalog import lock_catalog
 from sqlalchemy import func, insert, select, text
 
-pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("priority_queue_routes")]
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.usefixtures("priority_queue_routes", "publication_capacity_budget"),
+]
 
 
 def seed_jobs(database, count, *, operation="sync_product", **values):

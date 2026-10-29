@@ -4,10 +4,10 @@ from typing import Any
 
 from devfeed_core.config import get_settings
 from devfeed_core.jobs import JOB_TIMEOUT_SECONDS
-from devfeed_core.redis import create_redis
+from devfeed_core.redis import configure_redis_io, create_redis
 from devfeed_core.telemetry import inject_context
 from devfeed_core.worker_queues import ROUTABLE_QUEUES, configured_queue, physical_queues
-from redis.backoff import ExponentialWithJitterBackoff
+from redis.backoff import ExponentialWithJitterBackoff, NoBackoff
 from redis.retry import Retry
 from rq import Queue
 from rq.exceptions import DuplicateJobError, NoSuchJobError
@@ -31,6 +31,7 @@ class DurableQueue(Queue):
     """Keep an existing delivery in place when the database outbox checks it again."""
 
     logical_name: str | None = None
+    redirect_queue: Callable[[str], "DurableQueue"] | None = None
 
     def enqueue(self, f: str | Callable[..., object], *args: Any, **kwargs: Any) -> Job:
         aliases = {
@@ -40,7 +41,7 @@ class DurableQueue(Queue):
         }
         alias = aliases.get(f) if isinstance(f, str) else None
         if self.logical_name and alias and alias != self.logical_name:
-            target = get_queue(alias)
+            target = (self.redirect_queue or get_queue)(alias)
             try:
                 return target.enqueue(f, *args, **kwargs)
             finally:
@@ -99,7 +100,9 @@ class DurableQueue(Queue):
             return super().enqueue(f, *args, **kwargs)  # type: ignore[type-var]
 
 
-def get_queue(name: str = "ingestion", *, physical: bool = False) -> DurableQueue:
+def _create_queue(
+    name: str, *, physical: bool, socket_timeout: float, retry: Retry
+) -> DurableQueue:
     settings = get_settings()
     if physical:
         if name not in physical_queues(settings):
@@ -111,14 +114,33 @@ def get_queue(name: str = "ingestion", *, physical: bool = False) -> DurableQueu
         destination,
         connection=create_redis(
             get_settings(),
-            socket_connect_timeout=5,
-            socket_timeout=5,
-            # Redis 8 otherwise expands the previous three retries to ten.
-            retry=Retry(ExponentialWithJitterBackoff(base=1, cap=10), retries=3),
+            socket_connect_timeout=socket_timeout,
+            socket_timeout=socket_timeout,
+            retry=retry,
         ),
         serializer=JSONSerializer,
         default_timeout=JOB_TIMEOUT_SECONDS,
     )
 
     queue.logical_name = None if physical else name
+    return queue
+
+
+def get_queue(name: str = "ingestion", *, physical: bool = False) -> DurableQueue:
+    return _create_queue(
+        name,
+        physical=physical,
+        socket_timeout=5,
+        # Redis 8 otherwise expands the previous three retries to ten.
+        retry=Retry(ExponentialWithJitterBackoff(base=1, cap=10), retries=3),
+    )
+
+
+def get_publication_queue(name: str) -> DurableQueue:
+    """Keep a slow transport from extending a publication transaction through retries."""
+    queue = _create_queue(
+        name, physical=False, socket_timeout=1, retry=Retry(NoBackoff(), retries=0)
+    )
+    configure_redis_io(queue.connection, socket_timeout=1, socket_connect_timeout=1)
+    queue.redirect_queue = get_publication_queue
     return queue
