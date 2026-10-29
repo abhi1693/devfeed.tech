@@ -39,7 +39,11 @@ def test_source_board_action_recovers_after_logo_dispatch(
     assert stale.status_code == 409
     card_publication(database)
     board = admin_client.get(PATH).json()
-    assert board["snapshot"]["status"] == "fresh"
+    # Publishing cards does not acknowledge a complete reconciliation cycle.
+    # Existing cards and revision-checked actions remain usable while it catches up.
+    assert board["snapshot"]["status"] == "catching_up"
+    assert board["snapshot"]["generated_at"] is None
+    assert board["snapshot"]["coverage_expires_at"] is None
     current = next(card for card in all_cards(board) if card["id"] == str(identifier))
     assert current["can_advance"] and current["next_action"] == "profile"
     response = admin_client.post(path + "/advance", json={"expected_snapshot": current["snapshot"]})
