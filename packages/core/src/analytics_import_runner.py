@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime
 from enum import Enum
 
-import psycopg
 from psycopg import AsyncConnection
 from psycopg.abc import Params, QueryNoTemplate
-from psycopg.rows import dict_row
 
 from devfeed_core.analytics import AnalyticsClient, SqlRecord
 from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
@@ -32,26 +30,6 @@ class ImportStep(Enum):
 
 class UnsafeImportCutover(RuntimeError):
     """The retained analytical sources do not have complete write guards."""
-
-
-def postgres_connections(
-    database_url: str, *, connect_timeout: int = 5
-) -> Callable[[], AbstractAsyncContextManager[AsyncConnection[SqlRecord]]]:
-    """Return independent async connections for the import lock and source reads."""
-    if not isinstance(database_url, str) or not database_url:
-        raise ValueError("An import database URL is required")
-    if type(connect_timeout) is not int or not 1 <= connect_timeout <= 60:
-        raise ValueError("Invalid PostgreSQL connect timeout")
-    dsn = database_url.replace("postgresql+psycopg://", "postgresql://", 1)
-
-    @asynccontextmanager
-    async def connect() -> AsyncIterator[AsyncConnection[SqlRecord]]:
-        async with await psycopg.AsyncConnection.connect(
-            dsn, autocommit=True, row_factory=dict_row, connect_timeout=connect_timeout
-        ) as connection:
-            yield connection
-
-    return connect
 
 
 async def _scalar(

@@ -9,6 +9,7 @@ from datetime import UTC, datetime, time, timedelta
 from typing import Literal, TypeVar, get_args
 
 from devfeed_core.analytics import AnalyticsClient, AnalyticsPreparing, SqlRecord
+from devfeed_core.analytics_audience_refresh import audience_metadata_ready
 from devfeed_core.analytics_inference_store import InferenceStore
 from devfeed_core.analytics_overview_direct import DirectOverviewReader
 from pydantic import BaseModel
@@ -66,6 +67,11 @@ async def _gather(*coroutines: Coroutine[None, None, list[SqlRecord]]) -> list[l
         raise
 
 
+async def _require_audience_metadata(client: AnalyticsClient) -> None:
+    if not await audience_metadata_ready(client):
+        raise AnalyticsPreparing("Audience timestamps are being prepared")
+
+
 def _number(value: int | float | str | None) -> float | None:
     return float(value) if value is not None and math.isfinite(float(value)) else None
 
@@ -94,14 +100,12 @@ class Reports:
         *,
         capture_started_at: datetime,
     ) -> None:
-        if window.start is None or window.end is None:
-            raise ValueError("Analytical reports require explicit calendar dates")
+        start, end = window.bounds
         self.client = client
         self.window = window
         self.days = window.days
         self.now = now.astimezone(UTC)
-        self.start = datetime.combine(window.start, time.min, tzinfo=UTC)
-        self.end = datetime.combine(window.end, time.min, tzinfo=UTC)
+        self.start, self.end = start, end
         capture_started_at = capture_started_at.astimezone(UTC)
         self.capture_day = capture_started_at.date()
         self.reader_start = (capture_started_at - timedelta(days=29)).date()
@@ -114,7 +118,7 @@ class Reports:
             "capture_day": self.capture_day,
             "reader_start": self.reader_start,
         }
-        self.hourly = self.days <= 7 and window.start >= self.capture_day
+        self.hourly = self.days <= 7 and self.start.date() >= self.capture_day
         self.monthly = self.days > 366
         self.weekly = 90 < self.days <= 366
         self.granularity: Literal["hour", "month", "week", "day"] = (
@@ -231,11 +235,12 @@ class Reports:
         return PublishingSection(summary=summary, activity=list(activity.values()))
 
     async def audience(self) -> AudienceSection:
+        await _require_audience_metadata(self.client)
         rows, gauges, archived = await _gather(
             self.direct.audience(
                 self.start, min(self.end, self.observed_end), granularity=self.granularity
             ),
-            self.direct.feed_health(self.now),
+            self.direct.feed_health(self.now, self.start, min(self.end, self.observed_end)),
             self.archive(),
         )
         activity = {
@@ -320,7 +325,7 @@ class Reports:
         )
 
     async def queues(self) -> ProcessingSection:
-        rows = await self.direct.queues()
+        rows = await self.direct.queues(self.start, min(self.end, self.observed_end))
         return ProcessingSection(queues=[QueuePressure(**row) for row in rows])
 
     async def inference(self) -> InferenceSection:
@@ -358,6 +363,7 @@ class Reports:
         return InferenceSection(summary=summary, activity=list(activity.values()), **dimensions)
 
     async def coverage(self) -> CoverageSection:
+        await _require_audience_metadata(self.client)
         sources, topics = await _gather(
             self.direct.source_coverage(self.start, self.end),
             self.direct.topic_coverage(self.start, self.end),

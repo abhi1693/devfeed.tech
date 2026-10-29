@@ -114,6 +114,22 @@ def _text(value: object, name: str, *, max_length: int = 100) -> str:
     return value
 
 
+def _cohort_range(
+    start: datetime | str | None, end: datetime | str | None, column: str
+) -> tuple[str, SqlRecord]:
+    if (start is None) != (end is None):
+        raise ValueError("Both overview cohort bounds are required")
+    if start is None:
+        return "", {}
+    lower, upper = _time(start), _time(end)
+    if lower >= upper:
+        raise ValueError("Invalid overview cohort range")
+    return (
+        f" AND {column}>={{start:DateTime64(6,'UTC')}} AND {column}<{{end:DateTime64(6,'UTC')}}",
+        {"start": lower, "end": upper},
+    )
+
+
 class DirectOverviewReader:
     """Read chart projections through a scoped query capability."""
 
@@ -184,21 +200,32 @@ class DirectOverviewReader:
 
     async def topic_coverage(self, start: datetime | str, end: datetime | str) -> list[SqlRecord]:
         return await self.client.query(
-            "/* overview:topics */ SELECT toString(m.topic_id) AS id,"
-            "coalesce(nullIf(t.name,''),'Unknown topic') AS name,m.followers,m.inferred_users,"
-            "coalesce(p.publications,0) AS publications FROM ("
+            "/* overview:topics */ WITH memberships AS ("
             "SELECT target_id AS topic_id,countIf(task='follow') AS followers,"
-            "countIf(task='inferred') AS inferred_users FROM analytics_user_events FINAL "
-            "WHERE domain='membership' AND deleted=0 GROUP BY target_id) m "
-            "LEFT JOIN (SELECT id,name FROM analytics_pipeline_events FINAL "
-            "WHERE domain='topic' AND deleted=0) t ON t.id=m.topic_id "
-            "LEFT JOIN (SELECT arrayJoin(topic_ids) AS topic_id,count() AS publications "
+            "countIf(task='inferred') AS inferred_users FROM ("
+            "SELECT m.target_id,m.task,if(m.task='follow',m.occurred_at,f.occurred_at) "
+            "AS cohort_at FROM (SELECT * FROM analytics_user_events FINAL "
+            "WHERE domain='membership') m LEFT JOIN ("
+            "SELECT id,occurred_at FROM analytics_user_events FINAL "
+            "WHERE domain='feed' AND deleted=0"
+            ") f ON f.id=m.user_id WHERE m.deleted=0 AND m.task IN ('follow','inferred')) "
+            "WHERE cohort_at>={start:DateTime64(6,'UTC')} "
+            "AND cohort_at<{end:DateTime64(6,'UTC')} GROUP BY target_id),"
+            "publications AS (SELECT arrayJoin(topic_ids) AS topic_id,count() AS publications "
             "FROM (SELECT * FROM analytics_pipeline_events FINAL WHERE domain='publication') "
             "WHERE deleted=0 AND occurred_at>={start:DateTime64(6,'UTC')} "
-            "AND occurred_at<{end:DateTime64(6,'UTC')} GROUP BY topic_id) p\n"
-            "ON p.topic_id=m.topic_id "
-            "WHERE m.followers>0 OR m.inferred_users>0 "
-            "ORDER BY m.followers DESC,m.inferred_users DESC,name,id LIMIT 10 "
+            "AND occurred_at<{end:DateTime64(6,'UTC')} GROUP BY topic_id),"
+            "activity AS (SELECT topic_id,sum(followers) AS followers,"
+            "sum(inferred_users) AS inferred_users,sum(publications) AS publications FROM ("
+            "SELECT topic_id,followers,inferred_users,0 AS publications FROM memberships "
+            "UNION ALL SELECT topic_id,0 AS followers,0 AS inferred_users,publications "
+            "FROM publications) GROUP BY topic_id) "
+            "SELECT toString(a.topic_id) AS id,coalesce(nullIf(t.name,''),'Unknown topic') AS name,"
+            "a.followers,a.inferred_users,a.publications FROM activity a "
+            "LEFT JOIN (SELECT id,name FROM analytics_pipeline_events FINAL "
+            "WHERE domain='topic' AND deleted=0) t ON t.id=a.topic_id "
+            "WHERE a.followers>0 OR a.inferred_users>0 OR a.publications>0 "
+            "ORDER BY a.followers DESC,a.inferred_users DESC,name,id LIMIT 10 "
             "SETTINGS optimize_move_to_prewhere_if_final=0,enable_optimize_predicate_expression=0",
             {"start": _time(start), "end": _time(end)},
         )
@@ -293,17 +320,29 @@ class DirectOverviewReader:
             {"start": _time(start), "end": _time(end)},
         )
 
-    async def queues(self) -> list[SqlRecord]:
+    async def queues(
+        self, start: datetime | str | None = None, end: datetime | str | None = None
+    ) -> list[SqlRecord]:
+        cohort, parameters = _cohort_range(start, end, "created_at")
         return await self.client.query(
             "/* overview:queues */ SELECT task AS kind,countIf(status='queued') AS queued,"
             "countIf(status='running') AS running,"
             "minOrNullIf(created_at,status='queued') AS oldest_queued_at "
             "FROM (SELECT * FROM analytics_pipeline_events FINAL WHERE domain='queue') "
-            "WHERE deleted=0 AND status IN ('queued','running') GROUP BY task ORDER BY task "
-            "SETTINGS optimize_move_to_prewhere_if_final=0,enable_optimize_predicate_expression=0"
+            "WHERE deleted=0 AND status IN ('queued','running')"
+            + cohort
+            + " GROUP BY task ORDER BY task "
+            "SETTINGS optimize_move_to_prewhere_if_final=0,enable_optimize_predicate_expression=0",
+            parameters,
         )
 
-    async def feed_health(self, as_of: datetime | str) -> list[SqlRecord]:
+    async def feed_health(
+        self,
+        as_of: datetime | str,
+        start: datetime | str | None = None,
+        end: datetime | str | None = None,
+    ) -> list[SqlRecord]:
+        cohort, parameters = _cohort_range(start, end, "coalesce(occurred_at,created_at)")
         return await self.client.query(
             "/* overview:feed-health */ SELECT countIf(state='ready') AS ready,\n"
             "countIf(state='refreshing') AS refreshing,"
@@ -316,9 +355,9 @@ class DirectOverviewReader:
             "invalidated=1,'refreshing',isNull(expires_at) OR "
             "expires_at<={now:DateTime64(6,'UTC')},"
             "'expired','ready') AS state FROM (SELECT * FROM analytics_user_events FINAL "
-            "WHERE domain='feed') WHERE deleted=0) "
+            "WHERE domain='feed') WHERE deleted=0" + cohort + ") "
             "SETTINGS optimize_move_to_prewhere_if_final=0,enable_optimize_predicate_expression=0",
-            {"now": _time(as_of)},
+            {"now": _time(as_of), **parameters},
         )
 
 
@@ -337,6 +376,8 @@ class DirectOverviewAnalytics(DirectOverviewReader):
             ("analytics_user_events", {"account", "feed", "membership"}),
         ):
             selected = [row for row in rows if row["domain"] in domains]
+            if table == "analytics_user_events":
+                selected = [row | {"user_id": row.get("user_id")} for row in selected]
             if selected:
                 await self.client.insert(table, selected)
 
@@ -404,6 +445,9 @@ class DirectOverviewAnalytics(DirectOverviewReader):
                     "user_id": record["user_id"],
                     "topic_id": record["topic_id"],
                     "kind": "follow" if source == "user_topics" else "inferred",
+                    "occurred_at": record.get(
+                        "created_at" if source == "user_topics" else "computed_at"
+                    ),
                     "revision": revision,
                     "deleted": bool(
                         deleted
@@ -529,6 +573,8 @@ class DirectOverviewAnalytics(DirectOverviewReader):
             )
             if not row["deleted"]:
                 row.update(
+                    occurred_at=_time(record.get("computed_at"), optional=True),
+                    created_at=_time(record.get("created_at"), optional=True),
                     interest_count=_uint(record.get("interest_count", 0), maximum=2**32 - 1),
                     has_generation=_flag(record.get("has_generation", False)),
                     invalidated=_flag(record.get("invalidated", False)),
@@ -583,7 +629,12 @@ class DirectOverviewAnalytics(DirectOverviewReader):
                 record["revision"],
                 deleted=record.get("deleted", False),
             )
-            row.update(task=kind, target_id=topic)
+            row.update(
+                task=kind,
+                target_id=topic,
+                user_id=user,
+                occurred_at=_time(record.get("occurred_at"), optional=True),
+            )
             rows.append(row)
         await self._write(rows)
 

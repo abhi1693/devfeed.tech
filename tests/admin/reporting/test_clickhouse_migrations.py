@@ -9,7 +9,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from devfeed_core import analytics_import_runner, analytics_migrations, config
+from devfeed_core import (
+    analytics_connections,
+    analytics_import_runner,
+    analytics_migrations,
+    config,
+)
 from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
 from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
 from devfeed_core.analytics_migrations import (
@@ -284,7 +289,7 @@ def test_deployment_upgrade_rejects_a_busy_lock_without_opening_clickhouse(monke
         database_connect_timeout_seconds=3,
     )
     connector = AsyncMock()
-    monkeypatch.setattr(analytics_import_runner, "postgres_connections", lambda *a, **kw: connect)
+    monkeypatch.setattr(analytics_connections, "postgres_connections", lambda *a, **kw: connect)
     monkeypatch.setattr(analytics_migrations, "AnalyticsClient", connector)
     with pytest.raises(AnalyticsMigrationError, match="Another ClickHouse schema upgrade"):
         asyncio.run(analytics_migrations.upgrade_analytics(factory))
@@ -342,7 +347,7 @@ def test_deployment_upgrade_closes_schema_lock_on_success_and_every_failed_phase
         assert actual is client and actual_connect is connect and page_size == 200
         return SimpleNamespace(prepare=lambda: phase("prepare"))
 
-    monkeypatch.setattr(analytics_import_runner, "postgres_connections", connections)
+    monkeypatch.setattr(analytics_connections, "postgres_connections", connections)
     monkeypatch.setattr(analytics_import_runner, "AnalyticsImportRunner", importer)
     monkeypatch.setattr(analytics_migrations, "AnalyticsClient", client_context)
     monkeypatch.setattr(analytics_migrations, "ClickHouseMigrationRunner", lambda actual: runner)

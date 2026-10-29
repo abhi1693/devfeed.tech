@@ -18,11 +18,13 @@ from devfeed_core.analytics_card_types import (
     Stage,
 )
 from devfeed_core.analytics_observation import AnalyticsSnapshot, pipeline_policy_version
+from devfeed_core.analytics_reconcile import read_reconciliation_status
 from devfeed_core.source_types import SourceType
 from fastapi import HTTPException
 from pydantic import BaseModel
 
 from devfeed_admin_api.overview_sections import OverviewSectionReport
+from devfeed_admin_api.overview_windows import ReportWindow
 
 Card = TypeVar("Card", bound=BaseModel)
 
@@ -57,7 +59,6 @@ class SourceQueryParameters(TypedDict):
 
 
 CARD_KINDS = ("article", "source", "candidate", "topic-proposal", "relationship-proposal")
-FRESH_SECONDS = 60
 
 
 def preparing(
@@ -74,6 +75,32 @@ def timestamp(value: datetime | str) -> datetime:
     if isinstance(value, datetime):
         return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+
+
+async def current_snapshot(
+    client: AnalyticsClient,
+    policy: str,
+    now: datetime,
+    *,
+    scope: Literal["cards", "queues"],
+    generation: str,
+) -> AnalyticsSnapshot:
+    coverage = (await read_reconciliation_status(client, policy))[scope]
+    completed_at = coverage["completed_at"]
+    source_at = coverage["source_at"]
+    if completed_at is None or source_at is None:
+        return AnalyticsSnapshot(status="catching_up", generation=generation, policy_version=policy)
+    covered_at = timestamp(source_at)
+    expires_at = covered_at + timedelta(seconds=coverage["max_age_seconds"])
+    state = "stale" if now >= expires_at else "catching_up" if coverage["pending"] else "fresh"
+    return AnalyticsSnapshot(
+        status=state,
+        generated_at=covered_at,
+        coverage_expires_at=expires_at,
+        generation=generation,
+        policy_version=policy,
+        lag_seconds=max(0, (now - covered_at).total_seconds()),
+    )
 
 
 def _next_cursor(offset: int, count: int, total: int) -> int | None:
@@ -114,14 +141,8 @@ class CurrentCards:
         status = await self.client.status()
         if not status.get("ready") or status.get("policy", self.policy) != self.policy:
             raise preparing()
-        lag = max(float(status.get("lag_seconds") or 0), 0)
-        generated_at = status.get("generated_at") or status.get("updated_at")
-        snapshot = AnalyticsSnapshot(
-            status="stale" if lag > FRESH_SECONDS else "fresh",
-            generated_at=timestamp(generated_at) if generated_at else None,
-            generation=str(status["version"]),
-            policy_version=self.policy,
-            lag_seconds=lag,
+        snapshot = await current_snapshot(
+            self.client, self.policy, self.now, scope="cards", generation=str(status["version"])
         )
         return CurrentSelection(self.policy, kinds, snapshot)
 
@@ -392,7 +413,7 @@ class CurrentCards:
             snapshot=selected.snapshot,
         )
 
-    async def operations(self) -> OverviewSectionReport:
+    async def operations(self, window: ReportWindow) -> OverviewSectionReport:
         from devfeed_core.analytics_blockers import RecoveryTarget, blocker_catalog
         from devfeed_core.config import get_settings
 
@@ -402,28 +423,38 @@ class CurrentCards:
             ReviewQueue,
         )
 
+        start, end = window.bounds
         selected = await self.selection(CARD_KINDS)
         observed = await self._query(
             selected,
             """/* admin:operations */ WITH cards AS (SELECT c.kind,c.created_at,
+                c.created_at>={start:DateTime64(6,'UTC')}
+                  AND c.created_at<{end:DateTime64(6,'UTC')} AS created_in_period,
+                c.activity_at>={start:DateTime64(6,'UTC')}
+                  AND c.activity_at<{end:DateTime64(6,'UTC')} AS active_in_period,
                 c.review_pending,c.enabled,c.approval_status,c.consecutive_failures,
                 c.blocker_codes,c.entity_id,c.title,c.editorial_revision FROM """
             + selected.source()
-            + """), reviews AS (
-                SELECT kind,countIf(review_pending=1) AS pending,
-                  minIf(toNullable(created_at),review_pending=1) AS oldest,
+            + """ AND ((c.created_at>={start:DateTime64(6,'UTC')}
+                  AND c.created_at<{end:DateTime64(6,'UTC')})
+                OR (c.kind='source' AND c.activity_at>={start:DateTime64(6,'UTC')}
+                  AND c.activity_at<{end:DateTime64(6,'UTC')}))), reviews AS (
+                SELECT kind,countIf(review_pending=1 AND created_in_period) AS pending,
+                  minIf(toNullable(created_at),review_pending=1 AND created_in_period) AS oldest,
                   countIf(kind='source' AND enabled=1 AND approval_status='approved'
-                    AND consecutive_failures>0) AS failures
+                    AND consecutive_failures>0 AND active_in_period) AS failures
                 FROM cards GROUP BY kind
               ), blockers AS (
                 SELECT code,count() AS total,
                   groupArraySorted(5)(tuple(created_at,toString(entity_id),kind,
                     title,editorial_revision)) AS targets
-                FROM (SELECT *,arrayJoin(blocker_codes) AS code FROM cards)
+                FROM (SELECT *,arrayJoin(blocker_codes) AS code FROM cards WHERE created_in_period)
                 GROUP BY code
               ) SELECT (SELECT groupArray(tuple(kind,pending,oldest,failures)) FROM reviews)
                   AS reviews,
                 (SELECT groupArray(tuple(code,total,targets)) FROM blockers) AS blockers""",
+            start=start,
+            end=end,
         )
         row = observed[0] if observed else {"reviews": [], "blockers": []}
         reviews = {
@@ -458,7 +489,9 @@ class CurrentCards:
         }
         return OverviewSectionReport(
             generated_at=self.now,
-            days=1,
+            days=window.days,
+            start=window.start,
+            end=window.inclusive_end,
             snapshot=selected.snapshot,
             data=OperationsSection(
                 full_automation=settings.full_automation,

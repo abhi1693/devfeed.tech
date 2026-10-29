@@ -1,6 +1,7 @@
 """Overview composes bounded bucket generations without reading operational history."""
 
 import asyncio
+import json
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from functools import wraps
@@ -10,6 +11,7 @@ import pytest
 from devfeed_admin_api.analytics_reports import ANALYTICAL_GROUPS, Reports, _gather
 from devfeed_admin_api.overview_windows import ReportWindow, parse_report_window, recent_window
 from devfeed_core.analytics import AnalyticsUnavailable
+from devfeed_core.analytics_audience_refresh import COMPLETE_PHASE, REFRESH_POLICY, REFRESH_SCOPE
 
 NOW = datetime(2026, 10, 26, 12, tzinfo=UTC)
 CAPTURED = NOW - timedelta(days=100)
@@ -33,6 +35,20 @@ class Client:
 
     async def query(self, sql, parameters=None):
         self.queries.append((sql, parameters))
+        if "analytics:audience-metadata-status" in sql:
+            return deepcopy(
+                self.results.get(
+                    "audience-metadata-status",
+                    [
+                        {
+                            "cursor": json.dumps({"phase": COMPLETE_PHASE, "start_revision": 1}),
+                            "pending": 0,
+                        }
+                    ],
+                )
+            )
+        if "analytics:audience-metadata-holes" in sql:
+            return deepcopy(self.results.get("audience-metadata-holes", []))
         name = sql.split("overview:", 1)[1].split(" ", 1)[0]
         if name == "inference-ready":
             return deepcopy(self.results.get(name, [{"complete": 1}]))
@@ -72,6 +88,12 @@ async def test_empty_sections_still_supply_their_typed_contract_and_bounded_char
     assert client.queries
     for sql, params in client.queries:
         assert "analytics_" in sql
+        if "analytics:audience-metadata-status" in sql:
+            assert params == {"policy": REFRESH_POLICY, "scope": REFRESH_SCOPE}
+            continue
+        if "analytics:audience-metadata-holes" in sql:
+            assert params == {"limit": 1} and "LIMIT {limit:UInt32}" in sql
+            continue
         assert params["start"] == datetime(2026, 9, 27, tzinfo=UTC)
         assert params["end"] in {
             datetime(2026, 10, 27, tzinfo=UTC),
@@ -386,7 +408,8 @@ async def test_coverage_preserves_global_total_and_current_labels_in_bounded_top
     assert result.topics[0].followers == 8
     assert result.topics[0].inferred_users == 2
     assert result.topics[0].publications == 4
-    assert all("LIMIT 10" in sql for sql, _ in client.queries)
+    lists = [sql for sql, _ in client.queries if "overview:" in sql]
+    assert len(lists) == 2 and all("LIMIT 10" in sql for sql in lists)
 
 
 @pytest.mark.parametrize("days,expected", [(1, 24), (7, 168), (30, 30), (90, 90)])

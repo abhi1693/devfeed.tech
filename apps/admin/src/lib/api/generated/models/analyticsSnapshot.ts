@@ -12,6 +12,7 @@ export interface AnalyticsSnapshot {
   catalog_lag_seconds?: number | null;
   catalog_revision?: string[][] | null;
   catalog_target_revision?: string[][] | null;
+  coverage_expires_at?: string | null;
   generated_at?: string | null;
   generation?: string | null;
   lag_seconds?: number | null;

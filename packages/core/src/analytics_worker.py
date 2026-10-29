@@ -1,7 +1,7 @@
-"""Initialize direct ClickHouse stores and finish the one-time historical import.
+"""Import retained history once, then repair bounded current-state observations.
 
 The application publishes live observations directly. This process imports
-bounded frozen history, retires PostgreSQL analytics, then only reports health.
+bounded frozen history, retires PostgreSQL analytics, and reconciles current views.
 """
 
 from __future__ import annotations
@@ -15,13 +15,14 @@ import time
 from datetime import UTC, datetime
 
 from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
+from devfeed_core.analytics_connections import postgres_connections
 from devfeed_core.analytics_import_runner import (
     AnalyticsImportRunner,
     ImportStep,
-    postgres_connections,
 )
 from devfeed_core.analytics_migrations import ClickHouseMigrationRunner
 from devfeed_core.analytics_observation import pipeline_policy_version
+from devfeed_core.analytics_reconcile import CurrentStateReconciler
 from devfeed_core.analytics_status import AnalyticsStatus
 from devfeed_core.config import Settings, get_settings
 from devfeed_core.logging import configure_logging
@@ -30,28 +31,34 @@ from devfeed_core.telemetry import background_cycle, start_runtime, stop_runtime
 
 logger = logging.getLogger(__name__)
 HEALTH_SECONDS = 120
+CURRENT_PAGE_SECONDS = 0.1
 
 
 class AnalyticsImportWorker:
-    """Coordinate finite migration; retain no ongoing PostgreSQL analytics work."""
+    """Coordinate finite history and bounded repair of current operational views."""
 
     def __init__(self, client: AnalyticsClient, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self.client = client
         self.status = AnalyticsStatus(client)
         self.policy = pipeline_policy_version(self.settings)
+        connect = postgres_connections(
+            self.settings.database_url,
+            connect_timeout=self.settings.database_connect_timeout_seconds,
+        )
         self.runner = AnalyticsImportRunner(
             client,
-            postgres_connections(
-                self.settings.database_url,
-                connect_timeout=self.settings.database_connect_timeout_seconds,
-            ),
+            connect,
             settings=self.settings,
             page_size=self.settings.analytics_backfill_batch_size,
         )
+        self.reconciler = CurrentStateReconciler(client, self.settings, connect=connect)
         self.bootstrapping = True
         self._initialized = False
         self._started = False
+
+    async def close(self) -> None:
+        await self.reconciler.close()
 
     async def once(self) -> bool:
         if not self._initialized:
@@ -65,7 +72,7 @@ class AnalyticsImportWorker:
                     state = None
                 if state and state["ready"] and state["policy"] == self.policy:
                     # Every source, policy-specific card page and cleanup was
-                    # durably completed. Restart performs no historical polling.
+                    # durably completed. Restart does not replay historical pages.
                     self.bootstrapping = False
                 else:
                     cutover = (
@@ -88,8 +95,9 @@ class AnalyticsImportWorker:
                     logger.info("analytics_history_import_complete")
                 await asyncio.to_thread(self._write_heartbeat)
                 return step is ImportStep.PROGRESSED
+        busy = await self.reconciler.once()
         await asyncio.to_thread(self._write_heartbeat)
-        return False
+        return busy
 
     @staticmethod
     def _write_heartbeat() -> None:
@@ -102,11 +110,9 @@ async def pause(stopping: asyncio.Event, delay: float) -> None:
 
 
 def _poll_delay(settings: Settings, *, busy: bool, bootstrapping: bool, failures: int) -> float:
-    delay = (
-        settings.analytics_backfill_poll_seconds
-        if busy and bootstrapping
-        else settings.analytics_poll_seconds
-    )
+    delay = settings.analytics_poll_seconds
+    if busy:
+        delay = settings.analytics_backfill_poll_seconds if bootstrapping else CURRENT_PAGE_SECONDS
     return max(delay, min(60, 2 ** min(failures, 6))) if failures else delay
 
 
@@ -126,8 +132,13 @@ async def run(once: bool = False) -> None:
                     with background_cycle("analytics.history-import"):
                         busy = await worker.once()
                     failures = 0
-                except Exception:
-                    logger.exception("analytics_history_import_failed")
+                except Exception as error:
+                    logger.error(
+                        "analytics_history_import_failed"
+                        if worker.bootstrapping
+                        else "analytics_current_reconciliation_failed",
+                        extra={"error_type": type(error).__name__},
+                    )
                     if once:
                         raise
                     failures += 1
@@ -143,6 +154,7 @@ async def run(once: bool = False) -> None:
         finally:
             for item in signals:
                 loop.remove_signal_handler(item)
+            await worker.close()
 
 
 def main() -> None:

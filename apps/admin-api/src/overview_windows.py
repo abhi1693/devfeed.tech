@@ -3,7 +3,7 @@
 import calendar
 import re
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 MAX_REPORT_DAYS = 3660
 
@@ -40,6 +40,15 @@ class ReportWindow:
     @property
     def inclusive_end(self) -> date | None:
         return self.end - timedelta(days=1) if self.end else None
+
+    @property
+    def bounds(self) -> tuple[datetime, datetime]:
+        if self.start is None or self.end is None:
+            raise ValueError("Analytical reports require explicit calendar dates")
+        return (
+            datetime.combine(self.start, time.min, tzinfo=UTC),
+            datetime.combine(self.end, time.min, tzinfo=UTC),
+        )
 
 
 def current_window() -> ReportWindow:

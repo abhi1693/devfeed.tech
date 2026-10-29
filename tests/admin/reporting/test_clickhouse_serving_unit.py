@@ -11,14 +11,21 @@ from unittest.mock import AsyncMock
 
 import pytest
 from clickhouse_connect.driver.exceptions import DatabaseError
-from devfeed_admin_api import analytics_runtime, article_pipeline, overview, source_pipeline
+from devfeed_admin_api import (
+    analytics_current,
+    analytics_runtime,
+    article_pipeline,
+    overview,
+    source_pipeline,
+)
 from devfeed_admin_api.analytics_current import CurrentCards
 from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
 from devfeed_admin_api.auth import require_admin
 from devfeed_admin_api.dependencies import get_session, get_session_factory
 from devfeed_admin_api.overview_charts import CHART_SECTIONS
-from devfeed_admin_api.overview_windows import current_window, recent_window
+from devfeed_admin_api.overview_windows import recent_window
 from devfeed_core.analytics import AnalyticsUnavailable
+from devfeed_core.analytics_audience_refresh import COMPLETE_PHASE
 from devfeed_core.analytics_card_types import PipelineBoard, PipelineColumn
 from devfeed_core.analytics_observation import pipeline_policy_version
 from devfeed_core.config import get_settings
@@ -42,10 +49,20 @@ class Client:
         self.results = results or {}
         self.queries = []
         self.status_reads = 0
+        self.coverage_reads = 0
         self.failed = False
         self.ready = True
         self.closed = False
         self.policy = pipeline_policy_version()
+        self.coverage = {
+            scope: {
+                "completed_at": NOW,
+                "source_at": NOW,
+                "pending": False,
+                "max_age_seconds": max_age,
+            }
+            for scope, max_age in (("cards", 600), ("queues", 60))
+        }
         self.card_status = {
             "version": 1,
             "ready": 1,
@@ -80,7 +97,29 @@ class Client:
         if "overview:inference-ready" in sql:
             return [{"complete": 1}]
         name = sql.split("/* ", 1)[1].split(" ", 1)[0]
+        if name == "analytics:audience-metadata-status":
+            return deepcopy(
+                self.results.get(
+                    name,
+                    [
+                        {
+                            "cursor": json.dumps({"phase": COMPLETE_PHASE, "start_revision": 1}),
+                            "pending": 0,
+                        }
+                    ],
+                )
+            )
         return deepcopy(self.results.get(name, []))
+
+
+@pytest.fixture(autouse=True)
+def reconciliation_coverage(monkeypatch):
+    async def read(client, policy):
+        assert policy == client.policy
+        client.coverage_reads += 1
+        return deepcopy(client.coverage)
+
+    monkeypatch.setattr(analytics_current, "read_reconciliation_status", read)
 
 
 def runtime(client=None, *, clock=None, redis=None, **settings):
@@ -133,6 +172,7 @@ async def test_article_counts_and_limited_payloads_use_one_canonical_query():
     lane = next(column for column in result.columns if column.stage == "analysis")
     assert lane.next_cursor == 1 and lane.items[0].editorial_revision == 7
     assert client.status_reads == 1 and len(client.queries) == 1
+    assert client.coverage_reads == 1
     sql, bound = client.queries[0]
     assert "analytics_card_canonical FINAL" in sql
     assert "row_number()" in sql and "INNER JOIN payloads" in sql
@@ -274,7 +314,7 @@ async def test_attention_uses_typed_current_reviews_failures_and_bounded_blocker
             ]
         }
     )
-    result = await CurrentCards(client, now=NOW).operations()
+    result = await CurrentCards(client, now=NOW).operations(recent_window(30, NOW))
     assert [(item.kind, item.count) for item in result.data.reviews] == [
         ("articles", 123),
         ("sources", 4),
@@ -286,6 +326,11 @@ async def test_attention_uses_typed_current_reviews_failures_and_bounded_blocker
     assert blocker.count == 30 and blocker.targets[0].revision == 19
     assert client.status_reads == 1 and len(client.queries) == 1
     assert "groupArraySorted(5)" in client.queries[0][0]
+    assert result.start == (NOW - timedelta(days=29)).date() and result.end == NOW.date()
+    assert client.queries[0][1]["start"] == (NOW - timedelta(days=29)).replace(hour=0)
+    assert client.queries[0][1]["end"] == NOW.replace(hour=0) + timedelta(days=1)
+    assert "AND created_in_period" in client.queries[0][0]
+    assert "AND active_in_period" in client.queries[0][0]
     assert all("payload" not in sql for sql, _ in client.queries)
 
 
@@ -295,14 +340,11 @@ async def test_sixteen_readers_and_twelve_charts_coalesce_by_section_and_window(
     reads = runtime(client)
     window = recent_window(30, NOW)
     results = await asyncio.gather(
-        *[
-            reads.section(group, current_window() if group == "operations" else window)
-            for _ in range(16)
-            for group in CHART_SECTIONS.values()
-        ]
+        *[reads.section(group, window) for _ in range(16) for group in CHART_SECTIONS.values()]
     )
     assert len(results) == 192
     assert client.status_reads == 7
+    assert client.coverage_reads == 2
     assert sum("admin:operations" in sql for sql, _ in client.queries) == 1
     assert len(client.queries) <= 21
     before = len(client.queries)
@@ -430,7 +472,7 @@ async def test_real_import_and_policy_gates_still_return_retryable_preparation(g
             {"reviews": [], "blockers": [["future-policy", 1, []]]}
         ]
     reads = runtime(client)
-    window = current_window() if group == "operations" else recent_window(30, NOW)
+    window = recent_window(30, NOW)
     with pytest.raises(HTTPException) as caught:
         await reads.section(group, window)
     assert caught.value.status_code == 503
@@ -493,7 +535,7 @@ async def test_restart_reuses_only_unexpired_redis_results_and_never_extends_cac
     envelope = json.loads(next(iter(redis.values.values())))
     assert set(envelope) == {"expires_at", "report"}
     assert datetime.fromisoformat(envelope["expires_at"]) == NOW + timedelta(seconds=30)
-    assert ":v2:" in next(iter(redis.values))
+    assert ":v4:" in next(iter(redis.values))
     offline = Client()
     offline.failed = True
     second = runtime(
@@ -515,7 +557,7 @@ async def test_restart_reuses_only_unexpired_redis_results_and_never_extends_cac
     previous = json.loads(previous_value)
     previous["fresh_until"] = previous["expires_at"]
     previous["expires_at"] = (NOW + timedelta(days=1)).isoformat()
-    redis.values = {previous_key.replace(":v2:", ":v1:"): json.dumps(previous).encode()}
+    redis.values = {previous_key.replace(":v4:", ":v3:"): json.dumps(previous).encode()}
     upgraded = runtime(
         offline, clock=lambda: NOW + timedelta(seconds=31), redis=lambda: redis, cache_enabled=True
     )
@@ -627,9 +669,11 @@ def test_overview_http_never_opens_postgres_and_keeps_all_twelve_chart_contracts
     app.dependency_overrides[get_session] = lambda: pytest.fail("Overview opened PostgreSQL")
     with TestClient(app) as http:
         for chart in CHART_SECTIONS:
-            response = http.get(f"/v1/admin/overview/charts/{chart}")
+            response = http.get(f"/v1/admin/overview/charts/{chart}?from=2026-10-26&to=2026-10-27")
             assert response.status_code == 200, response.text
             assert response.json()["chart"] == chart
+            assert response.json()["start"] == "2026-10-26"
+            assert response.json()["end"] == "2026-10-27"
         assert http.get("/v1/admin/overview/charts/publication-rate?days=30").status_code == 422
 
 
@@ -833,14 +877,20 @@ async def test_unknown_card_populations_fail_before_any_clickhouse_read(kinds):
     assert client.queries == []
 
 
-@pytest.mark.parametrize("lag,expected_status", [(90, "stale"), (0, "fresh")])
+@pytest.mark.parametrize(
+    "age,pending,expected_status",
+    [(20, False, "fresh"), (90, False, "fresh"), (20, True, "catching_up"), (600, False, "stale")],
+)
 @run_async
-async def test_current_snapshot_reports_direct_delivery_lag(lag, expected_status):
+async def test_current_snapshot_reports_completed_source_coverage(age, pending, expected_status):
     client = Client()
-    client.card_status["lag_seconds"] = lag
+    source_at = NOW - timedelta(seconds=age)
+    client.coverage["cards"].update(source_at=source_at, pending=pending)
     selected = await CurrentCards(client, now=NOW).selection(("article",))
     assert selected.snapshot.status == expected_status
-    assert selected.snapshot.lag_seconds == lag
+    assert selected.snapshot.lag_seconds == age
+    assert selected.snapshot.generated_at == source_at
+    assert selected.snapshot.coverage_expires_at == source_at + timedelta(seconds=600)
 
 
 @pytest.mark.parametrize("group", ["unknown", ID])
@@ -886,7 +936,7 @@ async def test_search_cannot_bypass_database_normalization_or_private_identity_l
 async def test_unknown_blocker_codes_cannot_be_silently_excluded_from_current_attention():
     client = Client({"admin:operations": [{"reviews": [], "blockers": [["future-policy", 1, []]]}]})
     with pytest.raises(AnalyticsUnavailable, match="Current blocker policy"):
-        await CurrentCards(client, now=NOW).operations()
+        await CurrentCards(client, now=NOW).operations(recent_window(30, NOW))
     assert not any("operations-targets" in sql for sql, _ in client.queries)
 
 
@@ -1001,7 +1051,7 @@ async def test_analytical_validation_errors_are_not_disguised_as_preparing(monke
 
     monkeypatch.setattr(reads, "_calculate", invalid)
     with pytest.raises(HTTPException) as caught:
-        await reads.section("operations", current_window())
+        await reads.section("operations", recent_window(30, NOW))
     assert caught.value is failure
     assert not reads.cache
 
@@ -1035,3 +1085,170 @@ def test_http_analytics_dependency_reuses_the_application_runtime_and_fresh_calc
             assert response.json()["chart"] == "queue-pressure"
     assert reads.client.status_reads == 1
     assert len(reads.client.queries) == 1 and "overview:queues" in reads.client.queries[0][0]
+
+
+@run_async
+async def test_recent_request_and_import_status_cannot_certify_incomplete_card_coverage():
+    client = Client({"admin:article-page": [{"stage": "analysis", "total": 5, "items": []}]})
+    client.coverage["cards"].update(completed_at=None, source_at=None, pending=True)
+    board = await CurrentCards(client, now=NOW).article_board(
+        q=None, source_id=None, needs_attention=False, limit=20
+    )
+    assert board.as_of == NOW and client.card_status["updated_at"] == NOW
+    assert board.counts["analysis"] == 5
+    assert board.snapshot.status == "catching_up"
+    assert board.snapshot.generated_at is None
+    assert board.snapshot.coverage_expires_at is None
+    assert board.snapshot.lag_seconds is None
+
+
+@run_async
+async def test_expired_card_coverage_stays_stale_despite_recent_request_and_import_status():
+    client = Client()
+    covered_at = NOW - timedelta(days=90)
+    client.coverage["cards"].update(source_at=covered_at, pending=True)
+    selected = await CurrentCards(client, now=NOW).selection(("article",))
+    assert selected.snapshot.status == "stale"
+    assert selected.snapshot.generated_at == covered_at
+    assert selected.snapshot.lag_seconds == 90 * 86400
+
+
+@run_async
+async def test_cards_and_current_queues_use_their_respective_covered_source_sets():
+    client = Client({"overview:queues": [{"kind": "analysis", "queued": 9, "running": 2}]})
+    client.coverage["queues"].update(completed_at=None, source_at=None, pending=True)
+    selected = await CurrentCards(client, now=NOW).selection(("source", "candidate"))
+    assert selected.snapshot.status == "fresh"
+    reads = runtime(client)
+    queue = await reads.section("queues", recent_window(30, NOW))
+    assert queue.data.queues[0].queued == 9 and queue.data.queues[0].running == 2
+    assert queue.snapshot.status == "catching_up" and queue.snapshot.generated_at is None
+    client.coverage["cards"].update(completed_at=None, source_at=None, pending=True)
+    client.coverage["queues"].update(completed_at=NOW, source_at=NOW, pending=False)
+    independent = runtime(client)
+    assert (await independent.section("queues", recent_window(30, NOW))).snapshot.status == "fresh"
+
+
+@run_async
+async def test_current_queues_report_expired_source_coverage_without_hiding_real_counts():
+    client = Client({"overview:queues": [{"kind": "analysis", "queued": 9, "running": 2}]})
+    source_at = NOW - timedelta(seconds=120)
+    client.coverage["queues"].update(completed_at=NOW, source_at=source_at)
+    report = await runtime(client).section("queues", recent_window(30, NOW))
+    assert report.generated_at == NOW
+    assert report.snapshot.generated_at == source_at
+    assert report.snapshot.coverage_expires_at == NOW - timedelta(seconds=60)
+    assert report.snapshot.status == "stale" and report.data.queues[0].queued == 9
+
+
+@run_async
+async def test_historical_reports_keep_readiness_and_do_not_require_current_coverage():
+    client = Client()
+    for coverage in client.coverage.values():
+        coverage.update(completed_at=None, source_at=None, pending=True)
+    report = await runtime(client).section("publishing", recent_window(30, NOW))
+    assert report.snapshot.status == "fresh"
+    assert report.snapshot.coverage_expires_at is None
+    assert client.coverage_reads == 0
+
+
+@run_async
+async def test_cached_current_view_expires_at_source_coverage_deadline_without_mutating_result():
+    time = [NOW]
+    client = Client()
+    client.coverage["cards"].update(source_at=NOW - timedelta(seconds=100), max_age_seconds=110)
+    reads = runtime(client, clock=lambda: time[0])
+    first = await reads.section("operations", recent_window(30, NOW))
+    assert first.snapshot.status == "fresh" and first.snapshot.lag_seconds == 100
+    time[0] += timedelta(seconds=11)
+    aged = await reads.section("operations", recent_window(30, NOW))
+    assert aged.snapshot.status == "stale" and aged.snapshot.lag_seconds == 111
+    assert aged.snapshot.generated_at == first.snapshot.generated_at
+    assert first.snapshot.status == "fresh" and first.snapshot.lag_seconds == 100
+    assert client.status_reads == 1 and client.coverage_reads == 1
+
+
+@run_async
+async def test_unavailable_current_coverage_does_not_fall_back_to_import_status(monkeypatch):
+    client = Client()
+
+    async def offline(*_args):
+        raise AnalyticsUnavailable("coverage unavailable")
+
+    monkeypatch.setattr(analytics_current, "read_reconciliation_status", offline)
+    with pytest.raises(AnalyticsUnavailable):
+        await CurrentCards(client, now=NOW).selection(("article",))
+    assert client.queries == []
+
+
+@run_async
+async def test_queue_report_cannot_claim_coverage_acknowledged_after_its_data_read():
+    client = Client({"overview:queues": [{"kind": "analysis", "queued": 9, "running": 2}]})
+    source_at = NOW - timedelta(seconds=120)
+    client.coverage["queues"].update(source_at=source_at)
+    query = client.query
+
+    async def advances_during_read(sql, parameters=None):
+        rows = await query(sql, parameters)
+        if "overview:queues" in sql:
+            client.coverage["queues"].update(completed_at=NOW, source_at=NOW)
+        return rows
+
+    client.query = advances_during_read
+    report = await runtime(client).section("queues", recent_window(30, NOW))
+    assert report.snapshot.generated_at == source_at
+    assert report.snapshot.status == "stale"
+    assert client.coverage["queues"]["source_at"] == NOW
+
+
+@pytest.mark.parametrize("section", ["audience", "coverage"])
+@pytest.mark.parametrize(
+    "progress",
+    [
+        [],
+        [{"cursor": '{"phase":0}', "pending": 1}],
+        [{"cursor": json.dumps({"phase": COMPLETE_PHASE, "start_revision": 1}), "pending": 1}],
+    ],
+)
+@run_async
+async def test_bounded_audience_reports_wait_for_acknowledged_timestamp_repair(section, progress):
+    client = Client({"analytics:audience-metadata-status": progress})
+    reads = runtime(client)
+    window = recent_window(1, NOW)
+    with pytest.raises(HTTPException) as error:
+        await reads.section(section, window)
+    assert error.value.detail["code"] == "analytics_preparing"
+    assert error.value.headers["Retry-After"] == "5"
+    assert all(
+        "overview:topics" not in sql and "overview:feed-health" not in sql
+        for sql, _ in client.queries
+    )
+    # Unrelated period reports remain usable while existing audience rows acquire timestamps.
+    assert (await reads.section("publishing", window)).data.section == "publishing"
+    assert (await reads.section("processing", window)).data.section == "processing"
+    assert (await reads.section("operations", window)).start == window.start
+
+
+@pytest.mark.parametrize(
+    "section,marker",
+    [
+        ("operations", "admin:operations"),
+        ("queues", "overview:queues"),
+        ("audience", "overview:feed-health"),
+        ("coverage", "overview:topics"),
+    ],
+)
+@run_async
+async def test_bounded_current_cohorts_cache_each_selected_period_independently(section, marker):
+    client = Client()
+    reads = runtime(client)
+    today, month = recent_window(1, NOW), recent_window(30, NOW)
+    assert (await reads.section(section, today)).days == 1
+    assert (await reads.section(section, month)).days == 30
+    assert (await reads.section(section, today)).days == 1
+    queries = [params for sql, params in client.queries if marker in sql]
+    assert len(queries) == 2
+    assert [params["start"] for params in queries] == [today.bounds[0], month.bounds[0]]
+    observed_end = NOW.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    expected_end = observed_end if section in {"queues", "audience"} else today.bounds[1]
+    assert all(params["end"] == expected_end for params in queries)

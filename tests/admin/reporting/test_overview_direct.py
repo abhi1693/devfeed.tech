@@ -1,6 +1,7 @@
 """Direct observations keep chart state in ClickHouse and evaluate current deadlines."""
 
 import asyncio
+import json
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -201,6 +202,8 @@ def test_direct_charts_handle_reparent_retry_and_feed_expiration():
                             {
                                 "user_id": user,
                                 "revision": 1,
+                                "created_at": start,
+                                "computed_at": start,
                                 "interest_count": 1,
                                 "has_generation": True,
                                 "expires_at": start + timedelta(hours=4),
@@ -238,7 +241,13 @@ def test_direct_charts_handle_reparent_retry_and_feed_expiration():
                     await store.topics([{"id": topic, "name": "Python", "revision": 1}])
                     await store.memberships(
                         [
-                            {"user_id": user, "topic_id": topic, "kind": "follow", "revision": 1},
+                            {
+                                "user_id": user,
+                                "topic_id": topic,
+                                "kind": "follow",
+                                "occurred_at": start,
+                                "revision": 1,
+                            },
                             {"user_id": user, "topic_id": topic, "kind": "inferred", "revision": 1},
                         ]
                     )
@@ -270,7 +279,31 @@ def test_direct_charts_handle_reparent_retry_and_feed_expiration():
                     assert (await store.topic_coverage(start, end))[0]["followers"] == 0
                     from devfeed_admin_api.analytics_reports import Reports
                     from devfeed_admin_api.overview_windows import ReportWindow
+                    from devfeed_core.analytics_audience_refresh import (
+                        COMPLETE_PHASE,
+                        PROGRESS_TABLE,
+                        REFRESH_POLICY,
+                        REFRESH_SCOPE,
+                    )
 
+                    # Every known audience row above has acknowledged its actual
+                    # source timestamps before this finite-projection readiness.
+                    await client.insert(
+                        PROGRESS_TABLE,
+                        [
+                            {
+                                "policy": REFRESH_POLICY,
+                                "scope": REFRESH_SCOPE,
+                                "version": 1,
+                                "source_at": start,
+                                "completed_at": start,
+                                "pending": 0,
+                                "cursor": json.dumps(
+                                    {"phase": COMPLETE_PHASE, "start_revision": 1}
+                                ),
+                            }
+                        ],
+                    )
                     report = Reports(
                         client,
                         ReportWindow(start.date(), end.date()),
@@ -451,6 +484,7 @@ async def _verify_current_cards(client, now, article_id, source_id):
                     "enabled": True,
                     "approval_status": "approved",
                     "consecutive_failures": 3,
+                    "activity_at": now,
                     "payload": source_payload,
                 },
                 policy,
@@ -492,7 +526,9 @@ async def _verify_current_cards(client, now, article_id, source_id):
     )
     assert sources.counts["active"] == 1
     assert sources.columns[6].items[0].name == "Publisher"
-    operations = await cards.operations()
+    from devfeed_admin_api.overview_windows import recent_window
+
+    operations = await cards.operations(recent_window(30, now))
     assert operations.data.source_failures == 1
     assert operations.data.reviews[0].count == 1
     blocker = next(item for item in operations.data.blockers if item.code == "analysis_failed")
@@ -897,5 +933,30 @@ def test_raw_observation_batches_enforce_the_memory_bound_before_inserting():
         with pytest.raises(ValueError, match="batch is too large"):
             await DirectOverviewAnalytics(sink)._write([{}] * 1001)
         assert sink.rows == []
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("method", ["queues", "feed_health"])
+def test_current_cohort_bounds_are_both_required_and_validated_before_query(method):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    async def run():
+        client = SimpleNamespace(query=AsyncMock(return_value=[]))
+        reader = DirectOverviewAnalytics(client)
+        start = datetime(2026, 10, 29, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        args = (start,) if method == "feed_health" else ()
+        call = getattr(reader, method)
+        for lower, upper in ((start, None), (None, end), (end, start), (start, start)):
+            with pytest.raises(ValueError):
+                await call(*args, lower, upper)
+        client.query.assert_not_awaited()
+        await call(*args, start, end)
+        sql, bound = client.query.call_args.args
+        assert bound["start"] == start and bound["end"] == end
+        assert "analytics_pipeline_events FINAL" in sql or "analytics_user_events FINAL" in sql
+        assert "created_at" in sql and "<{end:" in sql
 
     asyncio.run(run())

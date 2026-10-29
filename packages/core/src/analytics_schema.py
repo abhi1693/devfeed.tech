@@ -20,10 +20,10 @@ FIELDS = {
     "article_origins": "article_id source_id",
     "user_accounts": "id created_at",
     "article_opens": "article_id viewer_key opened_hour",
-    "user_topics": "user_id topic_id",
+    "user_topics": "user_id topic_id created_at",
     "user_interests": "user_id topic_id reason",
     "user_recommendation_states": (
-        "user_id generation invalidated expires_at next_refresh_at interest_count"
+        "user_id generation invalidated computed_at expires_at next_refresh_at interest_count"
     ),
     "topic_proposals": "id status created_at reviewed_at",
     "topic_relation_proposals": "id status created_at",
