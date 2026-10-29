@@ -103,6 +103,12 @@ def test_clickhouse_requires_a_service_origin_without_embedded_credentials(origi
         {"analytics_backfill_batch_size": 1001},
         {"analytics_poll_seconds": 0},
         {"analytics_backfill_poll_seconds": 0},
+        {"analytics_reconcile_batch_size": 0},
+        {"analytics_reconcile_batch_size": 201},
+        {"analytics_reconcile_poll_seconds": 0},
+        {"analytics_reconcile_poll_seconds": 301},
+        {"analytics_reconcile_sweep_seconds": 29},
+        {"analytics_reconcile_sweep_seconds": 86401},
     ],
 )
 def test_clickhouse_and_import_budgets_reject_unbounded_configuration(values):

@@ -2,8 +2,8 @@
 
 Only compact identities and sanitized previous job attempts are retained in
 memory. There is no PostgreSQL analytics queue or database capture trigger.
-Delivery is bounded and best effort; accepted business commits are never retried
-because ClickHouse is unavailable.
+Delivery has bounded in-memory retries and remains best effort; accepted business
+commits are never retried because ClickHouse is unavailable.
 """
 
 from __future__ import annotations
@@ -19,13 +19,17 @@ import uuid
 import weakref
 from collections.abc import Collection, Mapping, Sequence
 from contextlib import suppress
+from time import sleep
 from typing import Protocol, cast
 
+from clickhouse_connect.driver.exceptions import Error as ClickHouseError
 from psycopg import AsyncConnection, sql
+from psycopg import Error as PostgreSQLError
 from psycopg.rows import dict_row
 from sqlalchemy import Column, Engine, Table, Uuid, and_, event, or_, select, tuple_
 from sqlalchemy.engine import Connection, ScalarResult
 from sqlalchemy.engine.interfaces import DBAPICursor
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, SessionTransaction
 from sqlalchemy.pool import ConnectionPoolEntry, Pool
 from sqlalchemy.sql import Select, operators, visitors
@@ -62,6 +66,7 @@ _SAVEPOINTS = "devfeed_analytics_savepoints"
 _SKIP = "devfeed_skip_analytics"
 MAX_BATCH = 200
 MAX_PENDING_TRANSACTIONS = 128
+DELIVERY_RETRY_DELAYS = (0.25, 0.5)
 PUBLICATION_SOURCES = frozenset(
     {"articles", "article_origins", "article_topics", "article_reviews"}
 )
@@ -586,7 +591,8 @@ async def _feed_rows(
         return {}
     rows = await (
         await connection.execute(
-            "SELECT a.id,greatest(coalesce(s.interest_count,0),CASE WHEN "
+            "SELECT a.id,a.created_at,s.computed_at,"
+            "greatest(coalesce(s.interest_count,0),CASE WHEN "
             "EXISTS(SELECT 1 FROM user_topics t WHERE t.user_id=a.id) OR "
             "EXISTS(SELECT 1 FROM user_sources f WHERE f.user_id=a.id) OR "
             "EXISTS(SELECT 1 FROM user_tags t WHERE t.user_id=a.id) THEN 1 ELSE 0 END) AS "
@@ -601,6 +607,8 @@ async def _feed_rows(
     return {
         str(row["id"]): {
             "user_id": str(row["id"]),
+            "created_at": row["created_at"],
+            "computed_at": row["computed_at"],
             "interest_count": row["interest_count"],
             "has_generation": row["generation"] is not None,
             "invalidated": bool(row["invalidated"]),
@@ -633,7 +641,16 @@ async def hydrate_changes(
                     users.add(str(value))
     publications = await _publication_rows(connection, articles)
     feeds = await _feed_rows(connection, users)
-    result = list(changes)
+    result = [
+        change
+        | {
+            "record": change["record"]
+            | {"computed_at": feeds.get(str(change["record"]["user_id"]), {}).get("computed_at")}
+        }
+        if change["source_table"] == "user_interests" and change.get("record")
+        else change
+        for change in changes
+    ]
     for identity in sorted(articles):
         result.append(
             {
@@ -749,6 +766,26 @@ class DirectAnalyticsPublisher:
                 await self._publish_current(connection, dependent)
 
 
+def _delivery_error_fields(error: BaseException) -> dict[str, object]:
+    """Only trusted structured codes leave the background writer's error path."""
+    fields: dict[str, object] = {"error_type": type(error).__name__}
+    cause: BaseException | None = error
+    for _ in range(4):
+        if cause is None:
+            break
+        fields["cause_type"] = type(cause).__name__
+        if isinstance(cause, ClickHouseError) and type(cause.code) is int:
+            fields["clickhouse_code"] = cause.code
+        if isinstance(cause, PostgreSQLError):
+            state = cause.sqlstate
+            if isinstance(state, str) and re.fullmatch(r"[A-Z0-9]{5}", state):
+                fields["sqlstate"] = state
+        cause = (
+            cause.orig if isinstance(cause, DBAPIError) else cause.__cause__ or cause.__context__
+        )
+    return fields
+
+
 class AnalyticsProducer:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -822,14 +859,32 @@ class AnalyticsProducer:
     ) -> None:
         # Preserve every committed before-image. An association can move A -> B
         # -> C while another process publishes B; all three owners need refresh.
-        try:
-            for start in range(0, len(changes), MAX_BATCH):
-                runner.run(publisher.publish(changes[start : start + MAX_BATCH]))
-        except Exception:
-            logger.warning("analytics_direct_delivery_failed")
-        finally:
-            for _ in range(consumed):
-                self.pending.task_done()
+        for start in range(0, len(changes), MAX_BATCH):
+            self._publish_chunk(runner, publisher, changes[start : start + MAX_BATCH])
+        for _ in range(consumed):
+            self.pending.task_done()
+
+    @staticmethod
+    def _publish_chunk(
+        runner: asyncio.Runner, publisher: DirectAnalyticsPublisher, changes: list[SqlRecord]
+    ) -> None:
+        for attempt in range(len(DELIVERY_RETRY_DELAYS) + 1):
+            try:
+                runner.run(publisher.publish(changes))
+                return
+            except Exception as error:
+                retry = attempt < len(DELIVERY_RETRY_DELAYS)
+                logger.warning(
+                    "analytics_direct_delivery_failed"
+                    if retry
+                    else "analytics_direct_delivery_abandoned",
+                    extra=_delivery_error_fields(error)
+                    | {"attempt": attempt + 1, "change_count": len(changes)},
+                )
+                if retry:
+                    # Keep this same bounded chunk, including completed attempts
+                    # and old owners. Requests never wait for delivery/backoff.
+                    sleep(DELIVERY_RETRY_DELAYS[attempt])
 
     def _run(self) -> None:
         with asyncio.Runner() as runner:

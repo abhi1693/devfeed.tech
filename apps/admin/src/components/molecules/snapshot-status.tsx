@@ -7,12 +7,12 @@ import { DateTime } from "./date-time";
 
 export function SnapshotStatus({
   snapshot,
-  checkedAt,
+  requireCoverage = false,
   maxAgeSeconds = 60,
   active = true,
 }: {
   snapshot?: AnalyticsSnapshot | null;
-  checkedAt?: string | null;
+  requireCoverage?: boolean;
   maxAgeSeconds?: number;
   active?: boolean;
 }) {
@@ -24,33 +24,54 @@ export function SnapshotStatus({
         ? runWhenPageActive(
             () => {
               const timer = setInterval(() => setNow(Date.now()), 30_000);
-              return () => clearInterval(timer);
+              const deadline = Date.parse(snapshot?.coverage_expires_at ?? "");
+              const expiryTimer = Number.isFinite(deadline)
+                ? setTimeout(() => setNow(Date.now()), Math.max(0, deadline - Date.now()))
+                : undefined;
+              return () => {
+                clearInterval(timer);
+                clearTimeout(expiryTimer);
+              };
             },
             { requireFocus: false },
           )
         : undefined,
-    [active, hasSnapshot],
+    [active, hasSnapshot, snapshot?.coverage_expires_at],
   );
   if (!snapshot) return null;
-  const verified = Date.parse(checkedAt ?? "");
-  const reference = Number.isFinite(verified) ? verified : Date.parse(snapshot.generated_at ?? "");
-  const old = now - reference > maxAgeSeconds * 1000;
+  const reference = Date.parse(snapshot.generated_at ?? "");
+  const expiresAt = Date.parse(snapshot.coverage_expires_at ?? "");
+  const coverage = requireCoverage || snapshot.coverage_expires_at != null;
+  const old =
+    coverage && Number.isFinite(expiresAt)
+      ? now >= expiresAt
+      : now - reference > maxAgeSeconds * 1000;
+  const verified = Number.isFinite(reference) && Number.isFinite(expiresAt);
   const status =
     (snapshot.status === "fresh" || snapshot.status === "catching_up") && old
       ? "stale"
-      : snapshot.status;
+      : coverage && snapshot.status === "fresh" && !verified
+        ? "catching_up"
+        : snapshot.status;
   const label = {
-    fresh: "Updated",
-    stale: "Stale data · Last updated",
-    catching_up: "Catalog catching up · Last updated",
+    fresh: coverage ? "Verified through" : "Updated",
+    stale: coverage ? "Stale data · Verified through" : "Stale data · Last updated",
+    catching_up: coverage ? "Catching up · Verified through" : "Catching up · Last updated",
   }[status];
   return (
     <p
       role="status"
       className={`text-xs ${status === "fresh" ? "text-muted-foreground" : "text-amber-700 dark:text-amber-300"}`}
     >
-      {label}{" "}
-      {snapshot.generated_at ? <DateTime value={snapshot.generated_at} /> : "not yet available"}
+      {Number.isFinite(reference) && snapshot.generated_at ? (
+        <>
+          {label} <DateTime value={snapshot.generated_at} />
+        </>
+      ) : coverage ? (
+        `${status === "stale" ? "Stale data" : "Catching up"} · Coverage not yet available`
+      ) : (
+        `${label} not yet available`
+      )}
       {snapshot.catalog_lag_seconds != null && snapshot.catalog_lag_seconds >= 60 && (
         <> · Catalog changes pending for {Math.ceil(snapshot.catalog_lag_seconds / 60)} min</>
       )}

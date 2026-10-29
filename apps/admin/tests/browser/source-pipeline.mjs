@@ -42,6 +42,7 @@ let linked = false;
 let conflict = false;
 let profileMissing = false;
 let analyticsPreparing = false;
+let coverageState = "fresh";
 const posts = [];
 const reads = [];
 const snapshot = () => generation.toString(16).padStart(64, "0");
@@ -149,10 +150,15 @@ function board(url) {
   return {
     as_of: new Date().toISOString(),
     snapshot: {
-      status: "fresh",
-      generated_at: new Date(Date.now() - 120_000).toISOString(),
+      status: coverageState === "expired" ? "fresh" : coverageState,
+      generated_at:
+        coverageState === "catching_up" ? null : new Date(Date.now() - 120_000).toISOString(),
+      coverage_expires_at:
+        coverageState === "catching_up"
+          ? null
+          : new Date(Date.now() + (coverageState === "expired" ? -1000 : 480_000)).toISOString(),
       generation: String(generation),
-      lag_seconds: 0,
+      lag_seconds: coverageState === "catching_up" ? null : 120,
     },
     terminal_since: "2026-10-12T09:00:00Z",
     counts: Object.fromEntries(columns.map((column) => [column.stage, column.total])),
@@ -401,20 +407,35 @@ try {
   await item.waitFor();
   await page
     .getByRole("status")
-    .filter({ hasText: /^Updated/ })
+    .filter({ hasText: /^Verified through/ })
     .waitFor();
   assert.ok(
     Date.now() -
       Date.parse(
         await page
           .getByRole("status")
-          .filter({ hasText: /^Updated/ })
+          .filter({ hasText: /^Verified through/ })
           .locator("time")
           .getAttribute("datetime"),
       ) >
       60_000,
-    "A recently verified board must retain its older last-change time without looking stale",
+    "A covered board displays its source snapshot and honors the server's coverage window",
   );
+  for (const [state, label] of [
+    ["catching_up", /^Catching up/],
+    ["expired", /^Stale data/],
+  ]) {
+    coverageState = state;
+    await page.reload();
+    await page.getByRole("status").filter({ hasText: label }).waitFor();
+    await item.waitFor();
+  }
+  coverageState = "fresh";
+  await page.reload();
+  await page
+    .getByRole("status")
+    .filter({ hasText: /^Verified through/ })
+    .waitFor();
   // Native lane controls keep an overflowing board usable without a container tab stop.
   const pipeline = page.getByRole("region", { name: "Source lifecycle pipeline" });
   assert.equal(await pipeline.getAttribute("tabindex"), null);

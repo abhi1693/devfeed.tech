@@ -83,6 +83,11 @@ choose the kind of reading you’re in the mood for.
 DevFeed combines **Next.js and React** with **FastAPI**, **PostgreSQL**, and
 **Redis/RQ**. [Run your own instance with Docker Compose](compose.yaml).
 
+ClickHouse serves historical reports and operator boards. The analytics process
+repairs missed current job/card observations in bounded background pages, and
+boards show the source state verified by its latest completed coverage pass.
+See [analytics delivery and recovery](apps/admin-api/ANALYTICS.md).
+
 Container and CI runtimes use Node.js 26.12.1 and uv 0.13.5. Python images retain the tested 3.12
 line at patch 3.12.15 on Alpine 3.24. Base images are pinned by verified multi-platform digests; the
 minimal Node runtimes install libatomic and libstdc++ and execute a native-module loading check

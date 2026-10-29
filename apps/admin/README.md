@@ -9,10 +9,19 @@ See [configuration, authentication, service boundaries and commands](../../docs/
 
 ## Overview
 
+All twelve panels use the selected UTC date range. Publication panels include
+articles published during that period, including articles discovered earlier;
+time to publication retains their full discovery-to-publication duration.
+Review and queue counts cover current items created in the period. Feed health
+covers accounts created or feeds computed in the period, and topic demand covers
+active follows added and current interest profiles refreshed in the period.
+
 Only **Queue pressure** refreshes periodically after loading, using the configured
-interval while the chart is visible and the page is active. The other eleven charts
-retain their loaded result until a page reload, date-range change, or explicit retry
-or recovery action. Review and recovery is independent of the selected date range.
+interval while the chart is visible and the page is active. Other charts retain
+their loaded result until a page reload, date-range change, explicit retry or
+recovery action. Relative ranges such as **Today** resolve once for all panels
+and advance together at UTC midnight, including when a hidden page becomes active
+again. Absolute custom date ranges remain fixed.
 
 Every chart automatically checks a preparing response until data becomes available,
 even when general refresh is disabled. Those checks stop after a non-queue chart succeeds.

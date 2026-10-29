@@ -13,7 +13,7 @@ def test_schema_must_be_upgraded_before_historical_work(monkeypatch):
     schema = SimpleNamespace(
         check=AsyncMock(side_effect=worker.AnalyticsUnavailable("pending migration"))
     )
-    importer = SimpleNamespace(once=AsyncMock())
+    importer = SimpleNamespace(once=AsyncMock(), close=AsyncMock())
     settings = SimpleNamespace(
         database_url="postgresql://fixture/devfeed_test",
         database_connect_timeout_seconds=5,
@@ -22,6 +22,7 @@ def test_schema_must_be_upgraded_before_historical_work(monkeypatch):
     monkeypatch.setattr(worker, "ClickHouseMigrationRunner", lambda _: schema)
     monkeypatch.setattr(worker, "pipeline_policy_version", lambda _: "current")
     monkeypatch.setattr(worker, "AnalyticsImportRunner", lambda *_, **__: importer)
+    monkeypatch.setattr(worker, "CurrentStateReconciler", lambda *_, **__: object())
     service = worker.AnalyticsImportWorker(client, settings)
     with pytest.raises(worker.AnalyticsUnavailable, match="pending migration"):
         asyncio.run(service.once())
@@ -38,6 +39,7 @@ def test_service_retries_failed_pages_with_backoff_and_closes_client(monkeypatch
     exporter = SimpleNamespace(
         once=AsyncMock(side_effect=[RuntimeError("ClickHouse restarting"), True, False]),
         bootstrapping=True,
+        close=AsyncMock(),
     )
     pause = AsyncMock(side_effect=[None, None, StopService()])
     settings = SimpleNamespace(analytics_poll_seconds=1, analytics_backfill_poll_seconds=0.1)
@@ -74,16 +76,61 @@ def test_shutdown_interrupts_backoff_without_waiting_for_deadline():
     asyncio.run(run())
 
 
+@pytest.mark.parametrize(
+    ("busy", "bootstrapping", "expected"),
+    [(True, False, 0.1), (False, False, 1), (True, True, 0.2), (False, True, 1)],
+)
+def test_current_pages_progress_without_changing_idle_or_history_pacing(
+    busy, bootstrapping, expected
+):
+    settings = SimpleNamespace(analytics_poll_seconds=1, analytics_backfill_poll_seconds=0.2)
+    assert (
+        worker._poll_delay(settings, busy=busy, bootstrapping=bootstrapping, failures=0) == expected
+    )
+
+
 def test_single_cycle_propagates_outage_and_closes_client(monkeypatch):
     client = AsyncMock()
     client.__aenter__.return_value = client
-    importer = SimpleNamespace(once=AsyncMock(side_effect=RuntimeError("target unavailable")))
+    importer = SimpleNamespace(
+        once=AsyncMock(side_effect=RuntimeError("target unavailable")),
+        bootstrapping=False,
+        close=AsyncMock(),
+    )
     monkeypatch.setattr(worker, "get_settings", lambda: object())
     monkeypatch.setattr(worker, "AnalyticsClient", lambda _: client)
     monkeypatch.setattr(worker, "AnalyticsImportWorker", lambda *_: importer)
     with pytest.raises(RuntimeError, match="target unavailable"):
         asyncio.run(worker.run(once=True))
     client.__aexit__.assert_awaited_once()
+
+
+@pytest.mark.parametrize("bootstrapping", [False, True])
+def test_background_failure_logs_class_without_sql_or_credentials(
+    monkeypatch, caplog, bootstrapping
+):
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    secret = "password=private-fixture SELECT confidential_parameter"
+    importer = SimpleNamespace(
+        once=AsyncMock(side_effect=RuntimeError(secret)),
+        bootstrapping=bootstrapping,
+        close=AsyncMock(),
+    )
+    monkeypatch.setattr(worker, "get_settings", lambda: object())
+    monkeypatch.setattr(worker, "AnalyticsClient", lambda _: client)
+    monkeypatch.setattr(worker, "AnalyticsImportWorker", lambda *_: importer)
+    with pytest.raises(RuntimeError):
+        asyncio.run(worker.run(once=True))
+    event = (
+        "analytics_history_import_failed"
+        if bootstrapping
+        else "analytics_current_reconciliation_failed"
+    )
+    record = next(record for record in caplog.records if record.message == event)
+    assert record.error_type == "RuntimeError"
+    assert record.exc_info is None
+    assert secret not in caplog.text
 
 
 def test_backoff_deadline_returns_without_a_shutdown_signal():
@@ -118,7 +165,7 @@ def test_shutdown_before_first_cycle_never_initializes_or_imports(monkeypatch):
     stopping.set()
     client = AsyncMock()
     client.__aenter__.return_value = client
-    importer = SimpleNamespace(once=AsyncMock())
+    importer = SimpleNamespace(once=AsyncMock(), close=AsyncMock())
     monkeypatch.setattr(worker, "get_settings", lambda: object())
     monkeypatch.setattr(worker, "AnalyticsClient", lambda _: client)
     monkeypatch.setattr(worker, "AnalyticsImportWorker", lambda *_: importer)
@@ -132,7 +179,7 @@ def test_shutdown_before_first_cycle_never_initializes_or_imports(monkeypatch):
 def test_single_successful_cycle_returns_without_waiting(monkeypatch, busy):
     client = AsyncMock()
     client.__aenter__.return_value = client
-    importer = SimpleNamespace(once=AsyncMock(return_value=busy))
+    importer = SimpleNamespace(once=AsyncMock(return_value=busy), close=AsyncMock())
     pause = AsyncMock()
     monkeypatch.setattr(worker, "get_settings", lambda: object())
     monkeypatch.setattr(worker, "AnalyticsClient", lambda _: client)

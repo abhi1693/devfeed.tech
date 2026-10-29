@@ -120,8 +120,8 @@ def test_pending_extraction_is_distinguished_from_unavailable_text(database):
 def test_removed_or_invalid_range_protocols_are_rejected_before_recording_demand(
     overview_cutover_database, admin_client, monkeypatch, chart, query, cutover_complete
 ):
+    from devfeed_core.analytics_connections import postgres_connections
     from devfeed_core.analytics_cutover import LegacyAnalyticsCutover
-    from devfeed_core.analytics_import_runner import postgres_connections
     from devfeed_core.config import get_settings
     from devfeed_core.db import get_engine
     from sqlalchemy import event, text

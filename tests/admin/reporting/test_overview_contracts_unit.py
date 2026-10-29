@@ -51,3 +51,14 @@ def test_invalid_calendar_windows_fail_before_saved_storage_is_opened(monkeypatc
         )
     assert error.value.status_code == 422
     read.assert_not_called()
+
+
+def test_calendar_report_bounds_are_utc_and_reject_an_unbounded_snapshot():
+    from datetime import UTC, date, datetime
+
+    from devfeed_admin_api.overview_windows import ReportWindow, current_window
+
+    window = ReportWindow(date(2026, 10, 29), date(2026, 10, 30))
+    assert window.bounds == (datetime(2026, 10, 29, tzinfo=UTC), datetime(2026, 10, 30, tzinfo=UTC))
+    with pytest.raises(ValueError, match="explicit calendar dates"):
+        _ = current_window().bounds

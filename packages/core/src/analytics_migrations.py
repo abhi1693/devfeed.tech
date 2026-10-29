@@ -170,7 +170,8 @@ async def upgrade_analytics(settings: Settings | None = None) -> MigrationStatus
     stores no analytics, requires no table, and is released when the connection
     closes. The import boundary is fixed before live producers are started.
     """
-    from devfeed_core.analytics_import_runner import AnalyticsImportRunner, postgres_connections
+    from devfeed_core.analytics_connections import postgres_connections
+    from devfeed_core.analytics_import_runner import AnalyticsImportRunner
     from devfeed_core.config import get_settings
 
     settings = settings or get_settings()

@@ -6,8 +6,6 @@ export function reportForRange<T extends OverviewChartReport>(
   report: T,
   range: { from?: string | null; to?: string | null } = defaultDateRange,
 ): T {
-  if (report.chart === "attention")
-    return { ...report, days: 1, start: null, end: null, granularity: null };
   const bounds = dateRangeBounds({ from: range.from ?? undefined, to: range.to ?? undefined });
   if (!bounds) throw new Error(`Invalid test report range: ${JSON.stringify(range)}`);
   const days = (Date.parse(bounds.end) - Date.parse(bounds.start)) / 86_400_000 + 1;

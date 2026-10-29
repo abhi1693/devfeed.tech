@@ -37,8 +37,13 @@ spec.loader.exec_module(check_compose)
             "CLICKHOUSE_PASSWORD": "inherited-private-service-secret",
         },
         {"DEVFEED_CH_UI_SECRET_KEY": "inherited-private-ui-secret"},
+        {
+            "DEVFEED_DIRECT_DATABASE_URL": (
+                "postgresql+psycopg://private:inherited-secret@database.example.test/private"
+            )
+        },
     ],
-    ids=["x-pixel", "partner-placement", "clickhouse", "ch-ui"],
+    ids=["x-pixel", "partner-placement", "clickhouse", "ch-ui", "direct-database"],
 )
 def test_compose_render_isolates_inherited_private_configuration(monkeypatch, configuration):
     for key, value in configuration.items():
@@ -54,6 +59,73 @@ def test_compose_render_isolates_inherited_private_configuration(monkeypatch, co
     assert len(environments) == 1
     for key in configuration:
         assert key not in environments[0]
+
+
+@pytest.mark.parametrize("build", [False, True], ids=["registry", "local-build"])
+@pytest.mark.parametrize(
+    "options",
+    [
+        {
+            "DEVFEED_DATABASE_URL": "postgresql+psycopg://fixture@pooler.example.test/devfeed_test",
+            "DEVFEED_DIRECT_DATABASE_URL": (
+                "postgresql+psycopg://fixture@database.example.test/devfeed_test"
+            ),
+        },
+        {"DEVFEED_DATABASE_URL": "postgresql+psycopg://fixture@pooler.example.test/devfeed_test"},
+        {
+            "DEVFEED_DATABASE_URL": "postgresql+psycopg://fixture@pooler.example.test/devfeed_test",
+            "DEVFEED_DIRECT_DATABASE_URL": "",
+        },
+        {
+            "DEVFEED_DIRECT_DATABASE_URL": (
+                "postgresql+psycopg://fixture@database.example.test/devfeed_test"
+            )
+        },
+        {},
+        {"DEVFEED_DATABASE_URL": "", "DEVFEED_DIRECT_DATABASE_URL": ""},
+    ],
+    ids=["direct", "normal-only", "empty-direct", "direct-with-default", "defaults", "empty"],
+)
+def test_session_affine_database_override_is_confined_to_lock_owners(build, options):
+    services = check_compose.render(
+        {
+            "POSTGRES_PASSWORD": "fixture-only-password",
+            "COMPOSE_PROFILES": "workers,ai,notifications,search,mcp",
+            **options,
+        },
+        build=build,
+    )["services"]
+    normal_url = options.get("DEVFEED_DATABASE_URL") or (
+        "postgresql+psycopg://devfeed:fixture-only-password@postgres:5432/devfeed"
+    )
+    direct_url = options.get("DEVFEED_DIRECT_DATABASE_URL") or normal_url
+    lock_owners = {"migrate", "analytics-importer"}
+    database_services = {
+        name: service["environment"]["DEVFEED_DATABASE_URL"]
+        for name, service in services.items()
+        if "DEVFEED_DATABASE_URL" in service.get("environment", {})
+    }
+    assert set(database_services) == {
+        *lock_owners,
+        "api",
+        "admin-api",
+        "user-api",
+        "partner-api",
+        "scheduler",
+        "high-worker",
+        "default-worker",
+        "low-worker",
+        "images-worker",
+        "search-setup",
+        "search-indexer",
+    }
+    for name, actual in database_services.items():
+        assert actual == (direct_url if name in lock_owners else normal_url), name
+    for name, service in services.items():
+        environment = service.get("environment", {})
+        assert "DEVFEED_DIRECT_DATABASE_URL" not in environment, name
+        if direct_url != normal_url and name not in lock_owners:
+            assert direct_url not in environment.values(), name
 
 
 @pytest.mark.parametrize(
