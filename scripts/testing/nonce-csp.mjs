@@ -5,10 +5,47 @@ import { JSDOM } from "jsdom";
 const preferredSourceReportOnly =
   "Framing 'https://news.google.com/' violates the following report-only Content Security Policy directive: \"frame-ancestors 'self'\". The violation has been logged, but no further action has been taken.";
 
-/** Keep enforced/application policy failures fatal and retain the exact vendor-only report. */
+function preferredSourceFrame(page, frame) {
+  try {
+    const url = new URL(frame.url());
+    if (
+      url.origin !== "https://news.google.com" ||
+      !["/swg/ui/v1/serviceiframe", "/swg/ui/v1/toastiframe"].includes(url.pathname)
+    )
+      return null;
+    const parent = frame.parentFrame();
+    if (!parent || parent.parentFrame() !== page.mainFrame()) return null;
+    const widget = new URL(parent.url());
+    if (
+      widget.origin === new URL(page.url()).origin &&
+      widget.pathname === "/preferred-source/widget"
+    )
+      return { url: frame.url(), widget: parent.url() };
+  } catch {
+    // Missing or invalid browser source metadata cannot establish a trusted vendor frame.
+  }
+  return null;
+}
+
+/** Vendor advisory policies stay diagnostic; application and enforced policies remain fatal. */
 export function collectReaderPageErrors(page) {
   const errors = [];
   const preferredSourceReports = [];
+  const sources = new Map();
+  let rootOrigin = new URL(page.url()).origin;
+  const rememberFrame = (frame) => {
+    if (frame === page.mainFrame()) {
+      const origin = new URL(frame.url()).origin;
+      if (origin !== rootOrigin) sources.clear();
+      rootOrigin = origin;
+      return;
+    }
+    const source = frame.url();
+    const provenance = preferredSourceFrame(page, frame);
+    // Retain lineage for logs delivered after teardown; any ambiguous reuse stays untrusted.
+    if (!sources.has(source) || sources.get(source) !== null) sources.set(source, provenance);
+  };
+  page.on("framenavigated", rememberFrame);
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
     const text = message.text();
@@ -17,10 +54,17 @@ export function collectReaderPageErrors(page) {
       !(message.type() === "error" && /Refused to/.test(text))
     )
       return;
-    if (text.trimEnd() === preferredSourceReportOnly)
+    const location = message.location();
+    for (const frame of page.frames())
+      if (frame !== page.mainFrame() && frame.url() === location.url) rememberFrame(frame);
+    const sourceFrame = sources.get(location.url);
+    const reportOnly =
+      /\breport-only\b/.test(text) && /no further action has been taken\.\s*$/.test(text);
+    if (text.trimEnd() === preferredSourceReportOnly || (sourceFrame && reportOnly))
       preferredSourceReports.push({
         message: text,
-        location: message.location(),
+        location,
+        sourceFrame,
         page: page.url(),
       });
     else errors.push(text);

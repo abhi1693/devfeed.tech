@@ -1655,12 +1655,14 @@ test(
 );
 
 test(
-  "reader console guard distinguishes the exact Google ancestor report from policy failures",
+  "reader console guard distinguishes vendor policy reports by document ownership",
   { timeout: 30000 },
   async (t) => {
     const browser = await chromium.launch({ headless: true });
     t.after(() => browser.close());
     const policy = "frame-ancestors 'self'; report-uri https://reader-csp.test/report";
+    const scriptPolicy = "script-src 'unsafe-inline'; report-uri https://reader-csp.test/report";
+    let vendorReportText;
     for (const fixture of [
       { name: "Google ancestor report", childPolicy: policy, diagnostic: true },
       { name: "Google enforced ancestor policy", childPolicy: policy, enforced: true },
@@ -1671,6 +1673,67 @@ test(
         name: "Google script report",
         childPolicy: "script-src 'none'; report-uri https://reader-csp.test/report",
       },
+      {
+        name: "Google service script report under its local widget",
+        childPolicy: scriptPolicy,
+        nested: true,
+        externalScript: true,
+        diagnostic: true,
+        reuseOutside: true,
+      },
+      {
+        name: "Google toast script report with a different blocked resource",
+        childPolicy: scriptPolicy,
+        childPath: "/swg/ui/v1/toastiframe",
+        scriptSource: "https://vendor-cdn.test/runtime.js",
+        nested: true,
+        externalScript: true,
+        diagnostic: true,
+        originChange: true,
+      },
+      { name: "application script report loading gstatic", appScript: true, externalScript: true },
+      {
+        name: "local widget script report loading gstatic",
+        widgetScript: true,
+        nested: true,
+        externalScript: true,
+      },
+      {
+        name: "Google enforced script policy under the local widget",
+        childPolicy: scriptPolicy,
+        nested: true,
+        externalScript: true,
+        enforced: true,
+      },
+      {
+        name: "Google script report under another local path",
+        childPolicy: scriptPolicy,
+        nested: true,
+        widgetPath: "/another-widget",
+        externalScript: true,
+      },
+      {
+        name: "Google script report under another widget origin",
+        childPolicy: scriptPolicy,
+        nested: true,
+        widgetOrigin: "https://untrusted-widget.test",
+        externalScript: true,
+      },
+      {
+        name: "another Google document under the local widget",
+        childPolicy: scriptPolicy,
+        childPath: "/another-document",
+        nested: true,
+        externalScript: true,
+      },
+      {
+        name: "another vendor under the local widget",
+        childPolicy: scriptPolicy,
+        otherOrigin: true,
+        nested: true,
+        externalScript: true,
+      },
+      { name: "report text with unknown source metadata", unknownSource: true },
     ])
       await t.test(fixture.name, async () => {
         const context = await browser.newContext();
@@ -1683,7 +1746,19 @@ test(
           const header = fixture.enforced
             ? "content-security-policy"
             : "content-security-policy-report-only";
-          const script = "<script>window.__policyProbe = true</script>";
+          const childUrl = `${childOrigin}${fixture.childPath ?? "/swg/ui/v1/serviceiframe"}`;
+          const widgetUrl = `${fixture.widgetOrigin ?? "https://reader-csp.test"}${fixture.widgetPath ?? "/preferred-source/widget"}`;
+          const scriptSource =
+            fixture.scriptSource ?? "https://www.gstatic.com/publisher-fixture.js";
+          const script = fixture.externalScript
+            ? `<script src="${scriptSource}"></script>`
+            : "<script>window.__policyProbe = true</script>";
+          await context.route(scriptSource, (route) =>
+            route.fulfill({
+              contentType: "application/javascript",
+              body: "window.__policyProbe = true",
+            }),
+          );
           await context.route("https://reader-csp.test/report", (route) =>
             route.fulfill({ status: 204 }),
           );
@@ -1691,17 +1766,32 @@ test(
             route.fulfill({
               contentType: "text/html",
               headers: fixture.appScript
-                ? { [header]: "script-src 'none'; report-uri https://reader-csp.test/report" }
+                ? {
+                    [header]: fixture.externalScript
+                      ? scriptPolicy
+                      : "script-src 'none'; report-uri https://reader-csp.test/report",
+                  }
                 : {},
-              body: fixture.appScript
-                ? `<!doctype html>${script}`
-                : `<!doctype html><iframe src="${childOrigin}/swg/ui/v1/serviceiframe"></iframe>`,
+              body: fixture.unknownSource
+                ? "<!doctype html><title>Unknown console source</title>"
+                : fixture.appScript
+                  ? `<!doctype html>${script}`
+                  : `<!doctype html><iframe src="${fixture.nested ? widgetUrl : childUrl}"></iframe>`,
             }),
           );
-          await context.route(`${childOrigin}/swg/ui/v1/serviceiframe`, (route) =>
+          await context.route(widgetUrl, (route) =>
             route.fulfill({
               contentType: "text/html",
-              headers: { [header]: fixture.childPolicy },
+              headers: fixture.widgetScript ? { [header]: scriptPolicy } : {},
+              body: fixture.widgetScript
+                ? `<!doctype html>${script}`
+                : `<!doctype html><iframe src="${childUrl}"></iframe>`,
+            }),
+          );
+          await context.route(childUrl, (route) =>
+            route.fulfill({
+              contentType: "text/html",
+              headers: fixture.childPolicy ? { [header]: fixture.childPolicy } : {},
               body: `<!doctype html>${script}<button>Vendor frame rendered</button>`,
             }),
           );
@@ -1709,10 +1799,12 @@ test(
             /Content Security Policy/.test(message.text()),
           );
           await page.goto("https://reader-csp.test/");
-          await reported;
+          if (fixture.unknownSource)
+            await page.evaluate((text) => console.info(text), vendorReportText);
+          const policyMessage = await reported;
           if (fixture.diagnostic) {
-            await page
-              .frameLocator("iframe")
+            const frame = page.frameLocator("iframe");
+            await (fixture.nested ? frame.frameLocator("iframe") : frame)
               .getByRole("button", { name: "Vendor frame rendered" })
               .waitFor();
             assert.deepEqual(errors, []);
@@ -1721,7 +1813,54 @@ test(
               1,
               "The vendor report remains available as evidence",
             );
-            assert.match(preferredSourceReports[0].message, /report-only.*frame-ancestors/);
+            assert.match(preferredSourceReports[0].message, /report-only/);
+            if (fixture.nested) {
+              vendorReportText = preferredSourceReports[0].message;
+              assert.deepEqual(preferredSourceReports[0].sourceFrame, {
+                url: childUrl,
+                widget: widgetUrl,
+              });
+            }
+            if (fixture.reuseOutside) {
+              await page.evaluate(() => {
+                document.querySelector("iframe").remove();
+                history.pushState({}, "", "/after-preview");
+              });
+              page.emit("console", policyMessage);
+              assert.deepEqual(errors, [], "A delayed vendor report retains its proven lineage");
+              assert.equal(preferredSourceReports.length, 2);
+              const rejected = page.waitForEvent("console", (message) =>
+                /Content Security Policy/.test(message.text()),
+              );
+              await page.evaluate((src) => {
+                const outside = document.createElement("iframe");
+                outside.src = src;
+                document.body.appendChild(outside);
+              }, childUrl);
+              await rejected;
+              assert.ok(
+                errors.length > 0,
+                "Reusing the same Google URL outside the widget remains fatal",
+              );
+              assert.equal(preferredSourceReports.length, 2);
+              errors.length = 0;
+            }
+            if (fixture.originChange) {
+              await context.route("https://new-root.test/", (route) =>
+                route.fulfill({
+                  contentType: "text/html",
+                  body: "<!doctype html><title>A different root origin</title>",
+                }),
+              );
+              await page.goto("https://new-root.test/");
+              page.emit("console", policyMessage);
+              assert.ok(
+                errors.length > 0,
+                "Changing the root origin clears previously trusted lineage",
+              );
+              assert.equal(preferredSourceReports.length, 1);
+              errors.length = 0;
+            }
             const failed = page.waitForEvent("pageerror");
             await page.evaluate(() =>
               setTimeout(() => {
