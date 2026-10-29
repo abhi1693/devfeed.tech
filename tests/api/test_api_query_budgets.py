@@ -424,7 +424,12 @@ def test_populated_api_query_budgets(
         warm = http.get(path)
         assert warm.status_code == 200, (path, warm.text)
         if path.startswith("/v1/admin/overview/charts/attention"):
-            assert warm.json()["snapshot"]["status"] == "fresh"
+            # Card publication does not certify a completed reconciliation
+            # sweep. Real counts remain readable while source coverage catches up.
+            snapshot = warm.json()["snapshot"]
+            assert snapshot["status"] == "catching_up"
+            assert snapshot["generated_at"] is None and snapshot["coverage_expires_at"] is None
+            assert warm.headers["X-Overview-Stale"] == "true"
             metrics = warm.json()["data"]
             blockers = {blocker["code"]: blocker for blocker in metrics["blockers"]}
             expected_groups = {
