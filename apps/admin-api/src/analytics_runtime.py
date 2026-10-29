@@ -27,7 +27,13 @@ from fastapi import HTTPException, Request
 from redis.asyncio.retry import Retry
 from redis.backoff import NoBackoff
 
-from devfeed_admin_api.analytics_current import CurrentCards, SourceBoardQuery, preparing, timestamp
+from devfeed_admin_api.analytics_current import (
+    CurrentCards,
+    SourceBoardQuery,
+    current_snapshot,
+    preparing,
+    timestamp,
+)
 from devfeed_admin_api.analytics_reports import Reports
 from devfeed_admin_api.overview_sections import OverviewSectionReport, SectionName
 from devfeed_admin_api.overview_windows import ReportWindow
@@ -123,7 +129,7 @@ class AnalyticsRuntime:
         self.clock = clock or (lambda: datetime.now(UTC))
         self.policy = pipeline_policy_version(settings)
         namespace = settings.database_url + ":" + settings.clickhouse_database
-        self.prefix = "admin:analytics:v2:" + hashlib.sha256(namespace.encode()).hexdigest()[:20]
+        self.prefix = "admin:analytics:v3:" + hashlib.sha256(namespace.encode()).hexdigest()[:20]
         self.max_entry_bytes = settings.cache_max_bytes
         self.cache: OrderedDict[str, bytes | str] = OrderedDict()
         self.cache_bytes = 0
@@ -219,7 +225,9 @@ class AnalyticsRuntime:
         if report.snapshot is not None:
             age = max(0, (self.clock() - report.generated_at).total_seconds())
             report.snapshot.lag_seconds = (report.snapshot.lag_seconds or 0) + age
-            if report.snapshot.lag_seconds > 60:
+            expires_at = report.snapshot.coverage_expires_at
+            expired = self.clock() >= expires_at if expires_at else report.snapshot.lag_seconds > 60
+            if expired:
                 report.snapshot.status = "stale"
         return report
 
@@ -254,12 +262,22 @@ class AnalyticsRuntime:
         status = await self.client.status()
         if not status.get("ready"):
             raise AnalyticsPreparing("Analytics is being prepared")
+        snapshot = (
+            await current_snapshot(
+                self.client, self.policy, now, scope="queues", generation=str(status["version"])
+            )
+            if group == "queues"
+            else None
+        )
         report = await Reports(
             self.client,
             window,
             now,
             capture_started_at=timestamp(status["capture_started_at"]),
         ).section(group)
+        if snapshot is not None:
+            report.snapshot = snapshot
+            return report
         lag = max(0, float(status.get("lag_seconds") or 0))
         report.snapshot = AnalyticsSnapshot(
             status="stale" if lag > 60 else "fresh",

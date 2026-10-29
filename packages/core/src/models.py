@@ -1488,6 +1488,7 @@ class SourceCandidate(Base):
             name="source_candidate_approval_status",
         ),
         Index("ix_source_candidates_status_created", "status", "created_at"),
+        Index("ix_source_candidates_source_lookup", "source_id", "id"),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     identity_url: Mapped[str] = mapped_column(String(2048), unique=True)
@@ -1567,6 +1568,7 @@ class SourceDiscoveryJob(LeasedJobMixin, Base):
             postgresql_where=text("status = 'running'"),
         ),
         Index("ix_source_discovery_due", "status", "available_at"),
+        Index("ix_source_discovery_candidate_lookup", "candidate_id", "id"),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     candidate_id: Mapped[uuid.UUID] = mapped_column(

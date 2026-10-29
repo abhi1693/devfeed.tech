@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from devfeed_core import analytics_connections
 from devfeed_core import analytics_import_runner as runner
 
 
@@ -213,7 +214,7 @@ def test_invalid_setup_fails_immediately():
     with pytest.raises(ValueError):
         runner.AnalyticsImportRunner(None, Pool().connect, page_size=1001)
     with pytest.raises(ValueError):
-        runner.postgres_connections("", connect_timeout=5)
+        analytics_connections.postgres_connections("", connect_timeout=5)
 
 
 def test_deadline_releases_the_lock_when_an_insert_stalls():
@@ -272,7 +273,7 @@ def test_real_runner_resumes_cutover_and_rejects_partial_loss(database):
                 ) as client:
                     client.insert_settings = {"async_insert_busy_timeout_ms": 1}
                     await client.initialize()
-                    connect = runner.postgres_connections(settings.database_url)
+                    connect = analytics_connections.postgres_connections(settings.database_url)
                     first = runner.AnalyticsImportRunner(client, connect, page_size=2)
                     dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://", 1)
                     async with (
@@ -426,8 +427,8 @@ def test_postgres_connector_normalizes_dsn_and_owns_each_connection(monkeypatch)
     first.__aenter__.return_value = first
     second.__aenter__.return_value = second
     connect = AsyncMock(side_effect=[first, second])
-    monkeypatch.setattr(runner.psycopg.AsyncConnection, "connect", connect)
-    factory = runner.postgres_connections(
+    monkeypatch.setattr(analytics_connections.psycopg.AsyncConnection, "connect", connect)
+    factory = analytics_connections.postgres_connections(
         "postgresql+psycopg://fixture/source_test", connect_timeout=4
     )
 
@@ -447,7 +448,9 @@ def test_postgres_connector_normalizes_dsn_and_owns_each_connection(monkeypatch)
 @pytest.mark.parametrize("timeout", [True, 0, 61])
 def test_connector_rejects_invalid_connect_deadlines(timeout):
     with pytest.raises(ValueError, match="connect timeout"):
-        runner.postgres_connections("postgresql://fixture/source_test", connect_timeout=timeout)
+        analytics_connections.postgres_connections(
+            "postgresql://fixture/source_test", connect_timeout=timeout
+        )
 
 
 @pytest.mark.parametrize("value", [None, (17,)])

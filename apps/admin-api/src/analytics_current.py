@@ -18,6 +18,7 @@ from devfeed_core.analytics_card_types import (
     Stage,
 )
 from devfeed_core.analytics_observation import AnalyticsSnapshot, pipeline_policy_version
+from devfeed_core.analytics_reconcile import read_reconciliation_status
 from devfeed_core.source_types import SourceType
 from fastapi import HTTPException
 from pydantic import BaseModel
@@ -57,7 +58,6 @@ class SourceQueryParameters(TypedDict):
 
 
 CARD_KINDS = ("article", "source", "candidate", "topic-proposal", "relationship-proposal")
-FRESH_SECONDS = 60
 
 
 def preparing(
@@ -74,6 +74,32 @@ def timestamp(value: datetime | str) -> datetime:
     if isinstance(value, datetime):
         return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+
+
+async def current_snapshot(
+    client: AnalyticsClient,
+    policy: str,
+    now: datetime,
+    *,
+    scope: Literal["cards", "queues"],
+    generation: str,
+) -> AnalyticsSnapshot:
+    coverage = (await read_reconciliation_status(client, policy))[scope]
+    completed_at = coverage["completed_at"]
+    source_at = coverage["source_at"]
+    if completed_at is None or source_at is None:
+        return AnalyticsSnapshot(status="catching_up", generation=generation, policy_version=policy)
+    covered_at = timestamp(source_at)
+    expires_at = covered_at + timedelta(seconds=coverage["max_age_seconds"])
+    state = "stale" if now >= expires_at else "catching_up" if coverage["pending"] else "fresh"
+    return AnalyticsSnapshot(
+        status=state,
+        generated_at=covered_at,
+        coverage_expires_at=expires_at,
+        generation=generation,
+        policy_version=policy,
+        lag_seconds=max(0, (now - covered_at).total_seconds()),
+    )
 
 
 def _next_cursor(offset: int, count: int, total: int) -> int | None:
@@ -114,14 +140,8 @@ class CurrentCards:
         status = await self.client.status()
         if not status.get("ready") or status.get("policy", self.policy) != self.policy:
             raise preparing()
-        lag = max(float(status.get("lag_seconds") or 0), 0)
-        generated_at = status.get("generated_at") or status.get("updated_at")
-        snapshot = AnalyticsSnapshot(
-            status="stale" if lag > FRESH_SECONDS else "fresh",
-            generated_at=timestamp(generated_at) if generated_at else None,
-            generation=str(status["version"]),
-            policy_version=self.policy,
-            lag_seconds=lag,
+        snapshot = await current_snapshot(
+            self.client, self.policy, self.now, scope="cards", generation=str(status["version"])
         )
         return CurrentSelection(self.policy, kinds, snapshot)
 

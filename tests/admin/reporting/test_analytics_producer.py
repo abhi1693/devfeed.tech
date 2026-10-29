@@ -156,7 +156,7 @@ def writer_runtime(monkeypatch):
 
     started, release = threading.Event(), threading.Event()
     batches, closed = [], []
-    state = SimpleNamespace(block=False, fail=False)
+    state = SimpleNamespace(block=False, fail=False, failures_remaining=0, error=None, waits=[])
 
     class Client:
         def __init__(self, _settings):
@@ -174,11 +174,13 @@ def writer_runtime(monkeypatch):
             if state.block:
                 assert release.wait(2), "Test did not release the blocked delivery"
             batches.append(changes)
-            if state.fail:
-                raise RuntimeError("delivery unavailable")
+            if state.fail or state.failures_remaining:
+                state.failures_remaining = max(0, state.failures_remaining - 1)
+                raise state.error or RuntimeError("delivery unavailable")
 
     monkeypatch.setattr(producer, "AnalyticsClient", Client)
     monkeypatch.setattr(producer, "DirectAnalyticsPublisher", Publisher)
+    monkeypatch.setattr(producer, "sleep", state.waits.append)
     monkeypatch.setattr(producer, "MAX_PENDING_TRANSACTIONS", 1)
     monkeypatch.setattr(producer, "_producer", None)
     yield state, started, release, batches, closed
@@ -220,18 +222,258 @@ def test_shutdown_drains_a_full_buffer_and_preserves_a_bounded_deadline(writer_r
 
 
 @pytest.mark.parametrize("fail", [False, True])
-def test_shutdown_delivers_accepted_work_once_and_closes_the_client(writer_runtime, fail):
+def test_shutdown_finishes_bounded_delivery_attempts_and_closes_the_client(writer_runtime, fail):
     state, _, _, batches, closed = writer_runtime
     state.fail = fail
     writer = producer.AnalyticsProducer(object())
     try:
         assert writer.submit(article_change(1))
         assert writer.shutdown(2)
-        assert batches == [article_change(1)]
+        assert batches == [article_change(1)] * (3 if fail else 1)
+        assert state.waits == ([0.25, 0.5] if fail else [])
         assert writer.pending.unfinished_tasks == 0 and closed == [True]
         assert writer.shutdown(0)
     finally:
         writer.shutdown(2)
+
+
+def test_transient_delivery_retains_unacknowledged_work_and_bounded_backpressure(
+    writer_runtime, monkeypatch
+):
+    import threading
+
+    state, _, release, batches, closed = writer_runtime
+    waiting = threading.Event()
+    state.failures_remaining = 1
+
+    def backoff(seconds):
+        state.waits.append(seconds)
+        waiting.set()
+        assert release.wait(2), "Test did not release the retry backoff"
+
+    monkeypatch.setattr(producer, "sleep", backoff)
+    writer = producer.AnalyticsProducer(object())
+    try:
+        assert writer.submit(article_change(1))
+        assert waiting.wait(1)
+        assert writer.pending.unfinished_tasks == 1
+        assert writer.submit(article_change(2))
+        assert not writer.submit(article_change(3))
+        assert not writer.shutdown(0)
+        assert not writer.submit(article_change(4))
+        release.set()
+        assert writer.shutdown(2)
+        assert batches == [article_change(1), article_change(1), article_change(2)]
+        assert state.waits == [0.25]
+        assert writer.pending.unfinished_tasks == 0 and closed == [True]
+    finally:
+        release.set()
+        writer.shutdown(2)
+
+
+def test_exhausted_delivery_is_explicit_and_does_not_stop_later_chunks(
+    writer_runtime, monkeypatch, caplog
+):
+    import asyncio
+    import queue
+
+    state, _, _, _, _ = writer_runtime
+    monkeypatch.setattr(producer, "MAX_BATCH", 1)
+    writer = producer.AnalyticsProducer.__new__(producer.AnalyticsProducer)
+    writer.pending = queue.Queue()
+    changes = [*article_change(1), *article_change(2)]
+    writer.pending.put(changes)
+    writer.pending.get()
+    calls = []
+
+    class Publisher:
+        async def publish(self, chunk):
+            calls.append(chunk)
+            if chunk == article_change(1):
+                raise RuntimeError("private SQL parameters and credentials")
+
+    with asyncio.Runner() as runner:
+        writer._deliver(runner, Publisher(), changes, consumed=1)
+    assert calls == [article_change(1)] * 3 + [article_change(2)]
+    assert state.waits == [0.25, 0.5]
+    assert writer.pending.unfinished_tasks == 0
+    failures = [r for r in caplog.records if r.message.startswith("analytics_direct_delivery_")]
+    assert [r.message for r in failures] == [
+        "analytics_direct_delivery_failed",
+        "analytics_direct_delivery_failed",
+        "analytics_direct_delivery_abandoned",
+    ]
+    assert [r.attempt for r in failures] == [1, 2, 3]
+    assert all(r.change_count == 1 and r.error_type == "RuntimeError" for r in failures)
+    assert all(not r.exc_info and not r.stack_info for r in failures)
+    assert "private SQL" not in caplog.text
+
+
+def test_partial_insert_retry_keeps_attempt_facts_and_stable_identities(
+    writer_runtime, monkeypatch
+):
+    import asyncio
+    import queue
+    from types import SimpleNamespace
+
+    from devfeed_core.analytics_overview_direct import DirectOverviewAnalytics
+
+    state, _, _, _, _ = writer_runtime
+    monkeypatch.setattr(producer, "MAX_BATCH", 1)
+    identifiers = [str(uuid.UUID(int=index)) for index in (1, 2, 3)]
+    completed = {
+        identifier: {
+            "id": identifier,
+            "status": "succeeded",
+            "attempts": 1,
+            "finished_at": "2026-10-29T00:00:00Z",
+            "outcome": "applied",
+        }
+        for identifier in identifiers
+    }
+    changes = [
+        {
+            "source_table": "article_analysis_jobs",
+            "identity": {"id": identifier},
+            "before_record": {"id": identifier, "article_id": identifier},
+            "attempts": [completed[identifier]],
+        }
+        for identifier in identifiers
+    ]
+    calls, written, store = [], [], {}
+
+    class Connection:
+        async def execute(self, _query, parameters):
+            async def fetchall():
+                return [
+                    {
+                        "record": completed[identifier]
+                        | {"status": "queued", "attempts": 2, "finished_at": None}
+                    }
+                    for identifier in parameters
+                ]
+
+            return SimpleNamespace(fetchall=fetchall)
+
+    class Client:
+        async def insert(self, table, rows):
+            assert table == "analytics_pipeline_events"
+            written.extend(rows)
+            for row in rows:
+                store[(row["domain"], row["id"])] = row
+            # The first middle insert reaches storage but loses its acknowledgement.
+            if len(calls) == 2:
+                raise TimeoutError("private server response")
+
+    class Publisher:
+        async def publish(self, chunk):
+            calls.append(chunk)
+            current = await producer.read_current_changes(Connection(), chunk)
+            await DirectOverviewAnalytics(Client()).publish(current, revision=len(calls))
+
+    writer = producer.AnalyticsProducer.__new__(producer.AnalyticsProducer)
+    writer.pending = queue.Queue()
+    writer.pending.put(changes)
+    writer.pending.get()
+    with asyncio.Runner() as runner:
+        writer._deliver(runner, Publisher(), changes, consumed=1)
+    assert calls == [[changes[0]], [changes[1]], [changes[1]], [changes[2]]]
+    assert state.waits == [0.25] and writer.pending.unfinished_tasks == 0
+    assert len(written) == 8 and len(store) == 6
+    assert sum(row["domain"] == "job" for row in store.values()) == 3
+    assert all(row["attempt"] == 1 for row in store.values() if row["domain"] == "job")
+    assert all(row["status"] == "queued" for row in store.values() if row["domain"] == "queue")
+    assert changes[1]["attempts"] == [completed[identifiers[1]]]
+    assert changes[1]["before_record"]["article_id"] == identifiers[1]
+
+
+def test_unhandled_cancellation_does_not_acknowledge_a_delivery(writer_runtime):
+    import asyncio
+    import queue
+
+    class Publisher:
+        async def publish(self, _changes):
+            raise asyncio.CancelledError()
+
+    writer = producer.AnalyticsProducer.__new__(producer.AnalyticsProducer)
+    writer.pending = queue.Queue()
+    writer.pending.put(article_change(1))
+    writer.pending.get()
+    with asyncio.Runner() as runner, pytest.raises(asyncio.CancelledError):
+        writer._deliver(runner, Publisher(), article_change(1), consumed=1)
+    assert writer.pending.unfinished_tasks == 1
+
+
+@pytest.mark.parametrize("code", [202, None, True, "private response"])
+def test_delivery_errors_log_only_structured_clickhouse_codes(writer_runtime, caplog, code):
+    from clickhouse_connect.driver.exceptions import Error as ClickHouseError
+
+    state, _, _, _, _ = writer_runtime
+    cause = ClickHouseError("SELECT secret FROM private_data; password=private-password")
+    cause.code = code
+    wrapped = RuntimeError("private request parameters")
+    wrapped.__cause__ = cause
+    state.error, state.fail = wrapped, True
+    writer = producer.AnalyticsProducer(object())
+    try:
+        assert writer.submit(article_change(1))
+        assert writer.shutdown(2)
+    finally:
+        writer.shutdown(2)
+    records = [r for r in caplog.records if r.message.startswith("analytics_direct_delivery_")]
+    assert len(records) == 3
+    assert all(r.error_type == "RuntimeError" and r.cause_type == "Error" for r in records)
+    if type(code) is int:
+        assert all(r.clickhouse_code == code for r in records)
+    else:
+        assert all(not hasattr(r, "clickhouse_code") for r in records)
+    assert "private" not in caplog.text
+    assert all(not r.exc_info and not r.stack_info for r in records)
+
+
+@pytest.mark.parametrize("state", ["40001", None, "private database response"])
+@pytest.mark.parametrize("sqlalchemy_wrapper", [False, True])
+def test_delivery_error_metadata_validates_database_codes_and_never_copies_payloads(
+    state, sqlalchemy_wrapper
+):
+    from psycopg import Error as PostgreSQLError
+    from sqlalchemy.exc import DBAPIError
+
+    class DatabaseFailure(PostgreSQLError):
+        sqlstate = state
+
+    cause = DatabaseFailure("private statement and credentials")
+    if sqlalchemy_wrapper:
+        cause = DBAPIError("private SQL", {"password": "private-password"}, cause)
+    wrapped = RuntimeError("private connection URL")
+    wrapped.__context__ = cause
+    fields = producer._delivery_error_fields(wrapped)
+    assert fields == {
+        "error_type": "RuntimeError",
+        "cause_type": "DatabaseFailure",
+    } | ({"sqlstate": "40001"} if state == "40001" else {})
+    assert "private" not in str(fields)
+
+
+def test_delivery_error_inspection_bounds_cyclic_and_deep_exception_chains():
+    from clickhouse_connect.driver.exceptions import Error as ClickHouseError
+
+    cycle = RuntimeError("private cyclic cause")
+    cycle.__cause__ = cycle
+    assert producer._delivery_error_fields(cycle) == {
+        "error_type": "RuntimeError",
+        "cause_type": "RuntimeError",
+    }
+    cause = ClickHouseError("private unreachable cause")
+    cause.code = 202
+    for _ in range(4):
+        outer = RuntimeError("private wrapper")
+        outer.__cause__ = cause
+        cause = outer
+    assert producer._delivery_error_fields(cause) == {
+        "error_type": "RuntimeError",
+        "cause_type": "RuntimeError",
+    }
 
 
 def test_global_shutdown_is_offline_and_restarts_only_after_a_completed_drain(

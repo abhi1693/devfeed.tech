@@ -2,8 +2,10 @@
 
 Application analytics are stored in ClickHouse. PostgreSQL holds business data and
 transactional action validation. Application processes publish sanitized observations
-directly; the finite `analytics-importer` moves retained PostgreSQL history and
-removes the retired analytical tables. See the
+directly; `analytics-importer` moves retained PostgreSQL history once and removes
+the retired analytical tables. It then repairs current job/card state in bounded
+pages, without replaying history or adding transactional reads to report requests.
+See the
 [analytics design](../../apps/admin-api/ANALYTICS.md) for delivery and recovery limits.
 
 ## Versioned schema upgrades

@@ -143,9 +143,7 @@ export function ArticlePipeline({ query }: { query: string }) {
         error={result.error}
         retry={() => setRevision((value) => value + 1)}
       />
-      {!result.error && (
-        <SnapshotStatus snapshot={result.data?.snapshot} checkedAt={result.data?.as_of} />
-      )}
+      {!result.error && <SnapshotStatus snapshot={result.data?.snapshot} requireCoverage />}
       {!result.error && result.data && (
         <PipelineColumns
           key={query}
