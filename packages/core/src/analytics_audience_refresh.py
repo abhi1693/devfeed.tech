@@ -229,7 +229,7 @@ class AudienceMetadataRefresh:
         await self._save(state, previous)
         return True
 
-    async def _orphans(self, state: dict[str, Any], previous: SqlRecord | None) -> bool:
+    async def _orphans(self, state: dict[str, Any], previous: SqlRecord | None) -> None:
         fence = state["start_revision"]  # Validated before the target phase is admitted.
         rows = await _metadata_holes(self.client, fence=fence, limit=200)
         if rows:
@@ -238,12 +238,11 @@ class AudienceMetadataRefresh:
             await DirectOverviewAnalytics(self.client)._write(
                 [_base(row["domain"], row["id"], fence, deleted=True) for row in rows]
             )
-            return True
+            return
         state["phase"] = COMPLETE_PHASE
         await self._save(state, previous, pending=0, completed_at=datetime.now(UTC))
         self.complete = True
         self._probe_after = time.monotonic() + 30
-        return True
 
     async def once(self) -> bool:
         rows = await self.client.query(
@@ -267,7 +266,8 @@ class AudienceMetadataRefresh:
                 return False
             raise AnalyticsUnavailable("Audience metadata completion was not acknowledged")
         if state["phase"] == len(SOURCES):
-            return await self._orphans(state, previous)
+            await self._orphans(state, previous)
+            return True
         if state["upper"] is None:
             return await self._initialize(state, previous)
         if not state["upper"]:
