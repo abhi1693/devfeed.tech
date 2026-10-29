@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { fireEvent } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { startExtensionAnalytics } from "../../extensions/src/analytics";
 import { analyticsEventName } from "@/lib/analytics";
@@ -8,6 +9,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
+  document.querySelectorAll("[data-google-preferred-source]").forEach((link) => link.remove());
   window.location.hash = "";
 });
 function setup(enabled = true) {
@@ -119,3 +121,44 @@ it("does not interfere with browsing when local storage is blocked", () => {
   }).not.toThrow();
   expect(network).not.toHaveBeenCalled();
 });
+
+function preferredLink() {
+  const link = document.createElement("a");
+  link.dataset.googlePreferredSource = "";
+  link.href = "https://www.google.com/preferences/source?q=devfeed.tech";
+  link.innerHTML = "<span>Prefer on Google</span>";
+  link.addEventListener("click", (event) => event.preventDefault());
+  document.body.appendChild(link);
+  return link;
+}
+
+it("relays a delegated preferred-source click once without remote scripts or personal parameters", async () => {
+  const network = setup();
+  await vi.waitFor(() => expect(network).toHaveBeenCalledTimes(2));
+  const link = preferredLink();
+  fireEvent.click(link.firstElementChild!);
+  await vi.waitFor(() => expect(network).toHaveBeenCalledTimes(3));
+  const init = network.mock.calls[2][1]!;
+  const payload = JSON.parse(String(init.body));
+  expect(payload.event).toEqual({ name: "preferred_source_button_click", params: {} });
+  expect(network.mock.calls[2][0]).toBe("https://devfeed.tech/api/v1/extension/analytics");
+  expect(init.keepalive).toBe(true);
+  expect(document.querySelector("script[src*='google']")).toBeNull();
+  stop();
+  fireEvent.click(link);
+  await Promise.resolve();
+  expect(network).toHaveBeenCalledTimes(3);
+});
+
+it.each(["server", "local"])(
+  "does not relay preferred-source clicks when %s analytics is disabled",
+  async (kind) => {
+    if (kind === "local") localStorage.setItem("devfeed:extension-analytics-disabled", "true");
+    const network = setup(false);
+    await Promise.resolve();
+    fireEvent.click(preferredLink());
+    await Promise.resolve();
+    expect(network.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+    expect(localStorage.getItem("devfeed:extension-analytics-client")).toBeNull();
+  },
+);

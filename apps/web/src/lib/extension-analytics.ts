@@ -20,6 +20,7 @@ const choice =
 type Check = (value: unknown) => boolean;
 const screens = [...readerScreenNames, "/other"];
 const fields: Record<string, Record<string, Check>> = {
+  preferred_source_button_click: {},
   dev_card_view: {},
   dev_card_create_click: {},
   dev_card_preview_started: {},

@@ -2,12 +2,16 @@
 
 import { useEffect } from "react";
 import { analyticsEventName, type AnalyticsEvent } from "@/lib/analytics";
+import {
+  hasGoogleTagManager,
+  startPreferredSourceAnalytics,
+} from "@/lib/preferred-source-analytics";
 
 type GtagCommand = [string, ...unknown[]];
 type Gtag = (...args: GtagCommand) => void;
 
 interface AnalyticsWindow extends Window {
-  dataLayer?: IArguments[];
+  dataLayer?: Array<IArguments | { event: string }>;
   gtag?: Gtag;
 }
 
@@ -41,6 +45,8 @@ function loadGoogleAnalytics(gaId: string) {
 
 export function DeferredGoogleAnalytics({ gaId }: { gaId: string }) {
   useEffect(() => {
+    if (!gaId) return;
+    const stopPreferredSource = startPreferredSourceAnalytics();
     let loaded = false;
     const pendingViews: string[] = [];
 
@@ -57,6 +63,14 @@ export function DeferredGoogleAnalytics({ gaId }: { gaId: string }) {
     const handleEvent = (event: Event) => {
       try {
         const { name, params } = (event as CustomEvent<AnalyticsEvent>).detail;
+        if (name === "preferred_source_button_click" && hasGoogleTagManager()) {
+          const analyticsWindow = window as AnalyticsWindow;
+          if (!(window as unknown as Record<string, unknown>)[`ga-disable-${gaId}`]) {
+            analyticsWindow.dataLayer ??= [];
+            analyticsWindow.dataLayer.push({ event: name });
+          }
+          return;
+        }
         // Passive profile views must not bypass first-interaction deferral. Keep the
         // original public page (without query/hash) when flushing after navigation.
         if (name === "dev_card_view" && !loaded) {
@@ -91,6 +105,7 @@ export function DeferredGoogleAnalytics({ gaId }: { gaId: string }) {
     window.addEventListener("pagehide", loadOnce, { once: true });
 
     return () => {
+      stopPreferredSource();
       window.removeEventListener(analyticsEventName, handleEvent);
       events.forEach((eventName) => {
         window.removeEventListener(eventName, loadOnce);

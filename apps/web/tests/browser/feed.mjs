@@ -88,6 +88,7 @@ import {
 import { checkReaderNavigation } from "../../../../scripts/testing/reader-navigation.mjs";
 import { checkReaderInteractions, notificationFixture } from "./reader-interactions.mjs";
 import { checkSidebarGitHub } from "../../../../scripts/testing/sidebar-github.mjs";
+import { checkGooglePreferredSource } from "../../../../scripts/testing/google-preferred-source.mjs";
 import { checkCollapsibleSidebar } from "../../../../scripts/testing/collapsible-sidebar.mjs";
 import { checkBrowserTheme } from "../../../../scripts/testing/browser-theme.mjs";
 import {
@@ -165,7 +166,7 @@ import {
 import test from "node:test";
 import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { build } from "esbuild";
@@ -195,6 +196,7 @@ async function createReaderFixture(
     previewRetention = false,
     insecureHttp = false,
     nativeFocus = false,
+    analyticsEnabled = false,
   } = {},
 ) {
   let app, browser, fixture, userFixture;
@@ -847,7 +849,8 @@ async function createReaderFixture(
       cwd: `${root}/apps/web`,
       env: {
         ...env,
-        DEVFEED_ANALYTICS_ENABLED: "false",
+        DEVFEED_ANALYTICS_ENABLED: String(analyticsEnabled),
+        ...(analyticsEnabled ? { GOOGLE_ANALYTICS_ID: "G-PREFERREDTEST" } : {}),
         DEVFEED_PUBLIC_API_URL: upstream,
         DEVFEED_MCP_PUBLIC_URL: testMcpEndpoint,
         DEVFEED_USER_API_URL: userUpstream,
@@ -1430,11 +1433,11 @@ async function createReaderFixture(
 
 async function withReaderPage(browser, check, options = {}) {
   const context = await browser.newContext({ reducedMotion: "reduce", ...options });
+  const errors = [];
   try {
     await mockManagedImages(context);
     await mockSourceLogos(context);
     const page = await context.newPage();
-    const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("console", (message) => {
       if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
@@ -1442,10 +1445,74 @@ async function withReaderPage(browser, check, options = {}) {
     });
     await check(page, context);
     assert.deepEqual(errors, []);
+  } catch (error) {
+    if (errors.length) console.error("Reader browser errors", errors);
+    throw error;
   } finally {
     await context.close();
   }
 }
+
+test(
+  "preferred-source badge belongs to article previews and starts one measured flow",
+  { timeout: 120000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t, { analyticsEnabled: true });
+    await withReaderPage(browser, async (page, context) => {
+      await context.route("https://www.googletagmanager.com/gtag/js**", (route) =>
+        route.fulfill({ contentType: "application/javascript", body: "" }),
+      );
+      // Optional offline proof uses an unchanged copy of Google's real SDK, never a mock widget.
+      const sdkPath = process.env.DEVFEED_PREFERRED_SOURCE_SDK_PATH;
+      if (sdkPath) {
+        const sdk = await readFile(sdkPath);
+        await context.route("https://news.google.com/swg/js/v1/publisher.js", (route) =>
+          route.fulfill({ contentType: "application/javascript", body: sdk }),
+        );
+      }
+      let preferredTheme = "light";
+      await context.route("**/api/v1/user/settings/appearance", (route) => {
+        if (route.request().method() === "PUT")
+          preferredTheme = route.request().postDataJSON().theme;
+        return route.fulfill({ json: { theme: preferredTheme } });
+      });
+      for (const member of [false, true]) {
+        await page.emulateMedia({ colorScheme: member ? "dark" : "light" });
+        if (member)
+          await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+        await page.goto(`${origin}/latest`);
+        await page.locator(".card-open-link").first().waitFor();
+        if (member) {
+          await page
+            .getByRole("button", { name: "Theme: Light. Switch to dark theme", exact: true })
+            .click();
+          await page.waitForFunction(() => document.documentElement.classList.contains("dark"));
+        }
+        assert.equal(
+          await page
+            .locator("[data-google-preferred-source], .google-preferred-source-widget")
+            .count(),
+          0,
+        );
+        await page.locator(".card-open-link").first().click();
+        await page.getByRole("dialog", { name: "Article preview" }).waitFor();
+        await checkGooglePreferredSource(
+          page,
+          `${root}/reports/google-preferred-source/web-${member ? "member" : "guest"}.png`,
+          { analytics: "ga4", measurementId: "G-PREFERREDTEST" },
+        );
+        await page.getByRole("button", { name: "Close preview", exact: true }).click();
+        await page.getByRole("dialog", { name: "Article preview" }).waitFor({ state: "detached" });
+        assert.equal(
+          await page
+            .locator("[data-google-preferred-source], .google-preferred-source-widget")
+            .count(),
+          0,
+        );
+      }
+    });
+  },
+);
 
 test(
   "columns reorder by dragging and keyboard without reloading feeds",
