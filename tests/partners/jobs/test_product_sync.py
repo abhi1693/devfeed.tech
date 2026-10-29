@@ -218,7 +218,7 @@ def test_pause_fences_product_result(admin_client, database, product_payload):
 
 
 def test_dispatches_product_jobs_without_ai_or_waiting_parent(
-    admin_client, database, product_payload
+    admin_client, database, product_payload, priority_queue_routes, publication_capacity_budget
 ):
     from devfeed_aggregator.partner_sync_tasks import dispatch_partner_pipeline
     from devfeed_aggregator.queue import get_queue
@@ -226,9 +226,14 @@ def test_dispatches_product_jobs_without_ai_or_waiting_parent(
     parent, children = discover(admin_client, database, product_payload)
     due(database, parent)
     assert dispatch_partner_pipeline(database, limit=10) == 3
-    queue = get_queue("ingestion")
+    queue = get_queue("partner-pipeline")
     try:
+        assert queue.name == "default"
         assert {job.args[0] for job in queue.jobs} == set(children)
+        assert all(
+            job.meta["devfeed_queue"] == "partner-pipeline" and job.meta["devfeed_ai"] is False
+            for job in queue.jobs
+        )
     finally:
         queue.connection.close()
 
@@ -241,7 +246,7 @@ def test_background_worker_recovers_delivery_on_old_discovery_queue(
 
     from devfeed_aggregator import partner_sync_tasks
     from devfeed_aggregator.queue import get_queue
-    from devfeed_core.worker_queues import worker_queues
+    from devfeed_core.worker_queues import configured_queue
     from rq import SimpleWorker
     from rq.serializers import JSONSerializer
 
@@ -268,14 +273,11 @@ def test_background_worker_recovers_delivery_on_old_discovery_queue(
             job = session.get(PartnerPipelineJob, uuid.UUID(identifier))
             job.dispatched_at = utcnow() - timedelta(seconds=61)
         assert partner_sync_tasks.dispatch_partner_pipeline(database, limit=10) >= 1
-        queues = [
-            get_queue(name)
-            for name in worker_queues("background", ai_enabled=False, notifications_enabled=False)
-        ]
+        queues = [get_queue(configured_queue("partner-pipeline"), physical=True)]
         for queue in queues:
             stack.callback(queue.connection.close)
-        # Consume with the actual default worker subscriptions, without the
-        # optional source-discovery service. Network reads use fixture data.
+        # Consume from the configured dedicated partner destination. Network
+        # reads use fixture data; no per-kind worker groups are required.
         SimpleWorker(queues, connection=queues[0].connection, serializer=JSONSerializer).work(
             burst=True
         )

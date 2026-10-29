@@ -74,7 +74,9 @@ def test_queue_counts_merge_shared_physical_lanes_and_keep_transport_depth_disti
     connection, pipe, session = Mock(), Mock(), Mock()
     connection.pipeline.return_value.__enter__ = Mock(return_value=pipe)
     connection.pipeline.return_value.__exit__ = Mock(return_value=False)
-    pipe.execute.return_value = [7 if name == "source-analysis" else 0 for name in workers.QUEUES]
+    pipe.execute.return_value = [
+        7 if name == "source-analysis" else 0 for name in workers.physical_queues()
+    ]
     # Source-analysis combines profile relevance and background discovery
     # assessments; review-required verification aggregates have two lane groups.
     session.execute.return_value = [

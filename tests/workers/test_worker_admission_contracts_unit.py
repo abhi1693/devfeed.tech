@@ -578,3 +578,339 @@ def test_background_dequeue_translates_only_its_own_safe_shutdown(
     else:
         with pytest.raises(StopRequested):
             worker.dequeue_job_and_maintain_ttl(75)
+
+
+@pytest.mark.parametrize(
+    "metadata,origin,handler,expected",
+    [
+        ({"devfeed_queue": "article-analysis-fresh"}, "high", None, "article-analysis-fresh"),
+        ({"devfeed_queue": "partner-evaluation"}, "default", None, "partner-evaluation"),
+        ({}, "relationships", None, "relationships"),
+        (
+            {},
+            "default",
+            "devfeed_aggregator.partner_tasks.process_evaluation",
+            "partner-evaluation",
+        ),
+        ({}, "default", "unknown.private.handler", "other"),
+    ],
+)
+def test_execution_policy_uses_logical_metadata_before_physical_priority(
+    metadata, origin, handler, expected
+):
+    job = SimpleNamespace(meta=metadata, origin=origin, func_name=handler)
+    assert analysis_worker.logical_job_queue(job) == expected
+
+
+def priority_worker(monkeypatch, worker_factory):
+    from devfeed_core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "job_queue_overrides", {})
+    build, depths = worker_factory
+    depths["default"] = 1
+    worker = build("default")
+    monkeypatch.setattr(worker, "get_redis_server_version", lambda: (8, 0, 0))
+    return worker
+
+
+def queued_delivery(identifier, logical):
+    return SimpleNamespace(
+        id=identifier,
+        key=f"rq:job:{identifier}",
+        meta={"devfeed_queue": logical},
+        origin="default",
+        func_name="builtins.str",
+    )
+
+
+def test_priority_scan_reaches_io_behind_more_than_one_page_of_paused_ai(
+    monkeypatch, worker_factory
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    worker.codex_readiness.ready = Mock(return_value=False)
+    worker.codex_readiness.reason = "codex_unavailable"
+    jobs = {
+        f"ai-{index}": queued_delivery(f"ai-{index}", "article-analysis") for index in range(150)
+    }
+    jobs["io"] = queued_delivery("io", "ingestion")
+    identifiers = list(jobs)
+    scans = []
+
+    def read(key, start, end):
+        scans.append((start, end))
+        return identifiers[start : end + 1]
+
+    monkeypatch.setattr(worker.connection, "lrange", read)
+    claim = Mock(return_value=1)
+    monkeypatch.setattr(worker.connection, "eval", claim)
+    monkeypatch.setattr(
+        worker.job_class,
+        "fetch_many",
+        lambda identifiers, **kwargs: [jobs[key] for key in identifiers],
+    )
+    snapshot = analysis_worker.AdmissionSnapshot({"default": True})
+    assert worker.dequeue_priority(snapshot) is None
+    result = worker.dequeue_priority(snapshot)
+    assert result[0].id == "io"
+    assert scans == [(0, 99), (100, 199)]
+    assert worker.codex_readiness.ready.call_count == 2
+    # No paused delivery was removed or requeued; only the admitted IO job moves.
+    assert claim.call_count == 1
+    assert claim.call_args.args[-2:] == ("io", "default")
+
+
+def test_priority_quota_gate_skips_ai_but_executes_io_without_clearing_ai_work(
+    monkeypatch, worker_factory
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    snapshot = analysis_worker.AdmissionSnapshot({"default": True}, "quota_budget_exhausted")
+    worker.admission_snapshot = lambda: snapshot
+    worker.codex_readiness.ready = Mock(side_effect=AssertionError("quota must gate the RPC"))
+    jobs = {"ai": queued_delivery("ai", "topic-analysis"), "io": queued_delivery("io", "ingestion")}
+    monkeypatch.setattr(worker.connection, "lrange", lambda *args: list(jobs))
+    claim = Mock(return_value=1)
+    monkeypatch.setattr(worker.connection, "eval", claim)
+    monkeypatch.setattr(
+        worker.job_class,
+        "fetch_many",
+        lambda identifiers, **kwargs: [jobs[key] for key in identifiers],
+    )
+    assert worker.dequeue_priority(snapshot)[0].id == "io"
+    worker.codex_readiness.ready.assert_not_called()
+    assert claim.call_args.args[-2:] == ("io", "default")
+
+
+def test_priority_claim_race_does_not_execute_a_delivery_claimed_by_another_worker(
+    monkeypatch, worker_factory
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    jobs = {
+        "first": queued_delivery("first", "ingestion"),
+        "second": queued_delivery("second", "ingestion"),
+    }
+    monkeypatch.setattr(worker.connection, "lrange", lambda *args: list(jobs))
+    claim = Mock(side_effect=[0, 1])
+    monkeypatch.setattr(worker.connection, "eval", claim)
+    monkeypatch.setattr(
+        worker.job_class,
+        "fetch_many",
+        lambda identifiers, **kwargs: [jobs[key] for key in identifiers],
+    )
+    assert (
+        worker.dequeue_priority(analysis_worker.AdmissionSnapshot({"default": True}))[0].id
+        == "second"
+    )
+    assert claim.call_count == 2
+
+
+def test_priority_ai_claim_requires_a_fresh_readiness_check_for_each_delivery(
+    monkeypatch, worker_factory
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    job = queued_delivery("ai", "partner-evaluation")
+    monkeypatch.setattr(worker.connection, "lrange", lambda *args: ["ai"])
+    monkeypatch.setattr(worker.connection, "eval", lambda *args: 1)
+    monkeypatch.setattr(worker.job_class, "fetch_many", lambda *args, **kwargs: [job])
+    worker.codex_readiness.ready = Mock(return_value=True)
+    snapshot = analysis_worker.AdmissionSnapshot({"default": True})
+    assert worker.dequeue_priority(snapshot)[0] is job
+    assert worker.dequeue_priority(snapshot)[0] is job
+    assert worker.codex_readiness.ready.call_args_list == [call(pending=True), call(pending=True)]
+
+
+def test_priority_scan_batches_reads_and_resumes_after_its_wall_time_budget(
+    monkeypatch, worker_factory, clock
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    identifiers = [str(index) for index in range(50)]
+    pages, batches, heartbeats = [], [], []
+
+    def page(_key, start, end):
+        pages.append((start, end))
+        return identifiers[start : end + 1]
+
+    def fetch(keys, **_kwargs):
+        batches.append(list(keys))
+        clock.now += 2
+        return [queued_delivery(key, "article-analysis") for key in keys]
+
+    def heartbeat():
+        heartbeats.append(clock.now)
+        worker.next_admission_heartbeat = clock.now + 3
+
+    monkeypatch.setattr(worker.connection, "lrange", page)
+    monkeypatch.setattr(worker.job_class, "fetch_many", fetch)
+    worker.heartbeat = heartbeat
+    assert [job.id for job in worker.priority_page(worker.queues[0])] == identifiers[:40]
+    assert worker.scan_offsets == {"default": 40}
+    assert [len(batch) for batch in batches] == [20, 20, 10]
+    assert heartbeats == [0, 4]
+    assert [job.id for job in worker.priority_page(worker.queues[0])] == identifiers[40:]
+    assert pages == [(0, 99), (40, 139)]
+    assert worker.scan_offsets == {"default": 0}
+
+
+@pytest.mark.parametrize("stop_during", ["heartbeat", "fetch"])
+def test_priority_scan_stops_before_yielding_or_claiming_after_a_slow_exchange(
+    monkeypatch, worker_factory, stop_during
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    monkeypatch.setattr(worker.connection, "lrange", lambda *_args: ["queued"])
+    fetch = Mock(return_value=[queued_delivery("queued", "ingestion")])
+    if stop_during == "heartbeat":
+        worker.heartbeat = worker._shutdown
+    else:
+
+        def stopped_fetch(*_args, **_kwargs):
+            worker._shutdown()
+            return [queued_delivery("queued", "ingestion")]
+
+        fetch.side_effect = stopped_fetch
+    monkeypatch.setattr(worker.job_class, "fetch_many", fetch)
+    claim = Mock()
+    monkeypatch.setattr(worker.connection, "eval", claim)
+    assert worker.dequeue_priority(analysis_worker.AdmissionSnapshot({"default": True})) is None
+    claim.assert_not_called()
+    if stop_during == "heartbeat":
+        fetch.assert_not_called()
+
+
+def test_priority_scan_removes_only_still_missing_hashes_and_stops_on_failed_heartbeat(
+    monkeypatch, worker_factory
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    monkeypatch.setattr(worker.connection, "lrange", lambda *_args: ["missing", "ready"])
+    fetch = Mock(return_value=[None, queued_delivery("ready", "ingestion")])
+    monkeypatch.setattr(worker.job_class, "fetch_many", fetch)
+    cleanup = Mock(return_value=1)
+    monkeypatch.setattr(worker.connection, "eval", cleanup)
+    assert [job.id for job in worker.priority_page(worker.queues[0])] == ["ready"]
+    cleanup.assert_called_once_with(
+        analysis_worker.REMOVE_MISSING_DELIVERY,
+        2,
+        worker.queues[0].key,
+        "rq:job:missing",
+        "missing",
+    )
+    worker.heartbeat = Mock(side_effect=RedisError("unconfirmed heartbeat"))
+    fetch.reset_mock()
+    with pytest.raises(RedisError, match="unconfirmed heartbeat"):
+        list(worker.priority_page(worker.queues[0]))
+    fetch.assert_not_called()
+
+
+@pytest.mark.parametrize("boundary", ["empty", "stopped", "budget"])
+def test_priority_scan_rechecks_limits_before_reading_another_batch(
+    monkeypatch, worker_factory, clock, boundary
+):
+    worker = priority_worker(monkeypatch, worker_factory)
+    identifiers = [] if boundary == "empty" else [str(index) for index in range(40)]
+    worker.scan_offsets["default"] = 0
+    monkeypatch.setattr(worker.connection, "lrange", lambda *_args: identifiers)
+    fetch = Mock(
+        side_effect=lambda keys, **_kwargs: [queued_delivery(key, "ingestion") for key in keys]
+    )
+    monkeypatch.setattr(worker.job_class, "fetch_many", fetch)
+    page = worker.priority_page(worker.queues[0])
+    if boundary == "empty":
+        assert list(page) == [] and worker.scan_offsets["default"] == 0
+        fetch.assert_not_called()
+        return
+    assert [next(page).id for _ in range(20)] == identifiers[:20]
+    if boundary == "stopped":
+        worker._shutdown()
+    else:
+        clock.now = analysis_worker.ADMISSION_SCAN_SECONDS
+    assert list(page) == []
+    fetch.assert_called_once()
+    assert worker.scan_offsets["default"] == 20
+
+
+@pytest.mark.parametrize(
+    "hint,expected", [(True, True), (False, False), (None, True), ("false", True)]
+)
+def test_partner_pipeline_admission_requires_explicit_transport_only_hint(hint, expected):
+    job = SimpleNamespace(
+        meta={"devfeed_queue": "partner-pipeline", "devfeed_ai": hint}, origin="default"
+    )
+    assert analysis_worker.job_requires_ai(job) is expected
+
+
+def test_false_partner_hint_cannot_bypass_article_analysis_admission():
+    job = SimpleNamespace(
+        meta={"devfeed_queue": "article-analysis", "devfeed_ai": False}, origin="default"
+    )
+    assert analysis_worker.job_requires_ai(job)
+
+
+def test_custom_partner_pipeline_consumer_has_readiness_for_ai_assessment(
+    monkeypatch, worker_factory
+):
+    from devfeed_core.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "job_queue_overrides", {"partner-pipeline": "partner-sync"})
+    build, depths = worker_factory
+    depths["partner-sync"] = 1
+    worker = build("partner-sync")
+    assert worker.codex_readiness is not None
+    worker.codex_readiness.ready = Mock(return_value=True)
+    job = SimpleNamespace(
+        meta={"devfeed_queue": "partner-pipeline", "devfeed_ai": True}, origin="partner-sync"
+    )
+    assert worker.priority_admission(job, worker.queues[0], ai_blocked=False)
+    worker.codex_readiness.ready.assert_called_once_with(pending=True)
+
+
+@pytest.mark.parametrize("metadata", [None, [], "invalid-metadata"])
+def test_invalid_metadata_shape_cannot_hide_a_valid_ai_handler(metadata):
+    from devfeed_core.job_definitions import JOB_DEFINITIONS
+
+    job = SimpleNamespace(
+        meta=metadata, origin="default", func_name=JOB_DEFINITIONS["analysis"].handler
+    )
+    assert analysis_worker.job_requires_ai(job)
+
+
+def test_failure_logging_does_not_decode_a_malformed_job_twice():
+    from devfeed_aggregator.worker import job_fields
+    from rq.exceptions import DeserializationError
+
+    class MalformedJob:
+        id = "failed-delivery"
+
+        @property
+        def args(self):
+            raise DeserializationError()
+
+    assert job_fields(MalformedJob()) == {
+        "job_id": "failed-delivery",
+        "rq_job_id": "failed-delivery",
+        "job_kind": None,
+    }
+
+
+def test_dedicated_image_entrypoint_uses_its_custom_exclusive_route(monkeypatch):
+    from devfeed_aggregator import worker
+    from devfeed_core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "job_queue_overrides", {"images": "image-storage"})
+    monkeypatch.setattr("sys.argv", ["devfeed-images-worker", "--burst"])
+    start = Mock(return_value=0)
+    monkeypatch.setattr(worker, "start_queue_worker", start)
+    assert worker.queue_worker_main("images", "Images worker") == 0
+    assert start.call_args.args[1] == "image-storage"
+
+
+def test_dedicated_image_entrypoint_rejects_shared_transport(monkeypatch):
+    from devfeed_aggregator import worker
+    from devfeed_core.config import get_settings
+    from devfeed_core.services import OperationConflict
+
+    monkeypatch.setattr(get_settings(), "job_queue_overrides", {})
+    monkeypatch.setattr("sys.argv", ["devfeed-source-discovery-worker", "--burst"])
+    start = Mock()
+    monkeypatch.setattr(worker, "start_queue_worker", start)
+    with pytest.raises(OperationConflict, match="exclusive"):
+        worker.queue_worker_main("source-discovery", "Discovery worker")
+    start.assert_not_called()

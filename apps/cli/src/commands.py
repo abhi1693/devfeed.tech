@@ -321,8 +321,33 @@ def taxonomy_write(args: SimpleNamespace) -> CommandOutput:
 
 
 def run_worker(args: SimpleNamespace) -> None:
-    options = {"queue_name": args.queue} if getattr(args, "queue", "all") != "all" else {}
-    worker.run(burst=args.burst, name=args.name, max_jobs=args.max_jobs, **options)
+    from devfeed_core.worker_queues import physical_queues
+
+    name = getattr(args, "queue", "default")
+    if name not in physical_queues():
+        raise ValueError("Unknown worker queue")
+    worker.run(burst=args.burst, name=args.name, max_jobs=args.max_jobs, queue_name=name)
+
+
+def migrate_queues(args: SimpleNamespace) -> CommandOutput:
+    from devfeed_aggregator.queue_migration import migrate_queues as migrate
+    from devfeed_core.config import get_settings
+    from devfeed_core.redis import create_redis
+
+    connection = create_redis(get_settings(), socket_connect_timeout=5, socket_timeout=5)
+    try:
+        report = migrate(connection, apply=args.apply, sources=args.source)
+    finally:
+        connection.close()
+    if args.apply and not report["complete"]:
+        raise services.OperationConflict(
+            f"Queue migration incomplete: moved={report['moved']}, "
+            f"blocked={len(report['blocked'])}, "
+            f"active_workers={len(report.get('active_workers', []))}, "
+            f"inflight_sources={len(report.get('inflight', {}))}. "
+            "Run migrate-queues without --apply to inspect remaining blockers."
+        )
+    return report
 
 
 def run_scheduler(args: SimpleNamespace) -> CommandOutput | None:

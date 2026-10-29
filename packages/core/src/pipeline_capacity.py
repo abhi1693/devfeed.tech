@@ -10,6 +10,7 @@ from devfeed_core.ai_capacity import cooldown_remaining
 from devfeed_core.config import get_settings
 from devfeed_core.models import utcnow
 from devfeed_core.redis import create_redis
+from devfeed_core.worker_queues import QUEUES, configured_queue
 from redis import Redis
 
 
@@ -48,15 +49,25 @@ def worker_capacity(connection: Redis) -> dict[str, int | bool]:
             continue
         if not 0 <= age <= 120:
             continue
-        queues = (queues or "").split(",")
+        physical = set((queues or "").split(","))
+        # Only consumers of the currently configured transport provide admission
+        # capacity. Old physical queues can still drain without admitting new work.
+        queues = [name for name in QUEUES if configured_queue(name) in physical]
         relevant = False
         for kind in ("topic", "article"):
-            if f"{kind}-analysis" in queues:
+            if any(name in queues for name in (f"{kind}-analysis", f"{kind}-analysis-fresh")):
                 relevant = True
                 result[f"eligible_{kind}_workers"] += 1
                 result[f"busy_{kind}_workers"] += state == "busy"
-                # A busy mixed worker may be serving another queue. Do not reserve it twice.
-                if len(queues) == 1 or state == "idle":
+                # Fresh/ordinary article lanes share one execution family.
+                # Physical priority queues can cover several logical kinds.
+                # A busy cross-family worker cannot reserve capacity twice.
+                family = (
+                    {"topic-analysis"}
+                    if kind == "topic"
+                    else {"article-analysis", "article-analysis-fresh"}
+                )
+                if set(queues) <= family or state == "idle":
                     result[f"{kind}_workers"] += 1
                     result[f"idle_{kind}_workers"] += state == "idle"
         result["shared_workers"] += relevant and len(queues) > 1
@@ -82,7 +93,8 @@ def topic_admission_limit(capacity: dict[str, int | bool]) -> int:
         return min(4, settings.topic_decision_max_pending)
     if capacity["cooldown_seconds"]:
         return 0
-    return min(
-        settings.topic_decision_max_pending,
-        capacity["topic_workers"] * settings.topic_decision_worker_buffer,
-    )
+    # Shared priority workers may be busy with another kind from the same
+    # transport queue. Keep a bounded topic backlog without requiring an idle
+    # window; execution remains limited by the actual worker replica count.
+    workers = capacity.get("eligible_topic_workers", 0)
+    return min(settings.topic_decision_max_pending, workers * settings.topic_decision_worker_buffer)

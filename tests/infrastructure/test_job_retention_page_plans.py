@@ -120,20 +120,31 @@ def test_late_retention_page_bounds_the_leading_finished_at_index_range(database
             scan for child in node.get("Plans", []) for scan in retention_scans(child)
         ]
 
-    bounded_scan = retention_scans(after["Plan"])[0]
+    scans = retention_scans(after["Plan"])
+    assert len(scans) == 1, after
+    bounded_scan = scans[0]
     assert "ROW(finished_at, id) >= ROW(" in bounded_scan["Index Cond"]
     assert "ROW(finished_at, id) <= ROW(" in bounded_scan["Index Cond"]
+    # Bound the work of this index scan directly. Whole-query buffer hits also
+    # include eligibility subplans and vary with heap/index layout; they are not
+    # a stable measure of how far the retention scan traverses the history.
+    traversed = (
+        bounded_scan["Actual Rows"]
+        + bounded_scan.get("Rows Removed by Filter", 0)
+        + bounded_scan.get("Rows Removed by Index Recheck", 0)
+    ) * bounded_scan["Actual Loops"]
+    assert traversed <= configuration().job_payload_scan_batch_size, bounded_scan
     assert before["Plan"]["Actual Rows"] == after["Plan"]["Actual Rows"] == 100
     before_buffers = before["Plan"]["Shared Hit Blocks"] + before["Plan"]["Shared Read Blocks"]
     after_buffers = after["Plan"]["Shared Hit Blocks"] + after["Plan"]["Shared Read Blocks"]
     assert after_buffers < before_buffers
-    assert after_buffers < 500, after
     print(
         {
             "unbounded_ms": before["Execution Time"],
             "bounded_ms": after["Execution Time"],
             "unbounded_buffers": before_buffers,
             "bounded_buffers": after_buffers,
+            "bounded_index_rows": traversed,
         }
     )
     with database() as session:

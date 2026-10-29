@@ -303,7 +303,7 @@ def test_tag_writes_keep_explicit_topic_unlink_separate_from_automatic_matching(
     assert output["id"] == str(tag.id) and output["topic_id"] is None
 
 
-@pytest.mark.parametrize("queue", ["all", "article-analysis"])
+@pytest.mark.parametrize("queue", ["default", "article-analysis"])
 def test_worker_flags_forward_only_an_explicit_queue(monkeypatch, queue):
     run = Mock()
     monkeypatch.setattr(commands.worker, "run", run)
@@ -312,7 +312,7 @@ def test_worker_flags_forward_only_an_explicit_queue(monkeypatch, queue):
         burst=True,
         name="maintenance",
         max_jobs=3,
-        **({"queue_name": queue} if queue != "all" else {}),
+        queue_name=queue,
     )
 
 

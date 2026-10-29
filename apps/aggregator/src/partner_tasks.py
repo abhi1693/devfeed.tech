@@ -11,7 +11,6 @@ from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, start_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.json_types import JsonRecord
 from devfeed_core.models import PartnerEvaluation, utcnow
-from devfeed_core.partner_catalog import lock_catalog
 from devfeed_core.partner_matching import save_evaluation_matches
 from devfeed_core.partner_tools import (
     EvaluationResult,
@@ -23,8 +22,9 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.sql import ColumnElement
 
+from devfeed_aggregator.partner_claim import claim_partner_job
 from devfeed_aggregator.partner_outbox import PartnerOutbox
-from devfeed_aggregator.queue import get_queue
+from devfeed_aggregator.queue import get_publication_queue as get_queue
 
 logger = logging.getLogger(__name__)
 
@@ -71,13 +71,14 @@ def _process_evaluation(
         return
     factory = factory or session_factory()
     identifier = uuid.UUID(job_id)
-    with factory.begin() as session:
-        lock_catalog(session)
-        job = session.scalar(
-            select(PartnerEvaluation)
-            .where(PartnerEvaluation.id == identifier, runnable(utcnow()))
-            .with_for_update()
-        )
+
+    def acquire(session: Session, *, ready_only: bool = True) -> PartnerEvaluation | None:
+        statement = select(PartnerEvaluation).where(PartnerEvaluation.id == identifier)
+        if ready_only:
+            statement = statement.where(runnable(utcnow()))
+        return session.scalar(statement.with_for_update(nowait=True))
+
+    with claim_partner_job(factory, acquire) as (session, job):
         if job is None:
             logger.debug("partner_evaluation_not_claimed")
             return
@@ -108,11 +109,10 @@ def _process_evaluation(
         # Provider responses can contain credentials or imported content. Keep diagnostics bounded.
         error = "Evaluation failed or returned unsupported evidence"
         error_type = type(exc).__name__
-    with factory.begin() as session:
-        lock_catalog(session)
-        job = session.scalar(
-            select(PartnerEvaluation).where(PartnerEvaluation.id == identifier).with_for_update()
-        )
+    with claim_partner_job(factory, lambda session: acquire(session, ready_only=False)) as (
+        session,
+        job,
+    ):
         if not job or job.status != "running" or job.lease_token != token:
             logger.warning(
                 "partner_evaluation_result_discarded",

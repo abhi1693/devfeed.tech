@@ -1,0 +1,9 @@
+# One independently sized deployment per priority. Requires the new routing runtime.
+# docker compose -f compose.yaml -f compose.workers.yaml --profile ai up -d
+services:
+  high-worker:
+    scale: ${DEVFEED_HIGH_WORKER_REPLICAS:-4}
+  default-worker:
+    scale: ${DEVFEED_DEFAULT_WORKER_REPLICAS:-4}
+  low-worker:
+    scale: ${DEVFEED_LOW_WORKER_REPLICAS:-1}

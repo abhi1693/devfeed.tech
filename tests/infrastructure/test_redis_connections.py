@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from devfeed_core import cache
 from devfeed_core.config import Settings
-from devfeed_core.redis import create_async_redis, create_redis
+from devfeed_core.redis import configure_redis_io, create_async_redis, create_redis
 from pydantic import ValidationError
 from redis.asyncio.connection import SSLConnection as AsyncSSLConnection
 from redis.asyncio.sentinel import (
@@ -31,6 +31,64 @@ def test_direct_connection_retains_database_and_timeout():
         assert client.connection_pool.connection_kwargs["db"] == 10
         assert client.connection_pool.connection_kwargs["socket_timeout"] == 0.2
         assert not client.connection_pool.maint_notifications_enabled()
+
+
+@pytest.mark.parametrize("sentinel", [False, True])
+@pytest.mark.parametrize("configured,expected", [(85, 1), (0.2, 0.2), (None, 1), (0, 1)])
+def test_owned_io_policy_bounds_data_discovery_and_previously_idle_connections(
+    sentinel, configured, expected
+):
+    config = settings(
+        redis_url="redis://data-user:data-pass@ignored:6379/10",
+        **(
+            {"redis_sentinel_nodes": [("sentinel", 26379)], "redis_sentinel_master": "valkey"}
+            if sentinel
+            else {}
+        ),
+    )
+    with create_redis(
+        config, socket_timeout=configured, socket_connect_timeout=configured
+    ) as client:
+        clients = [client]
+        if sentinel:
+            clients.extend(client.connection_pool.sentinel_manager.sentinels)
+        old = []
+        for current in clients:
+            pool = current.connection_pool
+            idle = pool.make_connection()
+            pool._available_connections.append(idle)
+            old.append(idle)
+        configure_redis_io(client, socket_timeout=1, socket_connect_timeout=1)
+        for current, previous in zip(clients, old, strict=True):
+            pool = current.connection_pool
+            assert not pool._available_connections
+            fresh = pool.make_connection()
+            assert fresh is not previous
+            assert fresh.socket_timeout == fresh.socket_connect_timeout == expected
+            assert fresh.retry.get_retries() == 0
+        options = client.connection_pool.connection_kwargs
+        assert options["db"] == 10 and options["username"] == "data-user"
+        assert options["password"] == "data-pass"
+
+
+def test_owned_io_policy_overrides_long_url_timeouts_and_rejects_active_pools():
+    config = settings(
+        redis_url="redis://ignored:6379/10?socket_timeout=85&socket_connect_timeout=85"
+    )
+    with create_redis(config, socket_timeout=1, socket_connect_timeout=1) as client:
+        pool = client.connection_pool
+        assert pool.connection_kwargs["socket_timeout"] == 85
+        active = pool.make_connection()
+        pool._in_use_connections.add(active)
+        try:
+            with pytest.raises(RuntimeError, match="before checking out"):
+                configure_redis_io(client, socket_timeout=1, socket_connect_timeout=1)
+            assert pool.connection_kwargs["socket_timeout"] == 85
+        finally:
+            pool._in_use_connections.remove(active)
+        configure_redis_io(client, socket_timeout=1, socket_connect_timeout=1)
+        assert pool.connection_kwargs["socket_timeout"] == 1
+        assert pool.connection_kwargs["socket_connect_timeout"] == 1
 
 
 def test_async_direct_connection_retains_database_and_timeout():

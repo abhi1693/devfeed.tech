@@ -156,14 +156,27 @@ without waiting for the main scheduler's ingestion cycle. Each physical queue ha
 when a queue has two batches waiting and resumes as workers consume them; other publishers
 can also add work to these shared queues. Worker concurrency controls actual execution.
 
-Qualification and evaluation alternate first access to their shared analysis queue. Each
+The refill loop alternates first access between pipeline and evaluation publishers.
+Within the pipeline, import and qualification stages also alternate first access to shared
+capacity, including when workers free only one slot at a time. The pipeline turn is stored
+in Redis for its physical destination so concurrent publishers share that ordering. Each
 refill reserves a quarter of its slots for delivery recovery, with the rest for new work;
 either path can use the other's empty share. Redis connections are reused within a batch.
-Queue-specific publication locks and job row locks protect retries without holding the
-catalog lock during Redis I/O. Failed
+Publication locks use the physical destination, so logical kinds sharing a queue also share
+its capacity lock. Job row locks protect retries without holding the catalog lock during
+Redis I/O. Failed
 publication remains in the PostgreSQL outbox and unique delivery IDs prevent duplicate work.
 The main scheduler retains bounded dispatch as a fallback and schedules source imports and
 qualification renewal separately from the fast refill loop.
+
+Publication uses independent Redis clients with one-second connect/read timeouts and no
+automatic command retries. A one-second batch budget stops additional enqueues; each eligible
+stage can still attempt its first delivery so slow transport cannot permanently prevent
+progress. An enqueue can use multiple Redis commands; these limits are not a hard deadline
+for the whole transaction. Unattempted durable jobs remain unmarked for the next refill.
+Worker claims retry contention outside the catalog transaction, with a five-second retry
+budget. A contended claim releases the global catalog lock before its retry wait. A failed claim remains
+recoverable from the durable outbox.
 
 `partner_pipeline_dispatched` and `partner_evaluations_dispatched` count fallback publication
 in scheduler tick logs; `partner_pipeline_refilled` and `partner_evaluation_refilled` report
@@ -318,3 +331,143 @@ Unknown failures retain a generic message and stage. Raw model responses, page t
 credentials and arbitrary exception messages are excluded from these diagnostics. Evidence
 rules, qualification gates and retry timing/limits are unchanged. Existing failed jobs
 are not rewritten or retried automatically.
+
+## Priority queues and dedicated overrides
+
+Ordinary jobs use three physical RQ queues by default. Each queue has its own
+worker deployment, so sustained high-priority work cannot consume the capacity
+reserved for default or low-priority work:
+
+| Queue | Default work | Worker replicas |
+| --- | --- | ---: |
+| `high` | Fresh article analysis, enrichment and interactive feed preparation | 4 |
+| `default` | Routine ingestion, analysis, discovery and enrichment | 4 |
+| `low` | Notifications | 1 |
+
+These are separate consumers of one queue each, rather than a single deployment
+that always polls high before default before low. Priority affects when a waiting
+job starts; it does not interrupt work already running. Job kinds remain distinct
+for provider admission, retries, leases and metrics even when they share a queue.
+During an AI-provider pause, workers perform a bounded forward scan for runnable
+non-AI deliveries without moving paused AI jobs. This permits a runnable delivery
+to pass paused work rather than enforcing strict FIFO during the pause.
+The scheduler, search indexer and temporary analytics importer remain separate.
+
+Worker Redis control calls have connect/read limits of at most five seconds and no command
+retries. Intentional idle dequeue waits use a separate connection and wait at most ten
+seconds; they cannot enlarge the control connection's timeout. Admission reads job hashes in
+small batches, checks its scan time budget and confirms heartbeats between batches. Provider
+readiness has a five-second RPC budget and can still delay selection. Work already
+running occupies its RQ consumer until it completes or reaches its job timeout; use a
+dedicated job queue override when a kind needs independent execution capacity.
+
+Images and solver work keep separate physical queues and credentialed workers.
+Image-storage credentials and solver endpoints are never mounted on general
+priority consumers. Compose runs nine priority consumers plus one Images worker;
+retain the existing isolated solver worker for eleven production worker pods.
+The default counts are a starting resource budget, not a throughput guarantee.
+
+```sh
+docker compose --profile ai up -d
+```
+
+The `ai` profile starts the local Codex server; omit it when using an external
+endpoint. All priority workers use the full backend image, containing discovery,
+enrichment and AI dependencies, a read-only Codex socket and the provisioned
+notification-consumer credentials. Because notification jobs may be overridden to
+any priority queue, all three priority deployments receive notification delivery
+credentials. API authentication and image-storage credentials remain separate.
+
+Set each deployment's capacity independently:
+
+```dotenv
+DEVFEED_HIGH_WORKER_REPLICAS=4
+DEVFEED_DEFAULT_WORKER_REPLICAS=4
+DEVFEED_LOW_WORKER_REPLICAS=1
+```
+
+`DEVFEED_JOB_QUEUE_OVERRIDES` maps logical job lanes to their physical destination.
+For example, move notifications to high and reserve a dedicated queue for both
+fresh and routine article analysis:
+
+```dotenv
+DEVFEED_JOB_QUEUE_OVERRIDES={"notifications":"high","article-analysis-fresh":"article-analysis","article-analysis":"article-analysis"}
+```
+
+Start consumers for the override, for example `devfeed-worker --queue article-analysis`.
+Set the same routing configuration on every publisher, scheduler and worker.
+The destination must be serviced by a deployment; configuring an override does
+not automatically create or scale that deployment. `partner-pipeline`,
+`partner-evaluation` and `recommendations` are also valid per-kind override keys.
+Partner publication backpressure observes its physical queue: a busy shared
+default queue can delay publication, so use a dedicated override when that work
+needs an independent latency budget. Images and solver must each
+retain an exclusive physical destination; configuration rejects mixing either
+with a shared priority queue or another job kind. Do not
+substitute the smaller discovery-only image for a general priority worker.
+
+`compose.workers.yaml` supplies an explicit replica-count override for the three
+priority deployments. For local builds, append `-f compose.build.yaml`:
+
+```sh
+docker compose -f compose.yaml -f compose.workers.yaml -f compose.build.yaml --profile ai build
+docker compose -f compose.yaml -f compose.workers.yaml -f compose.build.yaml --profile ai up -d
+```
+
+For Kubernetes, release and verify the new backend image before changing routing.
+Coordinate the switch on every publisher and consumer: stop dispatch during the
+routing change rather than updating only a subset of publishers. Deploy the
+high/default/low consumers with the same configuration and independent replica
+counts; keep Images and solver consumers separate. Carry over PostgreSQL,
+Valkey, ClickHouse, Codex, Chimely and public-fetch network access as required, plus
+the native worker-health probes and 1,560-second drain grace. This application PR
+does not change live Kubernetes deployments.
+
+Before upgrading an existing deployment, stop every dispatcher/publisher and all
+workers so the one-time transport migration can run without concurrent dequeues.
+Use the new image and the same routing configuration intended for its consumers.
+The migration command defaults to a read-only preview:
+
+```sh
+uv run devfeed migrate-queues
+uv run devfeed migrate-queues --apply
+```
+
+Inspect the preview's source/destination counts and blockers before applying.
+The command moves queued deliveries while preserving job identities, payloads,
+retention and retry metadata. It refuses unsafe active/intermediate deliveries;
+never force-move running jobs. Require `complete=true` after apply and zero
+remaining deliveries on sources that are not configured destinations. Existing
+Images/solver queues may retain queued jobs annotated in place. Intermediate and
+started lists must be empty before starting the new consumers and resuming
+publication. An absent old queue in the new dashboard is not proof of migration.
+The application carries no alternate queue-runtime compatibility mode.
+
+Per-kind custom destinations use the same worker runtime. For example, after
+configuring both article-analysis lanes to `article-analysis`, a deployment can
+copy the default worker template and select only that physical queue:
+
+```yaml
+# compose.dedicated.yaml
+services:
+  article-worker:
+    extends:
+      file: compose.yaml
+      service: default-worker
+    scale: 4
+    environment:
+      DEVFEED_WORKER_QUEUE: article-analysis
+```
+
+Pass `-f compose.dedicated.yaml` after `-f compose.yaml`. Set the routing override
+on every publisher as well as every consumer, and size the default deployment
+again after transferring work to its dedicated consumer. Images and solver custom
+queues still require their separate credentialed runtime.
+
+Baseline completed jobs per hour, oldest queued-job age, fresh-article publication
+latency, retries, resource use and provider cooldowns. Compare representative
+bursts after rollout, then tune replica counts without changing the number of
+queue types. A rollback must drain the new physical queues before restoring an
+older release that cannot consume them; reversing configuration alone can strand
+deliveries. Autoscaling remains a separate change requiring burst and scale-down
+validation.

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 from devfeed_cli import status
-from devfeed_core.worker_queues import AI_QUEUES, QUEUES
+from devfeed_core.worker_queues import physical_queues
 from redis import Redis
 from redis.exceptions import RedisError
 from rq import Queue, Worker
@@ -36,7 +36,7 @@ def dependencies(monkeypatch):
     heartbeat = Mock(return_value=NOW.isoformat().encode())
     pipeline = MagicMock()
     pipeline.__enter__.return_value = pipeline
-    depths = {name: index + 1 for index, name in enumerate(QUEUES)}
+    depths = {name: index + 1 for index, name in enumerate(physical_queues())}
     pipeline.execute.return_value = list(depths.values())
     monkeypatch.setattr(connection, "get", heartbeat)
     monkeypatch.setattr(connection, "pipeline", Mock(return_value=pipeline))
@@ -71,7 +71,7 @@ def test_status_preserves_each_job_lane_and_limits_worker_lists_to_backend_queue
     assert result["jobs"]["failed"] == 1 and result["image_jobs"]["queued"] == 3
     assert result["oldest_active_image_job_at"] == NOW - timedelta(hours=3)
     assert result["queue_depths"] == depths and result["queue_depth"] == depths["ingestion"]
-    assert result["analysis_queue_depth"] == sum(depths[name] for name in AI_QUEUES)
+    assert result["analysis_queue_depth"] is None
     assert [worker["name"] for worker in result["workers"]] == ["ai", "background"]
     assert [worker["name"] for worker in result["analysis_workers"]] == ["ai"]
     assert result["scheduler_healthy"]
@@ -122,8 +122,53 @@ def test_redis_outage_keeps_database_counts_and_marks_unknown_depths_instead_of_
     assert result["database_available"] and result["sources"] == 8
     assert not result["dependencies_ready"] and not result["redis_available"]
     assert result["queue_depth"] is result["analysis_queue_depth"] is None
-    assert result["queue_depths"] == dict.fromkeys(QUEUES)
+    assert result["queue_depths"] == dict.fromkeys(physical_queues())
     assert result["workers"] == result["analysis_workers"] == []
     assert not result["scheduler_healthy"] and result["scheduler_last_seen"] is None
     assert "private-secret" not in str(result) + caplog.text
     close.assert_called_once_with()
+
+
+def test_priority_status_reads_and_sums_each_physical_queue_once(dependencies, monkeypatch):
+    from devfeed_core.config import get_settings
+    from devfeed_core.worker_queues import configured_queue, physical_queues
+
+    settings = get_settings()
+    monkeypatch.setattr(
+        settings,
+        "job_queue_overrides",
+        {
+            "source-analysis": "source-ai",
+            "partner-evaluation": "partner-ai",
+            "partner-pipeline": "partner-sync",
+        },
+    )
+    connection = status.get_queue().connection
+    pipeline = connection.pipeline()
+    names = physical_queues()
+    depths = {name: index + 1 for index, name in enumerate(names)}
+    pipeline.execute.return_value = list(depths.values())
+    pipeline.reset_mock()
+    workers = []
+    for name in ("default", "source-ai", "partner-ai", "partner-sync", "unrelated"):
+        consumer = Worker([name], connection=connection, prepare_for_work=False, name=name)
+        consumer.get_state = Mock(return_value="idle")
+        consumer.pid, consumer.last_heartbeat = 42, NOW
+        workers.append(consumer)
+    monkeypatch.setattr(status.Worker, "all", Mock(return_value=workers))
+    result = status.snapshot()
+    assert result["queue_depths"] == depths
+    assert result["queue_depth"] == depths[configured_queue("ingestion")]
+    # Shared transports contain both AI and ordinary work; their total LLEN
+    # must not be presented as the number of AI deliveries.
+    assert result["analysis_queue_depth"] is None
+    assert pipeline.llen.call_count == len(names)
+    assert {worker["name"] for worker in result["workers"]} == {
+        "default",
+        "source-ai",
+        "partner-ai",
+        "partner-sync",
+    }
+    assert {"source-ai", "partner-ai", "partner-sync"} <= {
+        worker["name"] for worker in result["analysis_workers"]
+    }

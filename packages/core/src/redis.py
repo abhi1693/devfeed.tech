@@ -7,7 +7,7 @@ from redis.asyncio import Redis as AsyncRedis
 from redis.asyncio.retry import Retry as AsyncRetry
 from redis.asyncio.sentinel import Sentinel as AsyncSentinel
 from redis.asyncio.sentinel import SentinelConnectionPool as AsyncSentinelConnectionPool
-from redis.backoff import ExponentialWithJitterBackoff
+from redis.backoff import ExponentialWithJitterBackoff, NoBackoff
 from redis.connection import SSLConnection, parse_url
 from redis.retry import Retry
 from redis.sentinel import Sentinel, SentinelConnectionPool
@@ -91,6 +91,33 @@ def create_redis(settings: Settings, **overrides: Any) -> Redis:
         Redis,
         sentinel.master_for(settings.redis_sentinel_master, redis_class=_SentinelRedis, **options),
     )
+
+
+def configure_redis_io(
+    connection: Redis, *, socket_timeout: float, socket_connect_timeout: float
+) -> None:
+    """Bound owned client pools before use, including discovery and idle sockets.
+
+    URL options can override constructor kwargs. RQ can also enlarge pool
+    timeouts. Apply the bounds to the resulting pools, retaining stricter limits.
+    """
+    clients = [connection]
+    pool = connection.connection_pool
+    if isinstance(pool, SentinelConnectionPool):
+        clients.extend(pool.sentinel_manager.sentinels)
+    if any(client.connection_pool._in_use_connections for client in clients):
+        raise RuntimeError("Configure Redis I/O before checking out any connections")
+    limits = {"socket_timeout": socket_timeout, "socket_connect_timeout": socket_connect_timeout}
+    for client in clients:
+        options = client.connection_pool.connection_kwargs
+        for name, maximum in limits.items():
+            current = options.get(name)
+            options[name] = min(current, maximum) if current and current > 0 else maximum
+        client.set_retry(Retry(NoBackoff(), retries=0))
+        # Disconnect alone retains connection objects with their old timeouts.
+        # These owned pools have no active users, so replace their idle objects.
+        client.connection_pool.disconnect(inuse_connections=False)
+        client.connection_pool.reset()
 
 
 def create_async_redis(settings: Settings, **overrides: Any) -> AsyncRedis:

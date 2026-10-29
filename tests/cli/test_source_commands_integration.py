@@ -377,6 +377,14 @@ def test_cli_submission_scheduler_and_real_forking_worker(database, capsys):
     result = invoke(capsys, "sources", "add", "https://example.com/rss", "--type", "publisher")
     result = approve_submission(capsys, result)
     assert invoke(capsys, "scheduler", "--once")["dispatched"] == 1
+    queue = get_queue("ingestion")
+    try:
+        queued = queue.get_jobs()
+        assert len(queued) == 1
+        assert queued[0].meta["devfeed_queue"] == "ingestion"
+        assert tuple(queued[0].args) == (result["job"]["id"],)
+    finally:
+        queue.connection.close()
     # Exercise the real forking worker in a fresh process, outside pytest's threads.
     # Replace only publisher I/O; persistence, Redis, dispatch and worker execution are real.
     worker_code = """
@@ -384,10 +392,13 @@ import sys
 from pathlib import Path
 from devfeed_aggregator import tasks
 from devfeed_core.feeds.fetcher import FetchResult
+from devfeed_core.worker_queues import configured_queue
 from devfeed_cli.main import run
 rss = Path(sys.argv[1]).read_bytes()
 tasks.fetch_feed = lambda *args: FetchResult(200, rss, args[0])
-raise SystemExit(run(["worker", "--burst", "--name", "cli-test-worker"]))
+raise SystemExit(run([
+    "worker", "--queue", configured_queue("ingestion"), "--burst", "--name", "cli-test-worker"
+]))
 """
     process = subprocess.run(
         [sys.executable, "-c", worker_code, str(REPO_ROOT / "tests/fixtures/feed.xml")],

@@ -3,6 +3,7 @@
 import logging
 import os
 import time
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,15 +12,19 @@ from devfeed_core.ai_capacity import cooldown_key
 from devfeed_core.analytics_producer import shutdown as drain_analytics
 from devfeed_core.config import get_settings
 from devfeed_core.quota_pacing import quota_key, snapshot_pause_reason
+from devfeed_core.redis import configure_redis_io, create_redis
 from devfeed_core.runtime_files import write_runtime_marker
 from devfeed_core.telemetry import current, extract_context, span, start_runtime, stop_runtime
-from devfeed_core.worker_queues import AI_QUEUES, QUEUES
+from devfeed_core.worker_queues import AI_QUEUES, ROUTABLE_QUEUES, configured_queue
 from opentelemetry.trace import StatusCode
+from redis import Redis
+from redis.backoff import NoBackoff
 from redis.client import Pipeline
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
+from redis.retry import Retry
 from rq import Worker
-from rq.exceptions import StopRequested
+from rq.exceptions import DeserializationError, StopRequested
 from rq.job import Job
 from rq.queue import Queue
 from rq.suspension import WORKERS_SUSPENDED
@@ -30,6 +35,117 @@ CHECK_INTERVAL = 10
 POLL_INTERVAL = 1
 HEARTBEAT_INTERVAL = 30
 SHUTDOWN_CHECK_INTERVAL = 10
+ADMISSION_SCAN_SIZE = 100
+ADMISSION_FETCH_SIZE = 20
+ADMISSION_SCAN_SECONDS = 5
+CONTROL_TIMEOUT_SECONDS = 5
+
+
+class BoundedDequeueQueue(Queue):
+    """Only Redis's blocking pop uses the longer, independent wait socket."""
+
+    @classmethod
+    def lmove(cls, connection: Redis, queue_key: str, timeout: int | None) -> Any:
+        if timeout is None:
+            return super().lmove(connection, queue_key, timeout)
+        wait = min(timeout, SHUTDOWN_CHECK_INTERVAL)
+        with create_redis(
+            get_settings(),
+            socket_connect_timeout=CONTROL_TIMEOUT_SECONDS,
+            socket_timeout=wait + 1,
+            retry=Retry(NoBackoff(), 0),
+        ) as waiting:
+            configure_redis_io(
+                waiting,
+                socket_timeout=wait + 1,
+                socket_connect_timeout=CONTROL_TIMEOUT_SECONDS,
+            )
+            return super().lmove(waiting, queue_key, wait)
+
+    @classmethod
+    def lpop(
+        cls, queue_keys: Sequence[str], timeout: int | None, connection: Redis | None = None
+    ) -> Any:
+        if timeout is None:
+            return super().lpop(queue_keys, timeout, connection)
+        wait = min(timeout, SHUTDOWN_CHECK_INTERVAL)
+        with create_redis(
+            get_settings(),
+            socket_connect_timeout=CONTROL_TIMEOUT_SECONDS,
+            socket_timeout=wait + 1,
+            retry=Retry(NoBackoff(), 0),
+        ) as waiting:
+            configure_redis_io(
+                waiting,
+                socket_timeout=wait + 1,
+                socket_connect_timeout=CONTROL_TIMEOUT_SECONDS,
+            )
+            return super().lpop(queue_keys, wait, waiting)
+
+
+# Match RQ's LMOVE claim: a delivery is never absent from both transport lists.
+# Compare status/origin as well as membership so racing workers cannot claim twice.
+CLAIM_DELIVERY = """
+if redis.call('HGET', KEYS[3], 'status') ~= 'queued' then return 0 end
+if redis.call('HGET', KEYS[3], 'origin') ~= ARGV[2] then return 0 end
+if redis.call('LREM', KEYS[1], 1, ARGV[1]) ~= 1 then return 0 end
+redis.call('RPUSH', KEYS[2], ARGV[1])
+return 1
+"""
+REMOVE_MISSING_DELIVERY = """
+if redis.call('EXISTS', KEYS[2]) == 0 then
+    return redis.call('LREM', KEYS[1], 1, ARGV[1])
+end
+return 0
+"""
+
+
+def job_metadata(job: Job) -> dict[str, Any]:
+    metadata = getattr(job, "meta", {})
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def logical_job_queue(job: Job, queue: Queue | None = None) -> str:
+    """Keep execution policy independent of the physical transport queue."""
+    logical = job_metadata(job).get("devfeed_queue")
+    if isinstance(logical, str) and logical in ROUTABLE_QUEUES:
+        return logical
+    origin = getattr(job, "origin", None) or (queue.name if queue else None)
+    owners = [name for name in ROUTABLE_QUEUES if configured_queue(name) == origin]
+    if len(owners) == 1:
+        return owners[0]
+    # Deliveries lacking usable metadata use a conservative handler fallback.
+    # Source enrichment can also perform AI assessment, so fail closed for that
+    # ambiguous handler on a shared physical queue.
+    from devfeed_core.job_definitions import JOB_DEFINITIONS
+
+    try:
+        handler = getattr(job, "func_name", None)
+    except DeserializationError:
+        # Claim malformed deliveries into RQ's intermediate list and let its
+        # normal execution/failure handling quarantine them. Raising before
+        # claim would leave a poison delivery at the head on every restart.
+        return "other"
+    if handler == "devfeed_aggregator.partner_tasks.process_evaluation":
+        return "partner-evaluation"
+    if handler == "devfeed_aggregator.partner_sync_tasks.process_pipeline":
+        return "partner-pipeline"
+    for definition in JOB_DEFINITIONS.values():
+        if definition.handler == handler:
+            return (
+                "source-analysis" if definition.queue == "source-enrichment" else definition.queue
+            )
+    return "other"
+
+
+def job_requires_ai(job: Job, queue: Queue | None = None) -> bool:
+    logical = logical_job_queue(job, queue)
+    if logical in {"partner-pipeline", "partner-evaluation"}:
+        hint = job_metadata(job).get("devfeed_ai")
+        # A partner pipeline can carry assessment or transport-only work. Its
+        # outbox owns this hint; missing/invalid hints must fail closed.
+        return hint if type(hint) is bool else True
+    return logical in AI_QUEUES
 
 
 @dataclass(frozen=True)
@@ -57,16 +173,47 @@ class CodexReadiness:
 
 
 class AnalysisAwareWorker(Worker):
+    # RQ also retries failed dequeue exchanges outside redis-py's own retry.
+    # Keep that sleep short enough to observe a pending warm shutdown.
+    max_connection_wait_time = POLL_INTERVAL
+
+    def _set_connection(self, connection: Redis) -> Redis:
+        # RQ normally increases this shared pool's socket timeout to worker_ttl
+        # minus five seconds. Admission, job fetches and heartbeats never block
+        # intentionally; only BoundedDequeueQueue owns the longer wait socket.
+        configure_redis_io(
+            connection,
+            socket_timeout=CONTROL_TIMEOUT_SECONDS,
+            socket_connect_timeout=CONTROL_TIMEOUT_SECONDS,
+        )
+        return connection
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         # RQ owns this variadic constructor contract; preserve SDK forwarding.
         super().__init__(*args, **kwargs)
+        if self.queue_class is Queue:
+            # Validate caller-supplied Queue subclasses through RQ first. The
+            # specialized backend only changes the subsequent dequeue command.
+            self.queue_class = BoundedDequeueQueue
         queues = args[0] if args else kwargs.get("queues", [])
-        self.codex_readiness = (
-            CodexReadiness() if any(queue.name in AI_QUEUES for queue in queues) else None
+        ai_kinds = (*AI_QUEUES, "partner-evaluation", "partner-pipeline")
+        self.ai_queue_names = {configured_queue(name) for name in ai_kinds}
+        subscriptions = {queue.name for queue in queues}
+        self.codex_readiness = CodexReadiness() if subscriptions & self.ai_queue_names else None
+        self.requires_job_admission = any(
+            self.mixed_capabilities(name, ai_kinds) for name in subscriptions
         )
+        self.scan_offsets: dict[str, int] = {}
         self.analysis_paused = False
         self.health_pid = os.getpid()
         self.next_admission_heartbeat = 0.0
+
+    @staticmethod
+    def mixed_capabilities(physical: str, ai_kinds: tuple[str, ...]) -> bool:
+        owners = {name for name in ROUTABLE_QUEUES if configured_queue(name) == physical}
+        return "partner-pipeline" in owners or bool(
+            owners & set(ai_kinds) and owners - set(ai_kinds)
+        )
 
     def _shutdown(self) -> None:
         # RQ otherwise raises StopRequested from the first signal handler while
@@ -112,7 +259,7 @@ class AnalysisAwareWorker(Worker):
     def execute_job(self, job: Job, queue: Queue) -> object:
         runtime = current()
         started = time.monotonic()
-        name = queue.name if queue.name in QUEUES else "other"
+        name = logical_job_queue(job, queue)
         if runtime:
             runtime.instruments["worker_active"].set(1)
         try:
@@ -129,12 +276,12 @@ class AnalysisAwareWorker(Worker):
     def perform_job(self, job: Job, queue: Queue) -> bool:
         # RQ calls this in the work horse, after its final fork. Never initialize
         # the native profiler or exporter threads in the forking parent.
-        name = queue.name if queue.name in QUEUES else "other"
+        name = logical_job_queue(job, queue)
         telemetry = start_runtime("worker-" + name, serve_metrics=False)
         try:
             with span(
                 "process " + name,
-                context=extract_context(job.meta.get("devfeed_trace", {})),
+                context=extract_context(job_metadata(job).get("devfeed_trace", {})),
                 attributes={
                     "messaging.system": "redis",
                     "messaging.destination.name": name,
@@ -177,7 +324,7 @@ class AnalysisAwareWorker(Worker):
 
     def ai_ready(self, snapshot: AdmissionSnapshot) -> bool:
         readiness = self.codex_readiness
-        if readiness is None or not any(snapshot.pending.get(name) for name in AI_QUEUES):
+        if readiness is None or not any(snapshot.pending.get(name) for name in self.ai_queue_names):
             return False
         ready = False
         if snapshot.reason:
@@ -206,6 +353,8 @@ class AnalysisAwareWorker(Worker):
                 raise StopRequested()
             self.wait_state(WorkerStatus.SUSPENDED)
             return None
+        if self.requires_job_admission:
+            return self.dequeue_priority(snapshot)
         ready = self.ai_ready(snapshot)
         if self._stop_requested:
             return None
@@ -213,10 +362,12 @@ class AnalysisAwareWorker(Worker):
         eligible = [
             queue
             for queue in ordered
-            if snapshot.pending.get(queue.name) and (queue.name not in AI_QUEUES or ready)
+            if snapshot.pending.get(queue.name) and (queue.name not in self.ai_queue_names or ready)
         ]
         if not eligible:
-            paused = self.analysis_paused and any(snapshot.pending.get(name) for name in AI_QUEUES)
+            paused = self.analysis_paused and any(
+                snapshot.pending.get(name) for name in self.ai_queue_names
+            )
             self.wait_state(WorkerStatus.SUSPENDED if paused else WorkerStatus.IDLE)
             return None
         try:
@@ -230,10 +381,126 @@ class AnalysisAwareWorker(Worker):
             self.reorder_queues(reference_queue=result[1])
         return result
 
+    def dequeue_priority(self, snapshot: AdmissionSnapshot) -> tuple[Job, Queue] | None:
+        """Scan bounded pages while leaving paused AI in its original queue order."""
+        self.wait_state(WorkerStatus.IDLE)
+        ai_blocked = False
+        for job, queue in self.priority_candidates(snapshot):
+            if self._stop_requested:
+                return None
+            admitted = self.priority_admission(job, queue, ai_blocked=ai_blocked)
+            if admitted is None:
+                return None  # Global suspension changed during the scan.
+            if not admitted:
+                ai_blocked = True
+                continue
+            if self.claim_priority(job, queue):
+                return job, queue
+        if ai_blocked:
+            self.wait_state(WorkerStatus.SUSPENDED)
+        return None
+
+    def priority_candidates(self, snapshot: AdmissionSnapshot) -> Iterator[tuple[Job, Queue]]:
+        """Advance across paused prefixes between polls without an unbounded read."""
+        for queue in self._ordered_queues:
+            if self._stop_requested:
+                return
+            if not snapshot.pending.get(queue.name):
+                self.scan_offsets.pop(queue.name, None)
+                continue
+            yield from ((job, queue) for job in self.priority_page(queue))
+
+    def priority_page(self, queue: Queue) -> Iterator[Job]:
+        started = time.monotonic()
+        offset = self.scan_offsets.get(queue.name, 0)
+        identifiers = self.connection.lrange(queue.key, offset, offset + ADMISSION_SCAN_SIZE - 1)
+        if not identifiers:
+            self.scan_offsets[queue.name] = 0
+        for index, identifier, job in self._priority_hashes(identifiers, started):
+            if self._stop_requested:
+                return
+            if index and time.monotonic() - started >= ADMISSION_SCAN_SECONDS:
+                return
+            position = index + 1
+            self.scan_offsets[queue.name] = (
+                0
+                if position == len(identifiers) and len(identifiers) < ADMISSION_SCAN_SIZE
+                else offset + position
+            )
+            if job is not None:
+                yield job
+            else:
+                self.connection.eval(
+                    REMOVE_MISSING_DELIVERY,
+                    2,
+                    queue.key,
+                    Job.key_for(identifier),
+                    identifier,
+                )
+
+    def _priority_hashes(
+        self, identifiers: Sequence[bytes | str], started: float
+    ) -> Iterator[tuple[int, str, Job | None]]:
+        """Fetch one short batch at a time, keeping control exchanges interruptible."""
+        for start in range(0, len(identifiers), ADMISSION_FETCH_SIZE):
+            if self._stop_requested:
+                return
+            if time.monotonic() >= self.next_admission_heartbeat:
+                self.heartbeat()
+            if self._stop_requested:
+                return
+            if start and time.monotonic() - started >= ADMISSION_SCAN_SECONDS:
+                return
+            batch = [
+                identifier.decode() if isinstance(identifier, bytes) else identifier
+                for identifier in identifiers[start : start + ADMISSION_FETCH_SIZE]
+            ]
+            jobs = self.job_class.fetch_many(
+                batch, connection=self.connection, serializer=self.serializer
+            )
+            yield from zip(range(start, start + len(batch)), batch, jobs, strict=True)
+
+    def priority_admission(self, job: Job, queue: Queue, *, ai_blocked: bool) -> bool | None:
+        if not job_requires_ai(job, queue):
+            return True
+        if ai_blocked:
+            return False
+        # Recheck quota/cooldown immediately before each prospective AI claim.
+        snapshot = self.admission_snapshot()
+        if snapshot.suspended:
+            return None
+        readiness = self.codex_readiness
+        ready = not snapshot.reason and readiness is not None and readiness.ready(pending=True)
+        reason = snapshot.reason or (readiness.reason if readiness else "codex_unavailable")
+        self.record_analysis_admission(ready=ready, reason=reason)
+        return ready
+
+    def record_analysis_admission(self, *, ready: bool, reason: str | None) -> None:
+        if not ready and not self.analysis_paused:
+            logger.warning("analysis_queue_paused", extra={"reason": reason})
+        elif ready and self.analysis_paused:
+            logger.info("analysis_queue_resumed")
+        self.analysis_paused = not ready
+
+    def claim_priority(self, job: Job, queue: Queue) -> bool:
+        if self._stop_requested:
+            return False
+        # Equivalent to RQ's LMOVE transfer into its recoverable intermediate
+        # list, but atomically claims one eligible delivery behind a paused prefix.
+        claimed = self.connection.eval(
+            CLAIM_DELIVERY, 3, queue.key, queue.intermediate_queue.key, job.key, job.id, queue.name
+        )
+        if not claimed:
+            return False
+        self.scan_offsets[queue.name] = 0
+        job.redis_server_version = self.get_redis_server_version()
+        self.reorder_queues(reference_queue=queue)
+        return True
+
     def dequeue_job_and_maintain_ttl(
         self, timeout: int | None, max_idle_time: int | None = None
     ) -> tuple[Job, Queue] | None:
-        if self.codex_readiness is None:
+        if self.codex_readiness is None and not self.requires_job_admission:
             return self.dequeue_background(timeout, max_idle_time)
         idle_since = time.monotonic()
         while not self._stop_requested:

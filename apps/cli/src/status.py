@@ -15,7 +15,12 @@ from devfeed_core.models import (
     Topic,
     utcnow,
 )
-from devfeed_core.worker_queues import AI_QUEUES, QUEUES
+from devfeed_core.worker_queues import (
+    AI_QUEUES,
+    ROUTABLE_QUEUES,
+    configured_queue,
+    physical_queues,
+)
 from redis.exceptions import RedisError
 from rq import Worker
 from rq.serializers import JSONSerializer
@@ -125,16 +130,31 @@ def snapshot() -> dict[str, object]:
             except (ValueError, UnicodeError):
                 pass
         age = (utcnow() - last_seen).total_seconds() if last_seen else None
+        names = physical_queues()
+        ai_queues = {
+            configured_queue(name)
+            for name in ROUTABLE_QUEUES
+            if name in (*AI_QUEUES, "partner-evaluation", "partner-pipeline")
+        }
+        non_ai_queues = {
+            configured_queue(name)
+            for name in ROUTABLE_QUEUES
+            if name not in (*AI_QUEUES, "partner-evaluation")
+        }
         with queue.connection.pipeline(transaction=False) as pipe:
-            for name in QUEUES:
+            for name in names:
                 pipe.llen("rq:queue:" + name)
-            depths = dict(zip(QUEUES, pipe.execute(), strict=True))
+            depths = dict(zip(names, pipe.execute(), strict=True))
         workers = Worker.all(connection=queue.connection, serializer=JSONSerializer)
-        workers = [item for item in workers if set(item.queue_names()) & set(QUEUES)]
+        workers = [item for item in workers if set(item.queue_names()) & set(names)]
         result.update(
             redis_available=True,
-            queue_depth=depths["ingestion"],
-            analysis_queue_depth=sum(depths[name] for name in AI_QUEUES),
+            queue_depth=depths[configured_queue("ingestion")],
+            # LLEN on mixed transports cannot identify the number of AI jobs.
+            # Keep physical queue depths available without mislabeling them.
+            analysis_queue_depth=None
+            if ai_queues & non_ai_queues
+            else sum(depths[name] for name in ai_queues),
             queue_depths=depths,
             analysis_workers=[
                 {
@@ -144,7 +164,7 @@ def snapshot() -> dict[str, object]:
                     "last_heartbeat": item.last_heartbeat,
                 }
                 for item in workers
-                if set(item.queue_names()) & set(AI_QUEUES)
+                if set(item.queue_names()) & ai_queues
             ],
             scheduler_last_seen=last_seen,
             scheduler_healthy=age is not None and 0 <= age < 120,
@@ -168,7 +188,7 @@ def snapshot() -> dict[str, object]:
             redis_available=False,
             queue_depth=None,
             analysis_queue_depth=None,
-            queue_depths={name: None for name in QUEUES},
+            queue_depths={name: None for name in physical_queues()},
             analysis_workers=[],
             scheduler_last_seen=None,
             scheduler_healthy=False,

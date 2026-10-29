@@ -282,7 +282,11 @@ def test_scheduler_heartbeat_only_advances_after_successful_cycles(
     stop.is_set.side_effect = [False, True]
     health_context = Mock()
     health_context.return_value = nullcontext(health)
-    monkeypatch.setattr(scheduler, "get_settings", lambda: NS(log_level="INFO", log_format="json"))
+    monkeypatch.setattr(
+        scheduler,
+        "get_settings",
+        lambda: NS(log_level="INFO", log_format="json"),
+    )
     monkeypatch.setattr(scheduler, "configure_logging", Mock())
     monkeypatch.setattr(scheduler, "start_runtime", lambda _: telemetry)
     finish = Mock()
@@ -313,7 +317,11 @@ def test_scheduler_heartbeat_only_advances_after_successful_cycles(
 @pytest.mark.parametrize("mode", ["once", "failed", "daemon"])
 def test_scheduler_cli_reports_failed_once_runs(monkeypatch, mode):
     monkeypatch.setattr(sys, "argv", ["scheduler"] + ([] if mode == "daemon" else ["--once"]))
-    monkeypatch.setattr(scheduler, "get_settings", lambda: NS(log_level="INFO", log_format="json"))
+    monkeypatch.setattr(
+        scheduler,
+        "get_settings",
+        lambda: NS(log_level="INFO", log_format="json"),
+    )
     monkeypatch.setattr(scheduler, "configure_logging", Mock())
     tick, run = Mock(side_effect=RuntimeError("tick")) if mode == "failed" else Mock(), Mock()
     monkeypatch.setattr(scheduler, "tick", tick)

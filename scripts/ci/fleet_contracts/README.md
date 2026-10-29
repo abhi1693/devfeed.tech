@@ -22,11 +22,17 @@ repository. CI never fetches the private infrastructure repository. Before final
 deployment, compare each invoked command/probe and consumer payload with the
 final Fleet files. Image-pin-only edits need not change command fixtures.
 
-Generic worker commands use the lean `devfeed-worker` entrypoint with the existing
-queue and unique-name arguments. It avoids importing the administration CLI into
-each worker parent. Dedicated extraction, images and discovery commands retain
-their existing entrypoints and role credentials. Before deploying this change,
-update the owning Fleet manifests to the recorded commands, provide
+Generic worker commands use the lean `devfeed-worker` entrypoint with one physical
+queue and unique-name arguments. The default queues are `high`, `default` and
+`low`; notification delivery runs on `low` with its role-scoped inbox wrapper.
+The native fixture also starts the isolated solver and a configured dedicated
+ingestion queue. It avoids importing the administration CLI into each worker
+parent. Dedicated extraction, images and discovery commands retain their existing
+entrypoints and role credentials. Extraction and discovery fixtures supply an
+exclusive `DEVFEED_JOB_QUEUE_OVERRIDES` route, as required by these optional
+dedicated images; images retains its isolated default route. Before deploying
+this change, update the owning Fleet manifests to the recorded commands and
+physical queue configuration, provide
 `DEVFEED_WORKER_HEALTH_PATH`, retain their parent-marker probes, and allow at least
 26 minutes for worker termination. This covers the 1,500-second maximum job plus
 bounded shutdown drains. Keep existing production resource requests and limits
@@ -51,8 +57,9 @@ labels that setup as metadata-only: it is not evidence that Alembic ran there.
 The backend image executes native preparation, checks historical readiness and
 current card policy coverage in ClickHouse, validates retained source records,
 and starts the finite analytics importer. Its real health probe must accept a fresh
-heartbeat and reject a stale one. The backend starts every configured worker
-queue/group, verifies actual RQ registration and heartbeats, runs the scheduler
+heartbeat and reject a stale one. The backend starts the three priority workers
+plus isolated solver and override scenarios, verifies each worker registers only
+its expected physical queue and has a fresh heartbeat, runs the scheduler
 and its successful-cycle probe, and runs search setup plus the indexer against
 real Typesense. Dedicated worker images start
 their own commands and health probes. All API images execute their Fleet command

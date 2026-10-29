@@ -88,10 +88,10 @@ def test_topic_evidence_reuse_preserves_age_and_never_serves_expired(
     "capacity,expected",
     [
         ({"observed": False}, 4),
-        ({"observed": True, "cooldown_seconds": 10, "topic_workers": 3}, 0),
-        ({"observed": True, "cooldown_seconds": 0, "topic_workers": 0}, 0),
-        ({"observed": True, "cooldown_seconds": 0, "topic_workers": 3}, 6),
-        ({"observed": True, "cooldown_seconds": 0, "topic_workers": 100}, 8),
+        ({"observed": True, "cooldown_seconds": 10, "eligible_topic_workers": 3}, 0),
+        ({"observed": True, "cooldown_seconds": 0, "eligible_topic_workers": 0}, 0),
+        ({"observed": True, "cooldown_seconds": 0, "eligible_topic_workers": 3}, 6),
+        ({"observed": True, "cooldown_seconds": 0, "eligible_topic_workers": 100}, 8),
     ],
 )
 def test_admission_follows_observed_workers_and_hard_cap(capacity, expected):
@@ -99,7 +99,7 @@ def test_admission_follows_observed_workers_and_hard_cap(capacity, expected):
 
 
 @pytest.mark.integration
-def test_capacity_excludes_expired_heartbeats_and_busy_shared_workers(database):
+def test_capacity_excludes_expired_heartbeats_and_identifies_shared_slots(database):
     from devfeed_core.redis import create_redis
 
     redis = create_redis(get_settings())
@@ -169,7 +169,7 @@ def test_priority_reserves_oldest_slot_and_uses_only_eligible_article_demand(dat
                 session.add(article)
                 session.flush()
                 session.add(ArticleTag(article_id=article.id, tag_id=tag.id))
-    capacity = {"observed": True, "cooldown_seconds": 0, "topic_workers": 1}
+    capacity = {"observed": True, "cooldown_seconds": 0, "eligible_topic_workers": 1}
     assert schedule_decisions(database, capacity=capacity) == 2
     with database() as session:
         assert set(session.scalars(select(TopicAnalysisJob.proposal_id))) == {
@@ -265,3 +265,210 @@ def test_capacity_reports_busy_shared_workers_without_changing_admission(monkeyp
     assert result["shared_workers"] == 1
     # The scheduler still excludes a busy mixed worker from reservable capacity.
     assert result["article_workers"] == result["topic_workers"] == 1
+
+
+@pytest.mark.parametrize(
+    "queues,state,topic_slots,article_slots",
+    [
+        ("topic-analysis", "busy", 1, 0),
+        ("article-analysis-fresh,article-analysis", "busy", 0, 1),
+        ("topic-analysis,article-analysis", "busy", 0, 0),
+        ("topic-analysis,article-analysis", "idle", 1, 1),
+        ("topic-analysis,ingestion", "busy", 0, 0),
+    ],
+)
+def test_capacity_reserves_busy_slots_only_within_one_execution_family(
+    monkeypatch, queues, state, topic_slots, article_slots
+):
+    from unittest.mock import MagicMock
+
+    from devfeed_core import pipeline_capacity
+
+    now = utcnow()
+    connection = MagicMock()
+    connection.smembers.return_value = {b"rq:worker:pool"}
+    connection.pipeline.return_value.__enter__.return_value.execute.return_value = [
+        [queues.encode(), state.encode(), b"", now.isoformat().encode()],
+        90,
+    ]
+    monkeypatch.setattr(pipeline_capacity, "utcnow", lambda: now)
+    monkeypatch.setattr(pipeline_capacity, "cooldown_remaining", lambda _: 0)
+    capacity = worker_capacity(connection)
+    assert capacity["topic_workers"] == topic_slots
+    assert capacity["article_workers"] == article_slots
+    assert capacity["idle_topic_workers"] == (topic_slots if state == "idle" else 0)
+    assert capacity["idle_article_workers"] == (article_slots if state == "idle" else 0)
+
+
+@pytest.fixture
+def priority_transport(database, monkeypatch):
+    from devfeed_aggregator.analysis_worker import AdmissionSnapshot, AnalysisAwareWorker
+    from devfeed_aggregator.queue import get_queue
+
+    monkeypatch.setattr(get_settings(), "job_queue_overrides", {})
+    queue = get_queue("default", physical=True)
+    worker = AnalysisAwareWorker(
+        [queue], connection=queue.connection, serializer=queue.serializer, prepare_for_work=False
+    )
+    worker.admission_snapshot = lambda: AdmissionSnapshot({"default": True})
+    yield worker, queue, get_queue
+    queue.connection.close()
+
+
+@pytest.mark.integration
+def test_priority_scan_claims_io_behind_paused_ai_without_moving_paused_deliveries(
+    priority_transport, monkeypatch
+):
+    from devfeed_aggregator.analysis_worker import AdmissionSnapshot
+
+    worker, physical, get_queue = priority_transport
+    monkeypatch.setattr(worker.codex_readiness, "ready", lambda **kwargs: False)
+    ai = get_queue("article-analysis")
+    io = get_queue("ingestion")
+    try:
+        pending = [ai.enqueue("builtins.str", str(index)).id for index in range(150)]
+        selected = io.enqueue("builtins.str", "ready")
+        snapshot = AdmissionSnapshot({"default": True})
+        assert worker.dequeue_priority(snapshot) is None
+        job, queue = worker.dequeue_priority(snapshot)
+        assert job.id == selected.id and queue.name == "default"
+        assert physical.job_ids == pending
+        assert physical.intermediate_queue.get_job_ids() == [selected.id]
+        # A racing/stale claim cannot remove or duplicate the already claimed delivery.
+        from devfeed_aggregator.analysis_worker import CLAIM_DELIVERY
+
+        assert (
+            physical.connection.eval(
+                CLAIM_DELIVERY,
+                3,
+                physical.key,
+                physical.intermediate_queue.key,
+                selected.key,
+                selected.id,
+                physical.name,
+            )
+            == 0
+        )
+        assert physical.intermediate_queue.get_job_ids() == [selected.id]
+    finally:
+        ai.connection.close()
+        io.connection.close()
+
+
+@pytest.mark.integration
+def test_priority_claim_retains_rq_recovery_when_worker_dies_before_execution(priority_transport):
+    from devfeed_aggregator.analysis_worker import AdmissionSnapshot
+    from rq.job import JobStatus
+
+    worker, physical, get_queue = priority_transport
+    source = get_queue("ingestion")
+    try:
+        delivery = source.enqueue("builtins.str", "ready")
+        assert worker.dequeue_priority(AdmissionSnapshot({"default": True}))[0].id == delivery.id
+        intermediate = physical.intermediate_queue
+        # RQ observes an unstarted intermediate delivery, then detects it stale.
+        intermediate.cleanup(worker, physical)
+        physical.connection.set(
+            intermediate.get_first_seen_key(delivery.id),
+            (utcnow() - timedelta(minutes=2)).timestamp(),
+            ex=3600,
+        )
+        intermediate.cleanup(worker, physical)
+        assert delivery.get_status(refresh=True) == JobStatus.FAILED
+        assert physical.failed_job_registry.get_job_ids() == [delivery.id]
+        assert intermediate.get_job_ids() == []
+    finally:
+        source.connection.close()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("state", ["busy", "idle"])
+def test_priority_capacity_observes_fresh_article_slots_and_admits_bounded_topic_work(
+    database, monkeypatch, state
+):
+    from devfeed_core.redis import create_redis
+
+    monkeypatch.setattr(get_settings(), "job_queue_overrides", {})
+    with create_redis(get_settings()) as redis:
+        for name, queue in [
+            ("high-1", "high"),
+            ("high-2", "high"),
+            ("default-1", "default"),
+            ("default-2", "default"),
+            ("low", "low"),
+        ]:
+            key = f"rq:worker:{name}"
+            redis.sadd("rq:workers", key)
+            redis.hset(
+                key,
+                mapping={"queues": queue, "state": state, "last_heartbeat": utcnow().isoformat()},
+            )
+            redis.expire(key, 90)
+        capacity = worker_capacity(redis)
+        assert capacity["eligible_article_workers"] == 4
+        assert capacity["eligible_topic_workers"] == 2
+        assert topic_admission_limit(capacity) == 4
+
+
+@pytest.mark.parametrize("dedicated_override,expected", [(False, 0), (True, 1)])
+def test_priority_capacity_ignores_drain_only_named_consumer(
+    monkeypatch, dedicated_override, expected
+):
+    from unittest.mock import MagicMock
+
+    from devfeed_core import pipeline_capacity
+
+    settings = get_settings()
+    monkeypatch.setattr(
+        settings,
+        "job_queue_overrides",
+        {"topic-analysis": "topic-analysis"} if dedicated_override else {},
+    )
+    now = utcnow()
+    connection = MagicMock()
+    connection.smembers.return_value = {b"rq:worker:old-topic"}
+    connection.pipeline.return_value.__enter__.return_value.execute.return_value = [
+        [b"topic-analysis", b"idle", b"", now.isoformat().encode()],
+        90,
+    ]
+    monkeypatch.setattr(pipeline_capacity, "utcnow", lambda: now)
+    monkeypatch.setattr(pipeline_capacity, "cooldown_remaining", lambda _: 0)
+    observed = worker_capacity(connection)
+    assert observed["eligible_topic_workers"] == expected
+    assert topic_admission_limit(observed) == expected * settings.topic_decision_worker_buffer
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("metadata", [None, "null", "[]", '"invalid-metadata-shape"'])
+def test_priority_worker_quarantines_malformed_payload_and_continues_valid_work(
+    priority_transport, metadata
+):
+    from devfeed_aggregator.analysis_worker import AnalysisAwareWorker
+    from devfeed_aggregator.worker import log_job_exception, log_work_horse_killed
+    from rq.job import JobStatus
+
+    _, physical, get_queue = priority_transport
+    source = get_queue("ingestion")
+    try:
+        malformed = source.enqueue("builtins.str", "malformed")
+        physical.connection.hset(malformed.key, "data", b"not-a-serialized-job")
+        if metadata is None:
+            physical.connection.hdel(malformed.key, "meta")
+        else:
+            physical.connection.hset(malformed.key, "meta", metadata)
+        following = source.enqueue("builtins.str", "valid")
+        consumer = AnalysisAwareWorker(
+            [physical],
+            connection=physical.connection,
+            serializer=physical.serializer,
+            exception_handlers=[log_job_exception],
+            work_horse_killed_handler=log_work_horse_killed,
+        )
+        consumer.work(burst=True, max_jobs=2)
+        assert malformed.get_status(refresh=True) == JobStatus.FAILED
+        assert following.get_status(refresh=True) == JobStatus.FINISHED
+        assert physical.failed_job_registry.get_job_ids() == [malformed.id]
+        assert physical.job_ids == []
+        assert physical.intermediate_queue.get_job_ids() == []
+    finally:
+        source.connection.close()

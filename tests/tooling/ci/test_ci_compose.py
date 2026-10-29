@@ -81,12 +81,8 @@ def test_all_worker_pools_share_lightweight_parent_probe_and_sufficient_shutdown
     if limited:
         options.update(DEVFEED_WORKER_CPUS="1.5", DEVFEED_WORKER_MEMORY_LIMIT="1g")
     services = check_compose.render(options)["services"]
-    workers = {
-        name: value
-        for name, value in services.items()
-        if name == "worker" or name == "codex-client" or name.endswith("-worker")
-    }
-    assert len(workers) == 13
+    workers = {name: value for name, value in services.items() if name.endswith("-worker")}
+    assert set(workers) == {"high-worker", "default-worker", "low-worker", "images-worker"}
     for name, worker in workers.items():
         assert worker["healthcheck"]["test"] == [
             "CMD",
@@ -171,7 +167,10 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
             "api",
             "partner-api",
             "user-api",
-            "worker",
+            "high-worker",
+            "default-worker",
+            "low-worker",
+            "images-worker",
         }
         assert ("DEVFEED_CLICKHOUSE_PASSWORD" in environment) == expected
         if expected:
@@ -182,7 +181,10 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
                 "api": "DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD",
                 "partner-api": "DEVFEED_CLICKHOUSE_PARTNER_PASSWORD",
                 "user-api": "DEVFEED_CLICKHOUSE_USER_PASSWORD",
-                "worker": "DEVFEED_CLICKHOUSE_WORKER_PASSWORD",
+                "high-worker": "DEVFEED_CLICKHOUSE_WORKER_PASSWORD",
+                "default-worker": "DEVFEED_CLICKHOUSE_WORKER_PASSWORD",
+                "low-worker": "DEVFEED_CLICKHOUSE_WORKER_PASSWORD",
+                "images-worker": "DEVFEED_CLICKHOUSE_WORKER_PASSWORD",
             }[name]
             assert environment["DEVFEED_CLICKHOUSE_PASSWORD"] == options[credential]
             role = {
@@ -192,7 +194,10 @@ def test_clickhouse_credentials_and_resources_are_isolated_from_interactive_serv
                 "api": "devfeed_public",
                 "partner-api": "devfeed_partner",
                 "user-api": "devfeed_user",
-                "worker": "devfeed_worker",
+                "high-worker": "devfeed_worker",
+                "default-worker": "devfeed_worker",
+                "low-worker": "devfeed_worker",
+                "images-worker": "devfeed_worker",
             }[name]
             assert environment["DEVFEED_CLICKHOUSE_USERNAME"] == role
             assert environment["DEVFEED_CLICKHOUSE_MAX_THREADS"] == "1"
@@ -414,3 +419,84 @@ def test_management_ui_runtime_requires_non_root_private_pid_configuration(
     management_runtime[key] = value
     with pytest.raises(AssertionError):
         check_compose.check_ch_ui_runtime(management_runtime)
+
+
+@pytest.mark.parametrize("build", [False, True])
+def test_priority_compose_reserves_each_queue_capacity_and_keeps_scoped_images(build):
+    services = check_compose.render(
+        {
+            "POSTGRES_PASSWORD": "fixture-only-password",
+            "COMPOSE_PROFILES": "ai",
+            "DEVFEED_JOB_QUEUE_OVERRIDES": '{"notifications":"high"}',
+        },
+        worker_overrides=True,
+        build=build,
+    )["services"]
+    assert {name for name in services if name.endswith("-worker")} == {
+        "high-worker",
+        "default-worker",
+        "low-worker",
+        "images-worker",
+    }
+    for queue, replicas in [("high", 4), ("default", 4), ("low", 1)]:
+        name = f"{queue}-worker"
+        service = services[name]
+        assert service["scale"] == replicas
+        assert service["environment"]["DEVFEED_WORKER_QUEUE"] == queue
+        assert service["environment"]["DEVFEED_JOB_QUEUE_OVERRIDES"] == '{"notifications":"high"}'
+        assert service["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed_worker"
+        assert "DEVFEED_IMAGE_STORAGE_SECRET_KEY" not in service["environment"]
+        assert not service["environment"].get("DEVFEED_SOLVER_SERVICES")
+        assert service["entrypoint"] == ["python", "/opt/devfeed/chimely-consumer.py", "worker"]
+        assert {v["source"] for v in service["volumes"] if v["type"] == "volume"} == {
+            "chimely-worker-credentials",
+            "codex-socket",
+        }
+        if build:
+            assert service["image"] == f"devfeed/{name}:local"
+            assert service["build"]["dockerfile"] == "Dockerfile"
+    assert services["images-worker"]["scale"] == 1
+
+
+def test_priority_deployments_have_independent_replica_overrides():
+    services = check_compose.render(
+        {
+            "POSTGRES_PASSWORD": "fixture-only-password",
+            "DEVFEED_HIGH_WORKER_REPLICAS": "6",
+            "DEVFEED_DEFAULT_WORKER_REPLICAS": "3",
+            "DEVFEED_LOW_WORKER_REPLICAS": "2",
+        }
+    )["services"]
+    assert {
+        queue: services[f"{queue}-worker"]["scale"] for queue in ("high", "default", "low")
+    } == {"high": 6, "default": 3, "low": 2}
+    assert {name for name in services if name.endswith("-worker")} == {
+        "high-worker",
+        "default-worker",
+        "low-worker",
+        "images-worker",
+    }
+
+
+def test_routing_overrides_reach_every_publisher_and_worker_without_frontend_exposure():
+    options = {
+        "POSTGRES_PASSWORD": "fixture-only-password",
+        "DEVFEED_JOB_QUEUE_OVERRIDES": '{"recommendations":"recommendations"}',
+    }
+    services = check_compose.render(options)["services"]
+    for name in (
+        "api",
+        "admin-api",
+        "partner-api",
+        "user-api",
+        "scheduler",
+        "high-worker",
+        "default-worker",
+        "low-worker",
+    ):
+        assert (
+            services[name]["environment"]["DEVFEED_JOB_QUEUE_OVERRIDES"]
+            == options["DEVFEED_JOB_QUEUE_OVERRIDES"]
+        )
+    for name in ("web", "admin", "partner"):
+        assert "DEVFEED_JOB_QUEUE_OVERRIDES" not in services[name]["environment"]

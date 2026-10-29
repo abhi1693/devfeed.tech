@@ -1,6 +1,9 @@
 """Physical RQ queues and supported worker groups."""
 
-from typing import Literal, get_args
+from typing import TYPE_CHECKING, Literal, get_args
+
+if TYPE_CHECKING:
+    from devfeed_core.config import Settings
 
 QueueName = Literal[
     "ingestion",
@@ -18,7 +21,7 @@ QueueName = Literal[
     "source-enrichment",
     "images",
 ]
-WorkerQueue = Literal[QueueName, "all", "background", "analysis"]
+WorkerQueue = Literal["high", "default", "low"]
 QUEUES: tuple[str, ...] = get_args(QueueName)
 AI_QUEUES = (
     "relationships",
@@ -36,22 +39,47 @@ BACKGROUND_QUEUES = (
     "source-enrichment",
     "images",
 )
-SHARED_BACKGROUND_QUEUES = tuple(q for q in BACKGROUND_QUEUES if q != "source-discovery")
+# Logical job kinds are independent from configurable transport names.
+LOGICAL_QUEUES = QUEUES
+PRIORITY_QUEUES = ("high", "default", "low")
+ROUTABLE_QUEUES = (*QUEUES, "partner-pipeline", "partner-evaluation", "recommendations")
 
 
-def worker_queues(name: str, *, ai_enabled: bool, notifications_enabled: bool) -> list[str]:
-    """Explicit queues opt in; groups follow feature flags and never include solver."""
-    if name in {"article-analysis", "article-enrichment"}:
-        return [f"{name}-fresh", name]
-    if name == "analysis":
-        # Retain the deployed CLI group name while consuming only current queues.
-        return list(AI_QUEUES)
-    if name in {"all", "background"}:
-        return (
-            list(SHARED_BACKGROUND_QUEUES)
-            + (list(AI_QUEUES) if name == "all" and ai_enabled else [])
-            + (["notifications"] if notifications_enabled else [])
+def configured_queue(logical: str, settings: "Settings | None" = None) -> str:
+    if logical not in ROUTABLE_QUEUES:
+        raise ValueError("Unknown worker queue")
+    if settings is None:
+        from devfeed_core.config import get_settings
+
+        settings = get_settings()
+    if logical in settings.job_queue_overrides:
+        return settings.job_queue_overrides[logical]
+    if (
+        logical.endswith("-fresh")
+        and logical.removesuffix("-fresh") in settings.job_queue_overrides
+    ):
+        return settings.job_queue_overrides[logical.removesuffix("-fresh")]
+    if logical in {"images", "solver"}:
+        return logical
+    if logical in {"article-analysis-fresh", "article-enrichment-fresh", "recommendations"}:
+        return "high"
+    return "low" if logical == "notifications" else "default"
+
+
+def physical_queues(settings: "Settings | None" = None) -> tuple[str, ...]:
+    if settings is None:
+        from devfeed_core.config import get_settings
+
+        settings = get_settings()
+    return tuple(
+        dict.fromkeys(
+            (*PRIORITY_QUEUES, *(configured_queue(name, settings) for name in ROUTABLE_QUEUES))
         )
-    if name not in QUEUES:
+    )
+
+
+def worker_queues(name: str, *, settings: "Settings | None" = None) -> list[str]:
+    """Workers explicitly subscribe to one priority or configured dedicated queue."""
+    if name not in physical_queues(settings):
         raise ValueError("Unknown worker queue")
     return [name]

@@ -141,27 +141,14 @@ def ca():
         raise AssertionError("The application must mount its CA bundle read-only")
 
 
-def worker():
+def worker(expected_queue):
     from redis import Redis
     from rq import Worker
 
-    queue = os.environ["DEVFEED_WORKER_QUEUE"]
     # Independent expectations: using worker_queues() here would repeat a routing bug.
-    expected = {
-        "analysis": [
-            "relationships",
-            "article-analysis-fresh",
-            "article-analysis",
-            "topic-analysis",
-            "research-verification",
-            "source-analysis",
-        ],
-        "article-analysis": ["article-analysis-fresh", "article-analysis"],
-        "article-enrichment": ["article-enrichment-fresh", "article-enrichment"],
-    }.get(queue, [queue])
     workers = Worker.all(connection=Redis.from_url(os.environ["DEVFEED_REDIS_URL"]))
     assert len(workers) == 1
-    assert workers[0].queue_names() == expected
+    assert workers[0].queue_names() == [expected_queue]
     assert workers[0].name.startswith("fleet-native-")
 
 
@@ -182,7 +169,7 @@ if __name__ == "__main__":
     elif action == "ca":
         ca()
     elif action == "worker":
-        worker()
+        worker(sys.argv[2])
     elif action == "ready":
         import urllib.request
 
