@@ -1,6 +1,7 @@
 import "../app/styles/article.css";
 import type { ReactNode } from "react";
 import { ArticleShare } from "./article-share";
+import { GooglePreferredSource } from "./google-preferred-source";
 import { UserDate } from "./user-date";
 import { Markdown } from "@devfeed/ui/markdown";
 import Link from "@/components/reader-link";
@@ -129,6 +130,9 @@ export function ArticlePreviewContent({
                 article_id={article.id}
                 ad_formats={["engagement"]}
               />
+              <div className="preview-preferred-source">
+                <GooglePreferredSource />
+              </div>
             </div>
           </div>
         </div>

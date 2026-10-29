@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { aiRoute } from "@/lib/ai-routes";
 import { additionalUserOrigins, publicSiteOrigin } from "@/lib/server/config";
 import { captureXClick } from "@/lib/server/x-attribution";
+import { preferredSourceWidgetPolicy } from "@/lib/server/preferred-source-widget";
 
 // The same stylesheet is embedded in animated Dev Cards so downloaded SVGs animate on their own.
 const cardMotionHash = createHash("sha256").update(cardMotionCss).digest("base64");
@@ -23,16 +24,17 @@ export async function proxy(request: NextRequest) {
   // Cloudflare rotates the Rocket Loader hash; CSP paths cannot wildcard that segment.
   // Standalone containers can report their bind address instead of the browser's
   // origin. Include explicitly trusted reader aliases so lazy chunks still load.
-  const scriptPaths = [
+  const readerOrigins = [
     ...new Set([publicSiteOrigin(), request.nextUrl.origin, ...additionalUserOrigins()]),
-  ]
+  ];
+  const scriptPaths = readerOrigins
     .flatMap((origin) => [
       `${origin}/_next/static/`,
       `${origin}/.webmcp/bridge.js`,
       `${origin}/cdn-cgi/scripts/`,
     ])
     .join(" ");
-  const csp = [
+  const readerCsp = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://www.googletagmanager.com https://*.clarity.ms${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
     // Cloudflare adds parser-inserted WebMCP and Rocket Loader scripts without our nonce.
@@ -46,12 +48,14 @@ export async function proxy(request: NextRequest) {
     `img-src 'self' https: data: blob:${localImages}`,
     "font-src 'self' data:",
     "connect-src 'self' https://*.google-analytics.com https://www.googletagmanager.com https://*.clarity.ms https://c.bing.com",
-    "frame-src 'none'",
+    `frame-src ${readerOrigins.map((origin) => `${origin}/preferred-source/widget`).join(" ")}`,
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'self' https://nicklaunches.com",
   ].join("; ");
+  const csp =
+    pathname === "/preferred-source/widget" ? preferredSourceWidgetPolicy(nonce) : readerCsp;
 
   const headers = new Headers(request.headers);
   headers.set("x-devfeed-reader-pathname", pathname);

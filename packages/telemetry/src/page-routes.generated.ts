@@ -292,6 +292,7 @@ export const pageRouteCatalogs = {
     { path: "/legal/privacy", label: "/legal/privacy" },
     { path: "/legal/terms", label: "/legal/terms" },
     { path: "/mcp/authorize", label: "/mcp/authorize" },
+    { path: "/preferred-source/widget", label: "/preferred-source/widget" },
     { path: "/settings/appearance", label: "/settings/appearance" },
     { path: "/settings/feed", label: "/settings/feed" },
     { path: "/settings/notifications", label: "/settings/notifications" },

@@ -1,4 +1,5 @@
 import { analyticsEventName } from "../../web/src/lib/analytics";
+import { startPreferredSourceAnalytics } from "../../web/src/lib/preferred-source-analytics";
 import {
   extensionEvent,
   extensionPage,
@@ -76,6 +77,7 @@ export function startExtensionAnalytics(network: typeof fetch = fetch) {
   } catch {
     return () => {};
   }
+  const stopPreferredSource = startPreferredSourceAnalytics();
   let enabled = false;
   let stopped = false;
   let pending = 0;
@@ -181,6 +183,7 @@ export function startExtensionAnalytics(network: typeof fetch = fetch) {
     if (enabled && isActive()) engagement();
   }, 60000);
   return () => {
+    stopPreferredSource();
     stopped = true;
     controller.abort();
     window.clearInterval(timer);

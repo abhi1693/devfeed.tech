@@ -325,7 +325,10 @@ with the manifest at the ZIP root. ZIPs use `devfeed-<browser>-extension-<versio
 where `<browser>` is
 `chrome` or `edge` and `<version>` comes from the extension manifest.
 Packaging removes the development `key` field from the ZIP manifest; the source
-and unpacked manifests retain it. The published GitHub release workflow submits
+and unpacked manifests retain it. Archives include the favicon, tool and profile
+icons, and both lossless WebP Preferred Sources badges. Packaging requires both
+badges and excludes source maps, review screenshots, asset documentation and old
+PNG badge copies. The published GitHub release workflow submits
 each package to its corresponding browser store. Increment the Chrome manifest
 version before a published update; the Edge package uses the same release version.
 The web Docker builder includes extension sources for shared analytics type checks;

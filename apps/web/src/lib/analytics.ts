@@ -2,6 +2,7 @@ import type { PersistedReaderView } from "./reader-preferences";
 
 // Only these app events and explicit, non-personal parameters enter the GA queue.
 export type AnalyticsEvents = {
+  preferred_source_button_click: Record<string, never>;
   dev_card_view: Record<string, never>;
   dev_card_create_click: Record<string, never>;
   dev_card_preview_started: Record<string, never>;

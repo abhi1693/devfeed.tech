@@ -34,6 +34,7 @@ import {
 } from "../../../scripts/testing/avatar-uploads.mjs";
 import { checkMcp, testMcpEndpoint } from "../../../scripts/testing/mcp.mjs";
 import { checkSidebarGitHub } from "../../../scripts/testing/sidebar-github.mjs";
+import { checkGooglePreferredSource } from "../../../scripts/testing/google-preferred-source.mjs";
 import { checkCollapsibleSidebar } from "../../../scripts/testing/collapsible-sidebar.mjs";
 import { checkBrowserTheme } from "../../../scripts/testing/browser-theme.mjs";
 import {
@@ -507,6 +508,36 @@ async function readerFixture(t, imageProfile) {
     pathFor: (path) => readerBase + path,
   };
 }
+
+test(
+  "preferred-source badge opens from built article previews with one analytics relay",
+  { timeout: 120000 },
+  async (t) => {
+    const { page, state, analytics } = await readerFixture(t);
+    state.failArticle = false;
+    assert.equal(
+      await page.locator("[data-google-preferred-source], .google-preferred-source-widget").count(),
+      0,
+    );
+    await page.locator(".card-open-link").first().click();
+    await page.getByRole("dialog", { name: "Article preview" }).waitFor();
+    await checkGooglePreferredSource(
+      page,
+      path.resolve(import.meta.dirname, `../../../reports/google-preferred-source/${browser}.png`),
+      { analytics: "extension", events: analytics },
+    );
+    await page.locator(".preview-footer .article-share-trigger").click();
+    await page.getByRole("link", { name: "Share on Reddit (opens in a new tab)" }).waitFor();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Close preview", exact: true }).click();
+    await page.getByRole("dialog", { name: "Article preview" }).waitFor({ state: "detached" });
+    assert.equal(
+      await page.locator("[data-google-preferred-source], .google-preferred-source-widget").count(),
+      0,
+    );
+    await page.locator(".card-open-link").first().waitFor();
+  },
+);
 
 test(
   "trending omits the initial cursor and preserves the next integer page",

@@ -30,6 +30,7 @@ import { checkPreviewCover } from "../../../../scripts/testing/preview-cover.mjs
 import {
   checkNonceCsp,
   checkCloudflareScriptsCsp,
+  collectReaderPageErrors,
 } from "../../../../scripts/testing/nonce-csp.mjs";
 import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
 import { checkDefaultAll, defaultAllFeed } from "../../../../scripts/testing/default-all.mjs";
@@ -44,7 +45,11 @@ import {
   columnsCatalog,
 } from "../../../../scripts/testing/columns-workspace.mjs";
 import { columnsFixtureArticle } from "../../../../scripts/testing/columns-feed-fixture.mjs";
-import { checkColumnsFeeds } from "../../../../scripts/testing/columns-feeds.mjs";
+import {
+  checkColumnsFeeds,
+  navigationRequestDetails,
+  pageDocumentCount,
+} from "../../../../scripts/testing/columns-feeds.mjs";
 import { checkColumnsSponsoredProducts } from "../../../../scripts/testing/columns-sponsored.mjs";
 import { checkColumnsScanning } from "../../../../scripts/testing/columns-scanning.mjs";
 import { checkColumnsReordering } from "../../../../scripts/testing/columns-reordering.mjs";
@@ -88,6 +93,7 @@ import {
 import { checkReaderNavigation } from "../../../../scripts/testing/reader-navigation.mjs";
 import { checkReaderInteractions, notificationFixture } from "./reader-interactions.mjs";
 import { checkSidebarGitHub } from "../../../../scripts/testing/sidebar-github.mjs";
+import { checkGooglePreferredSource } from "../../../../scripts/testing/google-preferred-source.mjs";
 import { checkCollapsibleSidebar } from "../../../../scripts/testing/collapsible-sidebar.mjs";
 import { checkBrowserTheme } from "../../../../scripts/testing/browser-theme.mjs";
 import {
@@ -165,7 +171,7 @@ import {
 import test from "node:test";
 import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { build } from "esbuild";
@@ -195,6 +201,7 @@ async function createReaderFixture(
     previewRetention = false,
     insecureHttp = false,
     nativeFocus = false,
+    analyticsEnabled = false,
   } = {},
 ) {
   let app, browser, fixture, userFixture;
@@ -847,7 +854,8 @@ async function createReaderFixture(
       cwd: `${root}/apps/web`,
       env: {
         ...env,
-        DEVFEED_ANALYTICS_ENABLED: "false",
+        DEVFEED_ANALYTICS_ENABLED: String(analyticsEnabled),
+        ...(analyticsEnabled ? { GOOGLE_ANALYTICS_ID: "G-PREFERREDTEST" } : {}),
         DEVFEED_PUBLIC_API_URL: upstream,
         DEVFEED_MCP_PUBLIC_URL: testMcpEndpoint,
         DEVFEED_USER_API_URL: userUpstream,
@@ -1428,24 +1436,92 @@ async function createReaderFixture(
   };
 }
 
+let readerPageSequence = 0;
 async function withReaderPage(browser, check, options = {}) {
   const context = await browser.newContext({ reducedMotion: "reduce", ...options });
+  const reportPath = artifactPath(`preferred-source-report-only-${++readerPageSequence}.json`);
+  let errors = [];
+  let preferredSourceReports = [];
   try {
     await mockManagedImages(context);
     await mockSourceLogos(context);
     const page = await context.newPage();
-    const errors = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    page.on("console", (message) => {
-      if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
-        errors.push(message.text());
-    });
+    ({ errors, preferredSourceReports } = collectReaderPageErrors(page));
     await check(page, context);
     assert.deepEqual(errors, []);
+  } catch (error) {
+    if (errors.length) console.error("Reader browser errors", errors);
+    throw error;
   } finally {
-    await context.close();
+    try {
+      if (preferredSourceReports.length)
+        await writeFile(reportPath, JSON.stringify(preferredSourceReports, null, 2));
+    } finally {
+      await context.close();
+    }
   }
 }
+
+test(
+  "preferred-source badge belongs to article previews and starts one measured flow",
+  { timeout: 120000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t, { analyticsEnabled: true });
+    await withReaderPage(browser, async (page, context) => {
+      await context.route("https://www.googletagmanager.com/gtag/js**", (route) =>
+        route.fulfill({ contentType: "application/javascript", body: "" }),
+      );
+      // Optional offline proof uses an unchanged copy of Google's real SDK, never a mock widget.
+      const sdkPath = process.env.DEVFEED_PREFERRED_SOURCE_SDK_PATH;
+      if (sdkPath) {
+        const sdk = await readFile(sdkPath);
+        await context.route("https://news.google.com/swg/js/v1/publisher.js", (route) =>
+          route.fulfill({ contentType: "application/javascript", body: sdk }),
+        );
+      }
+      let preferredTheme = "light";
+      await context.route("**/api/v1/user/settings/appearance", (route) => {
+        if (route.request().method() === "PUT")
+          preferredTheme = route.request().postDataJSON().theme;
+        return route.fulfill({ json: { theme: preferredTheme } });
+      });
+      for (const member of [false, true]) {
+        await page.emulateMedia({ colorScheme: member ? "dark" : "light" });
+        if (member)
+          await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+        await page.goto(`${origin}/latest`);
+        await page.locator(".card-open-link").first().waitFor();
+        if (member) {
+          await page
+            .getByRole("button", { name: "Theme: Light. Switch to dark theme", exact: true })
+            .click();
+          await page.waitForFunction(() => document.documentElement.classList.contains("dark"));
+        }
+        assert.equal(
+          await page
+            .locator("[data-google-preferred-source], .google-preferred-source-widget")
+            .count(),
+          0,
+        );
+        await page.locator(".card-open-link").first().click();
+        await page.getByRole("dialog", { name: "Article preview" }).waitFor();
+        await checkGooglePreferredSource(
+          page,
+          `${root}/reports/google-preferred-source/web-${member ? "member" : "guest"}.png`,
+          { analytics: "ga4", measurementId: "G-PREFERREDTEST" },
+        );
+        await page.getByRole("button", { name: "Close preview", exact: true }).click();
+        await page.getByRole("dialog", { name: "Article preview" }).waitFor({ state: "detached" });
+        assert.equal(
+          await page
+            .locator("[data-google-preferred-source], .google-preferred-source-widget")
+            .count(),
+          0,
+        );
+      }
+    });
+  },
+);
 
 test(
   "columns reorder by dragging and keyboard without reloading feeds",
@@ -1575,6 +1651,287 @@ test(
         artifactPath("columns-sponsored/web"),
       );
     });
+  },
+);
+
+test(
+  "reader console guard distinguishes vendor policy reports by document ownership",
+  { timeout: 30000 },
+  async (t) => {
+    const browser = await chromium.launch({ headless: true });
+    t.after(() => browser.close());
+    const policy = "frame-ancestors 'self'; report-uri https://reader-csp.test/report";
+    const scriptPolicy = "script-src 'unsafe-inline'; report-uri https://reader-csp.test/report";
+    let vendorReportText;
+    for (const fixture of [
+      { name: "Google ancestor report", childPolicy: policy, diagnostic: true },
+      { name: "Google enforced ancestor policy", childPolicy: policy, enforced: true },
+      { name: "another origin's ancestor report", childPolicy: policy, otherOrigin: true },
+      { name: "application enforced script policy", appScript: true, enforced: true },
+      { name: "application script report", appScript: true },
+      {
+        name: "Google script report",
+        childPolicy: "script-src 'none'; report-uri https://reader-csp.test/report",
+      },
+      {
+        name: "Google service script report under its local widget",
+        childPolicy: scriptPolicy,
+        nested: true,
+        externalScript: true,
+        diagnostic: true,
+        reuseOutside: true,
+      },
+      {
+        name: "Google toast script report with a different blocked resource",
+        childPolicy: scriptPolicy,
+        childPath: "/swg/ui/v1/toastiframe",
+        scriptSource: "https://vendor-cdn.test/runtime.js",
+        nested: true,
+        externalScript: true,
+        diagnostic: true,
+        originChange: true,
+      },
+      { name: "application script report loading gstatic", appScript: true, externalScript: true },
+      {
+        name: "local widget script report loading gstatic",
+        widgetScript: true,
+        nested: true,
+        externalScript: true,
+      },
+      {
+        name: "Google enforced script policy under the local widget",
+        childPolicy: scriptPolicy,
+        nested: true,
+        externalScript: true,
+        enforced: true,
+      },
+      {
+        name: "Google script report under another local path",
+        childPolicy: scriptPolicy,
+        nested: true,
+        widgetPath: "/another-widget",
+        externalScript: true,
+      },
+      {
+        name: "Google script report under another widget origin",
+        childPolicy: scriptPolicy,
+        nested: true,
+        widgetOrigin: "https://untrusted-widget.test",
+        externalScript: true,
+      },
+      {
+        name: "another Google document under the local widget",
+        childPolicy: scriptPolicy,
+        childPath: "/another-document",
+        nested: true,
+        externalScript: true,
+      },
+      {
+        name: "another vendor under the local widget",
+        childPolicy: scriptPolicy,
+        otherOrigin: true,
+        nested: true,
+        externalScript: true,
+      },
+      { name: "report text with unknown source metadata", unknownSource: true },
+    ])
+      await t.test(fixture.name, async () => {
+        const context = await browser.newContext();
+        try {
+          const page = await context.newPage();
+          const { errors, preferredSourceReports } = collectReaderPageErrors(page);
+          const childOrigin = fixture.otherOrigin
+            ? "https://other-vendor.test"
+            : "https://news.google.com";
+          const header = fixture.enforced
+            ? "content-security-policy"
+            : "content-security-policy-report-only";
+          const childUrl = `${childOrigin}${fixture.childPath ?? "/swg/ui/v1/serviceiframe"}`;
+          const widgetUrl = `${fixture.widgetOrigin ?? "https://reader-csp.test"}${fixture.widgetPath ?? "/preferred-source/widget"}`;
+          const scriptSource =
+            fixture.scriptSource ?? "https://www.gstatic.com/publisher-fixture.js";
+          const script = fixture.externalScript
+            ? `<script src="${scriptSource}"></script>`
+            : "<script>window.__policyProbe = true</script>";
+          await context.route(scriptSource, (route) =>
+            route.fulfill({
+              contentType: "application/javascript",
+              body: "window.__policyProbe = true",
+            }),
+          );
+          await context.route("https://reader-csp.test/report", (route) =>
+            route.fulfill({ status: 204 }),
+          );
+          await context.route("https://reader-csp.test/", (route) =>
+            route.fulfill({
+              contentType: "text/html",
+              headers: fixture.appScript
+                ? {
+                    [header]: fixture.externalScript
+                      ? scriptPolicy
+                      : "script-src 'none'; report-uri https://reader-csp.test/report",
+                  }
+                : {},
+              body: fixture.unknownSource
+                ? "<!doctype html><title>Unknown console source</title>"
+                : fixture.appScript
+                  ? `<!doctype html>${script}`
+                  : `<!doctype html><iframe src="${fixture.nested ? widgetUrl : childUrl}"></iframe>`,
+            }),
+          );
+          await context.route(widgetUrl, (route) =>
+            route.fulfill({
+              contentType: "text/html",
+              headers: fixture.widgetScript ? { [header]: scriptPolicy } : {},
+              body: fixture.widgetScript
+                ? `<!doctype html>${script}`
+                : `<!doctype html><iframe src="${childUrl}"></iframe>`,
+            }),
+          );
+          await context.route(childUrl, (route) =>
+            route.fulfill({
+              contentType: "text/html",
+              headers: fixture.childPolicy ? { [header]: fixture.childPolicy } : {},
+              body: `<!doctype html>${script}<button>Vendor frame rendered</button>`,
+            }),
+          );
+          const reported = page.waitForEvent("console", (message) =>
+            /Content Security Policy/.test(message.text()),
+          );
+          await page.goto("https://reader-csp.test/");
+          if (fixture.unknownSource)
+            await page.evaluate((text) => console.info(text), vendorReportText);
+          const policyMessage = await reported;
+          if (fixture.diagnostic) {
+            const frame = page.frameLocator("iframe");
+            await (fixture.nested ? frame.frameLocator("iframe") : frame)
+              .getByRole("button", { name: "Vendor frame rendered" })
+              .waitFor();
+            assert.deepEqual(errors, []);
+            assert.equal(
+              preferredSourceReports.length,
+              1,
+              "The vendor report remains available as evidence",
+            );
+            assert.match(preferredSourceReports[0].message, /report-only/);
+            if (fixture.nested) {
+              vendorReportText = preferredSourceReports[0].message;
+              assert.deepEqual(preferredSourceReports[0].sourceFrame, {
+                url: childUrl,
+                widget: widgetUrl,
+              });
+            }
+            if (fixture.reuseOutside) {
+              await page.evaluate(() => {
+                document.querySelector("iframe").remove();
+                history.pushState({}, "", "/after-preview");
+              });
+              page.emit("console", policyMessage);
+              assert.deepEqual(errors, [], "A delayed vendor report retains its proven lineage");
+              assert.equal(preferredSourceReports.length, 2);
+              const rejected = page.waitForEvent("console", (message) =>
+                /Content Security Policy/.test(message.text()),
+              );
+              await page.evaluate((src) => {
+                const outside = document.createElement("iframe");
+                outside.src = src;
+                document.body.appendChild(outside);
+              }, childUrl);
+              await rejected;
+              assert.ok(
+                errors.length > 0,
+                "Reusing the same Google URL outside the widget remains fatal",
+              );
+              assert.equal(preferredSourceReports.length, 2);
+              errors.length = 0;
+            }
+            if (fixture.originChange) {
+              await context.route("https://new-root.test/", (route) =>
+                route.fulfill({
+                  contentType: "text/html",
+                  body: "<!doctype html><title>A different root origin</title>",
+                }),
+              );
+              await page.goto("https://new-root.test/");
+              page.emit("console", policyMessage);
+              assert.ok(
+                errors.length > 0,
+                "Changing the root origin clears previously trusted lineage",
+              );
+              assert.equal(preferredSourceReports.length, 1);
+              errors.length = 0;
+            }
+            const failed = page.waitForEvent("pageerror");
+            await page.evaluate(() =>
+              setTimeout(() => {
+                throw new Error("Application error remains fatal");
+              }, 0),
+            );
+            await failed;
+            assert.deepEqual(errors, ["Application error remains fatal"]);
+          } else {
+            assert.ok(errors.length > 0, `${fixture.name} remains fatal`);
+            assert.deepEqual(preferredSourceReports, []);
+            if (fixture.appScript)
+              assert.equal(
+                await page.evaluate(() => window.__policyProbe === true),
+                !fixture.enforced,
+              );
+          }
+        } finally {
+          await context.close();
+        }
+      });
+  },
+);
+
+test(
+  "page reload detection preserves child-frame requests without counting them as page loads",
+  { timeout: 30000 },
+  async (t) => {
+    const browser = await chromium.launch({ headless: true });
+    t.after(() => browser.close());
+    const page = await browser.newPage();
+    await page.route("https://frame-navigation.test/**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body:
+          new URL(route.request().url()).pathname === "/"
+            ? '<!doctype html><iframe title="Child fixture" src="/child"></iframe>'
+            : "<!doctype html><button>Child frame ready</button>",
+      }),
+    );
+    const requests = [];
+    page.on("request", (request) => requests.push(navigationRequestDetails(request, page)));
+    await page.goto("https://frame-navigation.test/");
+    const child = page.frameLocator("iframe");
+    await child.getByRole("button", { name: "Child frame ready" }).waitFor();
+    assert.equal(pageDocumentCount(requests), 1);
+    assert.equal(requests.filter(({ frame }) => frame === "child").length, 1);
+
+    const reloaded = page.waitForEvent("request", (request) => request.url().endsWith("/child"));
+    await child.locator("body").evaluate(() => location.reload());
+    await reloaded;
+    await child.getByRole("button", { name: "Child frame ready" }).waitFor();
+    assert.equal(requests.filter(({ frame }) => frame === "child").length, 2);
+    assert.equal(pageDocumentCount(requests), 1, "A child-frame reload is not a page reload");
+
+    await page.reload();
+    await child.getByRole("button", { name: "Child frame ready" }).waitFor();
+    assert.equal(pageDocumentCount(requests), 2, "A real page reload is still detected");
+    const unknown = navigationRequestDetails(
+      {
+        resourceType: () => "document",
+        frame: () => {
+          throw new Error("Frame not yet created");
+        },
+        url: () => "https://frame-navigation.test/unknown",
+        method: () => "GET",
+      },
+      page,
+    );
+    assert.equal(unknown.frame, "unknown");
+    assert.equal(pageDocumentCount([...requests, unknown]), 3, "Unknown frames fail closed");
   },
 );
 

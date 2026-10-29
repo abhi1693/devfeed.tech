@@ -39,6 +39,21 @@ vi.mock("@/components/article-engagement", () => ({
 beforeEach(() => vi.mocked(readerRequest).mockReset());
 afterEach(cleanup);
 
+it("places Google's preferred-source badge last in the preview sidebar without an ad", () => {
+  vi.mocked(readerRequest).mockResolvedValue(Response.json({ items: [] }));
+  const view = render(<ArticlePreviewContent article={article} />);
+  const widget = screen.getByTitle("Add DevFeed as a preferred source on Google");
+  const actions = screen.getByRole("contentinfo", { name: "Article actions" });
+  expect(actions.contains(widget)).toBe(false);
+  expect(view.container.querySelector(".preview-sidebar")?.lastElementChild?.contains(widget)).toBe(
+    true,
+  );
+  expect(widget.closest(".preview-preferred-source")).not.toBeNull();
+  expect(widget.closest('[aria-label="Article interactions"]')).toBeNull();
+  expect(view.container.querySelector(".preview-copy")?.contains(widget)).toBe(false);
+  expect(view.container.querySelectorAll("iframe")).toHaveLength(1);
+});
+
 it.each([
   { relations: undefined, expected: "nofollow noopener noreferrer" },
   { relations: [], expected: "sponsored noopener noreferrer" },
@@ -94,7 +109,12 @@ it.each([
     expect(
       view.container.querySelector(".preview-summary")?.closest("[data-nosnippet]"),
     ).toBeNull();
-    const briefs = Array.from(sidebar.children);
+    const badge = sidebar.lastElementChild!;
+    expect(badge.classList.contains("preview-preferred-source")).toBe(true);
+    expect(badge.contains(screen.getByTitle("Add DevFeed as a preferred source on Google"))).toBe(
+      true,
+    );
+    const briefs = Array.from(sidebar.children).slice(0, -1);
     expect(briefs).toHaveLength(Number(hasSource) + Number(hasTopic));
     const focused = hasTopic
       ? screen.getByRole("link", { name: topic.name })
@@ -107,8 +127,9 @@ it.each([
     );
     const link = screen.getByRole("link", { name: placement.name });
     const card = link.closest("article")!;
-    expect(sidebar.lastElementChild).toBe(card.closest(".partner-placements"));
-    expect(Array.from(sidebar.children).slice(0, -1)).toEqual(briefs);
+    expect(sidebar.lastElementChild).toBe(badge);
+    expect(badge.previousElementSibling).toBe(card.closest(".partner-placements"));
+    expect(Array.from(sidebar.children).slice(0, -2)).toEqual(briefs);
     for (const brief of briefs) {
       expect(brief.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
