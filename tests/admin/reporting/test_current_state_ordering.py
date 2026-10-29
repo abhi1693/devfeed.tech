@@ -18,7 +18,6 @@ from tests.support import analytics, partner_matching, source_readiness
 
 
 @pytest.mark.integration
-@pytest.mark.failure_recovery
 def test_late_reconciliation_preserves_newer_live_queue_and_card_and_skips_a_busy_publisher(
     database,
 ):

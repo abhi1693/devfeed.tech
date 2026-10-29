@@ -95,7 +95,6 @@ class UncertainFingerprintAck:
 
 
 @pytest.mark.integration
-@pytest.mark.failure_recovery
 def test_lost_completions_and_deletions_repair_after_uncertain_ack_and_restart(database):
     now, articles, expired_id = seed_running_cards(database)
     configured = analytics.settings().model_copy(update={"analytics_reconcile_batch_size": 2})
