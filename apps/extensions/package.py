@@ -19,10 +19,21 @@ if browser == "edge":
 destination = root / f"devfeed-{browser}-extension-{version}.zip"
 with ZipFile(destination, "w", compression=ZIP_DEFLATED) as archive:
     archive.writestr("manifest.json", json.dumps(manifest, indent=2) + "\n")
-    for name in ("newtab.html", "newtab.js", "newtab.css", "icon.png"):
+    for name in (
+        "newtab.html",
+        "newtab.js",
+        "newtab.css",
+        "icon.png",
+        "favicon.png",
+        "google-preferred-source/light.webp",
+        "google-preferred-source/dark.webp",
+    ):
         archive.write(source / name, name)
-    tool_icons = source / "tool-icons"
-    for path in sorted(tool_icons.rglob("*")):
-        if path.is_file():
-            archive.write(path, path.relative_to(source))
+    for directory, suffixes in (
+        ("tool-icons", {".svg", ".png"}),
+        ("profile-icons", {".svg"}),
+    ):
+        for path in sorted((source / directory).rglob("*")):
+            if path.is_file() and path.suffix in suffixes:
+                archive.write(path, path.relative_to(source))
 print(destination)
