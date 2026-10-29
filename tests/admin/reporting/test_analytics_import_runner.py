@@ -304,7 +304,7 @@ def test_real_runner_resumes_cutover_and_rejects_partial_loss(database):
 
 
 @pytest.mark.integration
-def test_automatic_worker_imports_history_retires_postgres_and_restarts_without_scan(
+def test_automatic_worker_imports_history_retires_postgres_and_restarts_without_history_replay(
     integration_environment, monkeypatch
 ):
     import uuid
@@ -407,15 +407,35 @@ def test_automatic_worker_imports_history_retires_postgres_and_restarts_without_
                                 )
                             ).fetchone()
                             assert row["title"] == "Historical analytics"
+                        await first.close()
+                        checkpoint_sql = (
+                            "SELECT * FROM analytics_backfill_progress FINAL "
+                            "ORDER BY import_id,source"
+                        )
+                        imported = await client.query(checkpoint_sql)
                         restarted = AnalyticsImportWorker(client, client.settings)
 
                         async def unexpected_source_read():
                             raise AssertionError("Ready restart read historical PostgreSQL")
 
                         restarted.runner.once = unexpected_source_read
-                        assert await restarted.once() is False
-                        assert not restarted.bootstrapping
-                        assert not await DirectEngagementAnalytics(client).search_counts([])
+                        try:
+                            # Ready restarts continue bounded current-state work,
+                            # while every historical page and cutoff remain retired.
+                            assert await restarted.once() is True
+                            assert not restarted.bootstrapping
+                            current = await client.query(
+                                "SELECT count() AS checkpoints FROM analytics_reconcile_progress "
+                                "FINAL WHERE policy={policy:String}",
+                                {"policy": restarted.policy},
+                            )
+                            assert current[0]["checkpoints"] > 0
+                            assert await client.query(checkpoint_sql) == imported
+                            assert await opens.cutover() == cutoff
+                            assert await InferenceStore(client).exists(call_id, happened)
+                            assert not await DirectEngagementAnalytics(client).search_counts([])
+                        finally:
+                            await restarted.close()
                 finally:
                     await admin.execute(f"DROP DATABASE `{target}` SYNC")
 

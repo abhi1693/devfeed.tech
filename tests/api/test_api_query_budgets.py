@@ -35,7 +35,7 @@ from devfeed_core.models import (
     TopicProposal,
     TopicRelation,
 )
-from sqlalchemy import event, insert, text
+from sqlalchemy import event, insert, select, text
 
 from tests.support.analytics_cards import card_publication as card_publication
 from tests.support.overview import publish_section
@@ -414,6 +414,16 @@ def test_populated_api_query_budgets(
     profile_data, database, client, admin_client, monkeypatch, card_publication
 ):
     publish_section(card_publication)
+    # Read fixture timestamps before installing the SQL-budget listeners. Expected
+    # counts follow the returned UTC interval, including a run across midnight.
+    with database() as session:
+        discovered = dict(
+            session.execute(
+                select(Article.id, Article.discovered_at).where(
+                    Article.publication_status == "unpublished"
+                )
+            ).all()
+        )
     report_path = os.environ.get("DEVFEED_PROFILE_REPORT")
     repeats = int(os.environ.get("DEVFEED_PROFILE_REPEATS", "1"))
     assert 1 <= repeats <= 100
@@ -424,8 +434,17 @@ def test_populated_api_query_budgets(
         warm = http.get(path)
         assert warm.status_code == 200, (path, warm.text)
         if path.startswith("/v1/admin/overview/charts/attention"):
-            assert warm.json()["snapshot"]["status"] == "fresh"
-            metrics = warm.json()["data"]
+            report = warm.json()
+            start = datetime.fromisoformat(report["start"]).replace(tzinfo=UTC)
+            end = datetime.fromisoformat(report["end"]).replace(tzinfo=UTC) + timedelta(days=1)
+            assert report["days"] == (end - start).days == 30
+            # Card publication does not certify a completed reconciliation
+            # sweep. Real counts remain readable while source coverage catches up.
+            snapshot = report["snapshot"]
+            assert snapshot["status"] == "catching_up"
+            assert snapshot["generated_at"] is None and snapshot["coverage_expires_at"] is None
+            assert warm.headers["X-Overview-Stale"] == "true"
+            metrics = report["data"]
             blockers = {blocker["code"]: blocker for blocker in metrics["blockers"]}
             expected_groups = {
                 "insufficient_text": 0,
@@ -436,7 +455,11 @@ def test_populated_api_query_budgets(
             }
             for code, remainder in expected_groups.items():
                 blocker = blockers[code]
-                expected = [i for i in range(profile_data) if i % 5 == remainder]
+                expected = [
+                    i
+                    for i in range(profile_data)
+                    if i % 5 == remainder and start <= discovered[identity("pending", i)] < end
+                ]
                 assert blocker["count"] == len(expected), (code, blocker, expected)
                 expected.sort(key=lambda i: (-(i % 60), identity("pending", i)))
                 assert [target["id"] for target in blocker["targets"]] == [
