@@ -38,6 +38,7 @@ it("isolates the real website widget and follows the resolved reader theme", asy
   const frame = widget();
   expect(frame.getAttribute("src")).toBe("/preferred-source/widget?theme=light");
   expect(frame.tabIndex).toBe(0);
+  expect(frame.hasAttribute("tabindex")).toBe(false);
   expect(frame.width).toBe("240");
   expect(frame.height).toBe("52");
   expect(document.querySelector("a[data-google-preferred-source]")).toBeNull();

@@ -44,7 +44,11 @@ import {
   columnsCatalog,
 } from "../../../../scripts/testing/columns-workspace.mjs";
 import { columnsFixtureArticle } from "../../../../scripts/testing/columns-feed-fixture.mjs";
-import { checkColumnsFeeds } from "../../../../scripts/testing/columns-feeds.mjs";
+import {
+  checkColumnsFeeds,
+  navigationRequestDetails,
+  pageDocumentCount,
+} from "../../../../scripts/testing/columns-feeds.mjs";
 import { checkColumnsSponsoredProducts } from "../../../../scripts/testing/columns-sponsored.mjs";
 import { checkColumnsScanning } from "../../../../scripts/testing/columns-scanning.mjs";
 import { checkColumnsReordering } from "../../../../scripts/testing/columns-reordering.mjs";
@@ -1642,6 +1646,56 @@ test(
         artifactPath("columns-sponsored/web"),
       );
     });
+  },
+);
+
+test(
+  "page reload detection preserves child-frame requests without counting them as page loads",
+  { timeout: 30000 },
+  async (t) => {
+    const browser = await chromium.launch({ headless: true });
+    t.after(() => browser.close());
+    const page = await browser.newPage();
+    await page.route("https://frame-navigation.test/**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body:
+          new URL(route.request().url()).pathname === "/"
+            ? '<!doctype html><iframe title="Child fixture" src="/child"></iframe>'
+            : "<!doctype html><button>Child frame ready</button>",
+      }),
+    );
+    const requests = [];
+    page.on("request", (request) => requests.push(navigationRequestDetails(request, page)));
+    await page.goto("https://frame-navigation.test/");
+    const child = page.frameLocator("iframe");
+    await child.getByRole("button", { name: "Child frame ready" }).waitFor();
+    assert.equal(pageDocumentCount(requests), 1);
+    assert.equal(requests.filter(({ frame }) => frame === "child").length, 1);
+
+    const reloaded = page.waitForEvent("request", (request) => request.url().endsWith("/child"));
+    await child.locator("body").evaluate(() => location.reload());
+    await reloaded;
+    await child.getByRole("button", { name: "Child frame ready" }).waitFor();
+    assert.equal(requests.filter(({ frame }) => frame === "child").length, 2);
+    assert.equal(pageDocumentCount(requests), 1, "A child-frame reload is not a page reload");
+
+    await page.reload();
+    await child.getByRole("button", { name: "Child frame ready" }).waitFor();
+    assert.equal(pageDocumentCount(requests), 2, "A real page reload is still detected");
+    const unknown = navigationRequestDetails(
+      {
+        resourceType: () => "document",
+        frame: () => {
+          throw new Error("Frame not yet created");
+        },
+        url: () => "https://frame-navigation.test/unknown",
+        method: () => "GET",
+      },
+      page,
+    );
+    assert.equal(unknown.frame, "unknown");
+    assert.equal(pageDocumentCount([...requests, unknown]), 3, "Unknown frames fail closed");
   },
 );
 

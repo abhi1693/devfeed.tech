@@ -45,7 +45,7 @@ export async function checkGooglePreferredSource(page, screenshot, options = {})
   assert.equal(await page.locator(".sidebar [data-google-preferred-source]").count(), 0);
   assert.equal(await page.locator(".reader-mobile-secondary").count(), 0);
   if (website) {
-    assert.equal(await frame.getAttribute("tabindex"), "0");
+    assert.equal(await frame.getAttribute("tabindex"), null);
     assert.equal(await frame.getAttribute("title"), "Add DevFeed as a preferred source on Google");
     assert.equal(await page.locator('script[src*="news.google.com/swg/"]').count(), 0);
     assert.equal(
@@ -263,7 +263,29 @@ export async function checkGooglePreferredSource(page, screenshot, options = {})
           : undefined;
       const opened = context.waitForEvent("page");
       if (index === 0) {
-        await control.focus();
+        await (website ? frame : control).evaluate((node) => {
+          const controls = [
+            ...node
+              .closest("dialog")
+              .querySelectorAll("a[href], button, input, select, textarea, [tabindex]"),
+          ].filter(
+            (item) =>
+              item.tabIndex >= 0 &&
+              !item.matches(":disabled") &&
+              item.getClientRects().length > 0 &&
+              getComputedStyle(item).visibility !== "hidden" &&
+              (item.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+          );
+          const previous = controls.at(-1);
+          if (!previous) throw new Error("The badge needs a preceding keyboard control");
+          previous.focus();
+        });
+        await page.keyboard.press("Tab");
+        assert.equal(
+          await control.evaluate((node) => node.getRootNode().activeElement === node),
+          true,
+          "Sequential keyboard navigation reaches Google's control",
+        );
         await page.keyboard.press("Enter");
       } else await control.click();
       const target = await opened;

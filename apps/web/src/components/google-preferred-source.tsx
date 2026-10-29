@@ -45,7 +45,6 @@ function PreferredSourceWidget({ theme }: { theme: "light" | "dark" }) {
       height={height}
       data-expanded={height > 52 ? "true" : undefined}
       style={{ colorScheme: theme }}
-      tabIndex={0}
     />
   );
 }

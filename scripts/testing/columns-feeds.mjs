@@ -22,6 +22,24 @@ const wait = async (predicate, label) => {
   }
 };
 
+export function navigationRequestDetails(request, page) {
+  const type = request.resourceType();
+  let frame = null;
+  if (type === "document") {
+    try {
+      frame = request.frame() === page.mainFrame() ? "main" : "child";
+    } catch {
+      // Playwright can receive a navigation before its frame exists. Keep it visible and counted.
+      frame = "unknown";
+    }
+  }
+  return { url: request.url(), method: request.method(), type, frame };
+}
+
+export function pageDocumentCount(requests) {
+  return requests.filter(({ type, frame }) => type === "document" && frame !== "child").length;
+}
+
 async function beginResourceProfile(page) {
   await page.evaluate(() => {
     const supported = PerformanceObserver.supportedEntryTypes.includes("longtask");
@@ -140,11 +158,7 @@ export async function checkColumnsFeeds(
       request.isNavigationRequest() ||
       new URL(request.url()).searchParams.has("_rsc")
     )
-      navigationRequests.push({
-        url: request.url(),
-        method: request.method(),
-        type: request.resourceType(),
-      });
+      navigationRequests.push(navigationRequestDetails(request, page));
   };
   page.on("request", recordRequest);
   const workspace = page.getByRole("region", { name: "Columns workspace", exact: true });
@@ -444,7 +458,7 @@ export async function checkColumnsFeeds(
       await previewTitle.scrollIntoViewIfNeeded();
       await page.waitForTimeout(100);
       const before = fixture.requests.length;
-      const documentsBefore = navigationRequests.filter(({ type }) => type === "document").length;
+      const documentsBefore = pageDocumentCount(navigationRequests);
       await state("before");
       assert.ok(
         states[0].columnScrolls.some(({ top }) => top > 0),
@@ -500,7 +514,7 @@ export async function checkColumnsFeeds(
         "Closing retains each feed's vertical position",
       );
       assert.equal(
-        navigationRequests.filter(({ type }) => type === "document").length,
+        pageDocumentCount(navigationRequests),
         documentsBefore,
         "Slow preview transport never forces a document reload",
       );
