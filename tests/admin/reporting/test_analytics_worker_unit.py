@@ -1,4 +1,4 @@
-"""The direct analytics worker finishes history once and never polls sources again."""
+"""Finite history stays retired while bounded current-state repair continues."""
 
 import asyncio
 from datetime import UTC, datetime
@@ -27,12 +27,14 @@ def service(monkeypatch):
     runner = SimpleNamespace(once=AsyncMock(), _importer=importer)
     monkeypatch.setattr(worker, "AnalyticsStatus", lambda _: status)
     monkeypatch.setattr(worker, "AnalyticsImportRunner", lambda *_, **__: runner)
+    reconciler = SimpleNamespace(once=AsyncMock(return_value=False), close=AsyncMock())
+    monkeypatch.setattr(worker, "CurrentStateReconciler", lambda *_, **__: reconciler)
     monkeypatch.setattr(worker, "pipeline_policy_version", lambda _: "current")
     monkeypatch.setattr(worker.AnalyticsImportWorker, "_write_heartbeat", Mock())
     return worker.AnalyticsImportWorker(client, settings), client, status, runner
 
 
-def test_ready_restart_and_idle_cycles_never_read_postgres(service):
+def test_ready_restart_reconciles_current_state_without_replaying_history(service):
     exporter, client, status, runner = service
     status.read.return_value = {"ready": True, "policy": "current"}
 
@@ -45,6 +47,29 @@ def test_ready_restart_and_idle_cycles_never_read_postgres(service):
     status.write.assert_not_called()
     client.check_schema.assert_awaited_once()
     assert exporter.bootstrapping is False
+    assert exporter.reconciler.once.await_count == 2
+
+
+def test_current_repair_progress_and_failures_keep_history_checkpoint_intact(service):
+    exporter, _, status, runner = service
+    status.read.return_value = {"ready": True, "policy": "current"}
+    exporter.reconciler.once.side_effect = [True, RuntimeError("Current repair unavailable")]
+
+    async def run():
+        assert await exporter.once() is True
+        with pytest.raises(RuntimeError, match="Current repair unavailable"):
+            await exporter.once()
+
+    asyncio.run(run())
+    runner.once.assert_not_called()
+    status.write.assert_not_called()
+    assert exporter.bootstrapping is False
+
+
+def test_close_releases_the_current_state_coordinator(service):
+    exporter, _, _, _ = service
+    asyncio.run(exporter.close())
+    exporter.reconciler.close.assert_awaited_once()
 
 
 def test_old_policy_fails_closed_until_its_card_pages_and_cleanup_complete(service):

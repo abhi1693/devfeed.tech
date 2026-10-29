@@ -167,3 +167,15 @@ it("uses the same finite screen vocabulary for page views, engagement and the re
     expect(extensionPayload({ ...body(), event })).toBeNull();
   }
 });
+
+it("relays only the parameter-free preferred-source flow-start event", async () => {
+  const event = { name: "preferred_source_button_click", params: {} };
+  expect(extensionEvent(event)).toEqual(event);
+  expect((await POST(request({ ...body(), event }))).status).toBe(204);
+  const sent = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body));
+  expect(sent.events[0].name).toBe("preferred_source_button_click");
+  expect(sent.events[0].params).not.toHaveProperty("page_location");
+  expect(sent.events[0].params).not.toHaveProperty("source");
+  expect(extensionEvent({ ...event, params: { email: "private@example.test" } })).toBeNull();
+  expect(extensionEvent({ ...event, params: { url: "https://private.example.test" } })).toBeNull();
+});

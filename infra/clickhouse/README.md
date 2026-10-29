@@ -2,8 +2,10 @@
 
 Application analytics are stored in ClickHouse. PostgreSQL holds business data and
 transactional action validation. Application processes publish sanitized observations
-directly; the finite `analytics-importer` moves retained PostgreSQL history and
-removes the retired analytical tables. See the
+directly; `analytics-importer` moves retained PostgreSQL history once and removes
+the retired analytical tables. It then repairs current job/card state in bounded
+pages, without replaying history or adding transactional reads to report requests.
+See the
 [analytics design](../../apps/admin-api/ANALYTICS.md) for delivery and recovery limits.
 
 ## Versioned schema upgrades
@@ -12,6 +14,12 @@ ClickHouse migrations are packaged with `devfeed-core` in
 [`clickhouse_migrations`](../../packages/core/src/clickhouse_migrations).
 `0001_schema_migrations.sql` creates the migration journal and
 `0002_initial_analytics.sql` creates the initial tables and ingest materialized views.
+`0003_current_reconciliation.sql` adds durable current-view repair checkpoints.
+`0004_audience_membership_owner.sql` adds the nullable account identity used to
+associate inferred topic memberships with the account's current feed generation.
+The permanent analytics process fills older audience timestamps and ownership in
+bounded, acknowledged pages. Feed and topic range reports wait for this finite
+refresh; later healthy operation only probes for missing metadata in ClickHouse.
 The journal, `analytics_schema_migrations`, records the version, filename, SQL
 SHA-256 checksum and application time in ClickHouse. There is no PostgreSQL
 migration ledger for ClickHouse.
@@ -39,7 +47,7 @@ Ordinary service startup and the historical importer do not create or alter the
 ClickHouse schema. The importer checks its installed version before processing data.
 
 To change the schema, add the next contiguous numbered SQL file, such as
-`0003_add_publication_dimension.sql`. Separate statements with a standalone
+`0005_add_publication_dimension.sql`. Separate statements with a standalone
 `-- statement` line. Keep shipped files unchanged: checksum mismatches, missing
 versions and unknown future versions reject the upgrade. Schema changes must be
 safe to replay after partial completion because ClickHouse DDL is not a

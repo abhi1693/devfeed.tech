@@ -10,9 +10,10 @@ has completed its import and the supported upgrade floor has advanced:
 - `analytics_backfill.py`, `analytics_import.py`, `analytics_import_runner.py` and
   `analytics_cutover.py`: bounded scanners, frozen historical row copying,
   temporary write guards and legacy PostgreSQL cleanup.
-- The historical stage of `AnalyticsImportWorker`, its Compose `analytics-importer`
-  service and import batch/poll configuration. Retain a bounded mechanism to seed
-  current cards whenever their policy changes.
+- The historical stage of `AnalyticsImportWorker` and its import batch/poll
+  configuration. Keep the analytics process for bounded current-state
+  reconciliation, along with its independent coverage and fingerprint tables.
+  Retain a bounded mechanism to seed current cards whenever their policy changes.
 - The historical PostgreSQL field/key allowlist in `analytics_schema.py`. Keep
   the live producer registry.
 - `partner_claim_backfill.py` and old article-open baseline import entry points.

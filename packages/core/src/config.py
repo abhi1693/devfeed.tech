@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     analytics_backfill_batch_size: int = Field(default=1000, ge=1, le=1000)
     analytics_poll_seconds: float = Field(default=1, ge=0.1, le=60)
     analytics_backfill_poll_seconds: float = Field(default=0.1, ge=0.1, le=60)
+    analytics_reconcile_batch_size: int = Field(default=100, ge=1, le=200)
+    analytics_reconcile_poll_seconds: float = Field(default=30, ge=1, le=300)
+    analytics_reconcile_sweep_seconds: float = Field(default=300, ge=30, le=86400)
     redis_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     job_queue_overrides: dict[str, str] = Field(default_factory=dict)
 

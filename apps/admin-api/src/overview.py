@@ -13,7 +13,7 @@ from devfeed_admin_api.overview_charts import (
     OverviewChartReport,
     chart_report,
 )
-from devfeed_admin_api.overview_windows import current_window, parse_report_window
+from devfeed_admin_api.overview_windows import parse_report_window
 
 router = APIRouter(prefix="/v1/admin/overview", tags=["admin-overview"])
 
@@ -54,8 +54,6 @@ async def overview_chart(
 ) -> OverviewChartReport:
     try:
         window = parse_report_window(from_value, to_value, utcnow())
-        if chart == "attention":
-            window = current_window()
     except ValueError as error:
         raise HTTPException(422, detail=str(error)) from error
     result = await analytics.section(CHART_SECTIONS[chart], window)

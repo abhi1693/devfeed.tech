@@ -6,6 +6,7 @@ unique disposable analytical namespace.
 """
 
 import asyncio
+import json
 import os
 import time
 import uuid
@@ -18,6 +19,12 @@ from devfeed_admin_api.analytics_reports import Reports
 from devfeed_admin_api.overview_windows import recent_window
 from devfeed_core.analytics import AnalyticsClient
 from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
+from devfeed_core.analytics_audience_refresh import (
+    COMPLETE_PHASE,
+    PROGRESS_TABLE,
+    REFRESH_POLICY,
+    REFRESH_SCOPE,
+)
 from devfeed_core.analytics_inference_store import InferenceStore
 from devfeed_core.analytics_observation import pipeline_policy_version
 from devfeed_core.analytics_overview_direct import DirectOverviewAnalytics
@@ -118,6 +125,22 @@ async def _snapshot(client, session, now, *, observations=None):
         records = observations.get(kind, [])
         for offset in range(0, len(records), 1000):
             await store(records[offset : offset + 1000])
+    # This fixture has published every source row, including its real audience
+    # timestamps, and all inserts above have acknowledged before readiness.
+    await client.insert(
+        PROGRESS_TABLE,
+        [
+            {
+                "policy": REFRESH_POLICY,
+                "scope": REFRESH_SCOPE,
+                "version": revision,
+                "source_at": now,
+                "completed_at": now,
+                "pending": 0,
+                "cursor": json.dumps({"phase": COMPLETE_PHASE, "start_revision": revision}),
+            }
+        ],
+    )
 
 
 def _read(session_or_factory, now, read, *, observations=None):

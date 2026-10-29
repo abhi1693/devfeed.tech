@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { cp, mkdir } from "node:fs/promises";
+import { cp, mkdir, rm } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = fileURLToPath(new URL("../../", import.meta.url)).replace(/\/$/, "");
@@ -12,6 +12,10 @@ export async function buildExtension(browser = "chrome") {
   await cp(`${root}/packages/theme/assets/devfeed-icon-32.png`, `${output}/favicon.png`);
   await cp(`${root}/apps/web/public/tool-icons`, `${output}/tool-icons`, { recursive: true });
   await cp(`${root}/apps/web/public/profile-icons`, `${output}/profile-icons`, { recursive: true });
+  await rm(`${output}/google-preferred-source`, { recursive: true, force: true });
+  await cp(`${root}/apps/web/public/google-preferred-source`, `${output}/google-preferred-source`, {
+    recursive: true,
+  });
   await build({
     absWorkingDir: root,
     entryPoints: { newtab: "apps/extensions/src/entry.tsx" },

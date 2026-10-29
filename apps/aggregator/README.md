@@ -338,11 +338,11 @@ Ordinary jobs use three physical RQ queues by default. Each queue has its own
 worker deployment, so sustained high-priority work cannot consume the capacity
 reserved for default or low-priority work:
 
-| Queue | Default work | Worker replicas |
-| --- | --- | ---: |
-| `high` | Fresh article analysis, enrichment and interactive feed preparation | 4 |
-| `default` | Routine ingestion, analysis, discovery and enrichment | 4 |
-| `low` | Notifications | 1 |
+| Queue     | Default work                                                        | Worker replicas |
+| --------- | ------------------------------------------------------------------- | --------------: |
+| `high`    | Fresh article analysis, enrichment and interactive feed preparation |               4 |
+| `default` | Routine ingestion, analysis, discovery and enrichment               |               4 |
+| `low`     | Notifications                                                       |               1 |
 
 These are separate consumers of one queue each, rather than a single deployment
 that always polls high before default before low. Priority affects when a waiting
@@ -351,7 +351,9 @@ for provider admission, retries, leases and metrics even when they share a queue
 During an AI-provider pause, workers perform a bounded forward scan for runnable
 non-AI deliveries without moving paused AI jobs. This permits a runnable delivery
 to pass paused work rather than enforcing strict FIFO during the pause.
-The scheduler, search indexer and temporary analytics importer remain separate.
+The scheduler, search indexer and analytics process remain separate. After its
+one-time import, the analytics process repairs missed current-state observations
+for both priority pools and dedicated overrides; it does not add another RQ pool.
 
 Worker Redis control calls have connect/read limits of at most five seconds and no command
 retries. Intentional idle dequeue waits use a separate connection and wait at most ten

@@ -247,10 +247,12 @@ it("moves metric explanations into accessible tooltips", async () => {
       <OverviewChartContent report={populatedCharts["publication-latency"]} />{" "}
     </>,
   );
-  expect(screen.queryByText(/First publications by UTC bucket/)).toBeNull();
+  expect(screen.queryByText(/Articles first published during the selected UTC period/)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "About Publication output" }));
   expect(await screen.findByRole("tooltip")).toBeTruthy();
-  expect(screen.getAllByText(/First publications by UTC bucket/).length).toBeGreaterThan(0);
+  expect(
+    screen.getAllByText(/Articles first published during the selected UTC period/).length,
+  ).toBeGreaterThan(0);
 });
 
 it("omits empty review queues while keeping positive review decisions visible", () => {
@@ -263,4 +265,15 @@ it("omits empty review queues while keeping positive review decisions visible", 
   expect(screen.queryByRole("link", { name: /Articles/ })).toBeNull();
   expect(screen.getByRole("link", { name: /2 Sources/ })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Analyze again" })).toBeTruthy();
+});
+
+it("retains full publication waits for older articles published within a one-day interval", () => {
+  const delay = structuredClone(populatedCharts["publication-latency"]);
+  delay.days = 1;
+  delay.start = "2026-10-29";
+  delay.end = "2026-10-29";
+  delay.data.summary = { p50_seconds: 4.1 * 3600, p95_seconds: 172.1 * 3600 };
+  renderAdmin(<OverviewChartContent report={delay} />);
+  expect(screen.getByText("4.1 hr")).toBeTruthy();
+  expect(screen.getByText("172.1 hr")).toBeTruthy();
 });

@@ -82,6 +82,17 @@ it.each(["guest", "member"])("keeps Appearance out of the top bar for a %s", asy
   }
 });
 
+it.each(["guest", "member"])(
+  "keeps Google's preferred-source badge out of global navigation for a %s",
+  async (owner) => {
+    identity = owner === "member" ? reader : null;
+    render(<App />);
+    await act(async () => {});
+    expect(document.querySelector("[data-google-preferred-source]")).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "More from DevFeed" })).toBeNull();
+  },
+);
+
 it("keeps six direct mobile destinations and retains secondary destinations on desktop", async () => {
   render(<App />);
   await signedIn();

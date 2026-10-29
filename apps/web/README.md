@@ -660,6 +660,57 @@ See [reader history restoration](HISTORY.md) for the session and visibility guar
 BFCache blocker assessment, and reproducible web/Chrome/Edge comparison. The
 browser regressions run in `npm run ci:reader-parity`.
 
+## Google preferred sources
+
+Google's preferred-source badge appears last in the article preview's right sidebar,
+after the advertisement. It is shared by the website and both extensions; it does
+not appear in the global navigation.
+
+The website uses Google's
+[standard JavaScript button](https://developers.google.com/search/docs/appearance/preferred-sources)
+inside the same-origin `/preferred-source/widget?theme=light|dark` iframe. The widget
+loads the official [publisher SDK](https://news.google.com/swg/js/v1/publisher.js)
+and follows the reader theme. Its separate Content Security Policy permits only
+its required script, icon and Google service/toast frames, and confines the SDK's
+inline styles to that document. A blocked SDK shows a retry control; the website
+does not substitute a selection deeplink.
+
+Chrome and Edge use lossless WebP copies of Google's official light/dark badges, bundled locally with
+each extension. Their link opens
+`https://www.google.com/preferences/source?q=devfeed.tech` in a separate tab,
+following Google's documented deeplink implementation. Extension pages execute no
+remote publisher code and require no additional permissions. Asset origins and
+checksums are recorded in the [badge provenance](public/google-preferred-source/README.md).
+Google owns selection and confirmation in both flows; opening either control does
+not establish that DevFeed was added. Local/LAN widget tests do not certify the
+production domain's eligibility in Google's source preferences tool.
+
+One `preferred_source_button_click` event records starting the flow, with no article,
+account, URL or selection-completion parameters. The website accepts click messages
+only from the exact widget window and origin; extensions use the existing delegated
+listener and allowlisted analytics relay. With a real GTM container present, the
+website pushes one object to the default `dataLayer`:
+
+```js
+window.dataLayer.push({ event: "preferred_source_button_click" });
+```
+
+Otherwise it uses the existing deferred GA4 `gtag` path. A `dataLayer` by itself
+does not identify GTM because `gtag` also uses it. Existing analytics disable settings
+apply to DevFeed's event. Google's SDK independently loads its own service iframe
+and telemetry; those requests are separate from DevFeed's GA4 analytics guards.
+The extension relay retains its existing enablement and privacy rules.
+
+If using GTM, configure a Custom Event trigger named
+`preferred_source_button_click` and use it to fire a GA4 Event tag with that same
+event name. Before publishing, use
+[GTM Preview](https://support.google.com/tagmanager/answer/6107056) or enable debug
+mode for a test device and check
+[GA4 DebugView](https://support.google.com/analytics/answer/7201382). Confirm one
+event for one activation and that no completion event is reported. Keep debug mode
+out of the production configuration. Source eligibility and Search Console
+preferences remain managed in Google and are not changed by this feature.
+
 ## Reader startup measurements
 
 Profile links use content-hashed local SVG masks instead of shipping the full brand-path

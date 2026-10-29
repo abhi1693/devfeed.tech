@@ -45,6 +45,7 @@ let retryQueued = false;
 let publishedToFeedAt = null;
 let sourceGroupingDemo = false;
 let analyticsPreparing = false;
+let coverageState = "fresh";
 const otherSourceId = "77777777-7777-4777-8777-777777777777";
 const pipelineReads = [];
 const jobGenerations = { enrichment: 0, analysis: 0, images: 0 };
@@ -208,10 +209,15 @@ function board(url) {
   return {
     as_of: new Date().toISOString(),
     snapshot: {
-      status: "fresh",
-      generated_at: new Date(Date.now() - 120_000).toISOString(),
+      status: coverageState === "expired" ? "fresh" : coverageState,
+      generated_at:
+        coverageState === "catching_up" ? null : new Date(Date.now() - 120_000).toISOString(),
+      coverage_expires_at:
+        coverageState === "catching_up"
+          ? null
+          : new Date(Date.now() + (coverageState === "expired" ? -1000 : 480_000)).toISOString(),
       generation: String(editorialRevision),
-      lag_seconds: 0,
+      lag_seconds: coverageState === "catching_up" ? null : 120,
     },
     terminal_since: "2026-10-12T09:00:00Z",
     columns,
@@ -443,12 +449,24 @@ try {
   await page.goto(`${origin}/content/articles?view=pipeline&stage=images`);
   const focusCard = page.getByRole("link", { name: card().title, exact: true });
   await focusCard.waitFor();
-  const savedStatus = page.getByRole("status").filter({ hasText: /^Updated/ });
+  const savedStatus = page.getByRole("status").filter({ hasText: /^Verified through/ });
   await savedStatus.waitFor();
   assert.ok(
     Date.now() - Date.parse(await savedStatus.locator("time").getAttribute("datetime")) > 60_000,
-    "A recently verified board must retain its older last-change time without looking stale",
+    "A covered board displays its source snapshot and honors the server's coverage window",
   );
+  for (const [state, label] of [
+    ["catching_up", /^Catching up/],
+    ["expired", /^Stale data/],
+  ]) {
+    coverageState = state;
+    await page.reload();
+    await page.getByRole("status").filter({ hasText: label }).waitFor();
+    await focusCard.waitFor();
+  }
+  coverageState = "fresh";
+  await page.reload();
+  await savedStatus.waitFor();
   assert.equal(await page.getByRole("button", { name: /Refresh pipeline/ }).count(), 0);
   const transitions = [];
   const movements = [];

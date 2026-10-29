@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import type { DateRange } from "@devfeed/ui/date-range-picker";
+import { dateRangeBounds, defaultDateRange, type DateRange } from "@devfeed/ui/date-range-picker";
 import { RefreshSettings, saveRefresh } from "./refresh-settings";
 import { Overview } from "@/components/organisms/overview";
 import { OverviewChart } from "@/components/organisms/overview-chart";
@@ -17,7 +17,9 @@ vi.mock("@/lib/api/generated/admin", () => ({ adminOverviewChart: vi.fn() }));
 vi.mock("@/components/organisms/overview-chart-content", () => ({
   OverviewChartContent: ({ report }: { report: OverviewChartReport }) => (
     <ChartCard {...chartDefinition(report.chart)}>
-      <div>{report.chart} ready</div>
+      <div data-report-start={report.start} data-report-end={report.end}>
+        {report.chart} ready
+      </div>
     </ChartCard>
   ),
 }));
@@ -26,10 +28,10 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
-function showOverview() {
+function showOverview(initialRange?: DateRange) {
   return render(
     <RefreshSettings>
-      <Overview />
+      <Overview initialRange={initialRange} />
     </RefreshSettings>,
   );
 }
@@ -129,13 +131,15 @@ it("retries one failed chart without reloading the other chart in its section", 
 });
 
 it("cancels old range requests and ignores their late responses", async () => {
+  const previous = dateRangeBounds(defaultDateRange)!;
+  const next = dateRangeBounds({ from: "now-6d/d", to: "now" })!;
   const old: {
     resolve: (value: OverviewChartReport) => void;
     signal: AbortSignal;
     chart: keyof typeof populatedCharts;
   }[] = [];
   vi.mocked(adminOverviewChart).mockImplementation((chart, params, options) =>
-    chart !== "attention" && params?.from === "now-29d/d"
+    params?.from === previous.start && params.to === previous.end
       ? new Promise((resolve) =>
           old.push({ resolve, signal: options!.signal as AbortSignal, chart }),
         )
@@ -150,37 +154,38 @@ it("cancels old range requests and ignores their late responses", async () => {
     expect(
       vi
         .mocked(adminOverviewChart)
-        .mock.calls.filter(([, params]) => params?.from === "now-6d/d" && params.to === "now"),
-    ).toHaveLength(11),
+        .mock.calls.filter(([, params]) => params?.from === next.start && params.to === next.end),
+    ).toHaveLength(12),
   );
   expect(
     vi.mocked(adminOverviewChart).mock.calls.filter(([chart]) => chart === "attention"),
-  ).toHaveLength(1);
+  ).toHaveLength(2);
   expect(await screen.findByText("publication-rate ready")).toBeTruthy();
 });
 
-it("changes month and calendar-year windows without refreshing current attention", async () => {
+it("changes every chart's month and calendar-year window, including attention", async () => {
   vi.mocked(adminOverviewChart).mockImplementation(async (chart, params) =>
     reportForRange(populatedCharts[chart], params),
   );
   showOverview();
   await waitFor(() => expect(adminOverviewChart).toHaveBeenCalledTimes(12));
   await chooseRange("Last 3 months");
-  await waitFor(() => expect(adminOverviewChart).toHaveBeenCalledTimes(23));
+  await waitFor(() => expect(adminOverviewChart).toHaveBeenCalledTimes(24));
   expect(new URL(location.href).searchParams.get("from")).toBe("now-3M");
   expect(new URL(location.href).searchParams.get("to")).toBe("now");
+  const months = dateRangeBounds({ from: "now-3M", to: "now" })!;
   expect(
     vi
       .mocked(adminOverviewChart)
-      .mock.calls.filter(([, params]) => params?.from === "now-3M" && params.to === "now"),
-  ).toHaveLength(11);
+      .mock.calls.filter(([, params]) => params?.from === months.start && params.to === months.end),
+  ).toHaveLength(12);
   await chooseRange("Last year");
-  await waitFor(() => expect(adminOverviewChart).toHaveBeenCalledTimes(34));
+  await waitFor(() => expect(adminOverviewChart).toHaveBeenCalledTimes(36));
   expect(new URL(location.href).searchParams.get("from")).toBe("now-1y/y");
   expect(new URL(location.href).searchParams.get("to")).toBe("now-1y/y");
   expect(
     vi.mocked(adminOverviewChart).mock.calls.filter(([chart]) => chart === "attention"),
-  ).toHaveLength(1);
+  ).toHaveLength(3);
 });
 
 it("uses complete historical window identities even when their lengths match", async () => {
@@ -450,4 +455,128 @@ it("rejects a response for a different chart instead of rendering it", async () 
   render(publication());
   expect(await within(publicationCard()).findByRole("alert")).toBeTruthy();
   expect(screen.queryByText("publication-latency ready")).toBeNull();
+});
+
+it.each([
+  {
+    label: "Today",
+    range: { from: "now/d", to: "now" },
+    previous: { from: "2026-10-29", to: "2026-10-29" },
+    next: { from: "2026-10-30", to: "2026-10-30" },
+  },
+  {
+    label: "Last seven days",
+    range: { from: "now-6d/d", to: "now" },
+    previous: { from: "2026-10-23", to: "2026-10-29" },
+    next: { from: "2026-10-24", to: "2026-10-30" },
+  },
+])("rolls all twelve $label panels together at UTC midnight", async ({ range, previous, next }) => {
+  vi.useFakeTimers();
+  // The browser's local calendar can already be tomorrow; the contract remains UTC.
+  vi.setSystemTime(new Date("2026-10-30T05:29:59+05:30"));
+  vi.mocked(adminOverviewChart).mockImplementation(async (chart, params) =>
+    reportForRange(populatedCharts[chart], params),
+  );
+  showOverview(range);
+  await act(async () => {});
+  expect(adminOverviewChart).toHaveBeenCalledTimes(12);
+  expect(vi.mocked(adminOverviewChart).mock.calls.map(([, params]) => params)).toEqual(
+    Array(12).fill(previous),
+  );
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(24);
+  expect(
+    vi
+      .mocked(adminOverviewChart)
+      .mock.calls.slice(12)
+      .map(([, params]) => params),
+  ).toEqual(Array(12).fill(next));
+  for (const chart of charts) {
+    const result = screen.getByText(`${chart} ready`);
+    expect(result.getAttribute("data-report-start")).toBe(next.from);
+    expect(result.getAttribute("data-report-end")).toBe(next.to);
+  }
+});
+
+it("aborts yesterday's pending requests at UTC rollover and ignores their late results", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-29T23:59:59Z"));
+  const pending: {
+    chart: keyof typeof populatedCharts;
+    signal: AbortSignal;
+    resolve: (report: OverviewChartReport) => void;
+  }[] = [];
+  vi.mocked(adminOverviewChart).mockImplementation((chart, params, options) =>
+    chart === "publication-rate" && params?.to === "2026-10-29"
+      ? new Promise((resolve) => pending.push({ chart, signal: options!.signal!, resolve }))
+      : Promise.resolve(reportForRange(populatedCharts[chart], params)),
+  );
+  showOverview({ from: "now/d", to: "now" });
+  await act(async () => {});
+  expect(pending).toHaveLength(1);
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  expect(pending.every(({ signal }) => signal.aborted)).toBe(true);
+  await act(async () => {
+    for (const { chart, resolve } of pending) {
+      resolve({ ...populatedCharts[chart], start: "2026-10-29", end: "2026-10-29" });
+    }
+  });
+  for (const chart of charts)
+    expect(screen.getByText(`${chart} ready`).getAttribute("data-report-start")).toBe("2026-10-30");
+});
+
+it("resolves the current UTC day once on return after a hidden tab skips midnight", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-29T23:59:59Z"));
+  vi.mocked(adminOverviewChart).mockImplementation(async (chart, params) =>
+    reportForRange(populatedCharts[chart], params),
+  );
+  showOverview({ from: "now/d", to: "now" });
+  await act(async () => {});
+  expect(adminOverviewChart).toHaveBeenCalledTimes(12);
+  const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  try {
+    await act(async () => fireEvent(document, new Event("visibilitychange")));
+    vi.setSystemTime(new Date("2026-10-31T00:00:00Z"));
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(adminOverviewChart).toHaveBeenCalledTimes(12);
+    visibility.mockReturnValue("visible");
+    await act(async () => fireEvent(document, new Event("visibilitychange")));
+    const resumed = vi.mocked(adminOverviewChart).mock.calls.slice(12);
+    const current = resumed.filter(([, params]) => params?.to === "2026-10-31");
+    const cancelled = resumed.filter(([, params]) => params?.to !== "2026-10-31");
+    expect(current).toHaveLength(12);
+    // Queue polling can resume before the parent clock listener; that old read
+    // must be cancelled rather than mixed into the new day's results.
+    for (const [chart, , options] of cancelled) {
+      expect(chart).toBe("queue-pressure");
+      expect(options!.signal!.aborted).toBe(true);
+    }
+    expect(current.map(([, params]) => params)).toEqual(
+      Array(12).fill({ from: "2026-10-31", to: "2026-10-31" }),
+    );
+    for (const chart of charts)
+      expect(screen.getByText(`${chart} ready`).getAttribute("data-report-start")).toBe(
+        "2026-10-31",
+      );
+  } finally {
+    visibility.mockRestore();
+  }
+});
+
+it("keeps an absolute custom interval unchanged when the UTC date rolls over", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-29T23:59:59Z"));
+  vi.mocked(adminOverviewChart).mockImplementation(async (chart, params) =>
+    reportForRange(populatedCharts[chart], params),
+  );
+  const custom = { from: "2026-10-01", to: "2026-10-05" };
+  showOverview(custom);
+  await act(async () => {});
+  expect(adminOverviewChart).toHaveBeenCalledTimes(12);
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  expect(adminOverviewChart).toHaveBeenCalledTimes(12);
+  expect(vi.mocked(adminOverviewChart).mock.calls.map(([, params]) => params)).toEqual(
+    Array(12).fill(custom),
+  );
 });
