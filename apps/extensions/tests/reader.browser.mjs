@@ -509,6 +509,11 @@ async function readerFixture(t, imageProfile) {
   };
 }
 
+test("MCP discovery copy and setup work in built new tabs", { timeout: 180000 }, async (t) => {
+  const { page } = await readerFixture(t);
+  await checkMcp(page, path.resolve(extension, `../${browser}-mcp`));
+});
+
 test(
   "preferred-source badge opens from built article previews with one analytics relay",
   { timeout: 120000 },

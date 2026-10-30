@@ -12,7 +12,7 @@ export async function checkExtensionRouteAnalytics(page, destination, events) {
       label: "/dev-card",
       heading: "A dev card that’s yours.",
     },
-    { path: `/mcp?client=${query}`, label: "/mcp", heading: "Connect your agent" },
+    { path: `/mcp?client=${query}`, label: "/mcp", heading: "DevFeed MCP server" },
     {
       path: `/mcp/authorize?request=${request}`,
       label: "/mcp/authorize",

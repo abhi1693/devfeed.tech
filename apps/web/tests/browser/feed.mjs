@@ -1463,6 +1463,53 @@ async function withReaderPage(browser, check, options = {}) {
   }
 }
 
+test("MCP discovery copy and setup work on desktop and mobile", { timeout: 180000 }, async (t) => {
+  const { browser, origin } = await createReaderFixture(t);
+  const response = await fetch(`${origin}/mcp`);
+  assert.equal(response.status, 200);
+  const dom = new JSDOM(await response.text());
+  const document = dom.window.document;
+  const title = "DevFeed MCP server";
+  const description = document.querySelector(".mcp-introduction").textContent;
+  assert.equal(document.querySelector("h1").textContent, title);
+  assert.match(description, /six public read tools/);
+  assert.match(description, /nine optional account tools/);
+  assert.match(description, /manage bookmarks and follows, and like articles/);
+  assert.ok(!description.includes("six read-only tools"));
+  assert.equal(document.title, title);
+  for (const selector of [
+    'meta[name="description"]',
+    'meta[property="og:description"]',
+    'meta[name="twitter:description"]',
+  ])
+    assert.equal(document.querySelector(selector).content, description);
+  for (const selector of ['meta[property="og:title"]', 'meta[name="twitter:title"]'])
+    assert.equal(document.querySelector(selector).content, title);
+  const graphs = [...document.querySelectorAll('script[type="application/ld+json"]')].map((node) =>
+    JSON.parse(node.textContent),
+  );
+  const page = graphs.find((graph) => graph["@type"] === "WebPage");
+  assert.equal(page.name, title);
+  assert.equal(page.description, description);
+  assert.equal(document.querySelectorAll(".mcp-examples li").length, 3);
+  assert.ok(
+    document
+      .querySelector(".mcp-examples")
+      .compareDocumentPosition(document.querySelector(".mcp-server")) &
+      dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+    "Search visitors receive the explanation in initial HTML before setup",
+  );
+  dom.window.close();
+  await withReaderPage(
+    browser,
+    async (page) => {
+      await page.goto(`${origin}/latest`);
+      await checkMcp(page, artifactPath("mcp"));
+    },
+    { viewport: { width: 1440, height: 1000 } },
+  );
+});
+
 test(
   "preferred-source badge belongs to article previews and starts one measured flow",
   { timeout: 120000 },

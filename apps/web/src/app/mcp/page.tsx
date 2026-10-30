@@ -4,18 +4,23 @@ import { canonicalUrl, pageMetadata } from "@/lib/metadata";
 import { mcpPublicUrl } from "@/lib/server/config";
 import { JsonLd } from "@/components/json-ld";
 import { pageStructuredData } from "@/lib/structured-data";
+import { mcpPageDescription, mcpPageTitle } from "@/lib/mcp";
 
 export const dynamic = "force-dynamic";
 
-const title = "Connect your agent";
-const description =
-  "Connect your AI agent to DevFeed with MCP. Explore developer articles, topics, and publications with six read-only tools.";
-export const metadata = pageMetadata(title, description, canonicalUrl("/mcp"));
+export const metadata = {
+  ...pageMetadata(mcpPageTitle, mcpPageDescription, canonicalUrl("/mcp")),
+  title: { absolute: mcpPageTitle },
+};
 
 export default function Page() {
   return (
     <UserShell section="mcp">
-      <JsonLd data={pageStructuredData(canonicalUrl("/mcp"), title, { description })} />
+      <JsonLd
+        data={pageStructuredData(canonicalUrl("/mcp"), mcpPageTitle, {
+          description: mcpPageDescription,
+        })}
+      />
       <McpContent initialEndpoint={mcpPublicUrl()} />
     </UserShell>
   );
