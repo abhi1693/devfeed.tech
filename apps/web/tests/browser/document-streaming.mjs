@@ -104,11 +104,7 @@ try {
   const context = await browser.newContext({ reducedMotion: "reduce" });
   const page = await context.newPage();
   const nonces = new Set();
-  for (const [path, label, ready] of [
-    ["/latest", "Loading articles…", ".article-card"],
-    ["/sources", "Loading sources…", ".topic-grid"],
-    ["/topics", "Loading topics…", ".topic-grid"],
-  ]) {
+  for (const [path, label, ready] of [["/latest", "Loading articles…", ".article-card"]]) {
     let release;
     held = new Promise((resolve) => {
       release = resolve;
@@ -139,6 +135,40 @@ try {
     await page.locator(ready).first().waitFor();
     await page.getByRole("status", { name: label, exact: true }).waitFor({ state: "hidden" });
     await checkSearchDraft(page);
+  }
+  for (const kind of ["sources", "topics"]) {
+    let release;
+    held = new Promise((resolve) => {
+      release = resolve;
+    });
+    requests.length = 0;
+    let committed = false;
+    const navigation = page.goto(`${origin}/${kind}`, { waitUntil: "commit" }).then((response) => {
+      committed = true;
+      return response;
+    });
+    try {
+      for (
+        let attempt = 0;
+        attempt < 100 && !requests.some((url) => url.pathname === `/v1/${kind}`);
+        attempt++
+      )
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.ok(requests.some((url) => url.pathname === `/v1/${kind}`));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      assert.equal(committed, false, "directory existence is known before response headers commit");
+    } finally {
+      held = undefined;
+      release();
+    }
+    const response = await navigation;
+    assert.equal(response.status(), 200);
+    assert.match(response.headers()["cache-control"], /no-store/);
+    const nonce = response.headers()["content-security-policy"].match(/'nonce-([^']+)'/)[1];
+    assert.ok(!nonces.has(nonce));
+    nonces.add(nonce);
+    await page.locator(".topic-grid").waitFor();
+    assert.ok(await page.locator('link[rel="canonical"]').getAttribute("href"));
   }
   for (const [value, language] of [
     ["reader_a", "en"],

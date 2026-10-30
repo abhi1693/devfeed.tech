@@ -73,7 +73,7 @@ it("advances catalog cursors without gaps or loops and stops at the offset bound
         do {
           cursors.push(offset);
           const page = catalogPage(
-            items.slice(offset - start, offset - start + CATALOG_PAGE_SIZE),
+            items.slice(offset - start, offset - start + CATALOG_PAGE_SIZE + 1),
             offset,
           );
           received.push(...page.items);

@@ -6,7 +6,7 @@ import { useCallback, useState } from "react";
 import { InfiniteScroll } from "./infinite-scroll";
 import { readerRequest } from "@/lib/reader-runtime";
 import { flattenPageItems, uniquePageItems, useInfinitePages } from "@/lib/use-infinite-pages";
-import type { CatalogPage } from "@/lib/catalog-page";
+import { catalogHref, type CatalogPage } from "@/lib/catalog-page";
 import Link from "./reader-link";
 import { useReaderRouter } from "@/lib/reader-navigation";
 import type { Tag } from "@/lib/types";
@@ -17,22 +17,20 @@ export function tagLetter(name: string) {
   return alphabet.includes(first) ? first : "#";
 }
 export function tagsHref(query: string, letter: string, offset = 0) {
-  const params = new URLSearchParams();
-  if (query) params.set("q", query);
-  if (letter) params.set("letter", letter);
-  if (offset) params.set("offset", String(offset));
-  return `/tags${params.size ? `?${params}` : ""}`;
+  return catalogHref("tags", { query, letter, offset });
 }
 export function TagsContent({
   tags,
   query = "",
   letter = "",
   nextCursor,
+  offset = 0,
 }: {
   tags: Tag[];
   query?: string;
   letter?: string;
   nextCursor: string | null;
+  offset?: number;
 }) {
   const router = useReaderRouter();
   const [search, setSearch] = useState(query);
@@ -124,6 +122,15 @@ export function TagsContent({
             </ul>
           </section>
         ))}
+        {cursor !== null && (
+          <Link
+            className="button"
+            rel="next"
+            href={catalogHref("tags", { query, letter, offset: cursor })}
+          >
+            Next tags
+          </Link>
+        )}
         {!items.length && (
           <section className="empty-state">
             <Hash size={32} aria-hidden="true" />
@@ -135,6 +142,13 @@ export function TagsContent({
           </section>
         )}
       </InfiniteScroll>
+      {offset > 0 && (
+        <nav className="pagination" aria-label="Tag pages">
+          <Link className="button" href={tagsHref(query, letter, Math.max(0, offset - 60))}>
+            Previous tags
+          </Link>
+        </nav>
+      )}
     </div>
   );
 }

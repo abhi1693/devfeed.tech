@@ -296,7 +296,7 @@ it("bounds directory reads and lists only entries with published articles", asyn
   const fetcher = vi.fn().mockImplementation(() =>
     Promise.resolve(
       Response.json(
-        Array.from({ length: 60 }, (_, i) => ({
+        Array.from({ length: 61 }, (_, i) => ({
           id: `id-${i}`,
           slug: `topic-${i}`,
           name: `Topic ${i}`,
@@ -311,7 +311,7 @@ it("bounds directory reads and lists only entries with published articles", asyn
   expect(url.pathname).toBe("/v1/topics");
   expect(Object.fromEntries(url.searchParams)).toEqual({
     offset: "60",
-    limit: "60",
+    limit: "61",
     has_articles: "true",
     languages: "en",
   });
@@ -418,7 +418,7 @@ it("expands the full guide using exactly four bounded, anonymous public API read
   expect(fetcher).toHaveBeenCalledTimes(4);
   for (const [url, options] of fetcher.mock.calls) {
     expect(url.origin).toBe("http://public-api.internal:8000");
-    expect(Number(url.searchParams.get("limit"))).toBeLessThanOrEqual(60);
+    expect(Number(url.searchParams.get("limit"))).toBeLessThanOrEqual(61);
     expect(options.headers).toEqual({ Accept: "application/json", "Cache-Control": "max-age=600" });
   }
 });

@@ -1,3 +1,7 @@
+import {
+  catalogDirectoriesFixture,
+  checkCatalogDirectories,
+} from "../../../../scripts/testing/catalog-directories.mjs";
 import { checkAppIcons } from "../../../../scripts/testing/app-icons.mjs";
 import { checkFeaturedOn } from "../../../../scripts/testing/featured-on.mjs";
 import { tagsFixture, checkTags, checkTagFollow } from "../../../../scripts/testing/tags.mjs";
@@ -244,6 +248,7 @@ async function createReaderFixture(
   const readingFixture = readingStreakFixture();
   const mutationFixture = userMutationFixture({ articles: [article], topic });
   const domCatalog = readerDomCatalogFixture();
+  const directoryFixture = catalogDirectoriesFixture();
   const routeFixture = readerRoutesFixture(article);
   const feedMode = feedModeFixture(article);
   const readerContext = readerContextFixture(article);
@@ -272,6 +277,16 @@ async function createReaderFixture(
   let rejectTopics = true;
   let onboardingSaved = false;
   let rejectOnboardingPage = true;
+  const choices = onboardingTopics(topic);
+  const onboardingCatalog = [
+    ...choices,
+    ...Array.from({ length: 61 - choices.length }, (_, i) => ({
+      ...topic,
+      id: `extra-${i}`,
+      slug: `extra-${i}`,
+      name: `Extra topic ${i}`,
+    })),
+  ];
   let rejectTopicFollow = true;
   let savedTopicIds = [topic.id];
   let savedSourceIds = [];
@@ -397,6 +412,12 @@ async function createReaderFixture(
     if (domCatalog.handles(requestUrl)) {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(domCatalog.respond(requestUrl)));
+      return;
+    }
+    if (directoryFixture.handles(requestUrl)) {
+      const result = await directoryFixture.respond(requestUrl);
+      res.writeHead(result.status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result.json));
       return;
     }
     routeFixture.record(requestUrl);
@@ -643,34 +664,21 @@ async function createReaderFixture(
     else if (path === "/v1/topics") {
       if (mode === "onboarding")
         assert.equal(new URL(req.url, "http://localhost").searchParams.get("sort"), "articles");
-      if (mode === "onboarding" && requestUrl.searchParams.get("q")) {
-        body = onboardingTopics(topic).filter((item) =>
-          item.name.toLowerCase().includes(requestUrl.searchParams.get("q").toLowerCase()),
-        );
-      } else if (mode === "onboarding" && requestUrl.searchParams.get("offset") === "60") {
-        if (rejectOnboardingPage) {
+      if (mode === "onboarding") {
+        const query = (requestUrl.searchParams.get("q") ?? "").toLowerCase();
+        const offset = Number(requestUrl.searchParams.get("offset") ?? 0);
+        const limit = Number(requestUrl.searchParams.get("limit") ?? 60);
+        if (!query && offset === 60 && rejectOnboardingPage) {
           rejectOnboardingPage = false;
           await new Promise((resolve) => setTimeout(resolve, 1000));
           res.writeHead(503, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ detail: "Temporary catalog failure" }));
           return;
         }
-        body = [];
-      } else {
-        const choices = onboardingTopics(topic);
-        body =
-          mode === "onboarding"
-            ? [
-                ...choices,
-                ...Array.from({ length: 60 - choices.length }, (_, i) => ({
-                  ...topic,
-                  id: `extra-${i}`,
-                  slug: `extra-${i}`,
-                  name: `Extra topic ${i}`,
-                })),
-              ]
-            : [topic];
-      }
+        body = onboardingCatalog
+          .filter((item) => item.name.toLowerCase().includes(query))
+          .slice(offset, offset + limit);
+      } else body = [topic];
     } else if (path === `/v1/topics/${topic.slug}`) body = topic;
     else if (path === `/v1/sources/${source.slug}`) body = source;
     else if (path === "/v1/sources") body = onboardingSources;
@@ -1181,7 +1189,12 @@ async function createReaderFixture(
     // The earlier background-refresh page deliberately overrides hasFocus on every navigation.
     const onboardingPage = await context.newPage();
     await onboardingPage.clock.install();
-    await checkFeedOnboarding(onboardingPage, origin, `${output}/web`);
+    await checkFeedOnboarding(
+      onboardingPage,
+      origin,
+      `${output}/web`,
+      onboardingCatalog.at(-1).name,
+    );
     await onboardingPage.close();
     await page.bringToFront();
     assert.ok(onboardingSaved);
@@ -1416,6 +1429,7 @@ async function createReaderFixture(
     readingFixture,
     mustReadsFixture,
     domCatalog,
+    directoryFixture,
     renderReads,
     topicContext,
     previewRequests,
@@ -2759,4 +2773,16 @@ test("Sign out also opens provider SSO logout", { timeout: 180000 }, async (t) =
     await page.waitForURL("https://identity.example/end-session?state=correlated");
     assert.equal(starts.length, 1);
   });
+});
+
+test("directory pages enforce bounded existence and navigation", { timeout: 180000 }, async (t) => {
+  const { browser, origin, directoryFixture } = await createReaderFixture(t);
+  await withReaderPage(browser, (page) =>
+    checkCatalogDirectories(
+      page,
+      (path) => origin + path,
+      directoryFixture,
+      `${root}/reports/catalog-directories/web`,
+    ),
+  );
 });

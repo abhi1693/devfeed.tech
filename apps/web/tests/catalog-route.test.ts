@@ -13,7 +13,7 @@ it.each([
   "serves bounded %s pages with fixed public filters and no credentials",
   async (kind, get, filter) => {
     vi.stubEnv("DEVFEED_PUBLIC_API_URL", "http://public-api:8000");
-    const items = Array.from({ length: 60 }, (_, i) => ({ id: String(i) }));
+    const items = Array.from({ length: 61 }, (_, i) => ({ id: String(i) }));
     const fetcher = vi.fn().mockResolvedValue(Response.json(items));
     vi.stubGlobal("fetch", fetcher);
     const response = await get(
@@ -22,13 +22,13 @@ it.each([
         { headers: { cookie: "secret=value", authorization: "Bearer private" } },
       ),
     );
-    expect(await response.json()).toEqual({ items, next_cursor: "120" });
+    expect(await response.json()).toEqual({ items: items.slice(0, 60), next_cursor: "120" });
     expect(response.headers.get("cache-control")).toBe("no-store");
     const [url, options] = fetcher.mock.calls[0];
     expect(url.origin).toBe("http://public-api:8000");
     expect(url.pathname).toBe(`/v1/${kind}`);
     expect(Object.fromEntries(url.searchParams)).toEqual({
-      limit: "60",
+      limit: "61",
       offset: "60",
       [filter]: "true",
       has_articles: "true",

@@ -1,17 +1,16 @@
 import { getSources, getTopics, UserApiError } from "@/lib/api";
-import { CATALOG_PAGE_SIZE, catalogOffset, catalogPage } from "@/lib/catalog-page";
+import { CATALOG_PAGE_SIZE, catalogFilters, catalogPage } from "@/lib/catalog-page";
 
 export async function catalogRoute(request: Request, kind: "topics" | "sources") {
   const headers = { "Cache-Control": "no-store" };
   const params = new URL(request.url).searchParams;
-  const query = (params.get("q") ?? "").trim().slice(0, 200);
-  const offset = catalogOffset(params.get("offset"));
+  const { query, offset } = catalogFilters(params, kind);
   try {
     const items =
       kind === "topics"
         ? await getTopics(
             offset,
-            CATALOG_PAGE_SIZE,
+            CATALOG_PAGE_SIZE + 1,
             request.signal,
             params.get("sort") === "articles" ? "articles" : "name",
             query,
@@ -19,7 +18,7 @@ export async function catalogRoute(request: Request, kind: "topics" | "sources")
           )
         : await getSources(
             offset,
-            CATALOG_PAGE_SIZE,
+            CATALOG_PAGE_SIZE + 1,
             request.signal,
             query,
             request.headers.get("cookie") ?? "",

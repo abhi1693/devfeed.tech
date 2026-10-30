@@ -30,6 +30,8 @@ vi.mock("@/components/feed-view", () => ({
 vi.mock("@/lib/api", async (original) => ({
   ...(await original<typeof import("@/lib/api")>()),
   hasUserSession: vi.fn(),
+  getTopics: vi.fn(),
+  getSources: vi.fn(),
   getTopic: vi.fn(),
   getSource: vi.fn(),
   getArticle: vi.fn(),
@@ -40,6 +42,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(headers).mockResolvedValue(new Headers());
   vi.mocked(api.getFeed).mockResolvedValue({ items: [article], next_cursor: null });
+  vi.mocked(api.getTopics).mockResolvedValue([topic]);
+  vi.mocked(api.getSources).mockResolvedValue([source]);
   vi.mocked(api.getTopic).mockResolvedValue(topic);
   vi.mocked(api.getSource).mockResolvedValue(source);
   vi.mocked(api.getArticle).mockResolvedValue(article);

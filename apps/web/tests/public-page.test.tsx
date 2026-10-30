@@ -14,7 +14,7 @@ it.each([
   [Sources, getSources, source, "sources"],
   [Topics, getTopics, topic, "topics"],
 ] as const)(
-  "streams catalog results without waiting for the upstream %#",
+  "checks catalog existence before returning its stream boundary %#",
   async (Page, load, item, kind) => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => {
@@ -22,10 +22,17 @@ it.each([
     });
     vi.mocked(getSources).mockReturnValue(held.then(() => [source]));
     vi.mocked(getTopics).mockReturnValue(held.then(() => [topic]));
-    const page = await Page({ searchParams: Promise.resolve({ offset: "60" }) });
-    expect(page.props.kind).toBe(kind);
-    expect(load).toHaveBeenCalledWith(...(kind === "sources" ? [60, 60] : [60]));
+    let resolved = false;
+    const pending = Page({ searchParams: Promise.resolve({ offset: "60" }) }).then((page) => {
+      resolved = true;
+      return page;
+    });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
     release();
+    const page = await pending;
+    expect(page.props.kind).toBe(kind);
+    expect(load).toHaveBeenCalledWith(60, 61);
     const result = await page.props.content;
     expect(result.props[kind]).toEqual([item]);
     expect(result.props.offset).toBe(60);

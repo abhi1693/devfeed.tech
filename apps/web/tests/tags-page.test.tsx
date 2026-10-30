@@ -21,16 +21,16 @@ it.each<[SearchParams, number, string, string]>([
     const tags = [{ id: "cpp", name: "C++", slug: "c++" }];
     vi.mocked(getTags).mockResolvedValue(tags);
     const page = await Tags({ searchParams: Promise.resolve(params) });
-    expect(getTags).toHaveBeenCalledWith(offset, 60, query, letter);
+    expect(getTags).toHaveBeenCalledWith(offset, 61, query, letter);
     expect(page.props.section).toBe("tags");
-    expect(page.props.children.props).toEqual({ tags, query, letter, nextCursor: null });
+    expect(page.props.children.props).toEqual({ tags, query, letter, nextCursor: null, offset });
     expect(page.props.children.key).toBe(`${query}:${letter}:${offset}`);
   },
 );
 
 it("continues a full directory page using its bounded catalog cursor", async () => {
   vi.mocked(getTags).mockResolvedValue(
-    Array.from({ length: 60 }, (_, id) => ({
+    Array.from({ length: 61 }, (_, id) => ({
       id: String(id),
       name: `Tag ${id}`,
       slug: `tag-${id}`,
@@ -41,6 +41,7 @@ it("continues a full directory page using its bounded catalog cursor", async () 
 });
 
 it("canonicalizes tag discovery independently of transient search filters", async () => {
+  vi.mocked(getTags).mockResolvedValue([{ id: "cpp", slug: "c++", name: "C++" }]);
   const metadata = await generateMetadata({
     searchParams: Promise.resolve({ q: "C++", letter: "C", offset: "60" }),
   });
@@ -65,6 +66,6 @@ it.each([502, 503, 504])(
     expect(await Tags(props)).toMatchObject({ props: { kind: "tags" } });
     vi.mocked(getTags).mockResolvedValue([{ id: "rust", slug: "rust", name: "Rust" }]);
     expect(await Tags(props)).toMatchObject({ props: { section: "tags" } });
-    expect(await generateMetadata(props)).not.toMatchObject({ robots: { index: false } });
+    expect(await generateMetadata(props)).toMatchObject({ robots: { index: false, follow: true } });
   },
 );
