@@ -482,7 +482,7 @@ class CurrentStateReconciler:
         cycle.cursor = str(rows[-1]["id"])
         return False
 
-    async def _queue_step(self) -> bool:
+    async def _queue_step(self) -> None:
         cycle = self.queue_cycle
         if cycle is None:
             cycle = await self._snapshot()
@@ -493,7 +493,7 @@ class CurrentStateReconciler:
         elif cycle.phase == "absent":
             await self._absent_queue_page(cycle)
         elif await self._absent_queue_targets(cycle):
-            return True
+            return
         await self._save(
             "queues",
             {
@@ -504,7 +504,6 @@ class CurrentStateReconciler:
             },
             pending=1,
         )
-        return True
 
     async def _card_targets(self, kind: str, identifiers: Sequence[str]) -> dict[str, SqlRecord]:
         if not identifiers:
@@ -770,7 +769,8 @@ class CurrentStateReconciler:
                     if due[scope]:
                         self._turn = (index + 1) % len(slots)
                         if scope == "queues":
-                            return await self._queue_step()
+                            await self._queue_step()
+                            return True
                         if scope == "todo":
                             return await self._todo()
                         if scope == "audience-metadata":
