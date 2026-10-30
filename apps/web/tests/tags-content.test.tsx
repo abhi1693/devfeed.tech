@@ -71,6 +71,8 @@ it("submits trimmed bounded searches while preserving the selected letter", () =
   expect(router.push).toHaveBeenLastCalledWith("/tags?letter=C");
   expect(tagsHref("", "")).toBe("/tags");
   expect(tagsHref("C++", "C", 60)).toBe("/tags?q=C%2B%2B&letter=C&offset=60");
+  expect(tagsHref("C++", "C", "60")).toBe("/tags?q=C%2B%2B&letter=C&offset=60");
+  expect(tagsHref("", "", "0")).toBe("/tags");
 });
 
 it("retains tags after a page failure and retries without duplicate entries or requests", async () => {
@@ -82,6 +84,10 @@ it("retains tags after a page failure and retries without duplicate entries or r
       }),
   );
   render(<TagsContent tags={[tags[1]]} query="C++" letter="C" nextCursor="60" />);
+  expect(document.querySelectorAll('a[rel="next"]')).toHaveLength(1);
+  expect(screen.getByRole("link", { name: "Next tags" }).getAttribute("href")).toBe(
+    "/tags?q=C%2B%2B&letter=C&offset=60",
+  );
   await act(async () => intersect());
   expect(screen.getByText("Couldn’t load more tags.")).toBeTruthy();
   expect(screen.getByRole("link", { name: "C++" })).toBeTruthy();

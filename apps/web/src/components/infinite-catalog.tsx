@@ -40,6 +40,7 @@ export function InfiniteCatalog({
   );
   const { pages, cursor, loading, error, loadMore } = useInfinitePages(initialPage, fetchPage);
   const items = uniquePageItems(flattenPageItems(pages), (item) => item.id);
+  // This directory owns its filtered continuation; the boundary only loads or retries.
   return (
     <InfiniteScroll
       hasMore={cursor !== null}
@@ -47,7 +48,7 @@ export function InfiniteCatalog({
       error={!!error}
       onLoadMore={loadMore}
       label={kind}
-      nextHref={cursor !== null ? catalogHref(kind, { query, offset: cursor }) : undefined}
+      nextHref={undefined}
       endMessage={`You’ve seen all ${kind}.`}
     >
       <div className="topic-grid">

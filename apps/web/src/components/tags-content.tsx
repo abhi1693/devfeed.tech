@@ -16,7 +16,7 @@ export function tagLetter(name: string) {
   const first = name.charAt(0).toUpperCase();
   return alphabet.includes(first) ? first : "#";
 }
-export function tagsHref(query: string, letter: string, offset = 0) {
+export function tagsHref(query: string, letter: string, offset: number | string = 0) {
   return catalogHref("tags", { query, letter, offset });
 }
 export function TagsContent({
@@ -52,6 +52,7 @@ export function TagsContent({
   const groups = [...alphabet, "#"]
     .map((initial) => ({ initial, tags: items.filter((tag) => tagLetter(tag.name) === initial) }))
     .filter((group) => group.tags.length);
+  // Keep the filtered continuation below as the directory's only Next link.
   return (
     <div className="tags-directory">
       <header className="tags-hero">
@@ -101,6 +102,7 @@ export function TagsContent({
         error={!!error}
         onLoadMore={loadMore}
         label="tags"
+        nextHref={undefined}
         endMessage={items.length ? "You’ve seen all matching tags." : ""}
       >
         {groups.map((group) => (

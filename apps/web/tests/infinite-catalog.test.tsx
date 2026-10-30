@@ -70,6 +70,10 @@ it.each(["topics", "sources"] as const)(
     render(
       <InfiniteCatalog kind={kind} initialPage={{ items: first, next_cursor: "server+cursor" }} />,
     );
+    expect(document.querySelectorAll('a[rel="next"]')).toHaveLength(1);
+    expect(screen.getByRole("link", { name: `Next ${kind}` }).getAttribute("href")).toBe(
+      `/${kind}?offset=server%2Bcursor`,
+    );
     expect(screen.queryByRole("link", { name: `More ${kind}` })).toBeNull();
     expect(screen.queryByRole("button", { name: `More ${kind}` })).toBeNull();
     await act(async () => {
@@ -117,7 +121,7 @@ it("retains topics on error, retries manually, and cancels pagination in a backg
   await act(async () => intersect());
   expect(screen.getByText("Couldn’t load more topics.")).toBeDefined();
   expect(screen.getByRole("heading", { name: "Topic 0" })).toBeDefined();
-  await act(async () => fireEvent.click(screen.getByRole("link", { name: "Try again" })));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Try again" })));
   const signal = fetcher.mock.calls[1][1].signal;
   vi.mocked(document.hasFocus).mockReturnValue(false);
   await act(async () => window.dispatchEvent(new Event("blur")));

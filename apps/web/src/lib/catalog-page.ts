@@ -30,7 +30,7 @@ export function catalogHref(
   const params = new URLSearchParams();
   if (query) params.set("q", query);
   if (kind === "tags" && letter) params.set("letter", letter);
-  if (offset) params.set("offset", String(offset));
+  if (offset && offset !== "0") params.set("offset", String(offset));
   return `/${kind}${params.size ? `?${params}` : ""}`;
 }
 export function catalogOffset(value: unknown) {
