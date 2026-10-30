@@ -4,6 +4,10 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## 0.1.8 — 2026-10-30
 
+### Enhancements
+
+- Load the Columns workspace only when opened, reducing the JavaScript needed to display ordinary web feeds.
+
 ### Fixes
 
 - Refresh administration queue counts before slower pipeline-card repairs, so started queue snapshots finish promptly without waiting behind unrelated report work.

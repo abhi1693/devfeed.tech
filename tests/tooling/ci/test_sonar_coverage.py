@@ -49,6 +49,7 @@ def sonar_matches(properties, key, source):
         ("scripts/testing/preview-cover.mjs", True),
         ("scripts/testing/nonce-csp.mjs", True),
         ("scripts/testing/default-all.mjs", True),
+        ("scripts/testing/deferred-columns.mjs", True),
         ("scripts/testing/sign-in.py", True),
         ("scripts/testing/login-recovery.mjs", True),
         ("scripts/testing/login-recovery.py", True),

@@ -97,6 +97,12 @@ The optional [API performance comparison](loadtests/README.md) runs locally when
 preserves every sample and reports inconsistent evidence as inconclusive. Performance benchmarks
 and browser-budget reports are not part of automated CI.
 
+For reader JavaScript, use the [Turbopack bundle analyzer](https://nextjs.org/docs/app/guides/package-bundling#nextjs-bundle-analyzer):
+`npm run analyze --workspace @devfeed/web -- --output --snapshot before`. From `apps/web`,
+`npm exec -- next analyze export --snapshot before` exports the saved graph. Compare matched
+before/after snapshots and check every static import path before accepting a lazy boundary.
+Compressed analyzer sizes are estimates; the extensions retain one packaged JavaScript bundle.
+
 Tag and topic pages use the reader's language and content preferences. Existing pages
 with empty filtered feeds are marked `noindex, follow`; missing collections return 404.
 Tags without any publicly visible articles also retain their 404 response. Collection sitemap entries

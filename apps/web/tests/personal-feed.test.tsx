@@ -103,13 +103,13 @@ it.each([
 
 it.each([{}, { sort: "most_liked" }, { cursor: "next", sort: "oldest" }])(
   "keeps Columns available on an unrestricted account root feed %j",
-  (query) => {
+  async (query) => {
     preferences.view = "columns";
     account.user = { user_id: "reader" };
     const fetcher = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetcher);
     render(<PersonalFeed filters={parseFilters(query)} />);
-    expect(screen.getByRole("region", { name: "Columns workspace" })).toBeTruthy();
+    expect(await screen.findByRole("region", { name: "Columns workspace" })).toBeTruthy();
     expect(screen.getByTestId("feed-view-scope").getAttribute("data-scope")).toBe("my_feed");
     expect(screen.queryByTestId("article-grid")).toBeNull();
     expect(fetcher).not.toHaveBeenCalled();

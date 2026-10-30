@@ -40,17 +40,20 @@ export async function checkEngagementPagination(page, target) {
   async function loadAll(selector) {
     for (let count = 24; count <= 120; count += 24) {
       await page.waitForFunction(
-        ({ selector, expected }) =>
-          [...document.querySelectorAll(selector)].filter((node) =>
+        ({ selector, expected }) => {
+          const count = [...document.querySelectorAll(selector)].filter((node) =>
             node.closest(".article-card, .article-list-row")?.checkVisibility(),
-          ).length >= expected,
+          ).length;
+          if (count >= expected) return true;
+          // Pagination can be replaced as automatic loading finishes. Locate and
+          // scroll it in one DOM turn, then wait for the next page's actual rows.
+          [...document.querySelectorAll(".pagination")]
+            .findLast((node) => node.checkVisibility())
+            ?.scrollIntoView({ block: "end", behavior: "instant" });
+          return false;
+        },
         { selector, expected: count },
       );
-      const rendered = selector
-        .replace(".article-card", ".article-card:visible")
-        .replace(".article-list-row", ".article-list-row:visible");
-      if (count < 120 && (await page.locator(rendered).count()) < 120)
-        await page.locator(".pagination").last().scrollIntoViewIfNeeded();
     }
   }
   try {
