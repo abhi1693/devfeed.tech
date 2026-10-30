@@ -632,3 +632,103 @@ def test_replacing_prepared_generation_releases_old_indexes_before_new_allocatio
                 {"title": f"Generation {generation}"},
             )["topics"]
     assert len(references) == 3
+
+
+@pytest.mark.parametrize("repeat", [1, 2, 1000])
+def test_repeated_terminal_matches_preserve_weighted_fields_overlaps_and_suffixes(repeat):
+    items = [
+        entry("Go", aliases=["Go lang", "lang", "GO"], keywords=["Go lang", "lang"]),
+        entry("C++", aliases=["C#", "工具", "ＡＩ", "foo_bar"]),
+        entry("Suffix", aliases=["lang tools", "tools", "Go lang tools"]),
+        entry("...", aliases=["---", ""]),
+    ]
+    phrase = "Go lang tools C++ C# 工具 AI foo_bar "
+    snapshot = {field: phrase * repeat for field in ("title", "source_summary", "text")}
+    root, frequency, postings = analysis._candidate_indexes(items)
+    expected = [analysis.candidate_score(item, snapshot) for item in items]
+    for _ in range(2):
+        assert (
+            analysis._candidate_scores(root, frequency, postings, len(items), snapshot) == expected
+        )
+    # Matching once in each weighted field must not suppress another field,
+    # another position's longer/suffix phrase, or a subsequent independent call.
+    assert expected == [
+        analysis.candidate_score(item, {field: phrase for field in snapshot}) for item in items
+    ]
+
+
+def test_repeated_terminal_lists_are_consumed_once_per_text_and_released_between_calls():
+    class MatchList(list):
+        reads = 0
+
+        def __iter__(self):
+            self.reads += 1
+            return super().__iter__()
+
+    matches = MatchList([(0, 0, " python ")])
+    root = {"python": {None: matches}}
+    snapshot = {field: "Python " * 1000 for field in ("title", "source_summary", "text")}
+    for iteration in range(2):
+        assert analysis._candidate_scores(root, {}, {}, 1, snapshot) == [52]
+        assert matches.reads == 3 * (iteration + 1)
+
+
+def test_new_terminal_vocabulary_is_not_retained_between_independent_catalogs():
+    # Keep a weak reference to a terminal list: the per-text optimization must
+    # neither retain it across calls nor remember an earlier object's identity.
+    import gc
+    import weakref
+
+    class MatchList(list):
+        pass
+
+    def evaluate():
+        matches = MatchList([(0, 1, " python ")])
+        reference = weakref.ref(matches)
+        assert analysis._candidate_scores(
+            {"python": {None: matches}}, {}, {}, 1, {"text": "Python " * 200}
+        ) == [1]
+        return reference
+
+    references = [evaluate() for _ in range(100)]
+    gc.collect()
+    assert all(reference() is None for reference in references)
+    assert analysis._candidate_scores(
+        {"python": {None: [(0, 0, " python ")]}}, {}, {}, 1, {"title": "Python Python"}
+    ) == [32]
+
+
+@pytest.mark.parametrize("repeat", [1, 100])
+def test_repeated_match_candidates_equal_the_unindexed_semantic_reference(monkeypatch, repeat):
+    settings = configuration(analysis_max_candidates=3, analysis_fallback_candidates=1)
+    monkeypatch.setattr(analysis, "get_settings", lambda: settings)
+    oversized = entry("A oversized", aliases=["λ" * 140000], keywords=["Python"])
+    taxonomy = {
+        "topics": [
+            oversized,
+            entry("alpha", id=str(uuid.UUID(int=2)), aliases=["Go lang", "lang"]),
+            entry("Alpha", id=str(uuid.UUID(int=1)), keywords=["Python", "Go lang"]),
+            entry("工具", aliases=["C++", "foo_bar"]),
+            entry("Unmatched fallback"),
+        ],
+        "tags": [entry("Tags", aliases=["Go lang", "C++"]), entry("Zero fallback")],
+    }
+    snapshot = {
+        field: "Python Go lang C++ 工具 foo_bar " * repeat
+        for field in ("title", "source_summary", "text")
+    }
+    entries = [item for field in ("topics", "tags") for item in taxonomy[field]]
+
+    def semantic_reference(_root, _frequency, _postings, _size, value):
+        # Independent substring-based semantics, not the trie traversal under test.
+        return [analysis.candidate_score(item, value, cache_terms=False) for item in entries]
+
+    with monkeypatch.context() as reference:
+        reference.setattr(analysis, "_candidate_scores", semantic_reference)
+        with analysis.reuse_candidates():
+            expected = analysis.analysis_candidates(taxonomy, snapshot)
+    with analysis.reuse_candidates():
+        actual = analysis.analysis_candidates(taxonomy, snapshot)
+    assert actual == expected
+    assert oversized["id"] not in {item["id"] for item in actual["topics"]}
+    assert len(actual["topics"]) == settings.analysis_max_candidates
