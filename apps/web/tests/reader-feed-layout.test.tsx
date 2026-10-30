@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ReaderFeedLayout } from "@/components/reader-feed-layout";
 
@@ -10,15 +10,19 @@ const preferences = vi.hoisted(() => ({
   save: vi.fn(),
 }));
 const session = vi.hoisted(() => ({ user: null as { user_id: string } | null }));
+const workspaceImport = vi.hoisted(() => vi.fn());
 vi.mock("@/components/feed-preferences", () => ({ useFeedPreferences: () => preferences }));
 vi.mock("@/components/user-account", () => ({ useUser: () => session }));
-vi.mock("@/components/columns-workspace", () => ({
-  ColumnsWorkspace: ({ workspace }: { workspace?: string }) => (
-    <section aria-label="Columns workspace" data-workspace={workspace}>
-      <input aria-label="Workspace draft" defaultValue="saved" />
-    </section>
-  ),
-}));
+vi.mock("@/components/columns-workspace", () => {
+  workspaceImport();
+  return {
+    ColumnsWorkspace: ({ workspace }: { workspace?: string }) => (
+      <section aria-label="Columns workspace" data-workspace={workspace}>
+        <input aria-label="Workspace draft" defaultValue="saved" />
+      </section>
+    ),
+  };
+});
 
 beforeEach(() => {
   preferences.view = "columns";
@@ -35,6 +39,42 @@ function expectNoPreferenceWrites() {
   expect(preferences.setColumns).not.toHaveBeenCalled();
   expect(preferences.save).not.toHaveBeenCalled();
 }
+
+it("defers Columns until eligible and discards its pending private render on sign-out", async () => {
+  const content = (workspace: "latest" | "my_feed" = "my_feed") => (
+    <ReaderFeedLayout allowColumns workspace={workspace}>
+      <p>Route articles</p>
+    </ReaderFeedLayout>
+  );
+  session.user = null;
+  const app = render(content());
+  await act(async () => {});
+  expect(workspaceImport).not.toHaveBeenCalled();
+  session.user = { user_id: "reader-a" };
+  for (const view of ["cards", "compact", "stacked"]) {
+    preferences.view = view;
+    app.rerender(content());
+    await act(async () => {});
+    expect(workspaceImport).not.toHaveBeenCalled();
+    expect(screen.getByText("Route articles")).toBeTruthy();
+  }
+  preferences.view = "columns";
+  app.rerender(content("latest"));
+  await act(async () => {});
+  expect(workspaceImport).not.toHaveBeenCalled();
+  app.rerender(content());
+  expect(screen.getByRole("status", { name: "Loading columns…" })).toBeTruthy();
+  session.user = null;
+  app.rerender(content());
+  await waitFor(() => expect(workspaceImport).toHaveBeenCalledOnce());
+  expect(screen.queryByRole("region", { name: "Columns workspace" })).toBeNull();
+  expect(screen.getByText("Route articles")).toBeTruthy();
+  session.user = { user_id: "reader-b" };
+  app.rerender(content());
+  expect(await screen.findByRole("region", { name: "Columns workspace" })).toBeTruthy();
+  expect(screen.queryByRole("status", { name: "Loading columns…" })).toBeNull();
+  expectNoPreferenceWrites();
+});
 
 it("keeps a route's own articles by default when Columns is saved globally", () => {
   render(
@@ -54,7 +94,7 @@ it.each([
   ["account", "my_feed", true],
 ] as const)(
   "allows Columns for %s in %s only when it is authenticated My feed (%s)",
-  (owner, workspace, eligible) => {
+  async (owner, workspace, eligible) => {
     session.user = owner === "account" ? { user_id: "reader-a" } : null;
     render(
       <ReaderFeedLayout allowColumns workspace={workspace}>
@@ -63,7 +103,9 @@ it.each([
     );
     if (eligible) {
       expect(
-        screen.getByRole("region", { name: "Columns workspace" }).getAttribute("data-workspace"),
+        (await screen.findByRole("region", { name: "Columns workspace" })).getAttribute(
+          "data-workspace",
+        ),
       ).toBe("my_feed");
       expect(screen.queryByText("Route articles")).toBeNull();
     } else {
@@ -85,13 +127,13 @@ it.each(["cards", "compact", "stacked"])("keeps the %s feed on an eligible route
   expect(screen.queryByRole("region", { name: "Columns workspace" })).toBeNull();
 });
 
-it("switches between route content and the saved workspace without rewriting preferences", () => {
+it("switches between route content and the saved workspace without rewriting preferences", async () => {
   const app = render(
     <ReaderFeedLayout allowColumns workspace="my_feed">
       <p>My feed articles</p>
     </ReaderFeedLayout>,
   );
-  expect(screen.getByRole("region", { name: "Columns workspace" })).toBeTruthy();
+  expect(await screen.findByRole("region", { name: "Columns workspace" })).toBeTruthy();
   app.rerender(
     <ReaderFeedLayout allowColumns workspace="latest">
       <p>Latest articles</p>
@@ -104,18 +146,18 @@ it("switches between route content and the saved workspace without rewriting pre
       <p>My feed articles</p>
     </ReaderFeedLayout>,
   );
-  expect(screen.getByRole("region", { name: "Columns workspace" })).toBeTruthy();
+  expect(await screen.findByRole("region", { name: "Columns workspace" })).toBeTruthy();
   expect(preferences.view).toBe("columns");
   expectNoPreferenceWrites();
 });
 
-it("retains an eligible workspace while an article preview changes the URL", () => {
+it("retains an eligible workspace while an article preview changes the URL", async () => {
   const app = render(
     <ReaderFeedLayout allowColumns workspace="my_feed">
       <p>My feed articles</p>
     </ReaderFeedLayout>,
   );
-  const draft = screen.getByRole("textbox", { name: "Workspace draft" });
+  const draft = await screen.findByRole("textbox", { name: "Workspace draft" });
   fireEvent.change(draft, { target: { value: "retained column state" } });
   window.history.pushState(null, "", "/articles/previewed-article");
   app.rerender(
@@ -128,14 +170,14 @@ it("retains an eligible workspace while an article preview changes the URL", () 
   expectNoPreferenceWrites();
 });
 
-it("removes the private workspace when the account signs out without rewriting its saved layout", () => {
+it("removes the private workspace when the account signs out without rewriting its saved layout", async () => {
   const content = () => (
     <ReaderFeedLayout allowColumns workspace="my_feed">
       <p>Public articles</p>
     </ReaderFeedLayout>
   );
   const app = render(content());
-  expect(screen.getByRole("region", { name: "Columns workspace" })).toBeTruthy();
+  expect(await screen.findByRole("region", { name: "Columns workspace" })).toBeTruthy();
   session.user = null;
   app.rerender(content());
   expect(screen.queryByRole("region", { name: "Columns workspace" })).toBeNull();

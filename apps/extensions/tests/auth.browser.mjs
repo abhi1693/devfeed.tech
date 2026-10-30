@@ -14,6 +14,7 @@ import { checkColumnsFeeds } from "../../../scripts/testing/columns-feeds.mjs";
 import { checkColumnsSponsoredProducts } from "../../../scripts/testing/columns-sponsored.mjs";
 import { checkColumnsScanning } from "../../../scripts/testing/columns-scanning.mjs";
 import { checkColumnsReordering } from "../../../scripts/testing/columns-reordering.mjs";
+import { checkDeferredColumns } from "../../../scripts/testing/deferred-columns.mjs";
 import { createReaderArtifactDirectory } from "../../../scripts/testing/reader-artifacts.mjs";
 import { checkIndependentFeedViews } from "../../../scripts/testing/feed-views.mjs";
 import { checkSavedReaderLifecycle } from "../../../scripts/testing/reader-views-lifecycle.mjs";
@@ -672,13 +673,27 @@ async function withAuthenticatedReader(t, check, { hasTouch = false } = {}) {
   assert.deepEqual(errors, [], "browser and fixture errors");
 }
 
+test(
+  "public feeds stay independent before the first deferred Columns visit",
+  { timeout: 120000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn }) => {
+      await signIn();
+      await checkDeferredColumns(
+        page,
+        readerRouteUrl(page.url(), "/"),
+        artifactPath(`deferred-columns/${browser}`),
+      );
+    }),
+);
+
 test("columns reorder by dragging and keyboard without reloading feeds", { timeout: 180000 }, (t) =>
   withAuthenticatedReader(t, async ({ page, user, signIn }) => {
     await signIn();
     await checkColumnsReordering(
       page,
       readerRouteUrl(page.url(), "/"),
-      `reports/columns-reordering/${browser}`,
+      artifactPath(`columns-reordering/${browser}`),
       { csrfToken: user.csrf_token },
     );
   }),

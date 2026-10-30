@@ -1,4 +1,4 @@
-"""Reporting preserves workflow history while call facts follow transactional writes."""
+"""Historical call-fact migration contracts use their own pre-retirement database."""
 
 import copy
 import importlib
@@ -12,6 +12,7 @@ from threading import Barrier, Event
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from devfeed_core import analytics_producer
 from devfeed_core.models import (
     Article,
     TopicDecisionRun,
@@ -19,9 +20,21 @@ from devfeed_core.models import (
 )
 from sqlalchemy import select, text
 
+from tests.support import legacy_migrations
+
+migration_database = legacy_migrations.migration_database
+
 pytestmark = pytest.mark.integration
 START = datetime(2026, 10, 20, tzinfo=UTC)
 END = START + timedelta(days=2)
+
+
+@pytest.fixture
+def database(migration_database, monkeypatch):
+    # Historical ORM writes must not start a native analytics publisher, just as
+    # the ordinary source fixture suppresses delivery for its own test commits.
+    monkeypatch.setattr(analytics_producer, "submit", lambda changes: None)
+    return migration_database
 
 
 def call(stage="draft", started_at=START, tokens=10, **changes):
