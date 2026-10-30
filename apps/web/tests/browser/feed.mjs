@@ -2459,19 +2459,14 @@ test(
 
 test("reader context controls article prompts", { timeout: 180000 }, async (t) => {
   const { browser, origin, readerContext } = await createReaderFixture(t);
-  await withReaderPage(browser, async (page, context) => {
-    // This journey tests reader prompts. The real Google SDK has its own badge journey;
-    // its changing remote policy reports must not race teardown of this fixture's frames.
-    await context.route("https://news.google.com/swg/js/v1/publisher.js", (route) =>
-      route.fulfill({ contentType: "application/javascript", body: "" }),
-    );
-    await checkReaderContext(
+  await withReaderPage(browser, (page) =>
+    checkReaderContext(
       page,
       (path) => origin + path,
       readerContext,
       `${root}/reports/reader-context/web`,
-    );
-  });
+    ),
+  );
 });
 
 test("feed modes declare placement capabilities", { timeout: 180000 }, async (t) => {
