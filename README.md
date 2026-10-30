@@ -47,7 +47,9 @@ work. Here’s mine:
 
 ## Make the feed yours
 
-- **Browse right away.** Explore articles, topics, and sources without signing in.
+- **Browse right away.** The guest homepage introduces developer news, tutorials,
+  releases and AI overviews, with links to topics, sources and MCP. Read the feed
+  without signing in.
 - **Find useful reads.** Search articles, topics, sources, and tags together, with
   typo-tolerant results.
 - **Follow your interests.** Build a personal feed from the topics and publications

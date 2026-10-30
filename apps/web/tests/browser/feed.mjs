@@ -1,3 +1,4 @@
+import { checkGuestHomeIntro } from "../../../../scripts/testing/guest-home-intro.mjs";
 import { checkAppIcons } from "../../../../scripts/testing/app-icons.mjs";
 import { checkFeaturedOn } from "../../../../scripts/testing/featured-on.mjs";
 import { tagsFixture, checkTags, checkTagFollow } from "../../../../scripts/testing/tags.mjs";
@@ -2760,3 +2761,44 @@ test("Sign out also opens provider SSO logout", { timeout: 180000 }, async (t) =
     assert.equal(starts.length, 1);
   });
 });
+
+test(
+  "guest homepage explains reading without delaying the public shell",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin, feedMode, setArticleFeedGate } = await createReaderFixture(t);
+    const gate = blockedFeed();
+    setArticleFeedGate(gate);
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    try {
+      const response = await page.goto(origin + "/", { waitUntil: "commit" });
+      await gate.firstRequest;
+      await page
+        .getByRole("heading", { name: "Developer news, tutorials & releases", level: 1 })
+        .waitFor();
+      assert.equal(response.status(), 200);
+      assert.equal(await page.locator(".article-card").count(), 0);
+      assert.equal(
+        await page.getByRole("status", { name: "Loading articles…", exact: true }).count(),
+        1,
+      );
+      assert.equal(
+        await page.locator('link[rel="canonical"]').getAttribute("href"),
+        origin + "/latest",
+      );
+    } finally {
+      gate.release();
+      setArticleFeedGate(undefined);
+      await context.close();
+    }
+    await withReaderPage(browser, (page) =>
+      checkGuestHomeIntro(
+        page,
+        (path) => origin + path,
+        feedMode,
+        artifactPath("guest-home-intro"),
+      ),
+    );
+  },
+);

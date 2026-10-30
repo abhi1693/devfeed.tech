@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import Home, { generateMetadata } from "@/app/page";
+import { GuestHomeIntro } from "@/components/guest-home-intro";
 import { PublicPage } from "@/components/public-page";
 import { FeedView } from "@/components/feed-view";
 import { hasUserSession } from "@/lib/api";
@@ -21,11 +22,13 @@ it.each([{}, { content_type: "" }, { content_type: "invalid" }, { q: "engineerin
     const page = await Home({ searchParams: Promise.resolve(query) });
     expect(page.type).toBe(PublicPage);
     expect(await page.props.content).toBe("guest feed");
-    expect(FeedView).toHaveBeenCalledWith({
-      feedDescriptor: readerFeeds.home,
-      withShell: false,
-      filters: expect.objectContaining({ content_type: "" }),
-    });
+    expect(FeedView).toHaveBeenCalledWith(
+      expect.objectContaining({
+        feedDescriptor: readerFeeds.home,
+        withShell: false,
+        filters: expect.objectContaining({ content_type: "" }),
+      }),
+    );
   },
 );
 it.each(["article", "news"])(
@@ -112,7 +115,26 @@ it("returns the guest shell while its fresh feed is still pending", async () => 
   const page = await Home({ searchParams: Promise.resolve({}) });
   expect(page.type).toBe(PublicPage);
   expect(page.props.content).toBe(content);
+  expect(page.props.children.type).toBe(GuestHomeIntro);
+  expect(FeedView).toHaveBeenCalledWith(expect.objectContaining({ headingLevel: 2 }));
   const fresh = <p>Fresh feed</p>;
   release(fresh);
   expect(await page.props.content).toBe(fresh);
 });
+
+it.each([
+  [{ utm_source: "reader" }, true],
+  [{ q: "engineering" }, false],
+  [{ topic: "python" }, false],
+  [{ cursor: "next" }, false],
+  [{ content_type: "news" }, false],
+  [{ sort: "oldest" }, false],
+] as const)(
+  "keeps guest introduction eligibility separate from feed data: %j",
+  async (query, intro) => {
+    vi.mocked(hasUserSession).mockResolvedValue(false);
+    const page = await Home({ searchParams: Promise.resolve(query) });
+    expect(Boolean(page.props.children)).toBe(intro);
+    expect(vi.mocked(FeedView).mock.calls[0][0].headingLevel).toBe(intro ? 2 : undefined);
+  },
+);

@@ -12,13 +12,16 @@ export function PublicPage({
   content,
   kind = "feed",
   filters,
+  children,
 }: {
+  children?: ReactNode;
   content: Promise<ReactNode>;
   filters?: FeedFilters;
   kind?: "feed" | "sources" | "topics";
 }) {
   return (
     <UserShell section={kind} filters={filters}>
+      {children}
       <Suspense fallback={<PublicPageLoading kind={kind} />}>
         <ResolvedContent content={content} />
       </Suspense>

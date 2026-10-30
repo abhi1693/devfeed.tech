@@ -227,6 +227,30 @@ button {
   padding: 100px 32px 42px;
   min-height: 100vh;
 }
+.guest-home-intro {
+  max-width: 780px;
+  margin-bottom: 24px;
+}
+.guest-home-intro h1 {
+  margin: 0 0 10px;
+  font-size: clamp(24px, 2.5vw, 32px);
+  line-height: 1.2;
+  letter-spacing: -0.8px;
+}
+.guest-home-intro p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.guest-home-intro p + p {
+  margin-top: 8px;
+}
+.guest-home-intro a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .page-heading {
   display: flex;
   align-items: flex-end;

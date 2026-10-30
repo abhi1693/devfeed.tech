@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { parseFilters } from "@/lib/feed-query";
-import { canUseColumnWorkspace, feedPlacements, readerFeeds, resolveFeed } from "@/lib/reader-feed";
+import {
+  canUseColumnWorkspace,
+  feedPlacements,
+  isGuestHome,
+  readerFeeds,
+  resolveFeed,
+} from "@/lib/reader-feed";
 import { resolveReaderRoute } from "@/lib/reader-routes";
 
 describe("reader feed descriptors", () => {
@@ -203,5 +209,33 @@ describe("shared native feed eligibility", () => {
         expect(
           feedPlacements(descriptor, parseFilters({}), { section, topicId: "topic-id" }),
         ).toBeUndefined();
+  });
+});
+
+describe("guest home introduction eligibility", () => {
+  it("uses only effective filters and a verified guest on the home descriptor", () => {
+    const filters = parseFilters({ utm_source: "reader", q: " ", content_type: "invalid" });
+    expect(isGuestHome(structuredClone(readerFeeds.home), filters, false)).toBe(true);
+    expect(isGuestHome(readerFeeds.home, filters, true)).toBe(false);
+    expect(isGuestHome({ ...readerFeeds.home, guestMode: undefined }, filters, false)).toBe(false);
+    for (const descriptor of [
+      readerFeeds.latest,
+      readerFeeds.contextual,
+      readerFeeds.search,
+      readerFeeds.bookmarks,
+      readerFeeds.trending,
+    ])
+      expect(isGuestHome(descriptor, filters, false)).toBe(false);
+  });
+  it.each([
+    { q: "compiler" },
+    { topic: "rust" },
+    { tag: "c++" },
+    { content_type: "news" },
+    { source_id: "11111111-1111-4111-8111-111111111111" },
+    { cursor: "next" },
+    { sort: "oldest" },
+  ])("keeps contextual, sorted and paginated home views focused: %j", (query) => {
+    expect(isGuestHome(readerFeeds.home, parseFilters(query), false)).toBe(false);
   });
 });
