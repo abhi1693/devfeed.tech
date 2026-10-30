@@ -40,6 +40,22 @@ it("continues a full directory page using its bounded catalog cursor", async () 
   expect(page.props.children.props.nextCursor).toBe("120");
 });
 
+it("stops tag pagination when a direct continuation page has exactly 60 results", async () => {
+  vi.mocked(getTags).mockResolvedValue(
+    Array.from({ length: 60 }, (_, id) => ({
+      id: String(id),
+      name: `Tag ${id}`,
+      slug: `tag-${id}`,
+    })),
+  );
+  const page = await Tags({
+    searchParams: Promise.resolve({ offset: "60", q: "C++", letter: "C" }),
+  });
+  expect(getTags).toHaveBeenCalledWith(60, 61, "C++", "C");
+  expect(page.props.children.props.nextCursor).toBeNull();
+  expect(page.props.children.props.tags).toHaveLength(60);
+});
+
 it("canonicalizes tag discovery independently of transient search filters", async () => {
   vi.mocked(getTags).mockResolvedValue([{ id: "cpp", slug: "c++", name: "C++" }]);
   const metadata = await generateMetadata({

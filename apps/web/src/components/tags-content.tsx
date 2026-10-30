@@ -130,7 +130,7 @@ export function TagsContent({
             rel="next"
             href={catalogHref("tags", { query, letter, offset: cursor })}
           >
-            Next tags
+            Next page of tags
           </Link>
         )}
         {!items.length && (

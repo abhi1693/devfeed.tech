@@ -88,7 +88,7 @@ export function InfiniteCatalog({
       </div>
       {cursor !== null && (
         <Link className="button" rel="next" href={catalogHref(kind, { query, offset: cursor })}>
-          Next {kind}
+          Next page of {kind}
         </Link>
       )}
     </InfiniteScroll>

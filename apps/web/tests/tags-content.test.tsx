@@ -85,7 +85,7 @@ it("retains tags after a page failure and retries without duplicate entries or r
   );
   render(<TagsContent tags={[tags[1]]} query="C++" letter="C" nextCursor="60" />);
   expect(document.querySelectorAll('a[rel="next"]')).toHaveLength(1);
-  expect(screen.getByRole("link", { name: "Next tags" }).getAttribute("href")).toBe(
+  expect(screen.getByRole("link", { name: "Next page of tags" }).getAttribute("href")).toBe(
     "/tags?q=C%2B%2B&letter=C&offset=60",
   );
   await act(async () => intersect());

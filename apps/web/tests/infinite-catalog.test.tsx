@@ -71,7 +71,7 @@ it.each(["topics", "sources"] as const)(
       <InfiniteCatalog kind={kind} initialPage={{ items: first, next_cursor: "server+cursor" }} />,
     );
     expect(document.querySelectorAll('a[rel="next"]')).toHaveLength(1);
-    expect(screen.getByRole("link", { name: `Next ${kind}` }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: `Next page of ${kind}` }).getAttribute("href")).toBe(
       `/${kind}?offset=server%2Bcursor`,
     );
     expect(screen.queryByRole("link", { name: `More ${kind}` })).toBeNull();
