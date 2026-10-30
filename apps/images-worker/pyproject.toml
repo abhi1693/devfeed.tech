@@ -1,6 +1,6 @@
 [project]
 name = "devfeed-images-worker"
-version = "0.1.7"
+version = "0.1.8"
 description = "Dedicated durable article image discovery and storage worker"
 requires-python = ">=3.12"
 dependencies = ["devfeed-aggregator[images]"]

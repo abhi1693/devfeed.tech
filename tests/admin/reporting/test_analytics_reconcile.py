@@ -470,7 +470,7 @@ def test_bounded_weighted_scheduler_progresses_all_due_work(monkeypatch):
 
     async def queue():
         selected.append("queues")
-        return True
+        await world.worker._save("queues", {}, pending=0, source_at=NOW, completed_at=NOW)
 
     async def todo():
         selected.append("todo")
@@ -480,11 +480,21 @@ def test_bounded_weighted_scheduler_progresses_all_due_work(monkeypatch):
         selected.append(scope)
         return True
 
+    async def overview():
+        selected.append("overview")
+        return True
+
+    async def audience():
+        selected.append("audience-metadata")
+        return True
+
     monkeypatch.setattr(world.worker, "_lead", lead)
     monkeypatch.setattr(world.worker, "_load", load)
     monkeypatch.setattr(world.worker, "_queue_step", queue)
     monkeypatch.setattr(world.worker, "_todo", todo)
     monkeypatch.setattr(world.worker, "_card_page", page)
+    world.worker._overview = SimpleNamespace(due=True, once=overview)
+    world.worker._audience_metadata = SimpleNamespace(due=True, once=audience)
     monkeypatch.setattr(
         world.worker,
         "_state",
@@ -492,12 +502,89 @@ def test_bounded_weighted_scheduler_progresses_all_due_work(monkeypatch):
     )
 
     async def scenario():
-        for _ in range(7):
+        for _ in range(9):
             assert await world.worker.once()
 
     asyncio.run(scenario())
-    assert set(selected) == {"queues", "todo", "active-cards", "cards", "sweep"}
-    assert selected.count("queues") == selected.count("todo") == 2
+    assert selected == [
+        "queues",
+        "overview",
+        "todo",
+        "active-cards",
+        "overview",
+        "cards",
+        "todo",
+        "sweep",
+        "audience-metadata",
+    ]
+
+
+@pytest.mark.parametrize("turn", [0, 4, 7])
+def test_queue_snapshot_finishes_before_slow_pages_and_due_poll_resumes_their_turn(
+    monkeypatch, turn
+):
+    world = World(monkeypatch, batch=2)
+    for value in range(5):
+        world.job(value)
+    world.worker._turn = turn
+    selected = []
+    original_insert = world.sink.insert
+
+    async def acknowledged_insert(table, rows):
+        await original_insert(table, rows)
+        world.now += timedelta(milliseconds=100)
+
+    async def slow_page(scope, **_options):
+        selected.append(scope)
+        world.now += timedelta(seconds=20)
+        return True
+
+    async def todo():
+        return await slow_page("todo")
+
+    async def overview():
+        return await slow_page("overview")
+
+    async def audience():
+        return await slow_page("audience-metadata")
+
+    monkeypatch.setattr(world.sink, "insert", acknowledged_insert)
+    monkeypatch.setattr(world.worker, "_card_page", slow_page)
+    monkeypatch.setattr(world.worker, "_todo", todo)
+    world.worker._overview = SimpleNamespace(due=True, once=overview)
+    world.worker._audience_metadata = SimpleNamespace(due=True, once=audience)
+
+    async def complete_queue():
+        for _ in range(50):
+            assert await world.worker.once()
+            if world.worker.queue_cycle is None and "queues" in world.worker.progress:
+                return deepcopy(world.worker.progress["queues"])
+            if world.worker.queue_cycle is not None:
+                assert world.worker.progress["queues"]["pending"]
+        pytest.fail("Bounded queue snapshot did not complete")
+
+    async def scenario():
+        first = await complete_queue()
+        assert selected == [] and world.worker._turn == turn
+        assert first["source_at"] == NOW
+        assert first["completed_at"] - first["source_at"] < timedelta(seconds=5)
+        assert not first["pending"]
+        for _ in range(2):
+            assert await world.worker.once()
+            assert world.worker.queue_cycle is None
+        assert len(selected) == 2
+        resumed_turn = world.worker._turn
+        second = await complete_queue()
+        assert len(selected) == 2 and world.worker._turn == resumed_turn
+        assert second["source_at"] > first["completed_at"] + timedelta(seconds=30)
+        assert second["completed_at"] - second["source_at"] < timedelta(seconds=5)
+        assert not second["pending"]
+        assert await world.worker.once()
+        assert len(selected) == 3
+        await world.worker.close()
+
+    asyncio.run(scenario())
+    assert world.opened == world.closed
 
 
 def test_leader_loss_discards_uncovered_snapshot_and_releases_connection(monkeypatch):
@@ -506,6 +593,38 @@ def test_leader_loss_discards_uncovered_snapshot_and_releases_connection(monkeyp
     with pytest.raises(AnalyticsUnavailable):
         asyncio.run(world.worker.once())
     assert world.worker._leader is None and world.worker.queue_cycle is None
+    assert world.opened == world.closed
+
+
+@pytest.mark.parametrize(
+    "failed_table",
+    [reconcile.PROGRESS_TABLE, "analytics_pipeline_events", reconcile.FINGERPRINT_TABLE],
+)
+def test_priority_queue_page_failure_preserves_old_coverage_until_retry_ack(
+    monkeypatch, failed_table
+):
+    world = World(monkeypatch)
+    world.job()
+    before = NOW - timedelta(minutes=2)
+
+    async def scenario():
+        await world.worker._save("queues", {}, pending=0, source_at=before, completed_at=before)
+        world.sink.fail_write = failed_table
+        with pytest.raises(AnalyticsUnavailable):
+            await world.worker.once()
+        assert world.worker.queue_cycle is None and world.worker._leader is None
+        assert world.worker.progress["queues"]["source_at"] == before
+        assert world.worker.progress["queues"]["completed_at"] == before
+        assert world.builds == 0 and world.worker._turn == 0
+        world.sink.fail_write = None
+        for _ in range(3):
+            assert await world.worker.once()
+        assert world.worker.queue_cycle is None
+        assert not world.worker.progress["queues"]["pending"]
+        assert world.worker.progress["queues"]["source_at"] == NOW
+        await world.worker.close()
+
+    asyncio.run(scenario())
     assert world.opened == world.closed
 
 
@@ -728,7 +847,7 @@ def test_busy_publication_and_empty_card_batches_do_not_claim_coverage(monkeypat
 
 
 @pytest.mark.parametrize("reason", ["publication_busy", "builder_busy"])
-def test_busy_card_page_retains_independent_queue_cycle_without_acknowledging_cards(
+def test_queue_cycle_finishes_before_busy_card_page_without_acknowledging_cards(
     monkeypatch, caplog, reason
 ):
     world = World(monkeypatch, batch=1)
@@ -742,8 +861,6 @@ def test_busy_card_page_retains_independent_queue_cycle_without_acknowledging_ca
         await world.worker._queue_step()
         cycle = world.worker.queue_cycle
         assert cycle is not None and cycle.position == 1
-        before = deepcopy(world.sink.writes)
-        todo = deepcopy(world.worker._state("cards")["todo"])
         builder = None
         try:
             if reason == "publication_busy":
@@ -751,9 +868,17 @@ def test_busy_card_page_retains_independent_queue_cycle_without_acknowledging_ca
             else:
                 builder = asyncio.create_task(asyncio.sleep(60))
                 world.worker._builder = builder
-            world.worker._turn = 1  # Process the pending owner card next.
+            world.worker._turn = 1  # The pending owner card waits for queue coverage.
+            for _ in range(3):
+                assert await world.worker.once()
+            assert world.worker.queue_cycle is None
+            assert not world.worker.progress["queues"]["pending"]
+            before = deepcopy(world.sink.writes)
+            coverage = deepcopy(world.worker.progress["queues"])
+            todo = deepcopy(world.worker._state("cards")["todo"])
             assert not await world.worker.once()
-            assert world.worker.queue_cycle is cycle and cycle.position == 1
+            assert world.worker.queue_cycle is None
+            assert world.worker.progress["queues"] == coverage
             assert world.worker._leader is not None
             assert world.worker._state("cards")["todo"] == todo
             assert world.sink.writes == before
@@ -763,8 +888,6 @@ def test_busy_card_page_retains_independent_queue_cycle_without_acknowledging_ca
                 for row in world.sink.rows[reconcile.FINGERPRINT_TABLE].values()
             )
             world.publish = True
-            await world.worker._queue_step()
-            assert cycle.position == 2
         finally:
             if builder is not None:
                 builder.cancel()
@@ -821,7 +944,7 @@ def test_unrelated_queue_timeout_is_not_hidden_by_a_previous_pending_builder(mon
 
 
 @pytest.mark.parametrize("cancelled", [False, True])
-def test_interrupted_own_builder_never_acknowledges_cards_and_only_retry_keeps_queue(
+def test_interrupted_own_builder_never_acknowledges_cards_or_changes_queue_coverage(
     monkeypatch, cancelled
 ):
     world = World(monkeypatch, batch=1)
@@ -842,9 +965,8 @@ def test_interrupted_own_builder_never_acknowledges_cards_and_only_retry_keeps_q
 
     async def scenario():
         await world.worker._lead()
-        await world.worker._load()
-        await world.worker._queue_step()
-        cycle = world.worker.queue_cycle
+        await queue_cycle(world)
+        coverage = deepcopy(world.worker.progress["queues"])
         before = deepcopy(world.sink.writes)
         todo = deepcopy(world.worker._state("cards")["todo"])
         world.worker._turn = 1
@@ -863,8 +985,9 @@ def test_interrupted_own_builder_never_acknowledges_cards_and_only_retry_keeps_q
                 assert world.worker._leader is None
             else:
                 assert not await task
-                assert world.worker.queue_cycle is cycle
+                assert world.worker.queue_cycle is None
                 assert world.worker._leader is not None
+            assert world.worker.progress["queues"] == coverage
             assert world.worker._state("cards")["todo"] == todo
             assert world.sink.writes == before
             assert not world.sink.rows.get("analytics_card_canonical")

@@ -1,6 +1,6 @@
 [project]
 name = "devfeed-api"
-version = "0.1.7"
+version = "0.1.8"
 description = "Article ingestion, taxonomy and discovery HTTP API"
 requires-python = ">=3.12"
 dependencies = ["devfeed-core", "devfeed-http", "fastapi>=0.161.0,<1", "uvicorn[standard]>=0.54.0,<1"]

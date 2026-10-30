@@ -737,9 +737,6 @@ class CurrentStateReconciler:
         return None
 
     async def _step(self, scope: str) -> bool:
-        if scope == "queues":
-            await self._queue_step()
-            return True
         if scope == "todo":
             return await self._todo()
         if scope == "audience-metadata":
@@ -758,12 +755,18 @@ class CurrentStateReconciler:
                 if not await self._lead():
                     return False
                 await self._load()
+                # Complete a fixed queue snapshot before slow card/overview
+                # builders can age its coverage. The completion-based cooldown
+                # leaves the weighted turn intact for the remaining work.
+                if self.queue_cycle is not None or self._due(
+                    "queues", self.settings.analytics_reconcile_poll_seconds
+                ):
+                    await self._queue_step()
+                    return True
                 last_sweep = _timestamp(self._state("sweep").get("last_page_at"))
                 due = {
                     "overview": self._overview.due,
                     "audience-metadata": self._audience_metadata.due,
-                    "queues": self.queue_cycle is not None
-                    or self._due("queues", self.settings.analytics_reconcile_poll_seconds),
                     "todo": bool(self._state("cards").get("todo")),
                     "active-cards": self._due(
                         "active-cards", self.settings.analytics_reconcile_poll_seconds
@@ -774,10 +777,8 @@ class CurrentStateReconciler:
                     >= self.settings.analytics_reconcile_sweep_seconds,
                 }
                 slots = (
-                    "queues",
                     "overview",
                     "todo",
-                    "queues",
                     "active-cards",
                     "overview",
                     "cards",
