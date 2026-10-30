@@ -245,6 +245,10 @@ async function createReaderFixture(
   const mutationFixture = userMutationFixture({ articles: [article], topic });
   const domCatalog = readerDomCatalogFixture();
   const routeFixture = readerRoutesFixture(article);
+  const seoSourceIds = {
+    "seo-populated": "66666666-6666-4666-8666-666666666666",
+    "seo-empty": "66666666-6666-4666-8666-666666666667",
+  };
   const feedMode = feedModeFixture(article);
   const readerContext = readerContextFixture(article);
   const readerDestinations = readerDestinationsFixture(article);
@@ -432,12 +436,23 @@ async function createReaderFixture(
       return;
     }
     // Collection indexing fixtures: metadata and page content use the same feed.
-    const collection = requestUrl.searchParams.get("tag") || requestUrl.searchParams.get("topic");
-    if (/^\/v1\/(?:tags|topics)\/seo-/.test(path)) {
+    const collection =
+      requestUrl.searchParams.get("tag") ||
+      requestUrl.searchParams.get("topic") ||
+      Object.entries(seoSourceIds).find(
+        ([, id]) => id === requestUrl.searchParams.get("source_id"),
+      )?.[0];
+    if (/^\/v1\/(?:tags|topics|sources)\/seo-/.test(path)) {
       const slug = path.split("/").at(-1);
       res.writeHead(slug === "seo-missing" ? 404 : 200, { "Content-Type": "application/json" });
       res.end(
-        JSON.stringify(slug === "seo-missing" ? { detail: "Not found" } : { ...topic, slug }),
+        JSON.stringify(
+          slug === "seo-missing"
+            ? { detail: "Not found" }
+            : path.startsWith("/v1/sources/")
+              ? { ...source, id: seoSourceIds[slug], slug }
+              : { ...topic, slug },
+        ),
       );
       return;
     }
@@ -891,7 +906,7 @@ async function createReaderFixture(
   });
   async function runJourney() {
     const seoPage = await browser.newPage();
-    for (const kind of ["tags", "topics"]) {
+    for (const kind of ["tags", "topics", "sources"]) {
       for (const [slug, suffix, empty] of [
         ["seo-populated", "", false],
         ["seo-empty", "", true],
@@ -2444,6 +2459,38 @@ test("feed modes declare placement capabilities", { timeout: 180000 }, async (t)
     checkFeedMode(page, (path) => origin + path, feedMode, `${root}/reports/feed-mode/web`),
   );
 });
+
+test(
+  "source collection indexing follows the visible public feed",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    for (const agent of ["Mozilla/5.0", "Googlebot"]) {
+      for (const [path, empty] of [
+        ["/sources/seo-populated", false],
+        ["/sources/seo-empty", true],
+        ["/sources/seo-populated/tutorials", true],
+      ]) {
+        const response = await fetch(origin + path, { headers: { "User-Agent": agent } });
+        assert.equal(response.status, 200);
+        const html = await response.text();
+        assert.equal(/<meta name="robots" content="[^"]*noindex/.test(html), empty);
+        assert.ok(html.includes(`rel="canonical" href="${origin}${path}"`));
+      }
+      const missing = await fetch(`${origin}/sources/seo-missing`, {
+        headers: { "User-Agent": agent },
+      });
+      assert.equal(missing.status, 404);
+    }
+    await withReaderPage(browser, async (page) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(`${origin}/sources/seo-populated/tutorials`);
+      await page.getByText("No articles match these filters", { exact: true }).waitFor();
+      assert.equal(await page.locator(".article-card").count(), 0);
+      await page.locator('meta[name="robots"][content*="noindex"]').waitFor({ state: "attached" });
+    });
+  },
+);
 
 test(
   "reader routes validate destinations and recover from missing pages",

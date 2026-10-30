@@ -108,8 +108,7 @@ def snapshot_statement() -> CompoundSelect[str, uuid.UUID, str, datetime, str | 
             .join(visible, visible.c.article_id == link.article_id)
         )
         # Anonymous collection feeds default to English, unlike article detail pages.
-        if kind in {"topics", "tags"}:
-            membership = membership.where(visible.c.language == "en")
+        membership = membership.where(visible.c.language == "en")
         if kind == "topics":
             membership = membership.where(ArticleTopic.role.in_(["primary", "supporting"]))
         members = membership.group_by(foreign).subquery()
