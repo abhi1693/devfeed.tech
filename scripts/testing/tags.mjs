@@ -142,6 +142,38 @@ async function runTags(page, pathFor, output) {
   });
   await page.goto(pathFor("/tags?q=scroll&letter=S"));
   await page.getByRole("link", { name: "Scroll tag 059", exact: true }).waitFor();
+  const nextPage = page.getByRole("link", { name: "Next page of tags", exact: true });
+  const nextHref = await nextPage.getAttribute("href");
+  assert.ok(nextHref);
+  const nextUrl = new URL(nextHref, page.url());
+  const nextRoute = nextUrl.hash ? new URL(nextUrl.hash.slice(1), "https://devfeed.tech") : nextUrl;
+  assert.equal(nextRoute.pathname, "/tags");
+  assert.equal(nextRoute.searchParams.get("q"), "scroll");
+  assert.equal(nextRoute.searchParams.get("letter"), "S");
+  assert.equal(nextRoute.searchParams.get("offset"), "60");
+  const continuationPage = await page.context().newPage();
+  await continuationPage.goto(nextUrl.toString());
+  await continuationPage.getByRole("link", { name: "Scroll tag 060", exact: true }).waitFor();
+  const finalPageLink = continuationPage.getByRole("link", {
+    name: "Next page of tags",
+    exact: true,
+  });
+  const finalHref = await finalPageLink.getAttribute("href");
+  assert.ok(finalHref);
+  const finalUrl = new URL(finalHref, continuationPage.url());
+  const finalRoute = finalUrl.hash
+    ? new URL(finalUrl.hash.slice(1), "https://devfeed.tech")
+    : finalUrl;
+  assert.equal(finalRoute.searchParams.get("offset"), "120");
+  const lastPage = await page.context().newPage();
+  await lastPage.goto(finalUrl.toString());
+  await lastPage.getByRole("link", { name: "Scroll tag 124", exact: true }).waitFor();
+  assert.equal(
+    await lastPage.getByRole("link", { name: "Next page of tags", exact: true }).count(),
+    0,
+  );
+  await lastPage.close();
+  await continuationPage.close();
   await page.locator(".tags-directory .pagination").scrollIntoViewIfNeeded();
   await page.getByText("Couldn’t load more tags.", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Try again", exact: true }).click();

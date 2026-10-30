@@ -1,7 +1,7 @@
 import { PublicPage } from "@/components/public-page";
 import { SourcesContent } from "@/components/sources-content";
 import { getSources } from "@/lib/api";
-import { catalogOffset } from "@/lib/catalog-page";
+import { CATALOG_PAGE_SIZE, catalogOffset, catalogPage } from "@/lib/catalog-page";
 import type { SearchParams } from "@/lib/feed-query";
 import { JsonLd } from "@/components/json-ld";
 import { collectionStructuredData } from "@/lib/structured-data";
@@ -20,9 +20,10 @@ export default async function Sources({ searchParams }: { searchParams: Promise<
   return <PublicPage kind="sources" content={Results({ query, offset })} />;
 }
 async function Results({ query, offset }: { query: SearchParams; offset: number }) {
-  const sources = await getSources(offset, 60);
+  const page = catalogPage(await getSources(offset, CATALOG_PAGE_SIZE + 1), offset);
+  const sources = page.items;
   return (
-    <SourcesContent sources={sources} offset={offset} withShell={false}>
+    <SourcesContent sources={sources} offset={offset} initialPage={page} withShell={false}>
       <JsonLd
         data={collectionStructuredData(
           catalogCanonical("/sources", query),

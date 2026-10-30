@@ -562,6 +562,16 @@ test(
     assert.ok(trendingRequests().length > 0);
     assert.ok(trendingRequests().every((url) => !url.searchParams.has("cursor")));
     assert.equal(await page.locator(".article-card").count(), 24);
+    const nextPageHref = await page
+      .getByRole("link", { name: "Next page of articles", exact: true })
+      .getAttribute("href");
+    assert.ok(nextPageHref);
+    const nextPageUrl = new URL(nextPageHref, page.url());
+    const nextPageRoute = nextPageUrl.hash
+      ? new URL(nextPageUrl.hash.slice(1), "https://devfeed.tech")
+      : nextPageUrl;
+    assert.equal(nextPageRoute.pathname, "/trending");
+    assert.equal(nextPageRoute.searchParams.get("cursor"), "24");
 
     await page.locator(".pagination").scrollIntoViewIfNeeded();
     await page.getByRole("link", { name: "Trending next page article", exact: true }).waitFor();

@@ -41,7 +41,7 @@ export function InfiniteCatalog({
       error={!!error}
       onLoadMore={loadMore}
       label={kind}
-      nextHref={cursor !== null ? `/${kind}?offset=${cursor}` : undefined}
+      nextHref={cursor !== null ? `/${kind}?offset=${encodeURIComponent(cursor)}` : undefined}
       endMessage={`You’ve seen all ${kind}.`}
     >
       <div className="topic-grid">

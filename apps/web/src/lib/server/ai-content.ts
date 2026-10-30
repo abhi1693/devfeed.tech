@@ -85,24 +85,25 @@ export async function renderPublicMarkdown(
   if (route.kind === "article") return articleMarkdown(await getArticle(route.slug));
   if (route.kind === "directory") {
     const offset = offsetValue(query);
-    const limit = CATALOG_PAGE_SIZE;
+    const limit = CATALOG_PAGE_SIZE + 1;
     const items =
       route.collection === "topics"
         ? await getTopics(offset, limit, undefined, "name", "", "")
         : route.collection === "sources"
           ? await getSources(offset, limit, undefined, "", "")
           : await getTags(offset, limit);
-    const links = items.map((item) => {
+    const page = catalogPage(items, offset);
+    const links = page.items.map((item) => {
       const id = item.slug;
       const description = "description" in item ? item.description : null;
       return `- ${publicLink(item.name, `/${route.collection}/${encodeURIComponent(id)}`)}${typeof description === "string" && description ? `: ${label(description)}` : ""}`;
     });
-    const next = catalogPage<{ id: string }>(items, offset).next_cursor;
+    const next = page.next_cursor;
     return [
       `# DevFeed ${route.collection}`,
       "Public entries with published articles. This directory is paginated.",
       ...links,
-      !items.length && "No more entries.",
+      !page.items.length && "No more entries.",
       next && nextLink(path, new URLSearchParams(), "offset", next),
     ]
       .filter(Boolean)

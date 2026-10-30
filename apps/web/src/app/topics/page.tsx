@@ -1,7 +1,7 @@
 import { PublicPage } from "@/components/public-page";
 import { TopicsContent } from "@/components/topics-content";
 import { getTopics } from "@/lib/api";
-import { catalogOffset } from "@/lib/catalog-page";
+import { CATALOG_PAGE_SIZE, catalogOffset, catalogPage } from "@/lib/catalog-page";
 import type { SearchParams } from "@/lib/feed-query";
 import { JsonLd } from "@/components/json-ld";
 import { collectionStructuredData } from "@/lib/structured-data";
@@ -20,9 +20,10 @@ export default async function Topics({ searchParams }: { searchParams: Promise<S
   return <PublicPage kind="topics" content={Results({ query, offset })} />;
 }
 async function Results({ query, offset }: { query: SearchParams; offset: number }) {
-  const topics = await getTopics(offset);
+  const page = catalogPage(await getTopics(offset, CATALOG_PAGE_SIZE + 1), offset);
+  const topics = page.items;
   return (
-    <TopicsContent topics={topics} offset={offset} withShell={false}>
+    <TopicsContent topics={topics} offset={offset} initialPage={page} withShell={false}>
       <JsonLd
         data={collectionStructuredData(
           catalogCanonical("/topics", query),
