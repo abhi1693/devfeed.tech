@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from functools import lru_cache
-from typing import Any, Protocol, Self
+from typing import Any, Literal, Protocol, Self
 
 import aiohttp
 import clickhouse_connect
@@ -40,6 +40,18 @@ class AnalyticsUnavailable(RuntimeError):
 
 class AnalyticsPreparing(AnalyticsUnavailable):
     """A required import or serving policy has not completed yet."""
+
+
+class ReconciliationBusy(AnalyticsUnavailable):
+    """A bounded retry which leaves unrelated acknowledged repair work intact."""
+
+    def __init__(self, reason: Literal["publication_busy", "builder_busy"]) -> None:
+        messages = {
+            "publication_busy": "Current card publication is busy",
+            "builder_busy": "Current card builder is still running",
+        }
+        self.reason_code = reason
+        super().__init__(messages[reason])
 
 
 def _parameter(value: object) -> JsonValue:

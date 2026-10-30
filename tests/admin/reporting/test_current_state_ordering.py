@@ -18,7 +18,7 @@ from tests.support import analytics, partner_matching, source_readiness
 
 
 @pytest.mark.integration
-def test_late_reconciliation_preserves_newer_live_queue_and_card_and_skips_a_busy_publisher(
+def test_late_reconciliation_preserves_newer_live_queue_and_card_and_waits_for_a_busy_publisher(
     database,
 ):
     now = datetime.now(UTC)
@@ -64,7 +64,7 @@ def test_late_reconciliation_preserves_newer_live_queue_and_card_and_skips_a_bus
                     worker = CurrentStateReconciler(client, settings)
                     try:
                         old = await worker._snapshot()
-                        assert old is not None and len(old.jobs) == 1
+                        assert len(old.jobs) == 1
                         old_cards = await asyncio.to_thread(
                             build_cards, settings, "article", [article.id], old.revision
                         )
@@ -135,6 +135,8 @@ def test_late_reconciliation_preserves_newer_live_queue_and_card_and_skips_a_bus
 
                         connect = postgres_connections(settings.database_url)
                         events = []
+                        connected = asyncio.Event()
+                        source_pid = None
 
                         class TrackedConnection:
                             def __init__(self, connection):
@@ -154,22 +156,65 @@ def test_late_reconciliation_preserves_newer_live_queue_and_card_and_skips_a_bus
 
                         @asynccontextmanager
                         async def tracked():
-                            async with connect() as connection:
-                                yield TrackedConnection(connection)
+                            nonlocal source_pid
+                            try:
+                                async with connect() as connection:
+                                    source_pid = connection.info.backend_pid
+                                    connected.set()
+                                    yield TrackedConnection(connection)
+                            finally:
+                                events.append("closed")
 
                         async with connect() as holder:
                             await holder.execute("SELECT pg_advisory_lock(%s,%s)", PUBLISH_LOCK)
+                            worker.connect = tracked
+                            pending = asyncio.create_task(worker._snapshot())
                             try:
-                                worker.connect = tracked
-                                assert await asyncio.wait_for(worker._snapshot(), timeout=1) is None
-                            finally:
+                                await asyncio.wait_for(connected.wait(), 3)
+                                # Observe the actual PostgreSQL waiter before
+                                # releasing the preceding publisher. No RR
+                                # snapshot or source read may start in this gap.
+                                async with asyncio.timeout(3):
+                                    while not await (
+                                        await holder.execute(
+                                            "SELECT 1 FROM pg_locks WHERE pid=%s "
+                                            "AND locktype='advisory' AND NOT granted "
+                                            "AND classid::bigint=%s AND objid::bigint=%s "
+                                            "AND objsubid=2",
+                                            (source_pid, *PUBLISH_LOCK),
+                                        )
+                                    ).fetchone():
+                                        await asyncio.sleep(0.005)
+                                assert not pending.done()
+                                assert "begin" not in events
+                                assert not any(
+                                    "txid_current()" in event or " AS source " in event
+                                    for event in events
+                                )
                                 await holder.execute(
                                     "SELECT pg_advisory_unlock(%s,%s)", PUBLISH_LOCK
                                 )
-                        assert "begin" not in events
-                        assert not any(
-                            "txid_current()" in event or " AS source " in event for event in events
+                                current = await asyncio.wait_for(pending, 10)
+                                assert current.revision > int(live_queue[0]["revision"])
+                                assert not current.jobs  # The newer completion is visible.
+                            finally:
+                                await holder.execute("SELECT pg_advisory_unlock_all()")
+                                if not pending.done():
+                                    pending.cancel()
+                                await asyncio.gather(pending, return_exceptions=True)
+                        begin = events.index("begin")
+                        fence = next(
+                            i for i, event in enumerate(events) if "txid_current()" in event
                         )
+                        unlock = next(
+                            i for i, event in enumerate(events) if "pg_advisory_unlock" in event
+                        )
+                        source_read = next(
+                            i for i, event in enumerate(events) if " AS source " in event
+                        )
+                        assert begin < fence < unlock < source_read < events.index("closed")
+                        assert await client.query(queue_sql) == live_queue
+                        assert await client.query(card_sql, parameters) == live_card
                     finally:
                         await worker.close()
             finally:

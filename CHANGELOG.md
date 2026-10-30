@@ -2,6 +2,12 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.1.7 — 2026-10-30
+
+### Fixes
+
+- Keep administration queue counts, pipeline cards, and feed/topic reports updating during continuous background publication, and preserve queue refresh progress when a slower card refresh needs to retry.
+
 ## 0.1.6 — 2026-10-30
 
 ### Enhancements

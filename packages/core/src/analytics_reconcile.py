@@ -21,8 +21,14 @@ from datetime import UTC, datetime
 from typing import Any, TypedDict
 
 from psycopg import AsyncConnection, sql
+from psycopg.errors import LockNotAvailable, QueryCanceled
 
-from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable, SqlRecord
+from devfeed_core.analytics import (
+    AnalyticsClient,
+    AnalyticsUnavailable,
+    ReconciliationBusy,
+    SqlRecord,
+)
 from devfeed_core.analytics_audience_refresh import AudienceMetadataRefresh
 from devfeed_core.analytics_direct_cards import CARD_SOURCES, card_identities
 from devfeed_core.analytics_observation import pipeline_policy_version
@@ -185,6 +191,7 @@ class CurrentStateReconciler:
         self._version = 0
         self._turn = 0
         self._builder: asyncio.Task[list[SqlRecord]] | None = None
+        self._interrupted_page_builder: asyncio.Task[list[SqlRecord]] | None = None
         self._audience_metadata = AudienceMetadataRefresh(client, self._source_snapshot)
 
     async def close(self) -> None:
@@ -268,22 +275,22 @@ class CurrentStateReconciler:
     @asynccontextmanager
     async def _source_snapshot(
         self,
-    ) -> AsyncIterator[tuple[AsyncConnection[SqlRecord], int, datetime] | None]:
+    ) -> AsyncIterator[tuple[AsyncConnection[SqlRecord], int, datetime]]:
         async with self.connect() as connection:
-            await connection.execute("SET statement_timeout='5s'")
+            await connection.execute("SET statement_timeout='10s'")
             # Acquire before BEGIN: the first RR SELECT establishes its snapshot
             # before evaluating SQL functions, so an xact-lock SELECT would be
             # too late to order that snapshot against the previous publisher.
-            acquired = await (
-                await connection.execute(
-                    "SELECT pg_try_advisory_lock(%s,%s) AS acquired", PUBLISH_LOCK
-                )
-            ).fetchone()
-            if acquired is None or acquired["acquired"] is not True:
-                yield None
-                return
+            try:
+                # Queue behind admitted publishers instead of starving whenever
+                # another publisher is already waiting. Native async I/O keeps
+                # the event loop free; the statement timeout bounds this wait.
+                await connection.execute("SELECT pg_advisory_lock(%s,%s)", PUBLISH_LOCK)
+            except (LockNotAvailable, QueryCanceled) as error:
+                raise ReconciliationBusy("publication_busy") from error
             locked = True
             try:
+                await connection.execute("SET statement_timeout='5s'")
                 async with connection.transaction():
                     await connection.execute(
                         "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
@@ -310,11 +317,9 @@ class CurrentStateReconciler:
                 if locked:
                     await connection.execute("SELECT pg_advisory_unlock(%s,%s)", PUBLISH_LOCK)
 
-    async def _snapshot(self) -> QueueCycle | None:
+    async def _snapshot(self) -> QueueCycle:
         jobs: list[SqlRecord] = []
         async with self._source_snapshot() as snapshot:
-            if snapshot is None:
-                return None
             connection, revision, source_at = snapshot
             for table in JOB_TABLES:
                 spec = TABLES[table]
@@ -481,8 +486,6 @@ class CurrentStateReconciler:
         cycle = self.queue_cycle
         if cycle is None:
             cycle = await self._snapshot()
-            if cycle is None:
-                return False
             self.queue_cycle = cycle
             await self._save("queues", {}, pending=1)
         if cycle.phase == "active":
@@ -521,7 +524,7 @@ class CurrentStateReconciler:
         from devfeed_core.analytics_direct_cards import build_cards
 
         if self._builder is not None and not self._builder.done():
-            raise AnalyticsUnavailable("Current card builder is still running")
+            raise ReconciliationBusy("builder_busy")
         task = asyncio.create_task(
             asyncio.to_thread(build_cards, self.settings, kind, identifiers, revision)
         )
@@ -532,6 +535,7 @@ class CurrentStateReconciler:
             # result is ever inserted or acknowledged by a later page.
             return await asyncio.shield(task)
         except asyncio.CancelledError:
+            self._interrupted_page_builder = task
             task.add_done_callback(_finished_builder)
             raise
         finally:
@@ -544,8 +548,6 @@ class CurrentStateReconciler:
         if not identifiers:
             return False
         async with self._source_snapshot() as snapshot:
-            if snapshot is None:
-                raise AnalyticsUnavailable("Current card publication is busy")
             connection, revision, _ = snapshot
             signatures = await card_fingerprints(connection, kind, identifiers)
         rows = await self.client.query(
@@ -722,8 +724,17 @@ class CurrentStateReconciler:
         await self._save(scope, state, pending=1)
         return True
 
+    def _busy_reason(self, error: TimeoutError | ReconciliationBusy) -> str | None:
+        if isinstance(error, ReconciliationBusy):
+            return error.reason_code
+        if self._interrupted_page_builder is not None:
+            # This page stopped while awaiting its shielded native builder.
+            return "builder_busy"
+        return None
+
     async def once(self) -> bool:
         """Progress one bounded page; untouched history stays in ClickHouse."""
+        self._interrupted_page_builder = None
         try:
             async with asyncio.timeout(PAGE_SECONDS):
                 if not await self._lead():
@@ -768,6 +779,19 @@ class CurrentStateReconciler:
                             scope, current_only=scope != "sweep", fast=scope == "active-cards"
                         )
                 return False
+        except (TimeoutError, ReconciliationBusy) as error:
+            reason = self._busy_reason(error)
+            if reason is None:
+                await self.close()
+                raise
+            # A private source admission or an existing builder can be busy
+            # without invalidating the independent, fixed active-job snapshot.
+            # Failed card work has not reached its cursor/fingerprint ACK.
+            logger.info(
+                "analytics_current_reconciliation_busy",
+                extra={"reason_code": reason},
+            )
+            return False
         except BaseException:
             # A failed leader/snapshot is never resumed as complete coverage.
             # Card cursors are acknowledged per page; active-job snapshots are

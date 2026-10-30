@@ -38,7 +38,7 @@ SOURCES = (
 )
 COMPLETE_PHASE = len(SOURCES) + 1
 type Snapshot = Callable[
-    [], AbstractAsyncContextManager[tuple[AsyncConnection[SqlRecord], int, datetime] | None]
+    [], AbstractAsyncContextManager[tuple[AsyncConnection[SqlRecord], int, datetime]]
 ]
 
 
@@ -180,8 +180,6 @@ class AudienceMetadataRefresh:
 
     async def _initialize(self, state: dict[str, Any], previous: SqlRecord | None) -> bool:
         async with self.snapshot() as snapshot:
-            if snapshot is None:
-                return False
             connection, revision, source_at = snapshot
             statement, parameters = _query(state["phase"], state, boundary=True)
             rows = await (await connection.execute(statement, parameters)).fetchall()
@@ -196,8 +194,6 @@ class AudienceMetadataRefresh:
         phase = state["phase"]
         _, keys, limit = SOURCES[phase]
         async with self.snapshot() as snapshot:
-            if snapshot is None:
-                return False
             connection, revision, _ = snapshot
             statement, parameters = _query(phase, state, boundary=False)
             rows = await (await connection.execute(statement, parameters)).fetchall()

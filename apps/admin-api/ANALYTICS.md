@@ -45,6 +45,17 @@ no current-state pass resets historical import progress or emits attempt history
 Historical terminal job totals are not re-derived. This works with priority pools
 and dedicated queue overrides alike.
 
+Source snapshots join the PostgreSQL publication lock's wait queue so continuous
+live publication cannot repeatedly bypass repair. Admission waits asynchronously
+for at most ten seconds, then the repeatable-read snapshot and revision are
+reserved before releasing the publication lock. Source queries keep their
+five-second deadlines; each complete repair page has a twenty-second deadline.
+Publication contention and an unfinished native card builder retry without
+discarding an independent, valid active-job cycle. Unbuilt cards never advance
+their cursor or fingerprint; cancellation and unrelated failures close the
+coordinator and reacquire its source state on retry. Busy and failed pages log
+structured reason and error-class codes without SQL or private parameters.
+
 ## Current cards and reports
 
 Five card kinds cover articles, sources, discovery candidates, topic proposals
