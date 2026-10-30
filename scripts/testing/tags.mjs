@@ -152,6 +152,18 @@ async function runTags(page, pathFor, output) {
   assert.equal(nextRoute.searchParams.get("letter"), "S");
   assert.equal(nextRoute.searchParams.get("offset"), "60");
   const continuationPage = await page.context().newPage();
+  // This tab checks explicit continuation links. Keep the original tab's
+  // automatic pagination/retry journey below independent of observer timing.
+  await continuationPage.addInitScript(() => {
+    window.IntersectionObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+      takeRecords() {
+        return [];
+      }
+    };
+  });
   await continuationPage.goto(nextUrl.toString());
   await continuationPage.getByRole("link", { name: "Scroll tag 060", exact: true }).waitFor();
   const finalPageLink = continuationPage.getByRole("link", {
