@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import uuid
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
@@ -86,6 +87,17 @@ def _insert_date(value: object) -> object:
     if isinstance(value, datetime):
         return value.astimezone(UTC).date() if value.tzinfo else value.date()
     return value
+
+
+def _validate_card_shards(rows: Sequence[Mapping[str, object]]) -> None:
+    """Canonical lookups rely on the immutable UUID-derived primary-key shard."""
+    for row in rows:
+        try:
+            identity = uuid.UUID(str(row["entity_id"]))
+        except (KeyError, ValueError):
+            raise ValueError("Canonical card identity must be a UUID") from None
+        if type(row.get("shard")) is not int or row["shard"] != identity.bytes[0]:
+            raise ValueError("Canonical card shard must match its UUID")
 
 
 @lru_cache(maxsize=128)
@@ -236,6 +248,8 @@ class AnalyticsClient:
         expected = set(columns)
         if not columns or any(set(row) != expected for row in rows):
             raise ValueError("Analytical insert rows must have the same columns")
+        if table == "analytics_card_canonical":
+            _validate_card_shards(rows)
         settings = (
             self._limits()
             | self.insert_settings

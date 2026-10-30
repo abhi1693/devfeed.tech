@@ -123,7 +123,15 @@ class Sink:
             return []  # This current-card fixture has no audience observations.
         if reconcile.PROGRESS_TABLE in statement:
             rows = list(self.rows.get(reconcile.PROGRESS_TABLE, {}).values())
-            return deepcopy([row for row in rows if row["policy"] == params["policy"]])
+            return deepcopy(
+                [
+                    row
+                    for row in rows
+                    if row["policy"] == params["policy"]
+                    and ("scopes" not in params or row["scope"] in params["scopes"])
+                    and ("scope" not in params or row["scope"] == params["scope"])
+                ]
+            )
         if reconcile.FINGERPRINT_TABLE in statement:
             rows = [
                 row
@@ -423,20 +431,24 @@ def test_card_coverage_advances_only_after_complete_source_and_reverse_target_pa
 
     async def scenario():
         await world.worker._load()
-        await world.worker._card_page("cards", current_only=True)
-        assert world.worker.progress["cards"]["completed_at"] is None
-        assert world.worker.progress["cards"]["pending"] == 1
+        await world.worker._card_page(
+            reconcile.card_scope("article"), current_only=True, selected_kind="article"
+        )
+        assert world.worker.progress[reconcile.card_scope("article")]["completed_at"] is None
+        assert world.worker.progress[reconcile.card_scope("article")]["pending"] == 1
         for _ in range(30):
             world.now += timedelta(seconds=1)
-            await world.worker._card_page("cards", current_only=True)
-            if not world.worker.progress["cards"]["pending"]:
+            await world.worker._card_page(
+                reconcile.card_scope("article"), current_only=True, selected_kind="article"
+            )
+            if not world.worker.progress[reconcile.card_scope("article")]["pending"]:
                 break
         else:
             pytest.fail("Covered current-card pass never completed")
 
     asyncio.run(scenario())
-    assert world.worker.progress["cards"]["source_at"] == NOW
-    assert world.worker.progress["cards"]["completed_at"] > NOW
+    assert world.worker.progress[reconcile.card_scope("article")]["source_at"] == NOW
+    assert world.worker.progress[reconcile.card_scope("article")]["completed_at"] > NOW
     assert world.builds == 1
 
 
@@ -512,7 +524,7 @@ def test_bounded_weighted_scheduler_progresses_all_due_work(monkeypatch):
         "todo",
         "active-cards",
         "overview",
-        "cards",
+        "cards:article",
         "todo",
         "sweep",
         "audience-metadata",
@@ -666,14 +678,18 @@ def test_status_rejects_ambiguous_or_invalid_coverage(monkeypatch):
     world = World(monkeypatch)
     row = {
         "policy": world.worker.policy,
-        "scope": "cards",
+        "scope": reconcile.card_scope("article"),
         "pending": 0,
         "version": 1,
         "completed_at": NOW.isoformat(),
         "source_at": NOW.isoformat(),
     }
     world.sink.put(reconcile.PROGRESS_TABLE, [row])
-    status = asyncio.run(reconcile.read_reconciliation_status(world.sink, world.worker.policy))
+    status = asyncio.run(
+        reconcile.read_reconciliation_status(
+            world.sink, world.worker.policy, card_kinds=("article",)
+        )
+    )
     assert status["cards"]["source_at"] == NOW and not status["cards"]["pending"]
 
     async def duplicates(*_args):
@@ -681,7 +697,11 @@ def test_status_rejects_ambiguous_or_invalid_coverage(monkeypatch):
 
     monkeypatch.setattr(world.sink, "query", duplicates)
     with pytest.raises(ValueError, match="Ambiguous"):
-        asyncio.run(reconcile.read_reconciliation_status(world.sink, world.worker.policy))
+        asyncio.run(
+            reconcile.read_reconciliation_status(
+                world.sink, world.worker.policy, card_kinds=("article",)
+            )
+        )
 
 
 @pytest.mark.parametrize("value", [NOW, NOW.replace(tzinfo=None), NOW.isoformat(), None])
@@ -712,7 +732,7 @@ def test_full_worker_lifecycle_repairs_then_idles_without_starving_pending_cards
         else:
             pytest.fail("Covered current state did not become idle")
         assert not await world.worker._todo()
-        assert not world.worker.progress["cards"]["pending"]
+        assert not world.worker.progress[reconcile.card_scope("article")]["pending"]
         assert not world.worker.progress["queues"]["pending"]
         assert world.worker.progress["sweep"]["pending"]  # Archival pages are rate bounded.
         await world.worker.close()
@@ -1027,7 +1047,11 @@ def test_current_card_cursor_resumes_after_process_restart_and_ack_loss(monkeypa
 
     world.sink.after_ack = uncertain_ack
     with pytest.raises(AnalyticsUnavailable):
-        asyncio.run(world.worker._card_page("cards", current_only=True))
+        asyncio.run(
+            world.worker._card_page(
+                reconcile.card_scope("article"), current_only=True, selected_kind="article"
+            )
+        )
     world.sink.after_ack = None
     world.worker = reconcile.CurrentStateReconciler(
         world.sink, world.settings, world.connect, clock=lambda: world.now
@@ -1036,8 +1060,10 @@ def test_current_card_cursor_resumes_after_process_restart_and_ack_loss(monkeypa
     async def scenario():
         await world.worker._load()
         for _ in range(30):
-            await world.worker._card_page("cards", current_only=True)
-            if not world.worker.progress["cards"]["pending"]:
+            await world.worker._card_page(
+                reconcile.card_scope("article"), current_only=True, selected_kind="article"
+            )
+            if not world.worker.progress[reconcile.card_scope("article")]["pending"]:
                 break
         else:
             pytest.fail("Restarted coverage cursor did not complete")
@@ -1078,9 +1104,13 @@ def test_fast_card_scan_and_background_identity_page_keep_separate_coverage(monk
 )
 def test_invalid_sweep_metadata_cannot_advance_coverage(monkeypatch, state):
     world = World(monkeypatch)
-    world.worker.progress["cards"] = {"cursor": json.dumps(state)}
+    world.worker.progress[reconcile.card_scope("article")] = {"cursor": json.dumps(state)}
     with pytest.raises(AnalyticsUnavailable):
-        asyncio.run(world.worker._card_page("cards", current_only=True))
+        asyncio.run(
+            world.worker._card_page(
+                reconcile.card_scope("article"), current_only=True, selected_kind="article"
+            )
+        )
     assert not world.sink.writes
 
 
@@ -1187,5 +1217,426 @@ def test_cancelled_builder_observer_does_not_inspect_a_missing_result():
         with pytest.raises(asyncio.CancelledError):
             await task
         reconcile._finished_builder(task)
+
+    asyncio.run(scenario())
+
+
+def test_small_populations_finish_independently_of_a_production_sized_article_scan(monkeypatch):
+    world = World(monkeypatch, batch=100)
+    # Production current populations: 148 article pages versus fourteen source pages.
+    for value in range(14_807):
+        world.entity(value=value)
+    for value in range(1_321):
+        world.entity(kind="source", value=value)
+    for value in range(1_276):
+        world.entity(kind="relationship-proposal", value=value)
+    world.entity(kind="candidate")
+
+    async def scenario():
+        for _ in range(148):
+            assert await world.worker._current_card_page()
+            world.now += timedelta(seconds=2)
+            if all(
+                world.worker.progress.get(reconcile.card_scope(kind), {}).get("completed_at")
+                for kind in ("source", "candidate")
+            ):
+                break
+        else:
+            pytest.fail("Small board populations waited behind the full article population")
+        assert world.worker.progress[reconcile.card_scope("article")]["pending"]
+        covered = await reconcile.read_reconciliation_status(
+            world.sink, world.worker.policy, card_kinds=("source", "candidate")
+        )
+        assert not covered["cards"]["pending"]
+        # Each population reserves its own boundary when it first gets a turn.
+        assert covered["cards"]["source_at"] == NOW + timedelta(seconds=2)
+        assert covered["cards"]["completed_at"] > covered["cards"]["source_at"]
+        assert "cards" not in world.worker.progress
+        assert "cards" not in {
+            row["scope"] for row in world.sink.rows[reconcile.PROGRESS_TABLE].values()
+        }
+
+    asyncio.run(scenario())
+
+
+def test_kind_target_failure_and_restart_preserve_tombstones_and_unacknowledged_coverage(
+    monkeypatch,
+):
+    world = World(monkeypatch)
+    present = world.entity(kind="source")
+    ghost = identifier(2)
+    world.sink.put(
+        "analytics_card_canonical",
+        [
+            cards.normalize_card(
+                {"stage": "active", "state": "ready"},
+                world.worker.policy,
+                "source",
+                uuid.UUID(ghost),
+                1,
+                NOW,
+            )
+        ],
+    )
+    scope = reconcile.card_scope("source")
+
+    async def scenario():
+        await world.worker._card_page(scope, current_only=True, selected_kind="source")
+        assert world.worker._state(scope)["phase"] == "target"
+        assert world.worker.progress[scope]["source_at"] is None
+        world.sink.fail_write = reconcile.PROGRESS_TABLE
+        with pytest.raises(AnalyticsUnavailable):
+            await world.worker._card_page(scope, current_only=True, selected_kind="source")
+        assert world.worker.progress[scope]["completed_at"] is None
+        assert (
+            world.sink.rows["analytics_card_canonical"][(world.worker.policy, "source", ghost)][
+                "deleted"
+            ]
+            == 1
+        )
+        world.sink.fail_write = None
+        world.worker = reconcile.CurrentStateReconciler(
+            world.sink, world.settings, world.connect, clock=lambda: world.now
+        )
+        await world.worker._load()
+        for _ in range(10):
+            await world.worker._card_page(scope, current_only=True, selected_kind="source")
+            if not world.worker.progress[scope]["pending"]:
+                break
+        else:
+            pytest.fail("Independent source coverage did not finish after restart")
+        assert world.worker.progress[scope]["source_at"] == NOW
+        assert (
+            world.sink.rows["analytics_card_canonical"][(world.worker.policy, "source", present)][
+                "deleted"
+            ]
+            == 0
+        )
+
+    asyncio.run(scenario())
+
+
+def test_old_global_or_active_coverage_cannot_certify_missing_independent_populations(monkeypatch):
+    world = World(monkeypatch)
+    before = [
+        {
+            "policy": world.worker.policy,
+            "scope": scope,
+            "version": 99,
+            "source_at": NOW,
+            "completed_at": NOW,
+            "pending": 0,
+            "cursor": "{}",
+        }
+        for scope in ("cards", "active-cards")
+    ]
+    world.sink.put(reconcile.PROGRESS_TABLE, before)
+
+    async def scenario():
+        await world.worker._load()
+        assert world.worker.progress["cards"]["source_at"] == NOW
+        status = await reconcile.read_reconciliation_status(
+            world.sink, world.worker.policy, card_kinds=("source", "candidate")
+        )
+        assert status["cards"]["pending"]
+        assert status["cards"]["source_at"] is None
+        assert status["cards"]["completed_at"] is None
+        assert (
+            world.sink.rows[reconcile.PROGRESS_TABLE][(world.worker.policy, "cards")] == before[0]
+        )
+
+    asyncio.run(scenario())
+
+
+def test_dirty_owners_invalidate_only_their_populations_and_todo_turns_are_fair(monkeypatch):
+    world = World(monkeypatch, batch=1)
+    refreshed = []
+
+    async def refresh(kind, identifiers):
+        refreshed.append((kind, identifiers))
+        return True
+
+    monkeypatch.setattr(world.worker, "_refresh", refresh)
+
+    async def scenario():
+        for kind in reconcile.CARD_KINDS:
+            await world.worker._save(
+                reconcile.card_scope(kind), {}, source_at=NOW, completed_at=NOW, pending=0
+            )
+        await world.worker._enqueue(
+            ["article:" + identifier(1), "article:" + identifier(2), "source:" + identifier(3)]
+        )
+        assert all(
+            world.worker.progress[reconcile.card_scope(kind)]["pending"]
+            == int(kind in {"article", "source"})
+            for kind in reconcile.CARD_KINDS
+        )
+        for _ in range(3):
+            assert await world.worker._todo()
+        assert [kind for kind, _ in refreshed] == ["article", "source", "article"]
+        assert not await world.worker._todo()
+        # Refreshing dirty identities does not certify a missing-population or tombstone pass.
+        assert world.worker.progress[reconcile.card_scope("source")]["pending"]
+        assert world.worker.progress[reconcile.card_scope("source")]["source_at"] == NOW
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("failure", ["second_kind", "ledger_ack", "fingerprint_ack"])
+def test_partial_owner_enqueue_replays_after_restart_without_certifying_dirty_cards(
+    monkeypatch, failure
+):
+    world = World(monkeypatch)
+    article = world.entity(value=101)
+    source = world.entity(kind="source", value=102)
+    world.job(101)
+    world.job(102, table="ingestion_jobs")
+    record = world.jobs["ingestion_jobs"][0]["record"]
+    record["article_id"], record["source_id"] = None, source
+    owners = sorted(["article:" + article, "source:" + source])
+
+    async def scenario():
+        for kind in reconcile.CARD_KINDS:
+            await world.worker._save(
+                reconcile.card_scope(kind), {}, source_at=NOW, completed_at=NOW, pending=0
+            )
+        original = world.sink.insert
+        failed = False
+
+        async def interrupt(table, rows):
+            nonlocal failed
+            scope = rows[0].get("scope")
+            selected = not failed and (
+                failure == "second_kind"
+                and scope == reconcile.card_scope("source")
+                or failure == "ledger_ack"
+                and scope == "cards"
+                or failure == "fingerprint_ack"
+                and table == reconcile.FINGERPRINT_TABLE
+            )
+            if selected:
+                failed = True
+                if failure != "second_kind":
+                    await original(table, rows)  # Persisted before an uncertain acknowledgment.
+                raise AnalyticsUnavailable("Interrupted durable owner enqueue")
+            await original(table, rows)
+
+        monkeypatch.setattr(world.sink, "insert", interrupt)
+        with pytest.raises(AnalyticsUnavailable, match="Interrupted durable owner"):
+            await world.worker._queue_step()
+        assert failed
+        fingerprints = world.sink.rows.get(reconcile.FINGERPRINT_TABLE, {})
+        assert bool(fingerprints) == (failure == "fingerprint_ack")
+        if fingerprints:
+            ledger = world.sink.rows[reconcile.PROGRESS_TABLE][(world.worker.policy, "cards")]
+            assert json.loads(ledger["cursor"])["todo"] == owners
+        await world.worker.close()
+
+        monkeypatch.setattr(world.sink, "insert", original)
+        world.worker = reconcile.CurrentStateReconciler(
+            world.sink, world.settings, world.connect, clock=lambda: world.now
+        )
+        await queue_cycle(world)
+        assert world.worker._state("cards")["todo"] == owners
+        assert len(world.sink.rows[reconcile.FINGERPRINT_TABLE]) == 2
+        for kind in ("article", "source"):
+            assert world.worker.progress[reconcile.card_scope(kind)]["pending"]
+        assert not world.worker.progress["queues"]["pending"]
+        while await world.worker._todo():
+            pass
+        # Dirty-card ACKs alone cannot certify the population and reverse tombstone scan.
+        for kind in ("article", "source"):
+            scope = reconcile.card_scope(kind)
+            assert world.worker.progress[scope]["pending"]
+            for _ in range(10):
+                await world.worker._card_page(scope, current_only=True, selected_kind=kind)
+                if not world.worker.progress[scope]["pending"]:
+                    break
+            else:
+                pytest.fail("Replayed owner never completed independent source/target coverage")
+        assert world.worker._state("cards") == {"todo": []}
+        for kind, identity in (("article", article), ("source", source)):
+            assert not world.sink.rows["analytics_card_canonical"][
+                (world.worker.policy, kind, identity)
+            ]["deleted"]
+        await world.worker.close()
+
+    asyncio.run(scenario())
+    assert world.opened == world.closed
+
+
+def test_upgrade_preserves_and_drains_existing_dirty_owners_without_adopting_old_coverage(
+    monkeypatch,
+):
+    world = World(monkeypatch, batch=1)
+    article = world.entity(value=101, terminal_at=NOW - timedelta(days=30))
+    source = world.entity(kind="source", value=102)
+    owners = ["article:" + article, "source:" + source]
+    legacy = {
+        "policy": world.worker.policy,
+        "scope": "cards",
+        "version": 1,
+        "source_at": NOW,
+        "completed_at": NOW,
+        "pending": 1,
+        "cursor": json.dumps(
+            {
+                "phase": "target",
+                "index": 4,
+                "started_at": NOW.isoformat(),
+                "after": identifier(99),
+                "todo": owners,
+            }
+        ),
+    }
+    world.sink.put(reconcile.PROGRESS_TABLE, [legacy])
+
+    async def no_current_identities(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(sources, "card_ids", no_current_identities)
+
+    async def scenario():
+        await world.worker._load()
+        status = await reconcile.read_reconciliation_status(world.sink, world.worker.policy)
+        assert status["cards"]["source_at"] is None
+        for _owner in owners:
+            assert await world.worker._todo()
+        assert not await world.worker._todo()
+        # Old source/target sweep metadata is discarded, not resumed as a fake kind cycle.
+        assert world.worker._state("cards") == {"todo": []}
+        for kind, identity in (("article", article), ("source", source)):
+            assert (
+                world.sink.rows["analytics_card_canonical"][(world.worker.policy, kind, identity)][
+                    "deleted"
+                ]
+                == 0
+            )
+        assert world.builds == 2
+        status = await reconcile.read_reconciliation_status(world.sink, world.worker.policy)
+        assert status["cards"]["source_at"] is None
+        assert not any(table == "analytics_pipeline_events" for table, _ in world.sink.writes)
+
+    asyncio.run(scenario())
+
+
+def test_active_pass_remains_independent_of_unprocessed_dirty_owner_ledger(monkeypatch):
+    world = World(monkeypatch)
+    article = world.entity(has_active_work=True)
+
+    async def scenario():
+        await world.worker._enqueue(["article:" + article])
+        for _ in reconcile.CARD_KINDS:
+            await world.worker._card_page("active-cards", current_only=True, fast=True)
+        assert not world.worker.progress["active-cards"]["pending"]
+        assert world.worker._state("cards")["todo"] == ["article:" + article]
+        assert world.worker.progress[reconcile.card_scope("article")]["pending"]
+        assert world.worker.progress[reconcile.card_scope("article")]["completed_at"] is None
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.integration
+def test_native_card_lookup_prunes_shards_and_preserves_final_versions(monkeypatch):
+    """The full canonical key prunes real marks without hiding newer tombstones."""
+    import hashlib
+    import re
+
+    from tests.support import analytics
+
+    async def scenario():
+        configured = analytics.settings()
+        name = f"card_lookup_{uuid.uuid4().hex}_test"
+        async with cards.AnalyticsClient(configured) as owner:
+            await owner.execute(f"CREATE DATABASE `{name}`")
+            try:
+                settings = configured.model_copy(update={"clickhouse_database": name})
+                async with cards.AnalyticsClient(settings) as client:
+                    await client.initialize()
+                    await client.execute("SYSTEM STOP MERGES analytics_card_canonical")
+                    worker = reconcile.CurrentStateReconciler(client, settings)
+                    identities = [
+                        uuid.UUID(
+                            bytes=hashlib.sha256(str(value).encode()).digest()[:16], version=4
+                        )
+                        for value in range(100_000)
+                    ]
+                    await client.insert(
+                        "analytics_card_canonical",
+                        [
+                            {
+                                "policy": worker.policy,
+                                "kind": "article",
+                                "shard": identity.bytes[0],
+                                "entity_id": str(identity),
+                                "version": 1,
+                                "deleted": 0,
+                                "semantic_hash": str(value),
+                            }
+                            for value, identity in enumerate(identities)
+                        ],
+                    )
+                    selected = [
+                        *sorted(str(value) for value in identities if value.bytes[0] == 0)[:50],
+                        *sorted(str(value) for value in identities if value.bytes[0] == 1)[:50],
+                    ]
+                    assert len(selected) == 100
+                    await client.insert(
+                        "analytics_card_canonical",
+                        [
+                            {
+                                "policy": worker.policy,
+                                "kind": "article",
+                                "shard": cards.shard_of(identity),
+                                "entity_id": identity,
+                                "version": 2,
+                                "deleted": deleted,
+                                "semantic_hash": digest,
+                            }
+                            for identity, deleted, digest in (
+                                (selected[0], 0, "updated"),
+                                (selected[1], 1, "removed"),
+                            )
+                        ],
+                    )
+                    actual_query = []
+                    original = client.query
+
+                    async def capture(statement, parameters=None, **kwargs):
+                        actual_query.append((statement, parameters))
+                        return await original(statement, parameters, **kwargs)
+
+                    monkeypatch.setattr(client, "query", capture)
+                    actual = await worker._card_targets("article", selected)
+                    statement, parameters = actual_query[-1]
+                    legacy = statement.replace("AND shard IN {shards:Array(UInt16)} ", "")
+                    expected = {
+                        str(row["entity_id"]): row for row in await original(legacy, parameters)
+                    }
+                    assert actual == expected and len(actual) == 100
+                    assert actual[selected[0]]["semantic_hash"] == "updated"
+                    assert actual[selected[1]]["deleted"] == 1
+                    assert actual[selected[1]]["semantic_hash"] == "removed"
+                    plans = []
+                    for query in (legacy, statement):
+                        plan = await original("EXPLAIN indexes=1 " + query, parameters)
+                        counts = re.findall(
+                            r"Granules: (\d+)/(\d+)", "\n".join(row["explain"] for row in plan)
+                        )
+                        assert counts
+                        plans.append(int(counts[-1][0]))
+                    assert plans[1] < plans[0] / 2, plans
+                    print(
+                        json.dumps(
+                            {
+                                "fixture_rows": 100_000,
+                                "selected_ids": 100,
+                                "legacy_granules": plans[0],
+                                "bounded_granules": plans[1],
+                            }
+                        )
+                    )
+            finally:
+                await owner.execute(f"DROP DATABASE IF EXISTS `{name}` SYNC")
 
     asyncio.run(scenario())
