@@ -167,10 +167,15 @@ async def card_ids(
         conditions.append(CURRENT_FILTERS[kind])
         parameters.extend([now - timedelta(days=7)] * CURRENT_FILTERS[kind].count("%s"))
     parameters.append(limit)
+    # The unqualified output alias is text; order by the UUID key to use its index.
     query = sql.SQL(
         "/* analytics:reconcile-card-ids */ SELECT id::text AS id FROM {} "
-        "WHERE {} ORDER BY id LIMIT %s"
-    ).format(sql.Identifier(table), sql.SQL(" AND ".join(conditions) or "true"))
+        "WHERE {} ORDER BY {} LIMIT %s"
+    ).format(
+        sql.Identifier(table),
+        sql.SQL(" AND ".join(conditions) or "true"),
+        sql.Identifier(table, "id"),
+    )
     rows = await (await connection.execute(query, parameters)).fetchall()
     return [str(uuid.UUID(row["id"])) for row in rows]
 

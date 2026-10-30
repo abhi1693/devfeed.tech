@@ -60,7 +60,8 @@ async def test_first_identity_page_includes_zero_uuid_and_uses_bounded_scalar_sq
     ) == [ZERO, ONE]
     query, parameters = connection.calls[0]
     assert f'FROM "{sources.TABLES[kind]}"' in query
-    assert "SELECT id::text AS id" in query and "ORDER BY id LIMIT %s" in query
+    assert "SELECT id::text AS id" in query
+    assert f'ORDER BY "{sources.TABLES[kind]}"."id" LIMIT %s' in query
     assert "id>%s" not in query and parameters[-1] == 2
     if current_only and kind in sources.CURRENT_FILTERS:
         count = 3 if kind == "article" else 1
@@ -446,5 +447,210 @@ def test_current_scan_discovers_lost_recent_terminal_cards_using_their_actual_te
             assert await sources.card_ids(
                 pg, "relationship-proposal", None, 200, current_only=True, now=NOW
             ) == [str(relation.id)]
+
+    asyncio.run(read())
+
+
+@pytest.mark.integration
+def test_native_current_article_pages_stop_at_the_uuid_index_limit_at_retained_scale(database):
+    import asyncio
+    import hashlib
+
+    from devfeed_core.config import get_settings
+    from psycopg import AsyncConnection
+    from psycopg.rows import dict_row
+
+    # Randomly distributed keys and a two-thirds cursor model a partially completed
+    # recovery. Thirty percent remain current, including recent rejection reviews.
+    identifiers = {
+        str(
+            uuid.UUID(
+                hashlib.md5(f"card-page:{number}".encode(), usedforsecurity=False).hexdigest()
+            )
+        ): number % 20 < 6
+        for number in range(100_000)
+    }
+    ordered = sorted(identifiers)
+
+    async def read():
+        dsn = get_settings().database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+        async with await AsyncConnection.connect(dsn, autocommit=True, row_factory=dict_row) as pg:
+            async with pg.transaction():
+                # Use the migrated tables and their real indexes, constraints and
+                # triggers. Batches keep fixture writes within the normal deadline.
+                for start in range(0, 100_000, 5_000):
+                    await pg.execute(
+                        "INSERT INTO articles (id,canonical_url,url_hash,title,slug,summary,"
+                        "review_status,publication_status,published_to_feed_at,content_type,"
+                        "feed_at,discovered_at) "
+                        "SELECT md5('card-page:'||n)::uuid,'https://card-page.test/'||n,"
+                        "md5('card-page:'||n),'Card page '||n,'card-page-'||n,'',"
+                        "CASE WHEN n%%20<2 THEN 'pending' "
+                        "WHEN n%%20 IN (3,4) OR n%%20 BETWEEN 6 AND 13 "
+                        "THEN 'rejected' ELSE 'approved' END,"
+                        "CASE WHEN n%%20 IN (2,5) OR n%%20>=14 "
+                        "THEN 'published' ELSE 'unpublished' END,"
+                        "CASE WHEN n%%20=2 THEN %s::timestamptz WHEN n%%20=5 THEN NULL "
+                        "ELSE %s::timestamptz END,'article',%s::timestamptz,"
+                        "CASE WHEN n%%20=4 THEN %s::timestamptz ELSE %s::timestamptz END "
+                        "FROM generate_series(%s::int,%s::int) n",
+                        (
+                            NOW - timedelta(days=1),
+                            NOW - timedelta(days=30),
+                            NOW,
+                            NOW - timedelta(days=1),
+                            NOW - timedelta(days=30),
+                            start,
+                            start + 4_999,
+                        ),
+                    )
+                await pg.execute(
+                    "INSERT INTO article_reviews (id,article_id,action,revision,created_at) "
+                    "SELECT md5('card-review:'||n)::uuid,md5('card-page:'||n)::uuid,'reject',1,"
+                    "CASE WHEN n%%20=3 THEN %s::timestamptz ELSE %s::timestamptz END "
+                    "FROM generate_series(0,99999) n WHERE n%%20=3 OR n%%20 BETWEEN 6 AND 10",
+                    (NOW - timedelta(days=1), NOW - timedelta(days=30)),
+                )
+            await pg.execute("ANALYZE articles,article_reviews")
+
+            calls = []
+
+            async def execute(query, parameters):
+                calls.append((query, parameters))
+                return await pg.execute(query, parameters)
+
+            async with pg.transaction():
+                await pg.execute("SET TRANSACTION READ ONLY")
+                await pg.execute("SET LOCAL statement_timeout='5s'")
+                for current_only in (False, True):
+                    for cursor in (None, ordered[66_666]):
+                        expected = [
+                            value
+                            for value in ordered
+                            if (cursor is None or value > cursor)
+                            and (not current_only or identifiers[value])
+                        ][:100]
+                        selected = await sources.card_ids(
+                            SimpleNamespace(execute=execute),
+                            "article",
+                            cursor,
+                            100,
+                            current_only=current_only,
+                            now=NOW,
+                        )
+                        assert selected == expected
+                        query, parameters = calls[-1]
+                        row = await (
+                            await pg.execute(
+                                sql.SQL("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {}").format(query),
+                                parameters,
+                            )
+                        ).fetchone()
+                        plan = row["QUERY PLAN"][0]["Plan"]
+                        # A text output-alias sort consumes every remaining match
+                        # before LIMIT. UUID key order can stop the index after 100.
+                        assert plan["Node Type"] == "Limit"
+                        scan = plan["Plans"][0]
+                        assert scan["Node Type"] in {"Index Scan", "Index Only Scan"}
+                        assert scan["Index Name"] == "articles_pkey"
+                        assert scan["Actual Rows"] == 100
+                        if cursor is not None:
+                            assert "id >" in scan["Index Cond"]
+
+    asyncio.run(read())
+
+
+@pytest.mark.integration
+def test_native_card_kind_pages_resume_without_omissions_and_preserve_current_filters(database):
+    import asyncio
+
+    from devfeed_core.config import get_settings
+    from devfeed_core.models import SourceCandidate
+    from psycopg import AsyncConnection
+    from psycopg.rows import dict_row
+
+    from tests.support import partner_matching, source_readiness, taxonomy_command_helpers
+
+    identifiers = [uuid.uuid5(uuid.NAMESPACE_URL, f"card-kind-page:{i}") for i in range(205)]
+    focal = taxonomy_command_helpers.topic("React")
+    peer = taxonomy_command_helpers.topic("JavaScript")
+    research = taxonomy_command_helpers.relationship_job(focal, peer)
+    current = set()
+    with database.begin() as session:
+        session.add_all([focal, peer, research])
+        for number, identifier in enumerate(identifiers):
+            pending = number < 5
+            recent = number % 2 == 1
+            if pending or recent:
+                current.add(str(identifier))
+            review = {
+                "id": identifier,
+                "status": "pending" if pending else "rejected",
+                "reviewed_at": NOW - timedelta(days=1 if recent else 30),
+                "reviewed_by": {},
+            }
+            session.add_all(
+                [
+                    partner_matching.article(
+                        id=identifier,
+                        publication_status="unpublished" if pending else "published",
+                        published_to_feed_at=NOW - timedelta(days=1 if recent else 30),
+                    ),
+                    source_readiness.source(
+                        id=identifier,
+                        slug=f"card-kind-{number}",
+                        feed_url=f"https://card-kind.test/{number}.xml",
+                    ),
+                    SourceCandidate(
+                        id=identifier,
+                        name=f"Candidate {number}",
+                        identity_url=f"https://candidate.test/{number}",
+                    ),
+                    taxonomy_command_helpers.proposal(slug=f"card-kind-{number}", **review),
+                    taxonomy_command_helpers.relationship_proposal(
+                        focal,
+                        peer,
+                        research,
+                        relation=(
+                            "uses_language",
+                            "depends_on",
+                            "implements",
+                            "part_of",
+                            "related_to",
+                        )[number % 5],
+                        **review,
+                    ),
+                ]
+            )
+
+    async def read():
+        dsn = get_settings().database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+        async with (
+            await AsyncConnection.connect(dsn, autocommit=True, row_factory=dict_row) as pg,
+            pg.transaction(),
+        ):
+            await pg.execute("SET TRANSACTION READ ONLY")
+            await pg.execute("SET LOCAL statement_timeout='5s'")
+            for kind in sources.TABLES:
+                for current_only in (False, True):
+                    selected = []
+                    cursor = None
+                    for _ in range(4):
+                        page = await sources.card_ids(
+                            pg, kind, cursor, 100, current_only=current_only, now=NOW
+                        )
+                        assert len(page) <= 100
+                        if not page:
+                            break
+                        selected.extend(page)
+                        cursor = page[-1]
+                    else:
+                        pytest.fail("Bounded card pagination did not finish")
+                    expected = (
+                        current
+                        if current_only and kind in sources.CURRENT_FILTERS
+                        else {str(value) for value in identifiers}
+                    )
+                    assert selected == sorted(expected)
 
     asyncio.run(read())

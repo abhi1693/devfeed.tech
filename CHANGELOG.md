@@ -7,6 +7,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 ### Fixes
 
 - Refresh administration queue counts before slower pipeline-card repairs, so started queue snapshots finish promptly without waiting behind unrelated report work.
+- Recover pipeline cards reliably in large article archives without repeatedly timing out on the same page.
 
 ## 0.1.7 — 2026-10-30
 
