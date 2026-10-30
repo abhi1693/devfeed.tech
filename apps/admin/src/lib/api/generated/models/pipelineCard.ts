@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.1.5
+ * OpenAPI spec version: 0.1.6
  */
 import type { PipelineCardRetryTargetsItem } from './pipelineCardRetryTargetsItem';
 import type { PipelineCardStage } from './pipelineCardStage';

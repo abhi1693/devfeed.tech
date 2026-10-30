@@ -2,6 +2,33 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.1.6 — 2026-10-30
+
+### Enhancements
+
+- [#318](https://github.com/abhi1693/devfeed.tech/pull/318) - Organize background work into high, default, and low priority queues with independent worker capacity and configurable dedicated queues for each job kind.
+- [#323](https://github.com/abhi1693/devfeed.tech/pull/323) - Open Google's Preferred Sources selection from article previews, with controls that follow your theme on the website, Chrome, and Edge.
+
+### Performance Improvements
+
+- [#318](https://github.com/abhi1693/devfeed.tech/pull/318) - Reserve capacity for fresh article processing and interactive feed preparation while notifications run on low-priority workers.
+- [#318](https://github.com/abhi1693/devfeed.tech/pull/318) - Keep worker control and queue dispatch from stalling on slow services, and let other partner jobs progress while a contended job waits to retry.
+
+### Fixes
+
+- [#318](https://github.com/abhi1693/devfeed.tech/pull/318) - Preserve queued jobs and retry state during the priority-worker upgrade, prevent competing partner publishers from overfilling shared queues, and give pipeline stages fair access to available capacity.
+- [#319](https://github.com/abhi1693/devfeed.tech/pull/319) - Show a retryable error when an overview chart query fails while continuing automatic retries for reports that are still preparing.
+- [#321](https://github.com/abhi1693/devfeed.tech/pull/321) - Correct stale running-job counts and pipeline cards after missed analytics updates, and show when current views are catching up or stale.
+- [#322](https://github.com/abhi1693/devfeed.tech/pull/322) - Apply the selected reporting period to reviews, queues, feed health, and topic demand, and advance relative ranges such as Today together at UTC midnight.
+- [#323](https://github.com/abhi1693/devfeed.tech/pull/323) - Keep profile icons and favicons available in the packaged Chrome and Edge extensions.
+- [#317](https://github.com/abhi1693/devfeed.tech/pull/317) - Remove Faro browser telemetry and its collection endpoints from the reader and administration app.
+
+### Upgrade Notes
+
+- Apply PostgreSQL migration `0039` and ClickHouse migrations through `0004` before starting the updated applications. Keep the analytics process running after historical import, using a direct PostgreSQL connection or session pooling for current-state reconciliation. Follow the [analytics rollout guide](apps/admin-api/ANALYTICS.md#compose-and-rollout).
+- Stop all job publishers and workers before changing queue routing. Review `devfeed migrate-queues` with the intended configuration, run `devfeed migrate-queues --apply`, and require `complete=true` before starting the new consumers and resuming publication. Active jobs must finish or be recovered before migration; follow the [priority-worker upgrade guide](apps/aggregator/README.md#priority-queues-and-dedicated-overrides).
+- Deploy separate high, default, and low consumers, and provide a consumer for every `DEVFEED_JOB_QUEUE_OVERRIDES` destination. Keep Images and solver queues isolated with their existing credential boundaries.
+
 ## 0.1.5 — 2026-10-28
 
 ### Enhancements
