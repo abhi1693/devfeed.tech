@@ -193,6 +193,11 @@ is acknowledged, so slower card and overview builders cannot age an unfinished
 queue snapshot. The queue poll interval starts at completion; card, overview and
 audience work retain their weighted turns during that cooldown.
 
+Card identity pages return text IDs but order by the qualified UUID column.
+Ordering by the unqualified text output alias forces a sort of the remaining
+eligible set before `LIMIT`, defeating bounded primary-key pagination. Preserve
+the UUID ordering for every card kind and cursor.
+
 Current-state work uses these resource bounds:
 
 | Setting                                     | Default | Purpose                                                               |
