@@ -7,10 +7,9 @@ import hashlib
 import json
 import uuid
 from collections import defaultdict
-from collections.abc import AsyncIterator, Iterable, Sequence
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 
-from psycopg import AsyncConnection
 from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_core.analytics import AnalyticsClient, SqlRecord
@@ -167,63 +166,3 @@ async def publish_card_ids(
             build_cards, settings, kind, identifiers[start : start + 200], revision
         )
         await client.insert("analytics_card_canonical", rows)
-
-
-async def publish_cards(
-    client: AnalyticsClient, settings: Settings, changes: Sequence[SqlRecord], revision: int
-) -> None:
-    for kind, identifiers in card_identities(changes).items():
-        await publish_card_ids(client, settings, kind, identifiers, revision)
-
-
-async def dependent_card_batches(
-    connection: AsyncConnection[SqlRecord], changes: Sequence[SqlRecord]
-) -> AsyncIterator[list[SqlRecord]]:
-    """Stream source identities affected by catalog and research edits in memory."""
-    catalog_changed = any(
-        change["source_table"] in {"topics", "catalog_revisions"} for change in changes
-    )
-    research = sorted(
-        {
-            str(record["id"])
-            for change in changes
-            if change["source_table"] in {"topic_analysis_jobs", "research_verification_jobs"}
-            for record in (
-                change.get("record"),
-                change.get("before_record"),
-                change.get("identity"),
-            )
-            if record and record.get("id")
-        }
-    )
-    if research:
-        cursor = uuid.UUID(int=0)
-        while True:
-            rows = await (
-                await connection.execute(
-                    "SELECT id FROM topic_relation_proposals WHERE job_id=ANY(%s::uuid[]) "
-                    "AND id>%s ORDER BY id LIMIT 200",
-                    (research, cursor),
-                )
-            ).fetchall()
-            if not rows:
-                break
-            yield [
-                dict(source_table="topic_relation_proposals", identity={"id": row["id"]})
-                for row in rows
-            ]
-            cursor = rows[-1]["id"]
-    if catalog_changed:
-        cursor = uuid.UUID(int=0)
-        while True:
-            rows = await (
-                await connection.execute(
-                    "SELECT id FROM articles WHERE id>%s AND publication_status<>'published' "
-                    "AND review_status<>'rejected' ORDER BY id LIMIT 200",
-                    (cursor,),
-                )
-            ).fetchall()
-            if not rows:
-                break
-            yield [dict(source_table="articles", identity={"id": row["id"]}) for row in rows]
-            cursor = rows[-1]["id"]

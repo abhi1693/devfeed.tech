@@ -186,7 +186,10 @@ def test_profiler_analytics_settings_use_only_explicit_test_credentials():
 
 
 def test_repeated_analytics_reset_preserves_version_history_and_escapes_data_tables(monkeypatch):
-    from devfeed_core import analytics, analytics_worker
+    from types import SimpleNamespace
+
+    from devfeed_core import analytics, analytics_overview_reconcile, analytics_worker
+    from devfeed_core.analytics import AnalyticsPreparing
     from devfeed_core.analytics_migrations import (
         HISTORY_TABLE,
         ClickHouseMigrationRunner,
@@ -194,6 +197,7 @@ def test_repeated_analytics_reset_preserves_version_history_and_escapes_data_tab
     )
 
     migrations = load_migrations()
+    lifecycle = {"cycles": 0, "reads": 0, "closed": 0}
 
     class Client:
         def __init__(self):
@@ -231,18 +235,31 @@ def test_repeated_analytics_reset_preserves_version_history_and_escapes_data_tab
             return [{"count": 0}]
 
         async def status(self):
-            return {"ready": True}
+            return {"ready": True, "version": 1}
 
     class Worker:
         def __init__(self, client, settings):
             self.client = client
 
         async def once(self):
+            lifecycle["cycles"] += 1
             await ClickHouseMigrationRunner(self.client).check()
+
+        async def close(self):
+            lifecycle["closed"] += 1
+
+    async def snapshot(client, policy, sources, now, *, generation):
+        lifecycle["reads"] += 1
+        assert sources == analytics_overview_reconcile.OVERVIEW_SOURCES
+        assert policy and generation == "1"
+        if lifecycle["reads"] % 3 == 1:
+            raise AnalyticsPreparing("Recovery has not acknowledged its sources")
+        return SimpleNamespace(status="fresh" if lifecycle["reads"] % 3 == 0 else "catching_up")
 
     client = Client()
     monkeypatch.setattr(analytics, "AnalyticsClient", lambda settings: client)
     monkeypatch.setattr(analytics_worker, "AnalyticsImportWorker", Worker)
+    monkeypatch.setattr(analytics_overview_reconcile, "read_overview_snapshot", snapshot)
     monkeypatch.setattr(
         profile,
         "analytics_environment",
@@ -263,6 +280,7 @@ def test_repeated_analytics_reset_preserves_version_history_and_escapes_data_tab
         "TRUNCATE TABLE `odd``name`",
     ] * 2
     assert len(client.statements) == sum(len(item.statements) for item in migrations) + 4
+    assert lifecycle == {"cycles": 6, "reads": 6, "closed": 2}
 
 
 @pytest.mark.integration

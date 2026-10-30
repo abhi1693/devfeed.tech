@@ -156,7 +156,9 @@ def writer_runtime(monkeypatch):
 
     started, release = threading.Event(), threading.Event()
     batches, closed = [], []
-    state = SimpleNamespace(block=False, fail=False, failures_remaining=0, error=None, waits=[])
+    state = SimpleNamespace(
+        block=False, block_timeout=2, fail=False, failures_remaining=0, error=None, waits=[]
+    )
 
     class Client:
         def __init__(self, _settings):
@@ -172,7 +174,9 @@ def writer_runtime(monkeypatch):
         async def publish(self, changes):
             started.set()
             if state.block:
-                assert release.wait(2), "Test did not release the blocked delivery"
+                assert release.wait(state.block_timeout), (
+                    "Test did not release the blocked delivery"
+                )
             batches.append(changes)
             if state.fail or state.failures_remaining:
                 state.failures_remaining = max(0, state.failures_remaining - 1)
@@ -218,6 +222,37 @@ def test_shutdown_drains_a_full_buffer_and_preserves_a_bounded_deadline(writer_r
         }
     finally:
         release.set()
+        writer.shutdown(2)
+
+
+def test_workhorse_drain_can_finish_after_the_default_process_budget(writer_runtime):
+    import threading
+    import time
+
+    from devfeed_core.config import get_settings
+
+    state, started, release, batches, closed = writer_runtime
+    state.block, state.block_timeout = True, 15
+    writer = producer.AnalyticsProducer(object())
+    timer = threading.Timer(6, release.set)
+    try:
+        assert writer.submit(article_change(1))
+        assert started.wait(1)
+        timer.start()
+        before = time.monotonic()
+        # The unchanged API/global five-second allowance cannot ACK this write.
+        assert not writer.shutdown()
+        assert writer.pending.unfinished_tasks >= 1 and not closed
+        # A work horse uses its independent bounded allowance before os._exit.
+        assert writer.shutdown(get_settings().analytics_worker_drain_seconds)
+        assert time.monotonic() - before >= 5
+        assert writer.pending.unfinished_tasks == 0
+        assert batches == [article_change(1)] and closed == [True]
+    finally:
+        release.set()
+        if timer.ident is not None:
+            timer.cancel()
+            timer.join(1)
         writer.shutdown(2)
 
 
@@ -1033,6 +1068,20 @@ def test_composite_association_primary_key_move_captures_both_article_identities
 
 
 @pytest.mark.integration
+def test_source_rename_captures_its_dimension_without_scanning_article_population(
+    publication_inputs, database
+):
+    from devfeed_core.models import Source
+
+    ids, emitted = publication_inputs
+    emitted.clear()
+    with database.begin() as session:
+        session.get(Source, ids["source"]).name = "Renamed publisher"
+    changes = [change for batch in emitted for change in batch]
+    assert changes and {change["source_table"] for change in changes} == {"sources"}
+
+
+@pytest.mark.integration
 def test_topic_delete_captures_cascaded_memberships_and_set_null_proposals(
     publication_inputs, database
 ):
@@ -1059,7 +1108,7 @@ def test_topic_delete_captures_cascaded_memberships_and_set_null_proposals(
     with database.begin() as session:
         session.execute(delete(Topic).where(Topic.id == ids["topic"]))
     captured = {change["source_table"] for batch in emitted for change in batch}
-    assert captured >= {"topics", "article_topics", "articles", "user_topics", "topic_proposals"}
+    assert captured >= {"topics", "article_topics", "user_topics", "topic_proposals"}
     proposals = [
         change
         for batch in emitted
@@ -1082,6 +1131,7 @@ def test_direct_publisher_updates_clickhouse_publication_owners_and_feed_state(
         ArticleOrigin,
         ArticleReview,
         ArticleTopic,
+        Topic,
         UserRecommendation,
         UserRecommendationState,
         UserTopic,
@@ -1173,7 +1223,34 @@ def test_direct_publisher_updates_clickhouse_publication_owners_and_feed_state(
                         "SELECT toString(entity_id) AS id FROM "
                         "analytics_card_canonical FINAL WHERE kind='article'"
                     )
-                    assert {row["id"] for row in cards} == {str(ids["a"]), str(ids["b"])}
+                    assert cards == []  # Canonical cards belong to reconciliation only.
+                    emitted.clear()
+                    with database.begin() as session:
+                        session.execute(delete(Topic).where(Topic.id == ids["topic"]))
+                    for batch in emitted:
+                        await publisher.publish(batch)
+                    assert await native.query(
+                        "SELECT topic_ids FROM analytics_pipeline_events FINAL "
+                        "WHERE domain='publication' AND id={article:UUID}",
+                        {"article": str(ids["b"])},
+                    ) == [{"topic_ids": []}]
+                    emitted.clear()
+                    from devfeed_admin_api.sources import remove
+
+                    with database() as session:
+                        remove(ids["source"], session)
+                    for batch in emitted:
+                        await publisher.publish(batch)
+                    assert await native.query(
+                        "SELECT source_ids FROM analytics_pipeline_events FINAL "
+                        "WHERE domain='publication' AND id={article:UUID}",
+                        {"article": str(ids["b"])},
+                    ) == [{"source_ids": []}]
+                    assert await native.query(
+                        "SELECT deleted FROM analytics_pipeline_events FINAL "
+                        "WHERE domain='source' AND id={source:UUID}",
+                        {"source": str(ids["source"])},
+                    ) == [{"deleted": 1}]
             finally:
                 await admin.execute(f"DROP DATABASE `{target}` SYNC")
 
@@ -1224,43 +1301,6 @@ def test_parent_delete_collects_only_supported_fk_children_before_database_casca
     assert producer._cascaded_records(object(), topics, []) == []
 
 
-def test_source_mutations_refresh_attribution_only_when_source_visibility_changes():
-    from types import SimpleNamespace
-    from unittest.mock import Mock
-
-    identity, article = uuid.uuid4(), uuid.uuid4()
-    connection = Mock()
-    connection.execute.return_value.scalars.return_value = [article]
-    updating = SimpleNamespace(is_delete=False)
-    deleting = SimpleNamespace(is_delete=True)
-    assert producer._dependent_articles(
-        connection, "sources", [{"id": identity}], updating, [{"name": "Renamed"}]
-    ) == [article]
-    assert producer._dependent_articles(connection, "topics", [{"id": identity}], deleting, []) == [
-        article
-    ]
-    assert (
-        producer._dependent_articles(
-            connection,
-            "sources",
-            [{"id": identity}],
-            updating,
-            [{"last_success_at": datetime.now(UTC)}],
-        )
-        == []
-    )
-    assert (
-        producer._dependent_articles(
-            connection, "topics", [{"id": identity}], updating, [{"name": "Rename"}]
-        )
-        == []
-    )
-    assert (
-        producer._dependent_articles(connection, "articles", [{"id": identity}], deleting, []) == []
-    )
-    assert connection.execute.call_count == 2
-
-
 @pytest.mark.parametrize("revision", [None, 42])
 def test_publisher_allocates_ordered_revision_and_bounds_hydrated_insert_batches(
     monkeypatch, revision
@@ -1270,18 +1310,14 @@ def test_publisher_allocates_ordered_revision_and_bounds_hydrated_insert_batches
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
-    import devfeed_core.analytics_direct_cards as cards
-
     changes = [{"source_table": "articles", "identity": {"id": str(uuid.uuid4())}}]
     hydrated = changes * 2001
     current = AsyncMock(return_value=changes)
     hydration = AsyncMock(return_value=hydrated)
     overview = SimpleNamespace(publish=AsyncMock())
-    publish_cards = AsyncMock()
     monkeypatch.setattr(producer, "read_current_changes", current)
     monkeypatch.setattr(producer, "hydrate_changes", hydration)
     monkeypatch.setattr(producer, "DirectOverviewAnalytics", lambda _: overview)
-    monkeypatch.setattr(cards, "publish_cards", publish_cards)
 
     class Connection:
         @asynccontextmanager
@@ -1303,7 +1339,7 @@ def test_publisher_allocates_ordered_revision_and_bounds_hydrated_insert_batches
             current.assert_not_awaited()
             overview.publish.assert_not_awaited()
         else:
-            assert await publisher._publish_current(connection, changes) == changes
+            assert await publisher._publish_current(connection, changes) is None
             current.assert_awaited_once_with(connection, changes)
             hydration.assert_awaited_once_with(connection, changes)
             assert [len(call.args[0]) for call in overview.publish.await_args_list] == [
@@ -1312,59 +1348,8 @@ def test_publisher_allocates_ordered_revision_and_bounds_hydrated_insert_batches
                 1,
             ]
             assert all(call.kwargs == {"revision": 42} for call in overview.publish.await_args_list)
-            publish_cards.assert_awaited_once_with(client, settings, changes, 42)
 
     asyncio.run(run())
-
-
-def test_publisher_streams_dependent_catalog_pages_without_buffering_the_whole_catalog(monkeypatch):
-    import asyncio
-    from types import SimpleNamespace
-    from unittest.mock import AsyncMock
-
-    import devfeed_core.analytics_direct_cards as cards
-    import psycopg
-
-    changes = [{"source_table": "topics", "identity": {"id": str(uuid.uuid4())}}]
-    pages = [
-        [{"source_table": "articles", "identity": {"id": str(uuid.uuid4())}}] for _ in range(2)
-    ]
-    phases = []
-
-    class Connection:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            phases.append("closed")
-
-    connection = Connection()
-    connect = AsyncMock(return_value=connection)
-    monkeypatch.setattr(psycopg.AsyncConnection, "connect", connect)
-
-    async def dependent(seen_connection, current):
-        assert seen_connection is connection and current == changes
-        for index, page in enumerate(pages):
-            phases.append(f"read-{index}")
-            yield page
-            assert phases[-1] == f"published-{index}"
-
-    monkeypatch.setattr(cards, "dependent_card_batches", dependent)
-    settings = SimpleNamespace(
-        database_url="postgresql+psycopg://fixture@local/fixture_test",
-        database_connect_timeout_seconds=3,
-    )
-    publisher = producer.DirectAnalyticsPublisher(object(), settings)
-
-    async def publish(current_connection, batch):
-        assert current_connection is connection
-        phases.append("initial" if batch == changes else f"published-{pages.index(batch)}")
-        return changes
-
-    publisher._publish_current = publish
-    asyncio.run(publisher.publish(changes))
-    assert phases == ["initial", "read-0", "published-0", "read-1", "published-1", "closed"]
-    assert connect.call_args.args == ("postgresql://fixture@local/fixture_test",)
 
 
 def test_writer_preserves_intermediate_association_owners_across_committed_transactions(
@@ -1475,7 +1460,6 @@ def test_application_capture_ignores_nonapplication_and_noop_statements(monkeypa
         capture.attach(session, object(), connection)
     read = Mock(return_value=[{"id": uuid.uuid4()}])
     monkeypatch.setattr(producer, "_records", read)
-    monkeypatch.setattr(producer, "_dependent_articles", lambda *_: [])
     monkeypatch.setattr(producer, "_cascaded_records", lambda *_: [])
     capture.before(connection, None, "DELETE", (), context, False)
     capture.after(connection, SimpleNamespace(rowcount=0), "DELETE", (), context, False)
@@ -1817,7 +1801,7 @@ def test_capture_insert_and_job_completion_keep_generated_keys_and_sanitized_att
     assert change["attempts"] == [completed]
 
 
-def test_capture_after_keeps_cascade_and_dependent_owner_identities(monkeypatch):
+def test_capture_after_keeps_cascade_membership_and_article_attribution(monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import Mock
 
@@ -1826,8 +1810,10 @@ def test_capture_after_keeps_cascade_and_dependent_owner_identities(monkeypatch)
     context = SimpleNamespace(
         compiled=SimpleNamespace(statement=delete(table)),
         _devfeed_analytics_before=[{"id": topic}],
-        _devfeed_analytics_cascades=[("user_topics", {"user_id": user, "topic_id": topic})],
-        _devfeed_analytics_articles=[article],
+        _devfeed_analytics_cascades=[
+            ("user_topics", {"user_id": user, "topic_id": topic}),
+            ("article_topics", {"article_id": article, "topic_id": topic}),
+        ],
         _devfeed_analytics_parameters=[],
     )
     session = Mock(info={})
@@ -1836,8 +1822,14 @@ def test_capture_after_keeps_cascade_and_dependent_owner_identities(monkeypatch)
     capture.attach(session, None, connection)
     capture.after(connection, SimpleNamespace(rowcount=1), "DELETE", (), context, False)
     changes = list(session.info[producer._PENDING].values())
-    assert {change["source_table"] for change in changes} == {"topics", "user_topics", "articles"}
-    assert any(change["identity"] == {"id": article} for change in changes)
+    assert {change["source_table"] for change in changes} == {
+        "topics",
+        "user_topics",
+        "article_topics",
+    }
+    assert any(
+        change["identity"] == {"article_id": article, "topic_id": topic} for change in changes
+    )
     capture.detach(None, SimpleNamespace(info=connection.info))
     context._devfeed_analytics_before = []
     capture.after(connection, SimpleNamespace(rowcount=1), "DELETE", (), context, False)

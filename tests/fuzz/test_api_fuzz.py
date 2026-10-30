@@ -95,9 +95,13 @@ SELECTED_PATHS = sorted(
 
 @pytest.fixture(scope="session", autouse=True)
 def native_analytics(integration_environment):
-    """Start fuzz applications after real schema migration and historical readiness."""
-    from devfeed_core.analytics import AnalyticsClient
+    """Prepare retained report observations before exercising the real APIs."""
+    from datetime import UTC, datetime
+
+    from devfeed_core.analytics import AnalyticsClient, AnalyticsPreparing
     from devfeed_core.analytics_migrations import upgrade_analytics
+    from devfeed_core.analytics_observation import pipeline_policy_version
+    from devfeed_core.analytics_overview_reconcile import OVERVIEW_SOURCES, read_overview_snapshot
     from devfeed_core.analytics_worker import AnalyticsImportWorker
     from devfeed_core.config import get_settings
 
@@ -107,12 +111,29 @@ def native_analytics(integration_environment):
         async with AnalyticsClient(settings) as client:
             client.insert_settings = {"async_insert_busy_timeout_ms": 1}
             worker = AnalyticsImportWorker(client, settings)
-            for _ in range(100):
-                await worker.once()
-                if not worker.bootstrapping:
-                    assert (await client.status())["ready"]
-                    return
-            raise AssertionError("Fuzz historical analytics preparation did not complete")
+            try:
+                async with asyncio.timeout(120):
+                    for _ in range(1000):
+                        await worker.once()
+                        if worker.bootstrapping:
+                            continue
+                        state = await client.status()
+                        assert state["ready"]
+                        try:
+                            snapshot = await read_overview_snapshot(
+                                client,
+                                pipeline_policy_version(settings),
+                                OVERVIEW_SOURCES,
+                                datetime.now(UTC),
+                                generation=str(state["version"]),
+                            )
+                        except AnalyticsPreparing:
+                            continue
+                        if snapshot.status == "fresh":
+                            return
+                    raise AssertionError("Fuzz analytical preparation did not complete")
+            finally:
+                await worker.close()
 
     asyncio.run(prepare())
 

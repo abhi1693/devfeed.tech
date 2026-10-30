@@ -28,6 +28,7 @@ from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.analytics_audience_refresh import COMPLETE_PHASE
 from devfeed_core.analytics_card_types import PipelineBoard, PipelineColumn
 from devfeed_core.analytics_observation import pipeline_policy_version
+from devfeed_core.analytics_overview_reconcile import OVERVIEW_SOURCES, scope_for
 from devfeed_core.config import get_settings
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -54,6 +55,7 @@ class Client:
         self.ready = True
         self.closed = False
         self.policy = pipeline_policy_version()
+        self.settings = get_settings()
         self.coverage = {
             scope: {
                 "completed_at": NOW,
@@ -97,6 +99,22 @@ class Client:
         if "overview:inference-ready" in sql:
             return [{"complete": 1}]
         name = sql.split("/* ", 1)[1].split(" ", 1)[0]
+        if name == "analytics:overview-recovery-status":
+            return deepcopy(
+                self.results.get(
+                    name,
+                    [
+                        {
+                            "scope": scope_for(source),
+                            "source_at": NOW,
+                            "completed_at": NOW,
+                            "pending": 0,
+                        }
+                        for source in OVERVIEW_SOURCES
+                        if scope_for(source) in parameters["scopes"]
+                    ],
+                )
+            )
         if name == "analytics:audience-metadata-status":
             return deepcopy(
                 self.results.get(
@@ -368,13 +386,13 @@ async def test_queue_polling_coalesces_and_refreshes_without_recalculating_histo
     historical = await reads.section(CHART_SECTIONS["throughput"], window)
     assert historical.data.section == "processing" and len(historical.data.throughput) == 30
     assert client.status_reads == 2
-    assert len(client.queries) == 3
+    assert len(client.queries) == 4  # Includes retained-fact recovery acknowledgement.
     time[0] += timedelta(seconds=31)
     client.results["overview:queues"][0]["queued"] = 4
     refreshed = await reads.section(queue_group, window)
     assert refreshed.data.queues[0].queued == 4 and refreshed.snapshot.status == "fresh"
     assert client.status_reads == 3
-    assert len(client.queries) == 4 and "overview:queues" in client.queries[-1][0]
+    assert len(client.queries) == 5 and "overview:queues" in client.queries[-1][0]
     assert sum("overview:job-outcomes" in sql for sql, _ in client.queries) == 1
     assert sum("overview:throughput" in sql for sql, _ in client.queries) == 1
     time[0] += timedelta(seconds=31)
@@ -383,7 +401,7 @@ async def test_queue_polling_coalesces_and_refreshes_without_recalculating_histo
         await reads.section(queue_group, window)
     assert caught.value.status_code == 503
     assert caught.value.detail["code"] == "analytics_unavailable"
-    assert len(client.queries) == 4
+    assert len(client.queries) == 5
 
 
 @run_async
@@ -535,7 +553,7 @@ async def test_restart_reuses_only_unexpired_redis_results_and_never_extends_cac
     envelope = json.loads(next(iter(redis.values.values())))
     assert set(envelope) == {"expires_at", "report"}
     assert datetime.fromisoformat(envelope["expires_at"]) == NOW + timedelta(seconds=30)
-    assert ":v4:" in next(iter(redis.values))
+    assert ":v5:" in next(iter(redis.values))
     offline = Client()
     offline.failed = True
     second = runtime(
@@ -557,7 +575,7 @@ async def test_restart_reuses_only_unexpired_redis_results_and_never_extends_cac
     previous = json.loads(previous_value)
     previous["fresh_until"] = previous["expires_at"]
     previous["expires_at"] = (NOW + timedelta(days=1)).isoformat()
-    redis.values = {previous_key.replace(":v4:", ":v3:"): json.dumps(previous).encode()}
+    redis.values = {previous_key.replace(":v5:", ":v4:"): json.dumps(previous).encode()}
     upgraded = runtime(
         offline, clock=lambda: NOW + timedelta(seconds=31), redis=lambda: redis, cache_enabled=True
     )
@@ -1020,20 +1038,25 @@ async def test_malformed_fresh_cache_entries_are_replaced_by_current_clickhouse_
 @run_async
 async def test_cache_observation_ages_lag_without_mutating_shared_or_optional_metadata():
     time = [NOW]
-    client = Client()
-    status = client.status
-
-    async def lagging():
-        return (await status()) | {"lag_seconds": 55}
-
-    client.status = lagging
+    client = Client(
+        {
+            "analytics:overview-recovery-status": [
+                {
+                    "scope": scope_for("articles"),
+                    "source_at": NOW - timedelta(seconds=595),
+                    "completed_at": NOW,
+                    "pending": 0,
+                }
+            ]
+        }
+    )
     reads = runtime(client, clock=lambda: time[0])
     window = recent_window(30, NOW)
     first = await reads.section("publishing", window)
     time[0] += timedelta(seconds=10)
     aged = await reads.section("publishing", window)
-    assert first.snapshot.status == "fresh" and first.snapshot.lag_seconds == 55
-    assert aged.snapshot.status == "stale" and aged.snapshot.lag_seconds == 65
+    assert first.snapshot.status == "fresh" and first.snapshot.lag_seconds == 595
+    assert aged.snapshot.status == "stale" and aged.snapshot.lag_seconds == 605
     assert client.status_reads == 1
     without_metadata = first.model_copy(update={"snapshot": None})
     observed = reads._observed(without_metadata)
@@ -1142,14 +1165,58 @@ async def test_current_queues_report_expired_source_coverage_without_hiding_real
 
 
 @run_async
-async def test_historical_reports_keep_readiness_and_do_not_require_current_coverage():
+async def test_retained_reports_use_independent_acknowledgements_from_current_coverage():
     client = Client()
     for coverage in client.coverage.values():
         coverage.update(completed_at=None, source_at=None, pending=True)
     report = await runtime(client).section("publishing", recent_window(30, NOW))
     assert report.snapshot.status == "fresh"
-    assert report.snapshot.coverage_expires_at is None
+    assert report.snapshot.coverage_expires_at == NOW + timedelta(seconds=600)
     assert client.coverage_reads == 0
+
+
+@pytest.mark.parametrize(
+    "progress",
+    [
+        [],
+        [
+            {
+                "scope": scope_for("articles"),
+                "source_at": None,
+                "completed_at": None,
+                "pending": 1,
+            }
+        ],
+    ],
+)
+@run_async
+async def test_publication_reports_wait_for_acknowledged_retained_recovery(progress):
+    client = Client({"analytics:overview-recovery-status": progress})
+    with pytest.raises(HTTPException) as caught:
+        await runtime(client).section("publishing", recent_window(30, NOW))
+    assert caught.value.detail["code"] == "analytics_preparing"
+    assert not any("overview:publishing" in statement for statement, _ in client.queries)
+
+
+@run_async
+async def test_publication_readiness_does_not_wait_for_large_job_recovery():
+    client = Client(
+        {
+            "analytics:overview-recovery-status": [
+                {
+                    "scope": scope_for("articles"),
+                    "source_at": NOW,
+                    "completed_at": NOW,
+                    "pending": 0,
+                }
+            ]
+        }
+    )
+    reads = runtime(client)
+    assert (await reads.section("publishing", recent_window(30, NOW))).snapshot.status == "fresh"
+    with pytest.raises(HTTPException) as caught:
+        await reads.section("processing", recent_window(30, NOW))
+    assert caught.value.detail["code"] == "analytics_preparing"
 
 
 @run_async

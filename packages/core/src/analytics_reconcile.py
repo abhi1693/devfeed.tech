@@ -1,6 +1,7 @@
 """Bounded repair of current analytical state, independent of RQ queue names.
 
-Historical attempts and inference observations are never emitted by this worker.
+Retained completed overview facts and current operational views are repaired in
+bounded pages. Lost older attempts and inference calls are never fabricated.
 PostgreSQL remains the authority for current jobs; ClickHouse serves the views.
 """
 
@@ -33,6 +34,7 @@ from devfeed_core.analytics_audience_refresh import AudienceMetadataRefresh
 from devfeed_core.analytics_direct_cards import CARD_SOURCES, card_identities
 from devfeed_core.analytics_observation import pipeline_policy_version
 from devfeed_core.analytics_overview_direct import _base, _identity
+from devfeed_core.analytics_overview_reconcile import OverviewReconciler
 from devfeed_core.analytics_schema import JOB_KINDS, JOB_TABLES, TABLES
 from devfeed_core.config import Settings
 
@@ -193,6 +195,9 @@ class CurrentStateReconciler:
         self._builder: asyncio.Task[list[SqlRecord]] | None = None
         self._interrupted_page_builder: asyncio.Task[list[SqlRecord]] | None = None
         self._audience_metadata = AudienceMetadataRefresh(client, self._source_snapshot)
+        self._overview = OverviewReconciler(
+            client, settings, self._source_snapshot, policy=self.policy, clock=self.clock
+        )
 
     async def close(self) -> None:
         context, self._leader_context = self._leader_context, None
@@ -731,6 +736,20 @@ class CurrentStateReconciler:
             return "builder_busy"
         return None
 
+    async def _step(self, scope: str) -> bool:
+        if scope == "queues":
+            await self._queue_step()
+            return True
+        if scope == "todo":
+            return await self._todo()
+        if scope == "audience-metadata":
+            return await self._audience_metadata.once()
+        if scope == "overview":
+            return await self._overview.once()
+        return await self._card_page(
+            scope, current_only=scope != "sweep", fast=scope == "active-cards"
+        )
+
     async def once(self) -> bool:
         """Progress one bounded page; untouched history stays in ClickHouse."""
         self._interrupted_page_builder = None
@@ -741,6 +760,7 @@ class CurrentStateReconciler:
                 await self._load()
                 last_sweep = _timestamp(self._state("sweep").get("last_page_at"))
                 due = {
+                    "overview": self._overview.due,
                     "audience-metadata": self._audience_metadata.due,
                     "queues": self.queue_cycle is not None
                     or self._due("queues", self.settings.analytics_reconcile_poll_seconds),
@@ -755,9 +775,11 @@ class CurrentStateReconciler:
                 }
                 slots = (
                     "queues",
+                    "overview",
                     "todo",
                     "queues",
                     "active-cards",
+                    "overview",
                     "cards",
                     "todo",
                     "sweep",
@@ -768,16 +790,7 @@ class CurrentStateReconciler:
                     scope = slots[index]
                     if due[scope]:
                         self._turn = (index + 1) % len(slots)
-                        if scope == "queues":
-                            await self._queue_step()
-                            return True
-                        if scope == "todo":
-                            return await self._todo()
-                        if scope == "audience-metadata":
-                            return await self._audience_metadata.once()
-                        return await self._card_page(
-                            scope, current_only=scope != "sweep", fast=scope == "active-cards"
-                        )
+                        return await self._step(scope)
                 return False
         except (TimeoutError, ReconciliationBusy) as error:
             reason = self._busy_reason(error)

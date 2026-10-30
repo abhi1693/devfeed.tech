@@ -7,6 +7,12 @@ Application releases and Alembic schema revisions are separate identifiers.
 ### Fixes
 
 - Keep administration queue counts, pipeline cards, and feed/topic reports updating during continuous background publication, and preserve queue refresh progress when a slower card refresh needs to retry.
+- Recover retained publication and completed-job observations after analytics delivery interruptions, and keep short-lived workers from spending their delivery window rebuilding pipeline cards.
+- Keep completed topic decisions in reports after proposals are removed, and retry temporary AI-usage recording failures without repeating AI requests.
+
+### Upgrade Notes
+
+- Allow retained-observation repair to finish before purging PostgreSQL source records. Already-removed records and overwritten older attempts cannot be reconstructed.
 
 ## 0.1.6 — 2026-10-30
 

@@ -139,6 +139,40 @@ def test_lifecycle_always_releases_resources_clients_and_telemetry(failure, monk
     logger.info.assert_any_call("test_api_stopped")
 
 
+def test_slow_analytics_drain_keeps_the_api_event_loop_responsive(monkeypatch):
+    released = threading.Event()
+    monkeypatch.setattr(runtime, "start_runtime", lambda _: None)
+    monkeypatch.setattr(runtime, "stop_runtime", lambda _: None)
+
+    async def scenario():
+        entered = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def drain(timeout=5):
+            assert timeout == 5  # The work-horse allowance does not affect APIs.
+            loop.call_soon_threadsafe(entered.set)
+            assert released.wait(2)
+
+        monkeypatch.setattr(runtime, "drain_analytics", drain)
+        service = runtime.HTTPService("test-api", Mock(), lambda: None)
+
+        async def lifecycle():
+            async with service.lifespan(FastAPI()):
+                pass
+
+        closing = asyncio.create_task(lifecycle())
+        try:
+            await asyncio.wait_for(entered.wait(), 1)
+            for _ in range(20):
+                await asyncio.sleep(0.001)
+                assert not closing.done()
+        finally:
+            released.set()
+            await asyncio.wait_for(closing, 1)
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("failure", ["start", "codex"])
 def test_admin_owned_resources_cannot_prevent_process_cleanup(failure, monkeypatch):
     module = importlib.import_module("devfeed_admin_api.main")

@@ -35,15 +35,22 @@ is unavailable. A process crash, full queue or exhausted delivery can still lose
 an observation: there is no durable outbox, WAL replication or historical replay
 service. Exhaustion logs only structured error classes and codes.
 
-After bootstrap, the existing analytics process repairs queued/running job and
-operator-card observations. It compares bounded source snapshots with acknowledged
-ClickHouse fingerprints, republishes changes and tombstones missing identities.
-Complete matching source fingerprints and canonical target hashes avoid card
-rehydration. Missing or overflowing dependency proofs force a rebuild. Source
-reads and inserts are bounded, ordered against live publishers and safe to retry;
-no current-state pass resets historical import progress or emits attempt history.
-Historical terminal job totals are not re-derived. This works with priority pools
-and dedicated queue overrides alike.
+After bootstrap, the existing analytics process owns canonical operator-card
+construction and repairs queued/running job observations. Direct application
+delivery acknowledges compact overview and queue writes while holding the
+publication fence; it does not build cards or expand a catalog change into
+article-wide card work. The reconciler compares bounded source snapshots with
+acknowledged ClickHouse fingerprints, republishes changes and tombstones missing
+identities. Complete matching source fingerprints and canonical target hashes
+avoid card rehydration. Missing or overflowing dependency proofs force a rebuild.
+This works with priority pools and dedicated queue overrides alike.
+
+RQ work horses use `DEVFEED_ANALYTICS_WORKER_DRAIN_SECONDS` (default 45, range
+5–45 seconds) for their final synchronous drain, allowing the bounded publication
+admission and retries to finish before the child exits. Ordinary process shutdown
+retains its five-second default. Asynchronous drain callers offload that wait so
+their event loop remains available. Business commit delivery remains best effort;
+these bounds do not promise delivery after process termination or an outage.
 
 Source snapshots join the PostgreSQL publication lock's wait queue so continuous
 live publication cannot repeatedly bypass repair. Admission waits asynchronously
@@ -55,6 +62,63 @@ discarding an independent, valid active-job cycle. Unbuilt cards never advance
 their cursor or fingerprint; cancellation and unrelated failures close the
 coordinator and reacquire its source state on retry. Busy and failed pages log
 structured reason and error-class codes without SQL or private parameters.
+
+## Retained overview recovery
+
+The same process independently reconciles retained publication, dimension, user,
+membership, topic-decision and completed-job observations. Each operational source
+has its own `overview:<source>` progress scope, fixed primary-key ceiling and
+bounded cursor in the existing ClickHouse progress table. Publication recovery
+receives separate turns, so its first acknowledgement does not wait behind a large
+job history. These passes do not reset finite-import checkpoints, reader cutoffs,
+pipeline policy or historical readiness, and never reopen retired analytics tables.
+
+Pages read at most `DEVFEED_ANALYTICS_BACKFILL_BATCH_SIZE` narrow source identities
+and row versions (maximum 1,000). Unchanged source and matching target fingerprints
+skip hydration and publication. Publication associations and feed/membership
+dependencies receive bounded metadata hydration so child deletion or a changed
+feed computation cannot hide behind an unchanged parent row version. PostgreSQL
+source transactions close before ClickHouse network I/O. Every destination write
+acknowledges before its fingerprints, presence markers or page cursor advance.
+
+Before submitting a repair INSERT, the source's progress row acknowledges a
+bounded pending-page checkpoint containing source keys, safe target descriptors
+and typed immutable attempt/decision observations. The source cursor remains
+unadvanced. After interruption, a newer fenced snapshot rehydrates those keys;
+missing mutable owners become higher-revision tombstones, while original immutable
+facts retain their IDs, timestamps and revisions. The checkpoint clears only after
+the resumed writes acknowledge. This also protects against a server-buffered old
+INSERT arriving after cancellation, source deletion and process restart. Pending
+checkpoints are limited to 1,000 source keys and two megabytes; they contain no
+article bodies, prompts, credentials or arbitrary job results.
+
+Mutable target identities have a per-cycle presence ledger in the existing
+fingerprint table. After the finite source pass, bounded target pages remove
+identities absent from that cycle. The initial publication fence bounds this
+target universe, and orphan tombstones use that initial revision: a later valid
+live publication wins even if it races between target selection and deletion.
+Historical completed-job and topic-decision facts remain after operational row
+retention removes their source. Deleted or reopened proposals do not erase a
+completed decision; a later actual completion updates its stable observation.
+Recovered jobs publish attempt facts only, never delayed queue rows; current queue
+state remains exclusively ordered by its own repair protocol.
+
+Recovery preserves publication, discovery, follow, computation and completion
+timestamps and existing stable identities. It can restore the latest retained
+completed attempt, not an earlier attempt overwritten before successful delivery.
+Inference observations, reader opens and other direct-store events without a
+retained source require their existing backups or acknowledged direct writes.
+Missing usage or completion observations are not synthesized from aggregate job
+totals or from the time recovery ran.
+
+Publishing, processing, audience and coverage reports require their relevant
+source acknowledgements before initial results are served. Missing acknowledgements
+return `analytics_preparing`. Completed sources remain independent; later cycles
+report `catching_up` while pending and `stale` when their acknowledged coverage
+expires. The age bound is at least 600 seconds and otherwise twice the configured
+reconciliation sweep interval. Historical import lag alone cannot certify these
+reports as fresh. The administration cache namespace changes with this contract
+so older empty reports do not bypass the new gates.
 
 ## Current cards and reports
 
@@ -141,9 +205,9 @@ snapshots fail closed above 20,000 rows; fingerprint probes read at most 201 chi
 versions per dependency and owner, using the extra row to detect an incomplete proof.
 
 Dashboard requests continue reading ClickHouse. They do not launch PostgreSQL
-history scans or reconstruct whole boards from transactional tables. Current-state
-repair does not recreate already-lost immutable analytical history; retain backups
-and monitor delivery-exhaustion and reconciliation failures separately.
+history scans or reconstruct whole boards from transactional tables. Retained
+source recovery does not recreate already-lost immutable analytical history;
+retain backups and monitor delivery-exhaustion and reconciliation failures separately.
 
 ## Finite historical import
 
@@ -217,14 +281,14 @@ old Deployments: they must not keep running or be recreated by GitOps. Compose's
 equivalent `pipeline-projector` and `report-projector` services are removed; remove
 their orphaned containers when updating an existing stack. The new runtime has no
 read-model/report projector entrypoint, scheduled refresh job or PostgreSQL
-analytical fallback. The analytics process retains only bounded current-state
-repair after its historical stage reaches the retirement gates above.
+analytical fallback. The analytics process retains bounded current-state and
+retained-overview repair after its historical stage reaches the retirement gates above.
 
 Back up ClickHouse together with import progress and readiness. After PostgreSQL
 history is removed, an empty ClickHouse database cannot reconstruct deleted
-history. Restoring an older ClickHouse snapshot also loses later observations
-unless those observations are available from another backup. Current-state
-reconciliation repairs operational views; it is not a historical archive restore.
+history. Restoring an older ClickHouse snapshot can recover only observations
+whose business sources remain retained; later direct-store observations need
+another backup. Reconciliation is not a historical archive restore.
 
 For local databases stamped with an earlier undeployed draft revision, follow the
 metadata-only development repair in [the migration guide](../../migrations/README.md).

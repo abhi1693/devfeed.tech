@@ -7,6 +7,7 @@ import uuid
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from devfeed_core import analytics_direct_cards as cards
@@ -215,6 +216,9 @@ class World:
         self.worker = reconcile.CurrentStateReconciler(
             self.sink, self.settings, self.connect, clock=lambda: self.now
         )
+        # This suite isolates current queue/card repair; retained overview
+        # recovery has its own source, lifecycle and native concurrency suite.
+        self.worker._overview = SimpleNamespace(due=False)
 
         async def fingerprints(_connection, kind, identifiers):
             return {
