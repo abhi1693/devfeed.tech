@@ -27,6 +27,9 @@ by this feature.
    leases through the normal worker shutdown/recovery path. Upgrade the scheduler,
    APIs and every worker that can claim these jobs. Do not mix old workers with
    admitted private maintenance: old code does not understand the new subject.
+   New admin clients submit published retries only to the maintenance endpoint.
+   Old API replicas return 404/405 for that route; clients never fall back to the
+   legacy pipeline retry endpoint during a mixed API rollout.
 4. Verify every worker runs the same compatible release and schema check passes.
    Enable the gate on the admin API and compatible worker configuration together.
    Exercise one published article in each target, checking that detail/feed/sitemap

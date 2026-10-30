@@ -384,3 +384,21 @@ def retry(article_id: uuid.UUID, body: RetryPipeline, session: DB, admin: Admin)
     result = _detail(session, article)
     session.close()
     return result
+
+
+@router.post(
+    "/v1/admin/articles/{article_id}/maintenance/retry",
+    response_model=PipelineDetail,
+    operation_id="admin_article_maintenance_retry",
+)
+def maintenance_retry(
+    article_id: uuid.UUID, body: RetryPipeline, session: DB, admin: Admin
+) -> PipelineDetail:
+    # A distinct route fails closed on old API replicas, whose pipeline retry
+    # handler can withdraw publications. Never redirect or fall back to it.
+    # Prepare outside locks; the shared command rechecks editorial revision,
+    # source authority and publication under its existing subject locks.
+    article = record(session, Article, article_id)
+    if article.publication_status != "published":
+        raise OperationConflict("Only published articles can start private maintenance")
+    return retry(article_id, body, session, admin)

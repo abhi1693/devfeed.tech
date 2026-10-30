@@ -5,6 +5,7 @@ import {
   adminArticlePipelineDetail,
   adminArticlePipelineRetry,
   adminArticleMaintenanceReview,
+  adminArticleMaintenanceRetry,
 } from "./api/generated/admin";
 import type {
   AdminArticlePipelineParams,
@@ -132,6 +133,19 @@ export function reviewArticleMaintenance(
   return adminArticleMaintenanceReview(id, refreshId, decision, {
     headers: { "X-CSRF-Token": csrf },
   });
+}
+export function retryArticleMaintenance(
+  id: string,
+  target: PipelineRetryTarget,
+  expected_revision: number,
+  csrf: string,
+  expected_job_id: string | null,
+) {
+  return adminArticleMaintenanceRetry(
+    id,
+    { target, expected_revision, expected_job_id },
+    { headers: { "X-CSRF-Token": csrf } },
+  );
 }
 export function pipelineJobHref(key: PipelineJobKey, id: string) {
   return recordHref(

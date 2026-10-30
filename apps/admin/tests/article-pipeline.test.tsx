@@ -17,6 +17,7 @@ import {
   getArticlePipelineDetail,
   getArticlePipelineSourceArticles,
   retryArticlePipeline,
+  retryArticleMaintenance,
   articlePipelineParams,
   pipelineLabels,
   pipelineStages,
@@ -44,6 +45,7 @@ vi.mock("@/lib/article-pipeline", async (original) => ({
   getArticlePipelineSourceArticles: vi.fn(),
   advanceArticlePipeline: vi.fn(),
   retryArticlePipeline: vi.fn(),
+  retryArticleMaintenance: vi.fn(),
 }));
 vi.mock("@/lib/resource-api", async (original) => ({
   ...(await original<typeof import("@/lib/resource-api")>()),
@@ -155,6 +157,7 @@ const detail: PipelineDetail = {
   jobs: card.jobs,
   allowed_actions: [],
   advance_label: null,
+  maintenance: null,
 };
 beforeEach(() => {
   vi.clearAllMocks();
@@ -170,6 +173,7 @@ beforeEach(() => {
   });
   vi.mocked(advanceArticlePipeline).mockResolvedValue(detail);
   vi.mocked(retryArticlePipeline).mockResolvedValue(detail);
+  vi.mocked(retryArticleMaintenance).mockResolvedValue(detail);
   vi.mocked(listRecords).mockResolvedValue({ items: [], total: 0, limit: 25, offset: 0 });
   vi.mocked(getRecord).mockResolvedValue({
     id: card.id,
@@ -789,7 +793,13 @@ it("labels published retries as private refreshes", async () => {
     expect(screen.getByRole("menuitem", { name: `Refresh ${label}` })).toBeDefined();
   expect(screen.queryByRole("menuitem", { name: /^Retry/ })).toBeNull();
   await user.click(screen.getByRole("menuitem", { name: "Refresh AI analysis" }));
-  expect(retryArticlePipeline).toHaveBeenCalledWith(card.id, "analysis", 7, "test-csrf", "ai-job");
+  expect(retryArticleMaintenance).toHaveBeenCalledWith(
+    card.id,
+    "analysis",
+    7,
+    "test-csrf",
+    "ai-job",
+  );
 });
 
 it("uses the current private job without upgrading a stale board editorial revision", async () => {
@@ -837,7 +847,7 @@ it("uses the current private job without upgrading a stale board editorial revis
   renderAdmin(<ArticlePipeline query="view=pipeline&stage=published" />);
   await user.click(await screen.findByRole("button", { name: `Move back ${card.title}` }));
   await user.click(screen.getByRole("menuitem", { name: "Refresh images" }));
-  expect(retryArticlePipeline).toHaveBeenCalledWith(
+  expect(retryArticleMaintenance).toHaveBeenCalledWith(
     card.id,
     "images",
     7,
@@ -861,6 +871,50 @@ it("reloads instead of submitting a published retry whose current eligibility ch
   await user.click(screen.getByRole("menuitem", { name: "Refresh images" }));
   await waitFor(() => expect(toast.error).toHaveBeenCalled());
   expect(retryArticlePipeline).not.toHaveBeenCalled();
+  expect(retryArticleMaintenance).not.toHaveBeenCalled();
+});
+
+it("refuses a published refresh before sending a request to an older detail contract", async () => {
+  const user = userEvent.setup();
+  vi.mocked(getArticlePipeline).mockResolvedValue(
+    board({ ...card, stage: "published", retry_targets: ["images"] }),
+  );
+  const previous: PipelineDetail = { ...detail, stage: "published", retry_targets: ["images"] };
+  delete previous.maintenance;
+  vi.mocked(getArticlePipelineDetail).mockResolvedValue(previous);
+  renderAdmin(<ArticlePipeline query="view=pipeline&stage=published" />);
+  await user.click(await screen.findByRole("button", { name: `Move back ${card.title}` }));
+  await user.click(screen.getByRole("menuitem", { name: "Refresh images" }));
+  await waitFor(() =>
+    expect(toast.error).toHaveBeenCalledWith(
+      "Published refreshes are unavailable",
+      expect.objectContaining({
+        description: "Upgrade the admin API before requesting a published article refresh.",
+      }),
+    ),
+  );
+  expect(retryArticlePipeline).not.toHaveBeenCalled();
+  expect(retryArticleMaintenance).not.toHaveBeenCalled();
+});
+
+it("never falls back to the ordinary retry when another API replica lacks maintenance", async () => {
+  const user = userEvent.setup();
+  vi.mocked(getArticlePipeline).mockResolvedValue(
+    board({ ...card, stage: "published", retry_targets: ["images"] }),
+  );
+  vi.mocked(getArticlePipelineDetail).mockResolvedValue({
+    ...detail,
+    stage: "published",
+    retry_targets: ["images"],
+  });
+  vi.mocked(retryArticleMaintenance).mockRejectedValue(new ApiError(404, "Not Found"));
+  renderAdmin(<ArticlePipeline query="view=pipeline&stage=published" />);
+  await user.click(await screen.findByRole("button", { name: `Move back ${card.title}` }));
+  await user.click(screen.getByRole("menuitem", { name: "Refresh images" }));
+  await waitFor(() => expect(toast.error).toHaveBeenCalled());
+  expect(retryArticleMaintenance).toHaveBeenCalledOnce();
+  expect(retryArticlePipeline).not.toHaveBeenCalled();
+  expect(toast.success).not.toHaveBeenCalled();
 });
 
 it("keeps rejected cards without processing retry targets actionless", async () => {

@@ -499,6 +499,10 @@ export const pageRouteCatalogs = {
       label: "/v1/admin/source-pipeline/items/:id/:id/retry",
     },
     {
+      path: "/api/v1/admin/articles/:id/maintenance/retry",
+      label: "/v1/admin/articles/:id/maintenance/retry",
+    },
+    {
       path: "/api/v1/admin/articles/:id/pipeline/advance",
       label: "/v1/admin/articles/:id/pipeline/advance",
     },
@@ -714,6 +718,10 @@ export const pageRouteCatalogs = {
     },
     { path: "/api/v1/admin/users/:id/sources", label: "/v1/admin/users/:id/sources" },
     { path: "/api/v1/admin/users/:id/topics", label: "/v1/admin/users/:id/topics" },
+    {
+      path: "/v1/admin/articles/:id/maintenance/retry",
+      label: "/v1/admin/articles/:id/maintenance/retry",
+    },
     {
       path: "/v1/admin/articles/:id/pipeline/advance",
       label: "/v1/admin/articles/:id/pipeline/advance",

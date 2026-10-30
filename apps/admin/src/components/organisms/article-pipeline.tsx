@@ -22,6 +22,7 @@ import {
   getArticlePipelineColumn,
   getArticlePipelineDetail,
   retryArticlePipeline,
+  retryArticleMaintenance,
   pipelineLabels,
   pipelineStages,
   pipelineColumnsStorageKey,
@@ -79,17 +80,27 @@ export function ArticlePipeline({ query }: { query: string }) {
       let expectedJobId = article.jobs[target]?.id ?? null;
       if (article.stage === "published") {
         const current = await getArticlePipelineDetail(article.id, new AbortController().signal);
+        if (!Object.hasOwn(current, "maintenance")) {
+          notify.error("Published refreshes are unavailable", {
+            description: "Upgrade the admin API before requesting a published article refresh.",
+          });
+          return;
+        }
         const refresh = current.maintenance;
         const targets = refresh?.retry_targets ?? current.retry_targets;
-        if (!targets?.includes(target))
-          throw new Error(
-            refresh
+        if (!targets?.includes(target)) {
+          notify.error("Could not retry article processing", {
+            description: refresh
               ? "Open the article to review the active private refresh before retrying."
               : "Processing changed. Reload the article before trying again.",
-          );
+          });
+          return;
+        }
         expectedJobId = (refresh?.jobs ?? current.jobs)[target]?.id ?? null;
       }
-      await retryArticlePipeline(
+      const requestRetry =
+        article.stage === "published" ? retryArticleMaintenance : retryArticlePipeline;
+      await requestRetry(
         article.id,
         target,
         article.editorial_revision,

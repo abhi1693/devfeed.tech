@@ -48,6 +48,8 @@ let analyticsPreparing = false;
 let coverageState = "fresh";
 let activeMaintenance = null;
 let publishedJobs = null;
+let oldMaintenanceDetail = false;
+let oldMaintenancePost = false;
 const otherSourceId = "77777777-7777-4777-8777-777777777777";
 const pipelineReads = [];
 const jobGenerations = { enrichment: 0, analysis: 0, images: 0 };
@@ -269,7 +271,7 @@ function detail() {
     jobs: jobs(),
     analysis_steps: analysisSteps(),
     retry_targets: card().retry_targets,
-    maintenance: activeMaintenance,
+    ...(oldMaintenanceDetail ? {} : { maintenance: activeMaintenance }),
     allowed_actions: imageMissing ? ["advance"] : [],
     advance_label: imageMissing ? "Process images" : null,
     checks: [
@@ -363,7 +365,14 @@ const fixture = createServer(async (req, res) => {
     for await (const chunk of req) chunks.push(chunk);
     const payload = JSON.parse(Buffer.concat(chunks).toString());
     posts.push({ path: url.pathname, payload, csrf: req.headers["x-csrf-token"] });
-    if (url.pathname.endsWith("/pipeline/retry")) {
+    if (url.pathname.endsWith("/maintenance/retry") && oldMaintenancePost) {
+      res.statusCode = 404;
+      body = { detail: "Not Found" };
+    } else if (
+      url.pathname.endsWith("/pipeline/retry") ||
+      url.pathname.endsWith("/maintenance/retry")
+    ) {
+      if (url.pathname.endsWith("/maintenance/retry")) assert.equal(stage, "published");
       assert.equal(payload.expected_revision, editorialRevision);
       assert.equal(
         payload.expected_job_id,
@@ -814,6 +823,23 @@ try {
     animations: "disabled",
   });
   await page.keyboard.press("Escape");
+  const upgradePosts = posts.length;
+  oldMaintenanceDetail = true;
+  await moveBack.click();
+  await page.getByRole("menuitem", { name: "Refresh images", exact: true }).click();
+  await page.getByText("Published refreshes are unavailable", { exact: true }).waitFor();
+  assert.equal(posts.length, upgradePosts);
+  assert.equal(stage, "published");
+  oldMaintenanceDetail = false;
+  oldMaintenancePost = true;
+  await moveBack.click();
+  await page.getByRole("menuitem", { name: "Refresh images", exact: true }).click();
+  await page.getByText("Could not retry article processing", { exact: true }).waitFor();
+  assert.equal(posts.length, upgradePosts + 1);
+  assert.ok(posts.at(-1).path.endsWith("/maintenance/retry"));
+  assert.equal(stage, "published");
+  assert.equal(editorialRevision, 8);
+  oldMaintenancePost = false;
   await page.getByRole("button", { name: "Collapse Images column", exact: true }).click();
   const publishedCard = focusCard.locator("xpath=ancestor::article");
   const originalImageJobId = jobs().images.id;
@@ -847,7 +873,7 @@ try {
   await waitForStage("published", null);
   assert.equal(posts.length, retryPostOffset + 1);
   assert.deepEqual(posts.at(-1), {
-    path: `/v1/admin/articles/${id}/pipeline/retry`,
+    path: `/v1/admin/articles/${id}/maintenance/retry`,
     payload: { expected_revision: 8, expected_job_id: originalImageJobId, target: "images" },
     csrf: "fixture-csrf",
   });
@@ -1261,8 +1287,12 @@ try {
         preparationWithdrawsPreviousBoardAndRecoversAutomatically: true,
         automaticReviewRevisionUpdates: true,
         minimalCards: true,
-        retryActions: posts.filter((post) => post.path.endsWith("/pipeline/retry")),
+        retryActions: posts.filter(
+          (post) =>
+            post.path.endsWith("/pipeline/retry") || post.path.endsWith("/maintenance/retry"),
+        ),
         publishedRetryPreserved: true,
+        mixedApiReplicaPreserved: true,
         privateRefreshReviewAndDiscard: true,
         hiddenStageKeyboardRetry: true,
         serverRetryBackwardAnimation: true,

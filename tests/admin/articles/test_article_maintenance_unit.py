@@ -6,6 +6,10 @@ from unittest.mock import Mock
 
 import pytest
 from devfeed_admin_api import article_maintenance as api
+from devfeed_admin_api import article_pipeline as pipeline
+from devfeed_core.services import OperationConflict
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
@@ -140,6 +144,57 @@ def test_detail_closes_its_read_session_after_building_preview(preview, monkeypa
     monkeypatch.setattr(api, "maintenance_detail", lambda *_args: result)
     assert api.detail(preview.public.id, preview.session) is result
     preview.session.close.assert_called_once()
+
+
+@pytest.mark.parametrize("state", ["published", "unpublished"])
+def test_maintenance_only_retry_requires_publication_and_reuses_guarded_command(
+    preview, monkeypatch, state
+):
+    preview.public.publication_status = state
+    lookup = Mock(return_value=preview.public)
+    command = Mock(return_value=object())
+    monkeypatch.setattr(pipeline, "record", lookup)
+    monkeypatch.setattr(pipeline, "retry", command)
+    body = pipeline.RetryPipeline(
+        expected_revision=preview.public.editorial_revision, expected_job_id=None, target="analysis"
+    )
+    admin = object()
+    if state == "published":
+        assert (
+            pipeline.maintenance_retry(preview.public.id, body, preview.session, admin)
+            is command.return_value
+        )
+        command.assert_called_once_with(preview.public.id, body, preview.session, admin)
+    else:
+        with pytest.raises(OperationConflict, match="Only published"):
+            pipeline.maintenance_retry(preview.public.id, body, preview.session, admin)
+        command.assert_not_called()
+    lookup.assert_called_once_with(preview.session, pipeline.Article, preview.public.id)
+
+
+def test_maintenance_retry_has_a_distinct_route_and_never_matches_an_old_replica(preview):
+    app = FastAPI()
+    old_retry = Mock()
+
+    @app.post("/v1/admin/articles/{article_id}/pipeline/retry")
+    def old_handler(article_id: str):
+        old_retry(article_id)
+        return {"publication_status": "unpublished"}
+
+    with TestClient(app) as client:
+        response = client.post(
+            f"/v1/admin/articles/{preview.public.id}/maintenance/retry",
+            json={"expected_revision": 1, "expected_job_id": None, "target": "analysis"},
+        )
+    assert response.status_code == 404 and "location" not in response.headers
+    old_retry.assert_not_called()
+    route = next(
+        route
+        for route in pipeline.router.routes
+        if route.path == "/v1/admin/articles/{article_id}/maintenance/retry"
+    )
+    assert route.operation_id == "admin_article_maintenance_retry"
+    assert route.response_model is pipeline.PipelineDetail
 
 
 @pytest.mark.parametrize("action", ["approve", "reject"])
