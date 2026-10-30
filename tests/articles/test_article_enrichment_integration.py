@@ -323,5 +323,12 @@ def test_missing_publisher_article_rejection_is_audited_and_preserves_valid_cont
         if variant == "changed_url":
             assert not requested
         job = session.get(ArticleEnrichmentJob, job_id)
-        assert job.http_status == status
-        assert job.status == ("queued" if status in {429, 503} else "failed")
+        if variant == "published":
+            assert job.http_status is None and not requested
+            assert job.status == "succeeded" and job.outcome == "superseded"
+            assert (
+                article.publication_status == "published" and article.editorial_revision == revision
+            )
+        else:
+            assert job.http_status == status
+            assert job.status == ("queued" if status in {429, 503} else "failed")

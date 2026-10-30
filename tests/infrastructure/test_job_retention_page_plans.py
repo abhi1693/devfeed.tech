@@ -1,12 +1,20 @@
 """Late maintenance pages must bound index traversal as well as returned rows."""
 
+import json
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from devfeed_core import job_retention
-from devfeed_core.models import JobPayloadRetention, Topic, TopicAnalysisJob, utcnow
-from sqlalchemy import event, insert, select
+from devfeed_core.models import (
+    Article,
+    ArticleRefresh,
+    JobPayloadRetention,
+    Topic,
+    TopicAnalysisJob,
+    utcnow,
+)
+from sqlalchemy import event, insert, literal, select, text
 
 from tests.support.source_readiness import configuration
 
@@ -151,3 +159,184 @@ def test_late_retention_page_bounds_the_leading_finished_at_index_range(database
         assert session.get(TopicAnalysisJob, identifiers[cursor + 1]).inputs_pruned_at == now
         assert session.get(TopicAnalysisJob, identifiers[cursor]).inputs_pruned_at is None
         assert session.get(TopicAnalysisJob, identifiers[cursor + 1001]).inputs_pruned_at is None
+
+
+def test_owner_retention_uses_generic_sparse_index_past_large_pruned_prefix(database, monkeypatch):
+    now = utcnow() + timedelta(seconds=2)
+    old = now - timedelta(days=120)
+    prefix_stamp = now - timedelta(days=1)
+    monkeypatch.setattr(job_retention, "utcnow", lambda: now)
+    monkeypatch.setattr(job_retention, "get_settings", configuration)
+    with database.begin() as session:
+        articles = [
+            Article(
+                title=f"Retention owner {i}",
+                canonical_url=f"https://retention.invalid/{uuid.uuid4()}",
+                url_hash=uuid.uuid4().hex,
+                review_status="approved",
+            )
+            for i in range(2)
+        ]
+        session.add_all(articles)
+        session.flush()
+        parent, other = [article.id for article in articles]
+        session.execute(
+            text(
+                "INSERT INTO article_refreshes(id,article_id,target,status,base_revision,base_hash,"
+                "payload,requested_by,created_at,completed_at,payload_pruned_at) "
+                "SELECT md5('already-pruned:'||g::text)::uuid,:parent,"
+                "'analysis','cancelled',0,:hash,"
+                "'{}','{}',:old,:old+g*interval '1 second',:stamp FROM generate_series(1,100000) g"
+            ),
+            {"parent": parent, "hash": "a" * 64, "old": old, "stamp": prefix_stamp},
+        )
+        session.execute(
+            text(
+                "INSERT INTO article_refreshes(id,article_id,target,status,base_revision,base_hash,"
+                "payload,requested_by,created_at,completed_at) "
+                "SELECT md5('pending-retention:'||g::text)::uuid,:parent,"
+                "'analysis','cancelled',0,:hash,"
+                "jsonb_build_object('private_body',repeat('source evidence ',64)),'{}',:old,"
+                ":finished+g*interval '1 second' FROM generate_series(1,120) g"
+            ),
+            {"parent": parent, "hash": "b" * 64, "old": old, "finished": now - timedelta(days=40)},
+        )
+        for article_id, status in [(parent, "active"), (other, "review")]:
+            session.add(
+                ArticleRefresh(
+                    article_id=article_id,
+                    target="analysis",
+                    status=status,
+                    base_revision=0,
+                    base_hash="c" * 64,
+                    payload={"private_body": "active evidence"},
+                    requested_by={},
+                    created_at=old,
+                    completed_at=old,
+                )
+            )
+    engine = database.kw["bind"]
+    with engine.begin() as connection:
+        connection.exec_driver_sql("ANALYZE article_refreshes")
+    measured = []
+    explaining = False
+
+    def capture(connection, _cursor, statement, parameters, _context, _many):
+        nonlocal explaining
+        if (
+            explaining
+            or measured
+            or "FROM article_refreshes" not in statement
+            or "FOR UPDATE" not in statement
+        ):
+            return
+        explaining = True
+        try:
+            keys = list(parameters)
+            prepared = statement
+            types = []
+            for position, key in enumerate(keys, 1):
+                prepared = prepared.replace(f"%({key})s", f"${position}")
+                types.append("timestamptz" if isinstance(parameters[key], datetime) else "integer")
+            connection.exec_driver_sql("SET LOCAL plan_cache_mode=force_generic_plan")
+            connection.exec_driver_sql(
+                f"PREPARE refresh_owner_probe({','.join(types)}) AS {prepared}"
+            )
+            # EXECUTE arguments cannot use protocol bind placeholders. Render
+            # only these typed local datetime/integer fixture values as literals;
+            # the prepared statement itself still gets a true generic plan.
+            arguments = ",".join(
+                str(
+                    literal(parameters[key]).compile(
+                        dialect=connection.dialect, compile_kwargs={"literal_binds": True}
+                    )
+                )
+                for key in keys
+            )
+            plan = connection.exec_driver_sql(
+                f"EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) EXECUTE refresh_owner_probe({arguments})"
+            ).scalar()[0]
+            counts = connection.exec_driver_sql(
+                "SELECT generic_plans,custom_plans FROM pg_prepared_statements "
+                "WHERE name='refresh_owner_probe'"
+            ).one()
+            measured.append((plan, tuple(counts)))
+            connection.exec_driver_sql("DEALLOCATE refresh_owner_probe")
+        finally:
+            connection.exec_driver_sql("SET LOCAL plan_cache_mode=auto")
+            explaining = False
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        assert job_retention.prune_job_payloads(database) == 0
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert len(measured) == 1 and measured[0][1] == (1, 0)
+
+    def nodes(plan):
+        yield plan
+        for child in plan.get("Plans", []):
+            yield from nodes(child)
+
+    plan = measured[0][0]
+    scans = [
+        node for node in nodes(plan["Plan"]) if node.get("Relation Name") == "article_refreshes"
+    ]
+    assert any(node.get("Index Name") == "ix_article_refresh_retention" for node in scans)
+    assert not any(node["Node Type"] == "Seq Scan" for node in scans)
+    assert all(node.get("Rows Removed by Filter", 0) == 0 for node in scans)
+    with database() as session:
+        assert (
+            session.scalar(
+                text("SELECT count(*) FROM article_refreshes WHERE payload_pruned_at=:stamp"),
+                {"stamp": prefix_stamp},
+            )
+            == 100000
+        )
+        assert (
+            session.scalar(
+                text("SELECT count(*) FROM article_refreshes WHERE payload_pruned_at=:stamp"),
+                {"stamp": now},
+            )
+            == 100
+        )
+        assert session.get(JobPayloadRetention, "article").next_run_at == now + timedelta(
+            seconds=30
+        )
+    now += timedelta(seconds=31)
+    assert job_retention.prune_job_payloads(database) == 0
+    with database() as session:
+        assert (
+            session.scalar(
+                text(
+                    "SELECT count(*) FROM article_refreshes WHERE payload_pruned_at IS NULL "
+                    "AND status IN ('promoted','superseded','cancelled')"
+                )
+            )
+            == 0
+        )
+        assert session.scalar(
+            select(ArticleRefresh.payload).where(ArticleRefresh.status == "active")
+        )["private_body"]
+        assert session.scalar(
+            select(ArticleRefresh.payload).where(ArticleRefresh.status == "review")
+        )["private_body"]
+    print(
+        json.dumps(
+            {
+                "pruned_prefix": 100000,
+                "owner_pages": [100, 20],
+                "generic_plans": 1,
+                "custom_plans": 0,
+                "owner_scan_nodes": [
+                    {
+                        "type": node["Node Type"],
+                        "index": node.get("Index Name"),
+                        "rows": node.get("Actual Rows"),
+                        "removed": node.get("Rows Removed by Filter", 0),
+                    }
+                    for node in scans
+                ],
+            }
+        )
+    )

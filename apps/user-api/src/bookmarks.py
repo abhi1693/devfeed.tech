@@ -18,7 +18,7 @@ from sqlalchemy import delete, literal, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 
 from devfeed_user_api.auth import User
-from devfeed_user_api.dependencies import DB
+from devfeed_user_api.dependencies import DB, ReadDB
 from devfeed_user_api.engagement import public_article
 
 router = APIRouter(prefix="/v1/user", tags=["bookmarks"])
@@ -65,7 +65,7 @@ def bookmark(article_id: uuid.UUID, payload: BookmarkInput, user: User, session:
 )
 def bookmarks(
     user: User,
-    session: DB,
+    session: ReadDB,
     limit: int = Query(24, ge=1, le=100),
     cursor: str | None = Query(None, max_length=300),
 ) -> FeedPage:

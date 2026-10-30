@@ -11,6 +11,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from devfeed_core.analysis import request_analysis
 from devfeed_core.article_jobs import retry_article
+from devfeed_core.article_refresh_jobs import ArticleJobModel, refresh_retry_condition
 from devfeed_core.config import get_settings
 from devfeed_core.image_jobs import retry_image
 from devfeed_core.job_definitions import Job, PipelineKind
@@ -97,6 +98,9 @@ def retry_candidate(model: type[Job]) -> ColumnElement[bool]:
                 newer.account_id.is_not_distinct_from(ArticleImageJob.account_id),
             ),
         )
+        same_subject = and_(
+            same_subject, newer.refresh_id.is_not_distinct_from(ArticleImageJob.refresh_id)
+        )
     elif model is TopicAnalysisJob:
         newer = aliased(TopicAnalysisJob)
         same_subject = or_(
@@ -112,6 +116,13 @@ def retry_candidate(model: type[Job]) -> ColumnElement[bool]:
         newer = aliased(model)
         subject = "article_id" if hasattr(model, "article_id") else "source_id"
         same_subject = getattr(newer, subject) == getattr(model, subject)
+        if model in {ArticleAnalysisJob, ArticleEnrichmentJob}:
+            same_subject = and_(
+                same_subject,
+                cast(ArticleJobModel, newer).refresh_id.is_not_distinct_from(
+                    cast(ArticleJobModel, model).refresh_id
+                ),
+            )
     superseded = (
         select(newer.id)
         .where(
@@ -166,7 +177,34 @@ def retry_candidate(model: type[Job]) -> ColumnElement[bool]:
             .correlate(model)
             .exists()
         )
-        eligibility = and_(eligibility, or_(ArticleImageJob.article_id.is_(None), current_article))
+        eligibility = and_(
+            eligibility,
+            or_(
+                and_(
+                    ArticleImageJob.refresh_id.is_(None),
+                    or_(ArticleImageJob.article_id.is_(None), current_article),
+                ),
+                refresh_retry_condition(ArticleImageJob),
+            ),
+        )
+    elif model in {ArticleAnalysisJob, ArticleEnrichmentJob}:
+        article_model = cast(ArticleJobModel, model)
+        ordinary_article = (
+            select(Article.id)
+            .where(
+                Article.id == article_model.article_id,
+                Article.publication_status != "published",
+            )
+            .correlate(model)
+            .exists()
+        )
+        eligibility = and_(
+            eligibility,
+            or_(
+                and_(article_model.refresh_id.is_(None), ordinary_article),
+                refresh_retry_condition(article_model),
+            ),
+        )
     return eligibility
 
 
@@ -190,6 +228,24 @@ def retry_notification(session: Session, identifier: uuid.UUID) -> NotificationD
     job.dispatched_at = job.finished_at = job.lease_until = job.lease_token = job.error = None
     session.flush()
     return job
+
+
+def preserve_analysis_steps(previous: ArticleAnalysisJob, successor: ArticleAnalysisJob) -> None:
+    """Retain independently validated specialist outputs for the exact same private subject."""
+    if (
+        previous.steps
+        and successor.id != previous.id
+        and successor.refresh_id == previous.refresh_id
+        and successor.input_hash == previous.input_hash
+        and successor.status == "queued"
+        and not successor.attempts
+        and not successor.steps
+    ):
+        successor.steps = {
+            name: dict(step)
+            for name, step in previous.steps.items()
+            if isinstance(step, dict) and step.get("status") == "succeeded"
+        }
 
 
 @overload
@@ -239,20 +295,12 @@ def retry_failed_job(
         return request_enrichment(session, source_job.source_id)
     if kind == "analysis":
         analysis_job = cast(ArticleAnalysisJob, job)
-        successor = request_analysis(session, analysis_job.article_id)
-        if (
-            analysis_job.steps
-            and successor.id != analysis_job.id
-            and successor.input_hash == analysis_job.input_hash
-            and successor.status == "queued"
-            and not successor.attempts
-            and not successor.steps
-        ):
-            successor.steps = {
-                name: dict(step)
-                for name, step in analysis_job.steps.items()
-                if isinstance(step, dict) and step.get("status") == "succeeded"
-            }
+        successor = (
+            request_analysis(session, analysis_job.article_id, refresh_id=analysis_job.refresh_id)
+            if analysis_job.refresh_id is not None
+            else request_analysis(session, analysis_job.article_id)
+        )
+        preserve_analysis_steps(analysis_job, successor)
         return successor
     if kind == "topic-analysis":
         topic_job = cast(TopicAnalysisJob, job)

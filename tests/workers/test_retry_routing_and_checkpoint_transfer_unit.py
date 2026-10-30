@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+import uuid
 from datetime import timedelta
 from unittest.mock import Mock
 
@@ -158,3 +159,28 @@ def test_analysis_retry_transfers_only_completed_checkpoints_into_an_unstarted_m
         assert result.steps["developer_relevance"] is not previous.steps["developer_relevance"]
         result.steps["developer_relevance"]["status"] = "running"
         assert previous.steps["developer_relevance"]["status"] == "succeeded"
+
+
+@pytest.mark.parametrize("same_owner", [True, False])
+def test_private_analysis_retry_routes_its_owner_and_never_transfers_across_candidates(
+    monkeypatch, operation, same_owner
+):
+    previous, successor = operation.previous, operation.queued
+    previous.refresh_id = uuid.uuid4()
+    successor.refresh_id = previous.refresh_id if same_owner else uuid.uuid4()
+    previous.steps = {"developer_relevance": completed_step(previous)}
+    before = copy.deepcopy(previous.steps)
+    operation.session.scalar.return_value = previous.id
+    request = Mock(return_value=successor)
+    monkeypatch.setattr(job_retries, "request_analysis", request)
+
+    result = job_retries.retry_failed_job(
+        operation.session, previous, "analysis", {"subject": "operator"}
+    )
+
+    request.assert_called_once_with(
+        operation.session, previous.article_id, refresh_id=previous.refresh_id
+    )
+    assert result is successor
+    assert result.steps == (before if same_owner else {})
+    assert previous.steps == before and previous.status == "failed"

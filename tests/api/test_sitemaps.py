@@ -10,6 +10,8 @@ from devfeed_core.models import Article, ArticleOrigin, Source, Topic
 from sqlalchemy import event, update
 
 from tests.api.test_public_search_integration import seed as search_seed
+from tests.support import article_refresh as refresh_support
+from tests.support.article_refresh import published_retry_case as published_retry_case
 
 pytestmark = pytest.mark.integration
 
@@ -98,6 +100,70 @@ def test_refresh_keeps_previous_version_readable_and_excludes_withdrawn_content(
     assert second["parts"] == []
     assert client.get(previous_path).json() == old
     assert client.get("/v1/tags/kubernetes").status_code == 404
+
+
+@pytest.mark.parametrize("target", ["enrichment", "analysis", "images"])
+def test_rebuilt_sitemaps_retain_published_articles_during_pending_and_failed_maintenance(
+    client, database, published_retry_case, target
+):
+    from devfeed_core.article_refresh import try_promote_refresh
+    from devfeed_core.editorial import EditorialDecision, decide_article
+    from devfeed_core.models import ArticleRefresh, utcnow
+    from sqlalchemy import select
+
+    case = published_retry_case
+    expected = f"/articles/{case.slug}"
+    generations = []
+
+    def rebuilt_article_paths():
+        storage = get_sitemap_cache()
+        key = storage.namespace + ":sitemaps:v1:manifest"
+        previous = storage.redis.get(key)
+        if previous:
+            storage.redis.set(key, json.dumps(dict(json.loads(previous), built_at=0)), ex=3900)
+        sitemaps.refresh_snapshot()
+        response = client.get("/v1/sitemaps")
+        assert response.status_code == 200
+        manifest = response.json()
+        assert manifest["generation"] not in generations
+        generations.append(manifest["generation"])
+        return {
+            path
+            for part in manifest["parts"]
+            if part["kind"] == "articles"
+            for path in client.get(
+                f"/v1/sitemaps/articles/{part['page']}?v={manifest['generation']}"
+            ).json()["paths"]
+        }
+
+    assert expected in rebuilt_article_paths()
+    with database.begin() as session:
+        case.request(session, target)
+        owner = session.scalar(
+            select(ArticleRefresh).where(ArticleRefresh.article_id == case.article_id)
+        )
+        refresh_id = owner.id
+        job_id = getattr(owner, refresh_support.JOB_SLOTS[target])
+    assert client.get(case.path).status_code == 200
+    assert expected in rebuilt_article_paths()
+    with database.begin() as session:
+        job = session.get(refresh_support.JOB_MODELS[target], job_id)
+        job.status, job.error, job.finished_at = (
+            "failed",
+            "Controlled maintenance failure",
+            utcnow(),
+        )
+    assert try_promote_refresh(database, refresh_id) != "promoted"
+    assert client.get(case.path).status_code == 200
+    assert expected in rebuilt_article_paths()
+    with database.begin() as session:
+        decide_article(
+            session,
+            case.article_id,
+            EditorialDecision(action="unpublish", actor="Editor", note="Explicit withdrawal"),
+        )
+    assert client.get(case.path).status_code == 404
+    assert expected not in rebuilt_article_paths()
 
 
 def test_articles_with_multiple_sources_appear_once(database):

@@ -109,6 +109,7 @@ import type {
   ImportCandidatePage,
   InventoryOut,
   JobOut,
+  MaintenanceDetail,
   ManualProductInput,
   ManualProductUpdate,
   MemberInput,
@@ -168,6 +169,7 @@ import type {
   RelationshipReview,
   RetryPipeline,
   ReviewArticle,
+  ReviewMaintenance,
   ReviewSource,
   SSOLogoutResponse,
   SearchAnalytics,
@@ -569,6 +571,71 @@ export const adminArticleContent = async (articleId: string, options?: Parameter
     method: 'GET'
 
 
+  }
+);}
+
+
+
+export const getAdminArticleMaintenanceDetailUrl = (articleId: string,) => {
+
+
+
+
+  return `/v1/admin/articles/${articleId}/maintenance`
+}
+
+/**
+ * @summary Detail
+ */
+export const adminArticleMaintenanceDetail = async (articleId: string, options?: Parameters<typeof adminFetch>[1]): Promise<MaintenanceDetail | null> => {
+
+  return adminFetch<MaintenanceDetail | null>(getAdminArticleMaintenanceDetailUrl(articleId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminArticleMaintenanceReviewUrl = (articleId: string,
+    refreshId: string,) => {
+
+
+
+
+  return `/v1/admin/articles/${articleId}/maintenance/${refreshId}/review`
+}
+
+/**
+ * @summary Review
+ */
+export const adminArticleMaintenanceReview = async (articleId: string,
+    refreshId: string,
+    reviewMaintenance: ReviewMaintenance, options?: Parameters<typeof adminFetch>[1]): Promise<MaintenanceDetail> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<MaintenanceDetail>(getAdminArticleMaintenanceReviewUrl(articleId,refreshId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(reviewMaintenance)
   }
 );}
 

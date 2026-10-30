@@ -93,7 +93,7 @@ def test_prepared_daily_picks_explain_each_source_of_relevance_without_changing_
     reasons = ["followed_source", "followed_topic", "liked_topic", "related_topic", "followed_tag"]
     rows = [
         (
-            article,
+            article.id,
             UserRecommendation(
                 user_id=account.id,
                 article_id=article.id,
@@ -109,7 +109,11 @@ def test_prepared_daily_picks_explain_each_source_of_relevance_without_changing_
         for index, (article, reason) in enumerate(zip(articles, reasons, strict=True))
     ]
     session.execute.return_value = SimpleNamespace(all=lambda: rows)
-    session.scalars.side_effect = [list(reversed(articles)), [articles[0].id]]
+    session.scalars.side_effect = [
+        SimpleNamespace(all=lambda: [source.id]),
+        list(reversed(articles)),
+        [articles[0].id],
+    ]
     session.get.side_effect = lambda model, identifier: (
         selection.state
         if model is UserRecommendationState
@@ -173,7 +177,11 @@ def test_existing_daily_snapshot_keeps_its_timezone_and_picks_while_rankings_ref
     selection.session.get.side_effect = lambda model, _: (
         snapshot if model is UserMustRead else selection.state
     )
-    selection.session.scalars.side_effect = [[article], [article.id]]
+    selection.session.scalars.side_effect = [
+        SimpleNamespace(all=lambda: [article.origins[0].source_id]),
+        [article],
+        [article.id],
+    ]
 
     saved, result = must_reads.load_selection(selection.session, selection.account.id, "UTC")
 
@@ -418,7 +426,7 @@ def test_retained_daily_picks_with_no_remaining_visible_articles_do_not_claim_pr
     selection.session.get.side_effect = lambda model, identifier: (
         saved if model is UserMustRead else existing_read(model, identifier)
     )
-    selection.session.scalars.side_effect = [[], []]
+    selection.session.scalars.side_effect = [SimpleNamespace(all=lambda: []), [], []]
     result = must_reads.present(
         must_reads.Presentation(date=NOW.date(), timezone="UTC"),
         selection.user,

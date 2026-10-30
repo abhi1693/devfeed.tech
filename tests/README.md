@@ -56,15 +56,15 @@ private databases, so the PostgreSQL test role needs `CREATEDB`, and the
 ClickHouse test role needs database, table, and materialized-view creation and
 cleanup permissions. These credentials must belong only to disposable services.
 
-The session fixture upgrades PostgreSQL to Alembic `head`, including native
-capture functions and bootstrap state. Analytical fixtures initialize ClickHouse
-facts and serving generations; pytest does not require a separately running
-exporter or report worker. Native migration `0039` is forward-only: use a fresh
-disposable database when testing an earlier schema instead of downgrading through
-the native cutover. Creating ORM tables alone does not install this pipeline.
-Migration `0041` rebuilds only saved-report caches for explicit date-window keys;
-date-range tests must run against that schema. It preserves source records and
-retained analytical history.
+The session fixture upgrades PostgreSQL to Alembic `head`. Analytical fixtures
+initialize ClickHouse facts and serving generations; pytest does not require a
+separately running exporter or report worker. Creating ORM tables alone does not
+install the database triggers and runtime contracts. Use a fresh disposable
+database for historical migration tests so another runner's schema is unchanged.
+Migration `0040` adds private article maintenance ownership, and `0041` validates
+its foreign keys and builds sparse job-link indexes concurrently. Schema rollback
+is refused after maintenance history exists; tests of an unused schema can round
+trip without discarding approved articles or ordinary jobs.
 
 CI discovers nested test paths and balances whole files across its workers. Moving
 or merging files changes shard assignments but must retain cases, parametrizations,

@@ -2696,6 +2696,54 @@ export const adminGatewayOperations = [
     },
   },
   {
+    operationId: "adminArticleMaintenanceDetail",
+    method: "GET",
+    path: "/v1/admin/articles/{article_id}/maintenance",
+    parameters: [
+      {
+        name: "article_id",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminArticleMaintenanceReview",
+    method: "POST",
+    path: "/v1/admin/articles/{article_id}/maintenance/{refresh_id}/review",
+    parameters: [
+      {
+        name: "article_id",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+      {
+        name: "refresh_id",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
     operationId: "admin_topics_list",
     method: "GET",
     path: "/v1/admin/topics",

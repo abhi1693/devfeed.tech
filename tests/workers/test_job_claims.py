@@ -33,10 +33,16 @@ def test_targeted_claim_waits_for_dispatch_lock(model, claim):
 
     def scalar(statement):
         statements.append(statement.compile(dialect=postgresql.dialect()))
+        if len(statements) == 1 and model in {ArticleEnrichmentJob, ArticleImageJob}:
+            return model(id=identifier, article_id=uuid.uuid4())
         return None
 
     assert claim(SimpleNamespace(scalar=scalar), identifier) is None
-    statement = statements[0]
+    statement = next(
+        item
+        for item in statements
+        if f"FROM {model.__tablename__} " in str(item) and "FOR UPDATE" in str(item)
+    )
     assert f"{model.__tablename__}.id =" in str(statement)
     assert identifier in statement.params.values()
     assert "FOR UPDATE" in str(statement)

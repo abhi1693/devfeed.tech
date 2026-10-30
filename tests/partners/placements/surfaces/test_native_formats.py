@@ -14,6 +14,7 @@ from devfeed_core.models import (
     PartnerCampaign,
     PartnerPlacementDelivery,
     PartnerProduct,
+    Source,
     utcnow,
 )
 from devfeed_core.partner_ad_formats import ad_format_allowed, validate_account_formats
@@ -28,7 +29,9 @@ from devfeed_http.partner_analytics_reporting import reporting_assets, reporting
 from devfeed_http.partner_placements import PlacementQuery
 from devfeed_http.partner_portal import CampaignInput
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import event, select
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.orm import Session
 
 from tests.partners.placements.surfaces.test_feed_placements import feed_catalog as feed_catalog
 from tests.support.partner_placements import KEY, deliver
@@ -207,6 +210,63 @@ def campaign_payload(article_id, **overrides):
         ends_at=(utcnow() + timedelta(days=1)).isoformat(),
         **overrides,
     )
+
+
+@pytest.mark.integration
+def test_sponsored_article_hydration_fences_promotion_until_delivery_finishes(
+    database, feed_catalog, admin_portal_client
+):
+    native_account(database, feed_catalog, [])
+    article_id = sponsored_article(database, feed_catalog)
+    client, _ = admin_portal_client
+    prefix = f"/v1/admin/partner-accounts/{feed_catalog['paid']}"
+    created = client.post(prefix + "/campaigns", json=campaign_payload(article_id))
+    assert created.status_code == 201, created.text
+    fenced = []
+
+    def probe_promotion(state):
+        if (
+            fenced
+            or not state.is_relationship_load
+            or not state.parameters
+            or article_id not in state.parameters.get("primary_keys", [])
+        ):
+            return
+        fenced.append(True)
+        # Actual placement candidates are automatic and already share-lock the
+        # Article before selectinload. Promotion uses the same Source -> Article
+        # order and must wait for the response's short delivery transaction.
+        with database.begin() as writer:
+            writer.scalar(
+                select(Source.id)
+                .where(Source.id == feed_catalog["source"])
+                .with_for_update(read=True, of=Source)
+            )
+            with pytest.raises(DBAPIError) as error:
+                writer.scalar(
+                    select(Article.id)
+                    .where(Article.id == article_id)
+                    .with_for_update(nowait=True, of=Article)
+                )
+            assert error.value.orig.sqlstate == "55P03"
+            writer.rollback()
+
+    payload = feed_request(feed_catalog, ["sponsored_content"])
+    event.listen(Session, "do_orm_execute", probe_promotion)
+    try:
+        rows = deliver(database, payload)
+    finally:
+        event.remove(Session, "do_orm_execute", probe_promotion)
+    assert fenced and len(rows) == 1
+    assert rows[0]["article"].title == "Kubernetes operations explained"
+    # Delivery committed and released its share fence. A normal promotion can
+    # now swap the public fields, and the next delivery sees the replacement.
+    with database.begin() as writer:
+        value = writer.scalar(
+            select(Article).where(Article.id == article_id).with_for_update(of=Article)
+        )
+        value.title = "New approved operations headline"
+    assert deliver(database, payload)[0]["article"].title == "New approved operations headline"
 
 
 @pytest.mark.integration

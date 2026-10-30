@@ -109,6 +109,7 @@ from sqlalchemy.orm import Session
 
 from devfeed_admin_api.analytics_current import preparing
 from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
+from devfeed_admin_api.article_maintenance import maintenance_detail
 from devfeed_admin_api.auth import Admin, actor, require_admin
 from devfeed_admin_api.dependencies import DB, DBFactory
 
@@ -325,6 +326,7 @@ def _detail(session: Session, article: Article) -> PipelineDetail:
         advance_label=labels.get(readiness.stage) if actions else None,
         analysis_steps=_analysis_steps(facts["analysis"]),
         retry_targets=processing_retry_targets(article, processing, facts),
+        maintenance=maintenance_detail(session, article),
     )
 
 

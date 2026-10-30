@@ -88,6 +88,10 @@ repairs missed current job/card observations in bounded background pages, and
 boards show the source state verified by its latest completed coverage pass.
 See [analytics delivery and recovery](apps/admin-api/ANALYTICS.md).
 
+Published article retries preserve the current approval while a private replacement
+is prepared. See [maintenance rollout and recovery review](dev/published-article-maintenance.md)
+before enabling this gated worker feature.
+
 Container and CI runtimes use Node.js 26.12.1 and uv 0.13.5. Python images retain the tested 3.12
 line at patch 3.12.15 on Alpine 3.24. Base images are pinned by verified multi-platform digests; the
 minimal Node runtimes install libatomic and libstdc++ and execute a native-module loading check

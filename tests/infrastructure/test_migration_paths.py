@@ -31,9 +31,9 @@ def test_migration_history_loads_from_unrelated_working_directory(tmp_path):
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert f"0038 -> {SCHEMA_REVISION} (head)" in result.stdout
+    assert f"0040 -> {SCHEMA_REVISION} (head)" in result.stdout
     scripts = ScriptDirectory.from_config(Config(str(REPO_ROOT / "alembic.ini")))
-    assert scripts.get_revision(SCHEMA_REVISION).down_revision == "0038"
+    assert scripts.get_revision(SCHEMA_REVISION).down_revision == "0040"
 
 
 @pytest.mark.integration

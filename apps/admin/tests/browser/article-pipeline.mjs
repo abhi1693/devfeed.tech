@@ -46,6 +46,8 @@ let publishedToFeedAt = null;
 let sourceGroupingDemo = false;
 let analyticsPreparing = false;
 let coverageState = "fresh";
+let activeMaintenance = null;
+let publishedJobs = null;
 const otherSourceId = "77777777-7777-4777-8777-777777777777";
 const pipelineReads = [];
 const jobGenerations = { enrichment: 0, analysis: 0, images: 0 };
@@ -70,6 +72,7 @@ function job(key, status) {
   };
 }
 function jobs() {
+  if (stage === "published" && publishedJobs) return publishedJobs;
   const index = stages.indexOf(stage);
   return {
     enrichment:
@@ -265,6 +268,8 @@ function detail() {
     blockers: card().blockers,
     jobs: jobs(),
     analysis_steps: analysisSteps(),
+    retry_targets: card().retry_targets,
+    maintenance: activeMaintenance,
     allowed_actions: imageMissing ? ["advance"] : [],
     advance_label: imageMissing ? "Process images" : null,
     checks: [
@@ -360,21 +365,64 @@ const fixture = createServer(async (req, res) => {
     posts.push({ path: url.pathname, payload, csrf: req.headers["x-csrf-token"] });
     if (url.pathname.endsWith("/pipeline/retry")) {
       assert.equal(payload.expected_revision, editorialRevision);
-      assert.equal(payload.expected_job_id, jobs()[payload.target]?.id ?? null);
-      assert.ok(card().retry_targets.includes(payload.target));
+      assert.equal(
+        payload.expected_job_id,
+        (activeMaintenance?.jobs ?? jobs())[payload.target]?.id ?? null,
+      );
+      assert.ok(
+        (activeMaintenance?.retry_targets ?? card().retry_targets).includes(payload.target),
+      );
       if (stage === "published") {
-        editorialRevision++;
-        publishedToFeedAt = now;
+        publishedJobs ??= jobs();
+        jobGenerations[payload.target]++;
+        activeMaintenance = {
+          id: "88888888-8888-4888-8888-888888888888",
+          article_id: id,
+          target: payload.target,
+          status: "active",
+          version: 1,
+          created_at: now,
+          completed_at: null,
+          ready: false,
+          reasons: ["Private processing is still running."],
+          allowed_actions: ["reject"],
+          jobs: { [payload.target]: job(payload.target, "queued") },
+          retry_targets: [],
+          replacement: {
+            title: "Private replacement title",
+            summary: "A corrected overview prepared for review.",
+            description: "Corrected source evidence.",
+            image_url: "https://images.example/replacement.webp",
+            language: "en",
+            content_type: "tutorial",
+            content_format: "article",
+            topics: [{ id: source.id, name: "Python", role: "primary" }],
+            tags: [{ id: source.id, name: "Async I/O" }],
+          },
+        };
+      } else {
+        stage = payload.target;
+        imageMissing = false;
+        analysisRetry = false;
+        retryQueued = true;
+        jobGenerations[payload.target]++;
       }
-      stage = payload.target;
-      imageMissing = false;
-      analysisRetry = false;
-      retryQueued = true;
-      jobGenerations[payload.target]++;
       body = detail();
     } else if (url.pathname.endsWith("/pipeline/advance")) {
       imageMissing = false;
       body = detail();
+    } else if (url.pathname.includes("/maintenance/") && url.pathname.endsWith("/review")) {
+      assert.equal(payload.expected_version, activeMaintenance.version);
+      assert.equal(req.headers["x-csrf-token"], "fixture-csrf");
+      assert.ok(activeMaintenance.allowed_actions.includes(payload.action));
+      if (payload.action === "reject") assert.ok(payload.note.trim());
+      body = {
+        ...activeMaintenance,
+        status: payload.action === "approve" ? "promoted" : "cancelled",
+        completed_at: now,
+        allowed_actions: [],
+      };
+      activeMaintenance = null;
     } else if (url.pathname.endsWith("/review")) {
       assert.equal(payload.action, "publish");
       stage = "published";
@@ -759,9 +807,7 @@ try {
   await moveBack.focus();
   await moveBack.press("Enter");
   for (const label of ["enrichment", "AI analysis", "images"])
-    await page
-      .getByRole("menuitem", { name: `Unpublish and retry ${label}`, exact: true })
-      .waitFor();
+    await page.getByRole("menuitem", { name: `Refresh ${label}`, exact: true }).waitFor();
   await page.screenshot({
     path: `${destination}/board-retry-desktop.png`,
     fullPage: true,
@@ -798,16 +844,17 @@ try {
   await publishedCard.dragTo(page.getByRole("heading", { name: "Images", exact: true }), {
     sourcePosition: { x: 8, y: dragBounds.height - 6 },
   });
-  await waitForStage("images", null);
+  await waitForStage("published", null);
   assert.equal(posts.length, retryPostOffset + 1);
   assert.deepEqual(posts.at(-1), {
     path: `/v1/admin/articles/${id}/pipeline/retry`,
     payload: { expected_revision: 8, expected_job_id: originalImageJobId, target: "images" },
     csrf: "fixture-csrf",
   });
-  assert.equal(editorialRevision, 9);
-  assert.equal(jobs().images.status, "queued");
-  assert.notEqual(jobs().images.id, originalImageJobId);
+  assert.equal(editorialRevision, 8);
+  assert.equal(jobs().images.id, originalImageJobId);
+  assert.equal(activeMaintenance.jobs.images.status, "queued");
+  assert.notEqual(activeMaintenance.jobs.images.id, originalImageJobId);
   assert.equal(await imagesColumn.getAttribute("data-pipeline-collapsed"), "true");
   await page.getByRole("button", { name: "Expand Images column", exact: true }).click();
   await focusCard.waitFor({ state: "visible" });
@@ -820,9 +867,58 @@ try {
   const recordInformation = page
     .getByRole("heading", { name: "Record information", exact: true })
     .locator("xpath=ancestor::section[1]");
-  await recordInformation.getByText("Unpublished", { exact: true }).waitFor();
+  await recordInformation.getByText("Published", { exact: true }).waitFor();
   await recordInformation.getByText("Approved", { exact: true }).waitFor();
   assert.equal(publishedToFeedAt, now);
+  await page.getByRole("heading", { name: "Private refresh", exact: true }).waitFor();
+  await page.getByText("Private replacement title", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Approve replacement" }).count(), 0);
+  const pendingRefresh = structuredClone(activeMaintenance);
+  activeMaintenance = {
+    ...activeMaintenance,
+    id: "99999999-9999-4999-8999-999999999999",
+    target: "analysis",
+    jobs: { analysis: job("analysis", "succeeded") },
+    status: "review",
+    version: 2,
+    ready: true,
+    reasons: [],
+    allowed_actions: ["approve", "reject"],
+  };
+  await page.reload();
+  await page.getByRole("button", { name: "Approve replacement", exact: true }).waitFor();
+  await page.getByText("Python (primary)", { exact: true }).waitFor();
+  await page.screenshot({
+    path: `${destination}/private-refresh-review-desktop.png`,
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Approve replacement", exact: true }).click();
+  await page
+    .getByRole("heading", { name: "Private refresh", exact: true })
+    .waitFor({ state: "detached" });
+  assert.deepEqual(posts.at(-1).payload, { action: "approve", expected_version: 2 });
+  activeMaintenance = { ...pendingRefresh, version: 3 };
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  const discardRefresh = page.getByRole("button", { name: "Discard refresh", exact: true });
+  await discardRefresh.waitFor();
+  assert.equal(await discardRefresh.isDisabled(), true);
+  await page
+    .getByRole("textbox", { name: /Review note/ })
+    .fill("Use the current approved overview.");
+  await page.screenshot({
+    path: `${destination}/private-refresh-discard-mobile.png`,
+    fullPage: true,
+  });
+  await discardRefresh.click();
+  await page
+    .getByRole("heading", { name: "Private refresh", exact: true })
+    .waitFor({ state: "detached" });
+  assert.equal(posts.at(-1).payload.action, "reject");
+  assert.equal(posts.at(-1).payload.expected_version, 3);
+  await recordInformation.getByText("Published", { exact: true }).waitFor();
+  publishedJobs = null;
+  editorialRevision = 9;
   retryQueued = false;
   stage = "ready";
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1166,7 +1262,8 @@ try {
         automaticReviewRevisionUpdates: true,
         minimalCards: true,
         retryActions: posts.filter((post) => post.path.endsWith("/pipeline/retry")),
-        publishedRetryUnpublished: true,
+        publishedRetryPreserved: true,
+        privateRefreshReviewAndDiscard: true,
         hiddenStageKeyboardRetry: true,
         serverRetryBackwardAnimation: true,
         sourceGrouping: {

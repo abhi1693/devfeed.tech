@@ -9,7 +9,6 @@ from devfeed_core.article_processing_retry import request_processing_retry
 from devfeed_core.cache_events import DIRTY, REASONS
 from devfeed_core.config import get_settings
 from devfeed_core.db import get_engine
-from devfeed_core.editorial import EditorialDecision, decide_article
 from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.jobs import request_ingestion
 from devfeed_core.models import Article, ArticleImageJob, Source, Tag, utcnow
@@ -102,6 +101,7 @@ def test_review_commit_invalidates_but_rollback_and_polling_do_not(database, cli
 def test_worker_ingestion_images_and_profiles_invalidate_cached_reads(
     database, client, rss_bytes, monkeypatch, publish_for_read_test
 ):
+    monkeypatch.setattr(get_settings(), "published_article_refresh_enabled", True)
     identifier = approved_source(database)
     assert client.get("/v1/feed").json()["items"] == []
     with database.begin() as session:
@@ -136,7 +136,9 @@ def test_worker_ingestion_images_and_profiles_invalidate_cached_reads(
             )
         )
         image_id = image_job.id
-    assert client.get(path).status_code == 404
+    pending = client.get(path)
+    assert pending.status_code == 200 and pending.headers["x-cache"] == "HIT"
+    assert pending.json()["image_url"] is None
     monkeypatch.setattr(
         image_tasks,
         "fetch_page",
@@ -145,10 +147,8 @@ def test_worker_ingestion_images_and_profiles_invalidate_cached_reads(
         ),
     )
     image_tasks.enrich_image(str(image_id))
-    assert client.get(path).status_code == 404
-    with database.begin() as session:
-        decide_article(session, article_id, EditorialDecision(action="publish"))
     refreshed = client.get(path)
+    assert refreshed.status_code == 200
     assert refreshed.headers["x-cache"] == "MISS"
     assert refreshed.json()["image_url"] == "https://example.com/cover.png"
     source_path = f"/v1/sources/{identifier}"

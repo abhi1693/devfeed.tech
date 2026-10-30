@@ -116,7 +116,9 @@ def test_worker_claims_waiting_lock_and_persists_analysis_without_publication(ru
     assert job.result["ai_summary"] == article.ai_summary
     assert len(job.catalog_snapshot["topics"]) == 1
     assert article.publication_status == "unpublished" and article.review_status == "pending"
-    assert "FOR UPDATE" in str(statements[0]) and "SKIP LOCKED" not in str(statements[0])
+    claim = statements[1]
+    assert "FOR UPDATE" not in str(statements[0])  # Metadata identifies a private owner first.
+    assert "FOR UPDATE" in str(claim) and "SKIP LOCKED" not in str(claim)
 
 
 def test_application_deadlock_retry_never_repeats_inference_or_holds_a_transaction(

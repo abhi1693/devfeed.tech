@@ -4,8 +4,13 @@ import {
   adminArticlePipelineColumn,
   adminArticlePipelineDetail,
   adminArticlePipelineRetry,
+  adminArticleMaintenanceReview,
 } from "./api/generated/admin";
-import type { AdminArticlePipelineParams, PipelineCard } from "./api/generated/models";
+import type {
+  AdminArticlePipelineParams,
+  PipelineCard,
+  ReviewMaintenance,
+} from "./api/generated/models";
 import { recordHref } from "./routes";
 
 export type {
@@ -117,6 +122,16 @@ export function retryArticlePipeline(
     { target, expected_revision, expected_job_id },
     { headers: { "X-CSRF-Token": csrf } },
   );
+}
+export function reviewArticleMaintenance(
+  id: string,
+  refreshId: string,
+  decision: ReviewMaintenance,
+  csrf: string,
+) {
+  return adminArticleMaintenanceReview(id, refreshId, decision, {
+    headers: { "X-CSRF-Token": csrf },
+  });
 }
 export function pipelineJobHref(key: PipelineJobKey, id: string) {
   return recordHref(
