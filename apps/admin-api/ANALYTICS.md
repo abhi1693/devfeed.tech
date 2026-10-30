@@ -188,6 +188,10 @@ request, the newest individual card or the one-time import-ready record.
 Incomplete coverage is shown as catching up; expired coverage is stale. Existing
 counts and cards remain visible during repair. Historical report readiness is
 independent of these current-view checkpoints.
+An active or due queue snapshot takes one bounded page per turn until its coverage
+is acknowledged, so slower card and overview builders cannot age an unfinished
+queue snapshot. The queue poll interval starts at completion; card, overview and
+audience work retain their weighted turns during that cooldown.
 
 Current-state work uses these resource bounds:
 
