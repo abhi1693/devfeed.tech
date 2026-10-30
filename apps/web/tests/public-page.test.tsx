@@ -38,7 +38,7 @@ it("keeps the fallback separate from the eventual public content and propagates 
   const shell = PublicPage({ content, filters });
   expect(shell.type).toBe(UserShell);
   expect(shell.props.filters).toEqual(filters);
-  const boundary = shell.props.children;
+  const boundary = shell.props.children[1];
   expect(boundary.type).toBe(Suspense);
   expect(boundary.props.fallback.type).toBe(PublicPageLoading);
   const child = boundary.props.children as ReactElement<
@@ -49,4 +49,12 @@ it("keeps the fallback separate from the eventual public content and propagates 
   await expect(child.type({ content: Promise.reject(new Error("unavailable")) })).rejects.toThrow(
     "unavailable",
   );
+});
+
+it("places static introductory content outside the pending results boundary", () => {
+  const content = new Promise<never>(() => {});
+  const intro = <h1>Public introduction</h1>;
+  const shell = PublicPage({ content, children: intro });
+  expect(shell.props.children[0]).toBe(intro);
+  expect(shell.props.children[1].type).toBe(Suspense);
 });

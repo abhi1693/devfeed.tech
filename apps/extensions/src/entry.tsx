@@ -6,6 +6,7 @@ import { startExtensionAnalytics } from "./analytics";
 import { createRoot } from "react-dom/client";
 import { useEffect, useState } from "react";
 import { FeedContent, type FeedContentProps } from "../../web/src/components/feed-content";
+import { GuestHomeIntro } from "../../web/src/components/guest-home-intro";
 import { useUser } from "../../web/src/components/user-account";
 import { UserShell } from "../../web/src/components/user-shell";
 import { ThemePreferencesProvider } from "../../web/src/components/theme-preferences";
@@ -26,7 +27,7 @@ import {
   latestFeedParams,
   trendingFeedParams,
 } from "../../web/src/lib/feed-query";
-import { readerFeeds, resolveFeed } from "../../web/src/lib/reader-feed";
+import { isGuestHome, readerFeeds, resolveFeed } from "../../web/src/lib/reader-feed";
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
 import type { FeedPage, FeedOptions, Topic, Source, Tag } from "../../web/src/lib/types";
 import { ExtensionReaderTransport, publicOrigin } from "./transport";
@@ -256,10 +257,12 @@ function Reader({
         cursor={filters.cursor}
       />
     );
+  const intro = !sessionLoading && isGuestHome(feedDescriptor, filters, Boolean(user));
   return (
     <UserShell filters={filters} section={detail?.kind ?? "feed"}>
+      {intro && <GuestHomeIntro />}
       {state?.key === key && state.feed ? (
-        <FeedContent key={key} {...state.feed} withShell={false} />
+        <FeedContent key={key} {...state.feed} headingLevel={intro ? 2 : 1} withShell={false} />
       ) : (
         <LoadingSkeleton label="Loading articles…" />
       )}

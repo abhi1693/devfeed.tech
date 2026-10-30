@@ -22,6 +22,7 @@ import type { FeedPage, FeedOptions } from "@/lib/types";
 export type FeedContentProps = {
   filters: FeedFilters;
   title?: string;
+  headingLevel?: 1 | 2;
   description?: string | null;
   logoUrl?: string | null;
   logoVariants?: { url: string; width: number }[];
@@ -41,6 +42,7 @@ export type FeedContentProps = {
 export function FeedContent({
   filters,
   title = "Latest feed",
+  headingLevel = 1,
   description,
   logoUrl,
   logoVariants,
@@ -54,6 +56,7 @@ export function FeedContent({
   allowColumns = false,
   feedDescriptor,
 }: FeedContentProps) {
+  const Heading = headingLevel === 2 ? "h2" : "h1";
   const filtered = Object.entries(filters).some(
     ([key, value]) => key !== "cursor" && key !== "source_slug" && value,
   );
@@ -81,7 +84,7 @@ export function FeedContent({
                   source={section === "sources"}
                 />
               )}
-              <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
+              <Heading>{filters.q ? `Results for “${filters.q}”` : title}</Heading>
             </div>
             {section !== "tags" &&
               description &&

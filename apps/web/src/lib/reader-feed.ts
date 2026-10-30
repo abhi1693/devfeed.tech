@@ -26,6 +26,20 @@ export function canUseColumnWorkspace(filters: FeedFilters): boolean {
   return !(filters.q || filters.topic || filters.source_id || filters.tag || filters.content_type);
 }
 
+/** Introduce only the first, unrestricted public view of the personal home route. */
+export function isGuestHome(
+  descriptor: FeedDescriptor,
+  filters: FeedFilters,
+  authenticated: boolean,
+): boolean {
+  return (
+    !authenticated &&
+    descriptor.mode === "personal" &&
+    descriptor.guestMode === "latest" &&
+    !Object.values(filters).some(Boolean)
+  );
+}
+
 /** Resolve account-dependent mode and route/query filters without inspecting URL paths. */
 export function resolveFeed(
   descriptor: FeedDescriptor,

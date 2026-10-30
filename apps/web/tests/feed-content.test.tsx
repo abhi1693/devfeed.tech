@@ -428,3 +428,17 @@ it.each(["source", "topic", "tag"] as const)(
     }
   },
 );
+
+it("uses a subordinate feed heading when the guest introduction supplies the page heading", () => {
+  render(
+    <FeedContent
+      filters={parseFilters({})}
+      feedDescriptor={readerFeeds.home}
+      feed={firstPage}
+      options={options}
+      headingLevel={2}
+    />,
+  );
+  expect(screen.getByRole("heading", { name: "Latest feed", level: 2 })).toBeTruthy();
+  expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+});

@@ -1,3 +1,4 @@
+import { checkGuestHomeIntro } from "../../../scripts/testing/guest-home-intro.mjs";
 import { checkAppIcons } from "../../../scripts/testing/app-icons.mjs";
 import { tagsFixture, checkTags, checkTagFollow } from "../../../scripts/testing/tags.mjs";
 import { checkCatalogSharing } from "../../../scripts/testing/catalog-sharing.mjs";
@@ -1326,4 +1327,15 @@ test("tag follow controls persist in built new tabs", { timeout: 180000 }, async
 test("built new tab favicon loads the shared brand asset", async (t) => {
   const { page } = await readerFixture(t);
   await checkAppIcons(page, { apple: false });
+});
+
+test("guest homepage explains reading in built new tabs", { timeout: 180000 }, async (t) => {
+  const { page, pathFor, feedMode } = await readerFixture(t);
+  await checkGuestHomeIntro(
+    page,
+    pathFor,
+    feedMode,
+    path.resolve(import.meta.dirname, `../../../reports/guest-home-intro/${browser}`),
+    true,
+  );
 });
