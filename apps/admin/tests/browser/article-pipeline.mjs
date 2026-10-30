@@ -867,9 +867,19 @@ try {
       );
     }, id);
   const dragBounds = await publishedCard.boundingBox();
+  // A successful maintenance refresh retains the published stage. Synchronize
+  // the actual mutation before checking exactly-once submission and ownership.
+  const maintenancePost = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === `/api/v1/admin/articles/${id}/maintenance/retry` &&
+      response.request().method() === "POST",
+  );
   await publishedCard.dragTo(page.getByRole("heading", { name: "Images", exact: true }), {
     sourcePosition: { x: 8, y: dragBounds.height - 6 },
   });
+  const maintenanceResponse = await maintenancePost;
+  assert.equal(maintenanceResponse.status(), 200);
+  await maintenanceResponse.finished();
   await waitForStage("published", null);
   assert.equal(posts.length, retryPostOffset + 1);
   assert.deepEqual(posts.at(-1), {
