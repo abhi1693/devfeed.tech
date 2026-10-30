@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { useFeedPreferences } from "./feed-preferences";
-import { ColumnsWorkspace } from "./columns-workspace";
 import { useUser } from "./user-account";
 import type { ColumnWorkspaceScope } from "@/lib/user-mutations";
 import { parseFeedViewScope, type FeedViewScope } from "@/lib/feed-view-scope";
@@ -10,6 +9,10 @@ import { readerRequest } from "@/lib/reader-runtime";
 import { ScopedFeedPreferences } from "./scoped-feed-preferences";
 import { LoadingSkeleton } from "./loading-skeleton";
 import { SettingsToastProvider } from "./settings-toast";
+
+const ColumnsWorkspace = lazy(() =>
+  import("./columns-workspace").then((module) => ({ default: module.ColumnsWorkspace })),
+);
 
 /** My feed alone can replace its article feed with the signed-in reader's workspace. */
 export function ReaderFeedLayout({
@@ -111,7 +114,9 @@ function FeedLayoutContent({
       workspace === "my_feed" &&
       user &&
       view === "columns" ? (
-        <ColumnsWorkspace key={`${user.user_id}:${workspace}`} workspace={workspace} />
+        <Suspense fallback={<LoadingSkeleton label="Loading columns…" />}>
+          <ColumnsWorkspace key={`${user.user_id}:${workspace}`} workspace={workspace} />
+        </Suspense>
       ) : (
         children
       )}
