@@ -151,7 +151,11 @@ def test_all_worker_pools_share_lightweight_parent_probe_and_sufficient_shutdown
 
     options = {"POSTGRES_PASSWORD": "fixture-only-password", "COMPOSE_PROFILES": "workers,ai"}
     if limited:
-        options.update(DEVFEED_WORKER_CPUS="1.5", DEVFEED_WORKER_MEMORY_LIMIT="1g")
+        options.update(
+            DEVFEED_WORKER_CPUS="1.5",
+            DEVFEED_WORKER_MEMORY_LIMIT="1g",
+            DEVFEED_ANALYTICS_WORKER_DRAIN_SECONDS="17",
+        )
     services = check_compose.render(options)["services"]
     workers = {name: value for name, value in services.items() if name.endswith("-worker")}
     assert set(workers) == {"high-worker", "default-worker", "low-worker", "images-worker"}
@@ -163,17 +167,21 @@ def test_all_worker_pools_share_lightweight_parent_probe_and_sufficient_shutdown
         assert worker["environment"]["DEVFEED_WORKER_HEALTH_PATH"] == (
             "/tmp/devfeed-worker-health"
         ), name
+        assert worker["environment"]["DEVFEED_ANALYTICS_WORKER_DRAIN_SECONDS"] == (
+            "17" if limited else "45"
+        ), name
         grace_seconds = sum(
             int(value) * {"h": 3600, "m": 60, "s": 1}[unit]
             for value, unit in re.findall(r"(\d+)([hms])", worker["stop_grace_period"])
         )
-        assert grace_seconds >= max(item.timeout for item in JOB_DEFINITIONS.values()) + 30, name
+        assert grace_seconds >= max(item.timeout for item in JOB_DEFINITIONS.values()) + 60, name
         assert worker.get("cpus", 0) == (Decimal("1.5") if limited else 0), name
         assert int(worker.get("mem_limit", 0)) == (1024**3 if limited else 0), name
         if worker["command"][0] == "sh":
             assert "exec devfeed-worker --queue" in worker["command"][-1], name
     assert all(
-        "DEVFEED_WORKER_HEALTH_PATH" not in value.get("environment", {})
+        not {"DEVFEED_WORKER_HEALTH_PATH", "DEVFEED_ANALYTICS_WORKER_DRAIN_SECONDS"}
+        & value.get("environment", {}).keys()
         for name, value in services.items()
         if name not in workers
     )

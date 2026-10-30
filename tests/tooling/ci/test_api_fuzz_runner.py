@@ -13,6 +13,79 @@ from tests.tooling.ci.test_ci_gates import load_script
 api_fuzz = load_script("api_fuzz")
 
 
+@pytest.mark.parametrize("failure", [None, "invalid", "preparing"])
+def test_fuzz_preparation_waits_for_recovery_and_releases_its_worker(monkeypatch, failure):
+    import ast
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from devfeed_core import (
+        analytics,
+        analytics_migrations,
+        analytics_overview_reconcile,
+        analytics_worker,
+    )
+    from devfeed_core.analytics import AnalyticsPreparing, AnalyticsUnavailable
+
+    # Execute the actual session fixture without importing optional fuzz engines
+    # or collecting their generated API cases in the ordinary unit suite.
+    path = api_fuzz.ROOT / "tests/fuzz/test_api_fuzz.py"
+    definition = next(
+        node
+        for node in ast.parse(path.read_text()).body
+        if isinstance(node, ast.FunctionDef) and node.name == "native_analytics"
+    )
+    definition.decorator_list = []
+    namespace = {"asyncio": asyncio}
+    exec(compile(ast.Module(body=[definition], type_ignores=[]), str(path), "exec"), namespace)
+    state = SimpleNamespace(cycles=0, reads=0, worker_closed=False, client_closed=False)
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            state.client_closed = True
+
+        async def status(self):
+            return {"ready": True, "version": 1}
+
+    class Worker:
+        bootstrapping = False
+
+        def __init__(self, *_args):
+            pass
+
+        async def once(self):
+            state.cycles += 1
+
+        async def close(self):
+            state.worker_closed = True
+
+    async def snapshot(client, policy, sources, now, *, generation):
+        state.reads += 1
+        assert sources == analytics_overview_reconcile.OVERVIEW_SOURCES
+        assert policy and generation == "1"
+        if failure == "invalid":
+            raise AnalyticsUnavailable("Ambiguous coverage")
+        if failure == "preparing" or state.reads == 1:
+            raise AnalyticsPreparing("No recovery acknowledgement")
+        return SimpleNamespace(status="fresh" if state.reads > 2 else "catching_up")
+
+    monkeypatch.setattr(analytics, "AnalyticsClient", lambda _: Client())
+    monkeypatch.setattr(analytics_migrations, "upgrade_analytics", AsyncMock())
+    monkeypatch.setattr(analytics_worker, "AnalyticsImportWorker", Worker)
+    monkeypatch.setattr(analytics_overview_reconcile, "read_overview_snapshot", snapshot)
+    if failure is None:
+        namespace["native_analytics"](None)
+        assert state.cycles == state.reads == 3
+    else:
+        with pytest.raises(AnalyticsUnavailable if failure == "invalid" else AssertionError):
+            namespace["native_analytics"](None)
+        assert state.cycles == 1 if failure == "invalid" else 1 < state.cycles <= 1000
+    assert state.worker_closed and state.client_closed
+
+
 @pytest.fixture
 def runner(monkeypatch, tmp_path):
     monkeypatch.syspath_prepend(str(api_fuzz.ROOT / "scripts/ci"))

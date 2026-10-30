@@ -21,6 +21,7 @@ from devfeed_core.analytics_card_types import (
     Stage,
 )
 from devfeed_core.analytics_observation import AnalyticsSnapshot, pipeline_policy_version
+from devfeed_core.analytics_overview_reconcile import REPORT_SOURCES, read_overview_snapshot
 from devfeed_core.config import Settings, get_settings
 from devfeed_core.redis import create_async_redis
 from fastapi import HTTPException, Request
@@ -129,7 +130,7 @@ class AnalyticsRuntime:
         self.clock = clock or (lambda: datetime.now(UTC))
         self.policy = pipeline_policy_version(settings)
         namespace = settings.database_url + ":" + settings.clickhouse_database
-        self.prefix = "admin:analytics:v4:" + hashlib.sha256(namespace.encode()).hexdigest()[:20]
+        self.prefix = "admin:analytics:v5:" + hashlib.sha256(namespace.encode()).hexdigest()[:20]
         self.max_entry_bytes = settings.cache_max_bytes
         self.cache: OrderedDict[str, bytes | str] = OrderedDict()
         self.cache_bytes = 0
@@ -269,6 +270,14 @@ class AnalyticsRuntime:
             if group == "queues"
             else None
         )
+        if group in REPORT_SOURCES:
+            snapshot = await read_overview_snapshot(
+                self.client,
+                self.policy,
+                REPORT_SOURCES[group],
+                now,
+                generation=str(status["version"]),
+            )
         report = await Reports(
             self.client,
             window,

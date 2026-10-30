@@ -1115,7 +1115,7 @@ wheels = [
 
 [[package]]
 name = "devfeed"
-version = "0.1.6"
+version = "0.1.7"
 source = { virtual = "." }
 dependencies = [
     { name = "black" },
@@ -1186,7 +1186,7 @@ loadtest = [{ name = "locust", specifier = "==2.47.0" }]
 
 [[package]]
 name = "devfeed-admin-api"
-version = "0.1.6"
+version = "0.1.7"
 source = { editable = "apps/admin-api" }
 dependencies = [
     { name = "devfeed-core" },
@@ -1209,7 +1209,7 @@ requires-dist = [
 
 [[package]]
 name = "devfeed-aggregator"
-version = "0.1.6"
+version = "0.1.7"
 source = { editable = "apps/aggregator" }
 dependencies = [
     { name = "devfeed-core" },
@@ -1261,7 +1261,7 @@ provides-extras = ["notifications", "article-enrichment", "images", "ai", "all-w
 
 [[package]]
 name = "devfeed-api"
-version = "0.1.6"
+version = "0.1.7"
 source = { editable = "apps/api" }
 dependencies = [
     { name = "devfeed-core" },
@@ -1280,7 +1280,7 @@ requires-dist = [
 
 [[package]]
 name = "devfeed-article-enrichment-worker"
-version = "0.1.6"
+version = "0.1.7"
 source = { editable = "apps/article-enrichment-worker" }
 dependencies = [
     { name = "devfeed-aggregator", extra = ["article-enrichment"] },
@@ -1291,7 +1291,7 @@ requires-dist = [{ name = "devfeed-aggregator", extras = ["article-enrichment"],
 
 [[package]]
 name = "devfeed-cli"
-version = "0.1.6"
+version = "0.1.7"
 source = { editable = "apps/cli" }
 dependencies = [
     { name = "devfeed-aggregator", extra = ["all-workers"] },
@@ -1310,7 +1310,7 @@ requires-dist = [
 
 [[package]]
 name = "devfeed-core"
-version = "0.1.6"
+version = "0.1.7"
 source = { editable = "packages/core" }
 dependencies = [
     { name = "alembic" },
@@ -1400,7 +1400,7 @@ provides-extras = ["identity", "uploads"]
 
 [[package]]
 name = "devfeed-images-worker"
-version = "0.1.6"
+version = "0.1.7"
 source = { editable = "apps/images-worker" }
 dependencies = [
     { name = "devfeed-aggregator", extra = ["images"] },
@@ -1411,7 +1411,7 @@ requires-dist = [{ name = "devfeed-aggregator", extras = ["images"], editable = 
 
 [[package]]
 name = "devfeed-mcp"
-version = "0.1.6"
+version = "0.1.7"
 source = { editable = "apps/mcp" }
 dependencies = [
     { name = "httpx" },
@@ -1434,7 +1434,7 @@ requires-dist = [
 
 [[package]]
 name = "devfeed-notifications"
-version = "0.1.6"
+version = "0.1.7"
 source = { editable = "apps/notifications" }
 dependencies = [
     { name = "devfeed-core" },
@@ -1451,7 +1451,7 @@ requires-dist = [
 
 [[package]]
 name = "devfeed-partner-api"
-version = "0.1.6"
+version = "0.1.7"
 source = { editable = "apps/partner-api" }
 dependencies = [
     { name = "devfeed-core" },
@@ -1470,7 +1470,7 @@ requires-dist = [
 
 [[package]]
 name = "devfeed-search-indexer"
-version = "0.1.6"
+version = "0.1.7"
 source = { editable = "apps/search-indexer" }
 dependencies = [
     { name = "devfeed-core" },
@@ -1481,7 +1481,7 @@ requires-dist = [{ name = "devfeed-core", editable = "packages/core" }]
 
 [[package]]
 name = "devfeed-source-discovery-worker"
-version = "0.1.6"
+version = "0.1.7"
 source = { editable = "apps/source-discovery-worker" }
 dependencies = [
     { name = "devfeed-aggregator" },
@@ -1492,7 +1492,7 @@ requires-dist = [{ name = "devfeed-aggregator", editable = "apps/aggregator" }]
 
 [[package]]
 name = "devfeed-user-api"
-version = "0.1.6"
+version = "0.1.7"
 source = { editable = "apps/user-api" }
 dependencies = [
     { name = "devfeed-core" },

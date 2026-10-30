@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     analytics_reconcile_batch_size: int = Field(default=100, ge=1, le=200)
     analytics_reconcile_poll_seconds: float = Field(default=30, ge=1, le=300)
     analytics_reconcile_sweep_seconds: float = Field(default=300, ge=30, le=86400)
+    # RQ's monitor allows sixty seconds beyond a job timeout. Reserve teardown
+    # headroom instead of letting analytics drain outlive that work-horse grace.
+    analytics_worker_drain_seconds: float = Field(default=45, ge=5, le=45)
     redis_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     job_queue_overrides: dict[str, str] = Field(default_factory=dict)
 

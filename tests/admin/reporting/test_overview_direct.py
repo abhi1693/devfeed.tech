@@ -177,16 +177,17 @@ def test_direct_charts_handle_reparent_retry_and_feed_expiration():
                     )
                     jobs = await store.job_outcomes(start, end)
                     assert jobs[0]["completed"] == jobs[0]["failed"] == 1
+                    approved, rejected = uuid.uuid4(), uuid.uuid4()
                     await store.decisions(
                         [
                             {
-                                "id": uuid.uuid4(),
+                                "id": approved,
                                 "revision": 1,
                                 "status": "approved",
                                 "reviewed_at": start,
                             },
                             {
-                                "id": uuid.uuid4(),
+                                "id": rejected,
                                 "revision": 1,
                                 "status": "rejected",
                                 "reviewed_at": start,
@@ -196,6 +197,49 @@ def test_direct_charts_handle_reparent_retry_and_feed_expiration():
                     throughput = await store.throughput(start, end)
                     assert throughput[0]["article_analyses"] == 1
                     assert throughput[0]["topic_decisions"] == 2
+                    await store.publish(
+                        [
+                            {
+                                "source_table": "topic_proposals",
+                                "identity": {"id": approved},
+                                "record": None,
+                                "deleted": True,
+                            }
+                        ],
+                        revision=2,
+                    )
+                    await store.decisions(
+                        [
+                            {"id": rejected, "revision": 2, "status": "pending"},
+                            {
+                                "id": rejected,
+                                "revision": 3,
+                                "status": "approved",
+                                "reviewed_at": None,
+                            },
+                        ]
+                    )
+                    retained = await store.throughput(start, end)
+                    assert sum(row["topic_decisions"] for row in retained) == 2
+                    await store.decisions(
+                        [
+                            {
+                                "id": rejected,
+                                "revision": 4,
+                                "status": "approved",
+                                "reviewed_at": start + timedelta(hours=1),
+                            }
+                        ]
+                    )
+                    retained = await store.throughput(start, end)
+                    assert sum(row["topic_decisions"] for row in retained) == 2
+                    assert (
+                        await client.query(
+                            "SELECT outcome,deleted FROM analytics_pipeline_events FINAL "
+                            "WHERE domain='job' AND task='topic-decision'"
+                        )
+                        == [{"outcome": "approved", "deleted": 0}] * 2
+                    )
                     assert await store.queues() == []
                     await store.feeds(
                         [
@@ -335,7 +379,7 @@ def test_direct_charts_handle_reparent_retry_and_feed_expiration():
     asyncio.run(run())
 
 
-def test_decisions_include_rejections_and_reject_unreviewed_states():
+def test_completed_decisions_survive_deleted_reopened_and_incomplete_sources():
     async def run():
         sink = Sink()
         store = DirectOverviewAnalytics(sink)
@@ -351,13 +395,22 @@ def test_decisions_include_rejections_and_reject_unreviewed_states():
         assert all(
             row["task"] == "topic-decision" and row["status"] == "succeeded" for row in sink.rows
         )
-        with pytest.raises(ValueError, match="topic decision"):
-            await store.decisions(
-                [{"id": identity, "revision": 2, "status": "pending", "reviewed_at": at}]
-            )
+        original = list(sink.rows)
+        await store.decisions(
+            [
+                {"id": identity, "revision": 2, "status": "pending", "reviewed_at": at},
+                {"id": identity, "revision": 3, "status": "approved", "reviewed_at": None},
+                {"id": identity, "revision": 4, "deleted": True},
+            ]
+        )
         assert len(sink.rows) == 2
-        await store.decisions([{"id": identity, "revision": 3, "deleted": True}])
-        assert sink.rows[-1]["id"] == sink.rows[0]["id"] and sink.rows[-1]["deleted"] == 1
+        assert sink.rows == original
+        await store.decisions(
+            [{"id": identity, "revision": 5, "status": "rejected", "reviewed_at": at}]
+        )
+        assert sink.rows[-1]["id"] == sink.rows[0]["id"]
+        assert sink.rows[-1]["outcome"] == "rejected"
+        assert all(row["deleted"] == 0 for row in sink.rows)
 
     asyncio.run(run())
 
@@ -797,13 +850,12 @@ def test_source_snapshots_route_hydrated_rows_and_tombstones_without_requiring_o
             ],
             revision=9,
         )
-        assert len(sink.rows) == 6
+        assert len(sink.rows) == 5
         assert {row["domain"] for row in sink.rows} == {
             "publication",
             "feed",
             "account",
             "topic",
-            "job",
             "membership",
         }
         assert all(row["deleted"] == (row["domain"] != "membership") for row in sink.rows)

@@ -179,6 +179,7 @@ x-worker-runtime: &worker-runtime
 
 x-worker-environment: &worker-environment
   DEVFEED_WORKER_HEALTH_PATH: /tmp/devfeed-worker-health
+  DEVFEED_ANALYTICS_WORKER_DRAIN_SECONDS: ${DEVFEED_ANALYTICS_WORKER_DRAIN_SECONDS:-45}
 
 services:
   postgres:

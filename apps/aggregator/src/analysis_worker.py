@@ -293,7 +293,10 @@ class AnalysisAwareWorker(Worker):
                     execution_span.set_status(StatusCode.ERROR)
                 return result
         finally:
-            drain_analytics()
+            # A work horse exits immediately afterward; its process-local
+            # observations need a budget covering bounded publication retries.
+            # APIs and other process shutdowns retain their shorter default.
+            drain_analytics(timeout=get_settings().analytics_worker_drain_seconds)
             stop_runtime(telemetry)
 
     def admission_snapshot(self) -> AdmissionSnapshot:

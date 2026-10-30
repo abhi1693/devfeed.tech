@@ -543,22 +543,27 @@ class DirectOverviewAnalytics(DirectOverviewReader):
         return _identity("attempt", task, job_id, attempt, *suffix)
 
     async def decisions(self, records: Sequence[SqlRecord]) -> None:
-        """Record reviewed topic decisions as immutable throughput observations."""
+        """Retain completed throughput facts across proposal lifecycle changes."""
         if not isinstance(records, (list, tuple)) or len(records) > MAX_BATCH_SIZE:
             raise ValueError("Invalid topic decision batch")
         rows = []
         for record in records:
+            if (
+                record.get("deleted", False)
+                or record.get("status") not in ("approved", "rejected")
+                or record.get("reviewed_at") is None
+            ):
+                # A source deletion, reopening or incomplete review is not an
+                # instruction to erase a previously observed completion.
+                continue
             identity = _identity("topic-decision", _uuid(record["id"]))
-            row = _base("job", identity, record["revision"], deleted=record.get("deleted", False))
-            if not row["deleted"]:
-                if record["status"] not in {"approved", "rejected"}:
-                    raise ValueError("Invalid completed topic decision")
-                row.update(
-                    occurred_at=_time(record["reviewed_at"]),
-                    task="topic-decision",
-                    status="succeeded",
-                    outcome=record["status"],
-                )
+            row = _base("job", identity, record["revision"])
+            row.update(
+                occurred_at=_time(record["reviewed_at"]),
+                task="topic-decision",
+                status="succeeded",
+                outcome=record["status"],
+            )
             rows.append(row)
         await self._write(rows)
 

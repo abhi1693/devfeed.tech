@@ -794,6 +794,24 @@ async def seed_analytics(client, counts):
             )
 
 
+async def _overview_ready(client, settings, state):
+    from devfeed_core.analytics import AnalyticsPreparing
+    from devfeed_core.analytics_observation import pipeline_policy_version
+    from devfeed_core.analytics_overview_reconcile import OVERVIEW_SOURCES, read_overview_snapshot
+
+    try:
+        snapshot = await read_overview_snapshot(
+            client,
+            pipeline_policy_version(settings),
+            OVERVIEW_SOURCES,
+            datetime.now(UTC),
+            generation=str(state["version"]),
+        )
+    except AnalyticsPreparing:
+        return False
+    return snapshot.status == "fresh"
+
+
 def publish_analytics(factory, *, reset=False, counts=None):
     """Import business snapshots and seed only explicitly disposable ClickHouse."""
     from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
@@ -826,14 +844,16 @@ def publish_analytics(factory, *, reset=False, counts=None):
                     name = row["name"].replace("`", "``")
                     await client.execute(f"TRUNCATE TABLE `{name}`")
             worker = AnalyticsImportWorker(client, settings)
-            deadline = time.monotonic() + 900
-            while time.monotonic() < deadline:
-                await worker.once()
-                try:
-                    state = await client.status()
-                except AnalyticsUnavailable:
-                    continue
-                if state["ready"]:
+            try:
+                deadline = time.monotonic() + 900
+                while time.monotonic() < deadline:
+                    await worker.once()
+                    try:
+                        state = await client.status()
+                    except AnalyticsUnavailable:
+                        continue
+                    if not state["ready"] or not await _overview_ready(client, settings, state):
+                        continue
                     if counts is not None:
                         await seed_analytics(client, counts)
                     inference, partner = await asyncio.gather(
@@ -853,7 +873,9 @@ def publish_analytics(factory, *, reset=False, counts=None):
                             partner_tracked_daily_metrics=partner[0]["count"],
                         ),
                     )
-            raise RuntimeError("Disposable direct analytics import exceeded 15 minutes")
+                raise RuntimeError("Disposable analytical preparation exceeded 15 minutes")
+            finally:
+                await worker.close()
 
     return asyncio.run(publish())
 

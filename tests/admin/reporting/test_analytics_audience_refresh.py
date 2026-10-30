@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from devfeed_core import analytics_audience_refresh as refresh
 from devfeed_core import analytics_producer
-from devfeed_core.analytics import AnalyticsUnavailable
+from devfeed_core.analytics import AnalyticsUnavailable, ReconciliationBusy
 
 NOW = datetime(2026, 10, 29, 12, tzinfo=UTC)
 
@@ -58,8 +58,7 @@ class World:
     @asynccontextmanager
     async def snapshot(self):
         if self.busy:
-            yield None
-            return
+            raise ReconciliationBusy("publication_busy")
         assert not self.open
         self.open = True
         self.revision += 1
@@ -250,7 +249,8 @@ def test_late_live_revision_survives_refresh_and_busy_lock_has_no_checkpoint(mon
     async def run():
         worker = world.worker()
         world.busy = True
-        assert not await worker.once()
+        with pytest.raises(ReconciliationBusy, match="publication is busy"):
+            await worker.once()
         assert world.progress is None
         world.busy = False
         await worker.once()
@@ -347,7 +347,8 @@ def test_publisher_busy_between_key_boundary_and_page_leaves_cursor_unchanged(mo
         await worker.once()
         previous = deepcopy(world.progress)
         world.busy = True
-        assert not await worker.once()
+        with pytest.raises(ReconciliationBusy, match="publication is busy"):
+            await worker.once()
         assert world.progress == previous and not world.data
 
     asyncio.run(run())

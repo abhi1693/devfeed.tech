@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from devfeed_core import analytics_worker as worker
+from psycopg.errors import QueryCanceled
 
 
 def test_schema_must_be_upgraded_before_historical_work(monkeypatch):
@@ -106,21 +107,32 @@ def test_single_cycle_propagates_outage_and_closes_client(monkeypatch):
 
 
 @pytest.mark.parametrize("bootstrapping", [False, True])
+@pytest.mark.parametrize(
+    ("error_class", "reason_code", "with_cause"),
+    [
+        (RuntimeError, "source_or_builder_failure", False),
+        (TimeoutError, "page_timeout", False),
+        (worker.AnalyticsUnavailable, "analytics_unavailable", True),
+    ],
+)
 def test_background_failure_logs_class_without_sql_or_credentials(
-    monkeypatch, caplog, bootstrapping
+    monkeypatch, caplog, bootstrapping, error_class, reason_code, with_cause
 ):
     client = AsyncMock()
     client.__aenter__.return_value = client
     secret = "password=private-fixture SELECT confidential_parameter"
+    error = error_class(secret)
+    if with_cause:
+        error.__cause__ = QueryCanceled(secret)
     importer = SimpleNamespace(
-        once=AsyncMock(side_effect=RuntimeError(secret)),
+        once=AsyncMock(side_effect=error),
         bootstrapping=bootstrapping,
         close=AsyncMock(),
     )
     monkeypatch.setattr(worker, "get_settings", lambda: object())
     monkeypatch.setattr(worker, "AnalyticsClient", lambda _: client)
     monkeypatch.setattr(worker, "AnalyticsImportWorker", lambda *_: importer)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(error_class):
         asyncio.run(worker.run(once=True))
     event = (
         "analytics_history_import_failed"
@@ -128,7 +140,9 @@ def test_background_failure_logs_class_without_sql_or_credentials(
         else "analytics_current_reconciliation_failed"
     )
     record = next(record for record in caplog.records if record.message == event)
-    assert record.error_type == "RuntimeError"
+    assert record.error_type == error_class.__name__
+    assert record.reason_code == reason_code
+    assert record.cause_type == ("QueryCanceled" if with_cause else "none")
     assert record.exc_info is None
     assert secret not in caplog.text
 

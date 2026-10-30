@@ -97,7 +97,6 @@ class CaptureContext(Protocol):
     _devfeed_analytics_before: list[SqlRecord]
     _devfeed_analytics_pairs: list[tuple[SqlRecord, SqlRecord]]
     _devfeed_analytics_cascades: list[tuple[str, SqlRecord]]
-    _devfeed_analytics_articles: list[uuid.UUID]
 
 
 def _capture_table(statement: WriteStatement) -> Table:
@@ -322,37 +321,6 @@ def _ignored_update(operation: WriteStatement, parameters: Sequence[SqlRecord]) 
     return bool(fields) and fields <= {"automation_next_check_at", "automation_started_at"}
 
 
-def _dependent_articles(
-    connection: Connection,
-    source: str,
-    records: Sequence[SqlRecord],
-    operation: WriteStatement,
-    parameters: Sequence[SqlRecord],
-) -> list[uuid.UUID]:
-    from devfeed_core.models import ArticleOrigin, ArticleTopic
-
-    if source == "sources":
-        relevant = operation.is_delete or any(
-            {"name", "approval_status", "enabled"} & set(row) for row in parameters
-        )
-        table, field = ArticleOrigin.__table__, "source_id"
-    elif source == "topics":
-        relevant = operation.is_delete
-        table, field = ArticleTopic.__table__, "topic_id"
-    else:
-        return []
-    if not relevant or not records:
-        return []
-    keys = [row["id"] for row in records]
-    statement = (
-        select(table.c.article_id)
-        .where(table.c[field].in_(keys))
-        .distinct()
-        .execution_options(**{_SKIP: True})
-    )
-    return list(connection.execute(statement).scalars())
-
-
 def _cascaded_records(
     connection: Connection, target: Table, previous: Sequence[SqlRecord]
 ) -> list[tuple[str, SqlRecord]]:
@@ -468,9 +436,6 @@ class ApplicationAnalyticsCapture:
         context._devfeed_analytics_cascades = (
             _cascaded_records(connection, target, captured) if operation.is_delete else []
         )
-        context._devfeed_analytics_articles = _dependent_articles(
-            connection, target.name, captured, operation, values_rows
-        )
 
     @staticmethod
     def after(
@@ -494,8 +459,6 @@ class ApplicationAnalyticsCapture:
             _remember(session, source, record)
         for child, record in getattr(context, "_devfeed_analytics_cascades", ()):
             _remember(session, child, record)
-        for identity in getattr(context, "_devfeed_analytics_articles", ()):
-            _remember(session, "articles", {"id": identity})
         ApplicationAnalyticsCapture.remember_keys(session, context, previous)
         ApplicationAnalyticsCapture.remember_attempts(session, connection, context, previous)
 
@@ -724,9 +687,7 @@ class DirectAnalyticsPublisher:
 
     async def _publish_current(
         self, connection: AsyncConnection[SqlRecord], changes: Sequence[SqlRecord]
-    ) -> list[SqlRecord]:
-        from devfeed_core.analytics_direct_cards import publish_cards
-
+    ) -> None:
         async with connection.transaction():
             await connection.execute("SET LOCAL statement_timeout='10s'")
             # Business writes never take this analytics-only lock. Allocation
@@ -744,13 +705,9 @@ class DirectAnalyticsPublisher:
                 await DirectOverviewAnalytics(self.client).publish(
                     hydrated[offset : offset + 1000], revision=revision
                 )
-            await publish_cards(self.client, self.settings, current, revision)
-        return current
 
     async def publish(self, changes: Sequence[SqlRecord]) -> None:
         import psycopg
-
-        from devfeed_core.analytics_direct_cards import dependent_card_batches
 
         dsn = self.settings.database_url.replace("postgresql+psycopg://", "postgresql://", 1)
         async with await psycopg.AsyncConnection.connect(
@@ -759,11 +716,10 @@ class DirectAnalyticsPublisher:
             row_factory=dict_row,
             connect_timeout=self.settings.database_connect_timeout_seconds,
         ) as connection:
-            current = await self._publish_current(connection, changes)
-            # Large catalog changes stream bounded identity pages. Release the
-            # analytics lock after each page so other processes can publish.
-            async for dependent in dependent_card_batches(connection, current):
-                await self._publish_current(connection, dependent)
+            # ACK every overview/queue observation before releasing its fence.
+            # Canonical cards belong to the current-state reconciler, avoiding
+            # expensive catalog scans and card construction in short RQ jobs.
+            await self._publish_current(connection, changes)
 
 
 def _delivery_error_fields(error: BaseException) -> dict[str, object]:

@@ -7,13 +7,15 @@ import uuid
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from devfeed_core import analytics_direct_cards as cards
 from devfeed_core import analytics_reconcile as reconcile
 from devfeed_core import analytics_reconcile_sources as sources
-from devfeed_core.analytics import AnalyticsUnavailable
+from devfeed_core.analytics import AnalyticsUnavailable, ReconciliationBusy
 from devfeed_core.config import Settings
+from psycopg.errors import QueryCanceled
 
 NOW = datetime(2026, 10, 29, 12, tzinfo=UTC)
 
@@ -55,6 +57,10 @@ class Connection:
                 self.world.leader if parameters == reconcile.RECONCILE_LOCK else self.world.publish
             )
             return Result([{"acquired": acquired}])
+        if "SELECT pg_advisory_lock" in text:
+            if not self.world.publish:
+                raise QueryCanceled("private SQL or connection credentials")
+            return Result()
         if "txid_current()" in text:
             if self.world.missing_fence:
                 return Result()
@@ -210,6 +216,9 @@ class World:
         self.worker = reconcile.CurrentStateReconciler(
             self.sink, self.settings, self.connect, clock=lambda: self.now
         )
+        # This suite isolates current queue/card repair; retained overview
+        # recovery has its own source, lifecycle and native concurrency suite.
+        self.worker._overview = SimpleNamespace(due=False)
 
         async def fingerprints(_connection, kind, identifiers):
             return {
@@ -436,12 +445,15 @@ def test_fence_precedes_snapshot_and_publish_lock_is_released_before_source_read
     world.job()
     asyncio.run(world.worker._snapshot())
     events = world.events
-    lock = next(i for i, text in enumerate(events) if "pg_try_advisory_lock" in text)
+    lock = next(i for i, text in enumerate(events) if "SELECT pg_advisory_lock" in text)
     begin = events.index("begin")
     fence = next(i for i, text in enumerate(events) if "txid_current" in text)
     unlock = next(i for i, text in enumerate(events) if "pg_advisory_unlock" in text)
     source = next(i for i, text in enumerate(events) if "AS record" in text)
-    assert lock < begin < fence < unlock < source < events.index("commit")
+    admission_timeout = events.index("SET statement_timeout='10s'")
+    source_timeout = events.index("SET statement_timeout='5s'")
+    assert admission_timeout < lock < source_timeout < begin < fence < unlock < source
+    assert source < events.index("commit")
     assert events.index("closed") < events.index("ch:query")
     assert any("REPEATABLE READ READ ONLY" in text for text in events)
 
@@ -709,9 +721,165 @@ def test_busy_publication_and_empty_card_batches_do_not_claim_coverage(monkeypat
     assert asyncio.run(world.worker._card_targets("article", [])) == {}
     assert not asyncio.run(world.worker._refresh("article", []))
     world.publish = False
-    with pytest.raises(AnalyticsUnavailable, match="busy"):
+    with pytest.raises(ReconciliationBusy, match="busy") as caught:
         asyncio.run(world.worker._refresh("article", [identifier(1)]))
+    assert caught.value.reason_code == "publication_busy"
     assert not world.sink.writes
+
+
+@pytest.mark.parametrize("reason", ["publication_busy", "builder_busy"])
+def test_busy_card_page_retains_independent_queue_cycle_without_acknowledging_cards(
+    monkeypatch, caplog, reason
+):
+    world = World(monkeypatch, batch=1)
+    for value in (1, 2):
+        world.entity(value=value)
+        world.job(value)
+
+    async def scenario():
+        await world.worker._lead()
+        await world.worker._load()
+        await world.worker._queue_step()
+        cycle = world.worker.queue_cycle
+        assert cycle is not None and cycle.position == 1
+        before = deepcopy(world.sink.writes)
+        todo = deepcopy(world.worker._state("cards")["todo"])
+        builder = None
+        try:
+            if reason == "publication_busy":
+                world.publish = False
+            else:
+                builder = asyncio.create_task(asyncio.sleep(60))
+                world.worker._builder = builder
+            world.worker._turn = 1  # Process the pending owner card next.
+            assert not await world.worker.once()
+            assert world.worker.queue_cycle is cycle and cycle.position == 1
+            assert world.worker._leader is not None
+            assert world.worker._state("cards")["todo"] == todo
+            assert world.sink.writes == before
+            assert not world.sink.rows.get("analytics_card_canonical")
+            assert not any(
+                row["kind"].startswith("card:")
+                for row in world.sink.rows[reconcile.FINGERPRINT_TABLE].values()
+            )
+            world.publish = True
+            await world.worker._queue_step()
+            assert cycle.position == 2
+        finally:
+            if builder is not None:
+                builder.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await builder
+            await world.worker.close()
+
+    with caplog.at_level("INFO"):
+        asyncio.run(scenario())
+    record = next(
+        record
+        for record in caplog.records
+        if record.message == "analytics_current_reconciliation_busy"
+    )
+    assert record.reason_code == reason
+    assert record.exc_info is None
+    assert "private SQL or connection credentials" not in caplog.text
+    assert world.opened == world.closed
+
+
+def test_unrelated_queue_timeout_is_not_hidden_by_a_previous_pending_builder(monkeypatch):
+    world = World(monkeypatch, batch=1)
+    world.job(1)
+    world.job(2)
+    monkeypatch.setattr(reconcile, "PAGE_SECONDS", 0.01)
+
+    async def stalled_queue():
+        await asyncio.sleep(60)
+
+    async def scenario():
+        await world.worker._lead()
+        await world.worker._load()
+        await world.worker._queue_step()
+        assert world.worker.queue_cycle is not None
+        builder = asyncio.create_task(asyncio.sleep(60))
+        world.worker._builder = builder
+        # Even an old interrupted page marker must not classify this new wait.
+        world.worker._interrupted_page_builder = builder
+        monkeypatch.setattr(world.worker, "_queue_step", stalled_queue)
+        try:
+            with pytest.raises(TimeoutError):
+                await world.worker.once()
+            assert world.worker.queue_cycle is None
+            assert world.worker._leader is None
+            assert not builder.done()
+        finally:
+            builder.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await builder
+            await world.worker.close()
+
+    asyncio.run(scenario())
+    assert world.opened == world.closed
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+def test_interrupted_own_builder_never_acknowledges_cards_and_only_retry_keeps_queue(
+    monkeypatch, cancelled
+):
+    world = World(monkeypatch, batch=1)
+    for value in (1, 2):
+        world.entity(value=value)
+        world.job(value)
+    original = cards.build_cards
+    started, release = threading.Event(), threading.Event()
+
+    def stalled_builder(*args):
+        started.set()
+        if not release.wait(5):
+            raise AssertionError("Test did not release its native builder")
+        return original(*args)
+
+    monkeypatch.setattr(cards, "build_cards", stalled_builder)
+    monkeypatch.setattr(reconcile, "PAGE_SECONDS", 1 if cancelled else 0.05)
+
+    async def scenario():
+        await world.worker._lead()
+        await world.worker._load()
+        await world.worker._queue_step()
+        cycle = world.worker.queue_cycle
+        before = deepcopy(world.sink.writes)
+        todo = deepcopy(world.worker._state("cards")["todo"])
+        world.worker._turn = 1
+        task = asyncio.create_task(world.worker.once())
+        try:
+            for _ in range(100):
+                if started.is_set():
+                    break
+                await asyncio.sleep(0.005)
+            assert started.is_set()
+            if cancelled:
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+                assert world.worker.queue_cycle is None
+                assert world.worker._leader is None
+            else:
+                assert not await task
+                assert world.worker.queue_cycle is cycle
+                assert world.worker._leader is not None
+            assert world.worker._state("cards")["todo"] == todo
+            assert world.sink.writes == before
+            assert not world.sink.rows.get("analytics_card_canonical")
+            release.set()
+            await world.worker._builder
+            assert world.sink.writes == before  # Abandoned native result stays unacknowledged.
+            monkeypatch.setattr(cards, "build_cards", original)
+            await world.worker._refresh("article", [identifier(1)])
+            assert world.sink.rows["analytics_card_canonical"]
+        finally:
+            release.set()
+            await world.worker.close()
+
+    asyncio.run(scenario())
+    assert world.opened == world.closed
 
 
 def test_due_transitions_refresh_even_when_source_version_is_unchanged(monkeypatch):

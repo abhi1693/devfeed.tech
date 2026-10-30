@@ -28,6 +28,7 @@ from devfeed_core.analytics_audience_refresh import (
 from devfeed_core.analytics_inference_store import InferenceStore
 from devfeed_core.analytics_observation import pipeline_policy_version
 from devfeed_core.analytics_overview_direct import DirectOverviewAnalytics
+from devfeed_core.analytics_overview_reconcile import OVERVIEW_SOURCES, scope_for
 from devfeed_core.analytics_producer import SOURCES, TABLES, hydrate_changes
 from devfeed_core.analytics_status import AnalyticsStatus
 from devfeed_core.config import Settings
@@ -103,6 +104,35 @@ async def prepare(client, now):
     )
 
 
+async def overview_ready(client, now, *, revision=None):
+    """Certify the test's explicit fully published retained-source fixture."""
+    revision = revision or time.time_ns()
+    await client.insert(
+        PROGRESS_TABLE,
+        [
+            {
+                "policy": pipeline_policy_version(client.settings),
+                "scope": scope_for(source),
+                "version": revision,
+                "source_at": now,
+                "completed_at": now,
+                "pending": 0,
+                "cursor": json.dumps(
+                    {
+                        "phase": "complete",
+                        "fence": revision,
+                        "started_at": now.isoformat(),
+                        "upper": [],
+                        "after": None,
+                        "target_after": None,
+                    }
+                ),
+            }
+            for source in OVERVIEW_SOURCES
+        ],
+    )
+
+
 async def _snapshot(client, session, now, *, observations=None):
     await prepare(client, now)
     session.flush()
@@ -113,7 +143,7 @@ async def _snapshot(client, session, now, *, observations=None):
             changes.append({"source_table": source, "record": record})
     connection = SnapshotConnection(session)
     overview = DirectOverviewAnalytics(client)
-    revision = time.time_ns()
+    revision = session.scalar(text("SELECT txid_current()"))
     for offset in range(0, len(changes), 200):
         hydrated = await hydrate_changes(connection, changes[offset : offset + 200])
         await overview.publish(hydrated, revision=revision)
@@ -141,6 +171,7 @@ async def _snapshot(client, session, now, *, observations=None):
             }
         ],
     )
+    await overview_ready(client, now, revision=revision)
 
 
 def _read(session_or_factory, now, read, *, observations=None):

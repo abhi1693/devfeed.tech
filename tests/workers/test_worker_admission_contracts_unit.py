@@ -458,12 +458,16 @@ def test_job_metrics_reset_and_count_failures_without_unbounded_queue_labels(
 
 
 @pytest.mark.parametrize("result", [True, False, "raises"])
+@pytest.mark.parametrize("drain_seconds", [17, 45])
 def test_workhorse_owns_telemetry_lifetime_and_reports_failed_execution(
-    worker_factory, monkeypatch, result
+    worker_factory, monkeypatch, result, drain_seconds
 ):
     build, _ = worker_factory
     worker = build("images")
     runtime, execution_span = object(), Mock()
+    monkeypatch.setattr(
+        analysis_worker.get_settings(), "analytics_worker_drain_seconds", drain_seconds
+    )
     start = Mock(return_value=runtime)
     stop = Mock()
     observed = {}
@@ -493,7 +497,7 @@ def test_workhorse_owns_telemetry_lifetime_and_reports_failed_execution(
     else:
         assert worker.perform_job(job, worker.queues[0]) is result
     start.assert_called_once_with("worker-images", serve_metrics=False)
-    drained.assert_called_once_with()
+    drained.assert_called_once_with(timeout=drain_seconds)
     stop.assert_called_once_with(runtime)
     assert observed["name"] == "process images"
     assert observed["context"] == ("context", {"traceparent": "parent"})

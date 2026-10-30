@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Partner API
  * Partner analytics API with role-gated sessions and live memberships.
- * OpenAPI spec version: 0.1.6
+ * OpenAPI spec version: 0.1.7
  */
 
 export type PartnerConnectionActionAction = typeof PartnerConnectionActionAction[keyof typeof PartnerConnectionActionAction];

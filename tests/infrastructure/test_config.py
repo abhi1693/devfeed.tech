@@ -109,11 +109,31 @@ def test_clickhouse_requires_a_service_origin_without_embedded_credentials(origi
         {"analytics_reconcile_poll_seconds": 301},
         {"analytics_reconcile_sweep_seconds": 29},
         {"analytics_reconcile_sweep_seconds": 86401},
+        {"analytics_worker_drain_seconds": 4},
+        {"analytics_worker_drain_seconds": 46},
+        {"analytics_worker_drain_seconds": 121},
     ],
 )
 def test_clickhouse_and_import_budgets_reject_unbounded_configuration(values):
     with pytest.raises(ValidationError):
         Settings(_env_file=None, database_url=DATABASE_URL, redis_url=REDIS_URL, **values)
+
+
+def test_workhorse_analytics_drain_has_a_separate_bounded_environment_budget(monkeypatch):
+    monkeypatch.delenv("DEVFEED_ANALYTICS_WORKER_DRAIN_SECONDS", raising=False)
+    assert (
+        Settings(
+            _env_file=None, database_url=DATABASE_URL, redis_url=REDIS_URL
+        ).analytics_worker_drain_seconds
+        == 45
+    )
+    monkeypatch.setenv("DEVFEED_ANALYTICS_WORKER_DRAIN_SECONDS", "17")
+    assert (
+        Settings(
+            _env_file=None, database_url=DATABASE_URL, redis_url=REDIS_URL
+        ).analytics_worker_drain_seconds
+        == 17
+    )
 
 
 def test_clickhouse_password_is_redacted_and_configuration_does_not_connect():

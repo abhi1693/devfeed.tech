@@ -133,11 +133,23 @@ async def run(once: bool = False) -> None:
                         busy = await worker.once()
                     failures = 0
                 except Exception as error:
+                    cause = error.__cause__
+                    reason = (
+                        "page_timeout"
+                        if isinstance(error, TimeoutError)
+                        else "analytics_unavailable"
+                        if isinstance(error, AnalyticsUnavailable)
+                        else "source_or_builder_failure"
+                    )
                     logger.error(
                         "analytics_history_import_failed"
                         if worker.bootstrapping
                         else "analytics_current_reconciliation_failed",
-                        extra={"error_type": type(error).__name__},
+                        extra={
+                            "error_type": type(error).__name__,
+                            "reason_code": reason,
+                            "cause_type": type(cause).__name__ if cause is not None else "none",
+                        },
                     )
                     if once:
                         raise
