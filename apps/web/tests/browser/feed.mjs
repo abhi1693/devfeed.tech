@@ -1453,13 +1453,21 @@ async function createReaderFixture(
 
 let readerPageSequence = 0;
 async function withReaderPage(browser, check, options = {}) {
-  const context = await browser.newContext({ reducedMotion: "reduce", ...options });
+  const { livePreferredSource = false, ...contextOptions } = options;
+  const context = await browser.newContext({ reducedMotion: "reduce", ...contextOptions });
   const reportPath = artifactPath(`preferred-source-report-only-${++readerPageSequence}.json`);
   let errors = [];
   let preferredSourceReports = [];
   try {
     await mockManagedImages(context);
     await mockSourceLogos(context);
+    if (!livePreferredSource) {
+      // Remote widget policy reports belong to the dedicated real-SDK journey.
+      // Other reader journeys retain strict console checks without loading that SDK.
+      await context.route("https://news.google.com/swg/js/v1/publisher.js", (route) =>
+        route.fulfill({ contentType: "application/javascript", body: "" }),
+      );
+    }
     const page = await context.newPage();
     ({ errors, preferredSourceReports } = collectReaderPageErrors(page));
     await check(page, context);
@@ -1482,59 +1490,67 @@ test(
   { timeout: 120000 },
   async (t) => {
     const { browser, origin } = await createReaderFixture(t, { analyticsEnabled: true });
-    await withReaderPage(browser, async (page, context) => {
-      await context.route("https://www.googletagmanager.com/gtag/js**", (route) =>
-        route.fulfill({ contentType: "application/javascript", body: "" }),
-      );
-      // Optional offline proof uses an unchanged copy of Google's real SDK, never a mock widget.
-      const sdkPath = process.env.DEVFEED_PREFERRED_SOURCE_SDK_PATH;
-      if (sdkPath) {
-        const sdk = await readFile(sdkPath);
-        await context.route("https://news.google.com/swg/js/v1/publisher.js", (route) =>
-          route.fulfill({ contentType: "application/javascript", body: sdk }),
+    await withReaderPage(
+      browser,
+      async (page, context) => {
+        await context.route("https://www.googletagmanager.com/gtag/js**", (route) =>
+          route.fulfill({ contentType: "application/javascript", body: "" }),
         );
-      }
-      let preferredTheme = "light";
-      await context.route("**/api/v1/user/settings/appearance", (route) => {
-        if (route.request().method() === "PUT")
-          preferredTheme = route.request().postDataJSON().theme;
-        return route.fulfill({ json: { theme: preferredTheme } });
-      });
-      for (const member of [false, true]) {
-        await page.emulateMedia({ colorScheme: member ? "dark" : "light" });
-        if (member)
-          await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
-        await page.goto(`${origin}/latest`);
-        await page.locator(".card-open-link").first().waitFor();
-        if (member) {
-          await page
-            .getByRole("button", { name: "Theme: Light. Switch to dark theme", exact: true })
-            .click();
-          await page.waitForFunction(() => document.documentElement.classList.contains("dark"));
+        // Optional offline proof uses an unchanged copy of Google's real SDK, never a mock widget.
+        const sdkPath = process.env.DEVFEED_PREFERRED_SOURCE_SDK_PATH;
+        if (sdkPath) {
+          const sdk = await readFile(sdkPath);
+          await context.route("https://news.google.com/swg/js/v1/publisher.js", (route) =>
+            route.fulfill({ contentType: "application/javascript", body: sdk }),
+          );
         }
-        assert.equal(
+        let preferredTheme = "light";
+        await context.route("**/api/v1/user/settings/appearance", (route) => {
+          if (route.request().method() === "PUT")
+            preferredTheme = route.request().postDataJSON().theme;
+          return route.fulfill({ json: { theme: preferredTheme } });
+        });
+        for (const member of [false, true]) {
+          await page.emulateMedia({ colorScheme: member ? "dark" : "light" });
+          if (member)
+            await context.addCookies([
+              { name: "devfeed_user_session", value: "valid", url: origin },
+            ]);
+          await page.goto(`${origin}/latest`);
+          await page.locator(".card-open-link").first().waitFor();
+          if (member) {
+            await page
+              .getByRole("button", { name: "Theme: Light. Switch to dark theme", exact: true })
+              .click();
+            await page.waitForFunction(() => document.documentElement.classList.contains("dark"));
+          }
+          assert.equal(
+            await page
+              .locator("[data-google-preferred-source], .google-preferred-source-widget")
+              .count(),
+            0,
+          );
+          await page.locator(".card-open-link").first().click();
+          await page.getByRole("dialog", { name: "Article preview" }).waitFor();
+          await checkGooglePreferredSource(
+            page,
+            `${root}/reports/google-preferred-source/web-${member ? "member" : "guest"}.png`,
+            { analytics: "ga4", measurementId: "G-PREFERREDTEST" },
+          );
+          await page.getByRole("button", { name: "Close preview", exact: true }).click();
           await page
-            .locator("[data-google-preferred-source], .google-preferred-source-widget")
-            .count(),
-          0,
-        );
-        await page.locator(".card-open-link").first().click();
-        await page.getByRole("dialog", { name: "Article preview" }).waitFor();
-        await checkGooglePreferredSource(
-          page,
-          `${root}/reports/google-preferred-source/web-${member ? "member" : "guest"}.png`,
-          { analytics: "ga4", measurementId: "G-PREFERREDTEST" },
-        );
-        await page.getByRole("button", { name: "Close preview", exact: true }).click();
-        await page.getByRole("dialog", { name: "Article preview" }).waitFor({ state: "detached" });
-        assert.equal(
-          await page
-            .locator("[data-google-preferred-source], .google-preferred-source-widget")
-            .count(),
-          0,
-        );
-      }
-    });
+            .getByRole("dialog", { name: "Article preview" })
+            .waitFor({ state: "detached" });
+          assert.equal(
+            await page
+              .locator("[data-google-preferred-source], .google-preferred-source-widget")
+              .count(),
+            0,
+          );
+        }
+      },
+      { livePreferredSource: true },
+    );
   },
 );
 
