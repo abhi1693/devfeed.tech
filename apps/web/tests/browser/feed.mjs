@@ -272,6 +272,16 @@ async function createReaderFixture(
   let rejectTopics = true;
   let onboardingSaved = false;
   let rejectOnboardingPage = true;
+  const choices = onboardingTopics(topic);
+  const onboardingCatalog = [
+    ...choices,
+    ...Array.from({ length: 61 - choices.length }, (_, i) => ({
+      ...topic,
+      id: `extra-${i}`,
+      slug: `extra-${i}`,
+      name: `Extra topic ${i}`,
+    })),
+  ];
   let rejectTopicFollow = true;
   let savedTopicIds = [topic.id];
   let savedSourceIds = [];
@@ -643,34 +653,21 @@ async function createReaderFixture(
     else if (path === "/v1/topics") {
       if (mode === "onboarding")
         assert.equal(new URL(req.url, "http://localhost").searchParams.get("sort"), "articles");
-      if (mode === "onboarding" && requestUrl.searchParams.get("q")) {
-        body = onboardingTopics(topic).filter((item) =>
-          item.name.toLowerCase().includes(requestUrl.searchParams.get("q").toLowerCase()),
-        );
-      } else if (mode === "onboarding" && requestUrl.searchParams.get("offset") === "60") {
-        if (rejectOnboardingPage) {
+      if (mode === "onboarding") {
+        const query = (requestUrl.searchParams.get("q") ?? "").toLowerCase();
+        const offset = Number(requestUrl.searchParams.get("offset") ?? 0);
+        const limit = Number(requestUrl.searchParams.get("limit") ?? 60);
+        if (!query && offset === 60 && rejectOnboardingPage) {
           rejectOnboardingPage = false;
           await new Promise((resolve) => setTimeout(resolve, 1000));
           res.writeHead(503, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ detail: "Temporary catalog failure" }));
           return;
         }
-        body = [];
-      } else {
-        const choices = onboardingTopics(topic);
-        body =
-          mode === "onboarding"
-            ? [
-                ...choices,
-                ...Array.from({ length: 60 - choices.length }, (_, i) => ({
-                  ...topic,
-                  id: `extra-${i}`,
-                  slug: `extra-${i}`,
-                  name: `Extra topic ${i}`,
-                })),
-              ]
-            : [topic];
-      }
+        body = onboardingCatalog
+          .filter((item) => item.name.toLowerCase().includes(query))
+          .slice(offset, offset + limit);
+      } else body = [topic];
     } else if (path === `/v1/topics/${topic.slug}`) body = topic;
     else if (path === `/v1/sources/${source.slug}`) body = source;
     else if (path === "/v1/sources") body = onboardingSources;
@@ -1181,7 +1178,12 @@ async function createReaderFixture(
     // The earlier background-refresh page deliberately overrides hasFocus on every navigation.
     const onboardingPage = await context.newPage();
     await onboardingPage.clock.install();
-    await checkFeedOnboarding(onboardingPage, origin, `${output}/web`);
+    await checkFeedOnboarding(
+      onboardingPage,
+      origin,
+      `${output}/web`,
+      onboardingCatalog.at(-1).name,
+    );
     await onboardingPage.close();
     await page.bringToFront();
     assert.ok(onboardingSaved);

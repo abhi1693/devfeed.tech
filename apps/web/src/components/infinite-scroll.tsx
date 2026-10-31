@@ -85,35 +85,17 @@ export function InfiniteScroll({
                 ? endMessage
                 : ""}
         </p>
+        {hasMore && nextHref && (
+          <Link className="button" href={nextHref} rel="next" aria-label={`Next page of ${label}`}>
+            Next page
+          </Link>
+        )}
         {recovery ??
-          (hasMore &&
-            !loading &&
-            error &&
-            (nextHref ? (
-              <Link
-                className="button"
-                href={nextHref}
-                prefetch={false}
-                onClick={(event) => {
-                  if (
-                    event.button !== 0 ||
-                    event.metaKey ||
-                    event.ctrlKey ||
-                    event.shiftKey ||
-                    event.altKey
-                  )
-                    return;
-                  event.preventDefault();
-                  void onLoadMore();
-                }}
-              >
-                Try again
-              </Link>
-            ) : (
-              <button className="button" type="button" onClick={() => void onLoadMore()}>
-                Try again
-              </button>
-            )))}
+          (hasMore && !loading && error && (
+            <button className="button" type="button" onClick={() => void onLoadMore()}>
+              Try again
+            </button>
+          ))}
       </div>
     </>
   );

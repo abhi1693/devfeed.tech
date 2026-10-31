@@ -1,5 +1,5 @@
 export const propertySuites = {
-  "pagination.property.test.ts": 3,
+  "pagination.property.test.ts": 4,
   "urls.property.test.ts": 4,
   "follows.property.test.tsx": 4,
   "telemetry-fuzz.test.ts": 3,

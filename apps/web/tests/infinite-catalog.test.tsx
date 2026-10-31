@@ -69,6 +69,9 @@ it.each(["topics", "sources"] as const)(
     render(
       <InfiniteCatalog kind={kind} initialPage={{ items: first, next_cursor: "server+cursor" }} />,
     );
+    expect(screen.getByRole("link", { name: `Next page of ${kind}` }).getAttribute("href")).toBe(
+      `/${kind}?offset=server%2Bcursor`,
+    );
     expect(screen.queryByRole("link", { name: `More ${kind}` })).toBeNull();
     expect(screen.queryByRole("button", { name: `More ${kind}` })).toBeNull();
     await act(async () => {
@@ -83,6 +86,7 @@ it.each(["topics", "sources"] as const)(
     expect(screen.getAllByRole("heading", { name: "Item 0" })).toHaveLength(1);
     expect(screen.getAllByRole("heading", { name: "Next item" })).toHaveLength(1);
     expect(screen.getByText(`You’ve seen all ${kind}.`)).toBeDefined();
+    expect(screen.queryByRole("link", { name: `Next page of ${kind}` })).toBeNull();
     expect(screen.queryByRole("link", { name: `More ${kind}` })).toBeNull();
     expect(screen.getByRole("link", { name: /^Next item/ }).getAttribute("href")).toBe(
       `/${kind}/${item.slug}`,
@@ -116,7 +120,7 @@ it("retains topics on error, retries manually, and cancels pagination in a backg
   await act(async () => intersect());
   expect(screen.getByText("Couldn’t load more topics.")).toBeDefined();
   expect(screen.getByRole("heading", { name: "Topic 0" })).toBeDefined();
-  await act(async () => fireEvent.click(screen.getByRole("link", { name: "Try again" })));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Try again" })));
   const signal = fetcher.mock.calls[1][1].signal;
   vi.mocked(document.hasFocus).mockReturnValue(false);
   await act(async () => window.dispatchEvent(new Event("blur")));

@@ -55,6 +55,7 @@ it("groups names alphabetically and keeps punctuation and Unicode in tag destina
   );
   expect(alphabet.getByRole("link", { name: "All" }).getAttribute("href")).toBe("/tags?q=C%2B%2B");
   expect(screen.getByText("You’ve seen all matching tags.")).toBeTruthy();
+  expect(screen.queryByRole("link", { name: "Next page of tags" })).toBeNull();
   expect(screen.queryByRole("link", { name: /^(Next|Previous) tags$/ })).toBeNull();
   expect(fetcher).not.toHaveBeenCalled();
 });
@@ -82,6 +83,9 @@ it("retains tags after a page failure and retries without duplicate entries or r
       }),
   );
   render(<TagsContent tags={[tags[1]]} query="C++" letter="C" nextCursor="60" />);
+  expect(screen.getByRole("link", { name: "Next page of tags" }).getAttribute("href")).toBe(
+    "/tags?q=C%2B%2B&letter=C&offset=60",
+  );
   await act(async () => intersect());
   expect(screen.getByText("Couldn’t load more tags.")).toBeTruthy();
   expect(screen.getByRole("link", { name: "C++" })).toBeTruthy();
@@ -99,6 +103,7 @@ it("retains tags after a page failure and retries without duplicate entries or r
   expect(screen.getAllByRole("link", { name: "C++" })).toHaveLength(1);
   expect(screen.getAllByRole("link", { name: "Rust" })).toHaveLength(1);
   expect(screen.getByText("You’ve seen all matching tags.")).toBeTruthy();
+  expect(screen.queryByRole("link", { name: "Next page of tags" })).toBeNull();
 });
 
 it("offers an unfiltered directory when no tags match", () => {
