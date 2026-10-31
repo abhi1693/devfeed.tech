@@ -12,6 +12,7 @@ import json
 import logging
 import math
 from collections.abc import Sequence
+from contextlib import nullcontext
 from datetime import UTC, date, datetime
 from functools import partial
 
@@ -321,8 +322,12 @@ class HistoricalAnalyticsImport:
             with (
                 reuse_snapshots(
                     retained=self._card_catalogs, on_invalidate=self._card_ranking.clear
+                )
+                if self.settings.cache_enabled
+                else nullcontext(),
+                reuse_candidates(
+                    retained=self._card_ranking if self.settings.cache_enabled else None
                 ),
-                reuse_candidates(retained=self._card_ranking),
             ):
                 return build_cards(self.settings, kind, identifiers, 1)
 

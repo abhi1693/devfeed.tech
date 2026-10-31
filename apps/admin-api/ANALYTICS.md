@@ -266,6 +266,8 @@ checkpoints advance only after acknowledged writes; failed pages replay safely.
 
 Historical card pages retain one immutable, revision-validated catalog and prepared
 ranking index per importer, matching the recurring reconciler's existing reuse.
+This additional lifetime applies only with caching enabled. With caching disabled,
+historical pages retain their previous catalog-read path and add no revision SQL.
 Every page reloads current article/job inputs in a read-only source snapshot.
 Catalog changes release the previous prepared generation before replacing it;
 rolled-back edits leave the committed generation valid. The owner refuses a second

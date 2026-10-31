@@ -2,8 +2,9 @@
 
 Historical card import previously rebuilt the complete catalog and candidate
 ranking index for each page of at most 200 identities. It now retains those
-immutable inputs for the importer lifetime, with transactional revision checks
-on every page. This extends the recurring reconciler's existing retained scopes
+immutable inputs for the importer lifetime when caching is enabled, with
+transactional revision checks on every page. Disabled caching keeps the old page
+SQL path and does not acquire extra revision reads. This extends the recurring reconciler's existing retained scopes
 to a separate caller that did not use them. The recurring reconciler's production
 CPU improvement was already on `master`; this PR adds its regression benchmark.
 The production audit confirmed recurring reconciliation activity, without
@@ -13,8 +14,9 @@ The native regression compares direct cold `build_cards` calls, representing the
 old historical page path, against the actual `CurrentStateReconciler._build` and
 `HistoricalAnalyticsImport.import_cards` methods. All three use the same native
 card builder, unchanged candidate scoring, PostgreSQL data, 200-row page limit,
-and exported DTOs. Redis caching is disabled to isolate local retention; per-page
-revision reads remain enabled. The sink acknowledges writes in memory so that
+and exported DTOs. Caching is enabled with a fault injected at the cache transport boundary to
+compare the native fallback paths; per-page revision reads remain enabled. Separate
+PostgreSQL measurements cover actual Redis cold/warm caches and disabled caching. The sink acknowledges writes in memory so that
 ClickHouse network latency does not obscure builder cost. These measurements
 cover card construction and Python process CPU, excluding PostgreSQL CPU, fixture
 insertion, checkpoint transport, process startup, telemetry, and idle polling.
@@ -67,16 +69,18 @@ pages. All database revision and classification triggers remained enabled.
 
 | Builder path                 | Catalog loads | Ranking preparations | Python CPU | Wall time |
 | ---------------------------- | ------------: | -------------------: | ---------: | --------: |
-| Cold historical page control |             3 |                    3 |    14.46 s |   15.10 s |
-| Existing current reconciler  |             1 |                    1 |     9.22 s |    9.62 s |
-| Historical importer with reuse |           1 |                    1 |     9.96 s |   10.36 s |
+| Cold historical page control |             3 |                    3 |    14.65 s |   15.18 s |
+| Existing current reconciler  |             1 |                    1 |     9.67 s |    10.10 s |
+| Historical importer with reuse |           1 |                    1 |     10.08 s |   10.57 s |
 
 Historical construction used about 31% less Python CPU in this single sample.
 The deterministic regression is the two avoided catalog loads/preparations and
 identical output. This is a sequential local sample with warm database pages,
 without alternating rounds or a statistical confidence interval. Its magnitude
-does not predict production savings. All three paths executed 48 SQL statements:
-the retained paths exchanged full catalog reads for cheap revision checks.
+does not predict production savings. The cold path executed 54 SQL statements versus 48 for both retained owners.
+The retained paths avoid repeated catalog reads and their before/after revision
+fences. Disabled caching instead bypasses this added scope and preserves the old
+SQL count. See the [paired PostgreSQL mode report](importer-postgres-work.md).
 Both owners' source-card pages together used 36 SQL statements, with zero catalog
 loads or ranking preparations. Full counters are in
 [`analytics-card-catalog.json`](analytics-card-catalog.json).

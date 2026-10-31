@@ -380,11 +380,15 @@ def test_partner_claims_preserve_cold_history_only_after_receipt_backfill(
     importer.client.insert.assert_not_called()
 
 
-def test_policy_card_page_publishes_baseline_revision(historical_import, monkeypatch):
+@pytest.mark.parametrize("cache_enabled", [False, True])
+def test_policy_card_page_publishes_baseline_revision(
+    historical_import, monkeypatch, cache_enabled
+):
     import threading
 
     from devfeed_core import analytics_direct_cards
 
+    monkeypatch.setattr(historical_import.settings, "cache_enabled", cache_enabled)
     calls, observations = [], [{"entity_id": "selected"}]
     owner = threading.get_ident()
 

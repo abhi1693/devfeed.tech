@@ -3,28 +3,29 @@
   "article_count": 600,
   "article_pages": 3,
   "base_commit": "6f12ed1d",
-  "cache_enabled": false,
+  "cache_enabled": true,
+  "cache_transport": "injected_unavailable",
   "cold_pages": {
     "catalog_loads": 3,
-    "cpu_seconds": 14.45618,
+    "cpu_seconds": 14.651622,
     "ranking_preparations": 3,
-    "sql_statements": 48,
-    "wall_seconds": 15.103824
+    "sql_statements": 54,
+    "wall_seconds": 15.177943
   },
   "cpu_metric": "Python process CPU including builder threads; excludes PostgreSQL",
   "current_reconciler": {
     "catalog_loads": 1,
-    "cpu_seconds": 9.215858,
+    "cpu_seconds": 9.668084,
     "ranking_preparations": 1,
     "sql_statements": 48,
-    "wall_seconds": 9.615902
+    "wall_seconds": 10.095621
   },
   "historical_import": {
     "catalog_loads": 1,
-    "cpu_seconds": 9.964582,
+    "cpu_seconds": 10.077357,
     "ranking_preparations": 1,
     "sql_statements": 48,
-    "wall_seconds": 10.360147
+    "wall_seconds": 10.567467
   },
   "measured_on": "2026-10-31",
   "page_size": 200,
@@ -35,10 +36,10 @@
   "sink": "in_memory_acknowledgement",
   "source_cards_both_owners": {
     "catalog_loads": 0,
-    "cpu_seconds": 0.07653,
+    "cpu_seconds": 0.076112,
     "ranking_preparations": 0,
     "sql_statements": 36,
-    "wall_seconds": 0.193325
+    "wall_seconds": 0.193187
   },
   "tags": 55000,
   "topics": 4450
