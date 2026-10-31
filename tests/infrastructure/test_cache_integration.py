@@ -442,8 +442,9 @@ def test_backfill_fences_unknown_data_once_and_marks_projection_work(database, c
 
 
 @pytest.mark.parametrize("isolation", [False, True])
+@pytest.mark.parametrize("scenario", ["available", "cache_unavailable", "public_churn"])
 def test_projection_pages_do_not_repeat_unrelated_api_queries(
-    database, client, monkeypatch, isolation
+    database, client, monkeypatch, isolation, scenario
 ):
     from unittest.mock import Mock
 
@@ -456,6 +457,13 @@ def test_projection_pages_do_not_repeat_unrelated_api_queries(
     path = f"/v1/sources/{identifier}"
     assert client.get(path).status_code == 200
     statuses, queries = [], []
+    store = cache.get_cache()
+    if scenario == "cache_unavailable":
+
+        def unavailable(*_):
+            raise cache.CacheUnavailable
+
+        monkeypatch.setattr(store, "_run", unavailable)
 
     def observed(_connection, _cursor, statement, _parameters, _context, _many):
         queries.append(statement)
@@ -464,10 +472,19 @@ def test_projection_pages_do_not_repeat_unrelated_api_queries(
         with database.begin() as session:
             session.add(SearchEvent(kind="sources", entity_id=identifier, public_change=False))
         assert sync_batch(database, engine) == 1
+        if scenario == "public_churn":
+            store.invalidate("public")
         event.listen(get_engine(), "before_cursor_execute", observed)
         try:
             statuses.append(client.get(path).headers["x-cache"])
         finally:
             event.remove(get_engine(), "before_cursor_execute", observed)
-    assert statuses == ["HIT" if isolation else "MISS"] * 20
-    assert len(queries) == (0 if isolation else 20)
+    expected = (
+        "BYPASS"
+        if scenario == "cache_unavailable"
+        else "HIT"
+        if isolation and scenario == "available"
+        else "MISS"
+    )
+    assert statuses == [expected] * 20
+    assert len(queries) == (0 if isolation and scenario == "available" else 20)
