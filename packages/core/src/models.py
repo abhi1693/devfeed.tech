@@ -570,6 +570,7 @@ class ArticleRefresh(Base):
             "jsonb_typeof(payload) = 'object' AND octet_length(payload::text) <= 1048576",
             name="ck_refresh_payload",
         ),
+        {"comment": "Private article maintenance ownership (0040)."},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

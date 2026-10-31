@@ -16,7 +16,10 @@ depends_on = None
 JOB_TABLES = ("article_enrichment_jobs", "article_analysis_jobs", "article_image_jobs")
 
 
-def upgrade():
+SCHEMA_CHECKPOINT = "Private article maintenance ownership (0040)."
+
+
+def _create_schema():
     op.execute("SET LOCAL lock_timeout = '5s'")
     op.create_table(
         "article_refreshes",
@@ -86,6 +89,7 @@ def upgrade():
             "jsonb_typeof(payload) = 'object' AND octet_length(payload::text) <= 1048576",
             name="ck_refresh_payload",
         ),
+        comment=SCHEMA_CHECKPOINT,
     )
     op.create_index("ix_article_refreshes_article_id", "article_refreshes", ["article_id"])
     op.create_index(
@@ -122,6 +126,75 @@ def upgrade():
             initially="DEFERRED",
             postgresql_not_valid=True,
         )
+
+
+def _repair_interrupted_index(name, table):
+    if op.get_context().as_sql:
+        return
+    current = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                "SELECT parent.relname AS table_name,idx.relkind AS relation_kind,"
+                "i.indisvalid,i.indisunique,method.amname AS method,i.indnatts AS attributes,"
+                "i.indexprs IS NOT NULL AS expressions,"
+                "pg_get_expr(i.indpred,i.indrelid) AS predicate,"
+                "ARRAY(SELECT a.attname::text FROM unnest(i.indkey) "
+                "WITH ORDINALITY AS key(attnum,position) JOIN pg_attribute a "
+                "ON a.attrelid=parent.oid AND a.attnum=key.attnum ORDER BY key.position) "
+                "AS columns FROM pg_class idx JOIN pg_namespace ns ON ns.oid=idx.relnamespace "
+                "LEFT JOIN pg_am method ON method.oid=idx.relam "
+                "LEFT JOIN pg_index i ON i.indexrelid=idx.oid "
+                "LEFT JOIN pg_class parent ON parent.oid=i.indrelid "
+                "WHERE ns.nspname=current_schema() AND idx.relname=:name"
+            ),
+            {"name": name},
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if current is None:
+        return
+    if (
+        current["relation_kind"] != "i"
+        or current["table_name"] != table
+        or current["columns"] != ["refresh_id"]
+        or current["indisunique"]
+        or current["predicate"] != "(refresh_id IS NOT NULL)"
+        or current["method"] != "btree"
+        or current["attributes"] != 1
+        or current["expressions"]
+    ):
+        raise RuntimeError(f"Unexpected definition for maintenance index {name}")
+    if not current["indisvalid"]:
+        op.drop_index(name, table_name=table, postgresql_concurrently=True, if_exists=True)
+
+
+def upgrade():
+    # The first transaction commits all additive DDL before concurrent indexes.
+    # A retry remains at 0039; only this migration's committed checkpoint may
+    # resume the index phase. Never silently adopt an unrelated existing table.
+    if op.get_context().as_sql:
+        _create_schema()
+    else:
+        inspector = sa.inspect(op.get_bind())
+        if not inspector.has_table("article_refreshes"):
+            _create_schema()
+        elif inspector.get_table_comment("article_refreshes")["text"] != SCHEMA_CHECKPOINT:
+            raise RuntimeError("Unexpected existing article_refreshes relation")
+    with op.get_context().autocommit_block():
+        for table in JOB_TABLES:
+            op.execute(f"ALTER TABLE {table} VALIDATE CONSTRAINT fk_{table}_refresh_id")
+            name = f"ix_{table}_refresh_id"
+            _repair_interrupted_index(name, table)
+            op.create_index(
+                name,
+                table,
+                ["refresh_id"],
+                postgresql_where=sa.text("refresh_id IS NOT NULL"),
+                postgresql_concurrently=True,
+                if_not_exists=True,
+            )
 
 
 def downgrade():

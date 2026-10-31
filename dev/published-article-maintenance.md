@@ -19,10 +19,12 @@ by this feature.
 1. Keep `DEVFEED_PUBLISHED_ARTICLE_REFRESH_ENABLED=false` in the admin API and workers.
    While disabled, a published retry returns a conflict and preserves publication.
    There is no fallback to the old unpublish-and-retry behavior.
-2. Apply schema 0040, then 0041. The first transaction adds nullable private ownership;
-   the second validates the new foreign keys with compatible locks and builds partial
+2. Apply the single schema 0040 migration. Its first transaction adds nullable private ownership;
+   its second phase validates the new foreign keys with compatible locks and builds partial
    job indexes concurrently. Interrupted index creation is repaired idempotently on
-   the next upgrade. Existing ordinary rows remain unbound.
+   the next upgrade. A committed table comment identifies the completed schema phase;
+   until every index succeeds, Alembic remains at 0039 and reruns only the remaining
+   index work. Existing ordinary rows remain unbound.
 3. Drain all old article enrichment, analysis and image workers; finish or stop their
    leases through the normal worker shutdown/recovery path. Upgrade the scheduler,
    APIs and every worker that can claim these jobs. Do not mix old workers with

@@ -67,8 +67,9 @@ The shared row-truncating `database` fixture cannot isolate DDL. The resumable
 import runner test verifies retirement in its owned database and unchanged caller
 relation identities; decision accounting assertions use durable run checkpoints
 rather than retired PostgreSQL analytics tables.
-Migration `0040` adds private article maintenance ownership, and `0041` validates
-its foreign keys and builds sparse job-link indexes concurrently. Schema rollback
+The single migration `0040` adds private article maintenance ownership, then validates
+its foreign keys and builds sparse job-link indexes concurrently. Its committed schema
+checkpoint lets interrupted index builds resume while Alembic remains at `0039`. Schema rollback
 is refused after maintenance history exists; tests of an unused schema can round
 trip without discarding approved articles or ordinary jobs.
 

@@ -14,6 +14,9 @@ import psycopg
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from alembic.script import ScriptDirectory
 from devfeed_core.analytics_cutover import LegacyAnalyticsCutover
 from devfeed_core.config import get_settings
 from devfeed_core.db import get_engine
@@ -29,7 +32,7 @@ JOB_TABLES = ("article_enrichment_jobs", "article_analysis_jobs", "article_image
 
 @pytest.fixture
 def index_revision(monkeypatch):
-    path = REPO_ROOT / "migrations/versions/0041_article_refresh_indexes.py"
+    path = REPO_ROOT / "migrations/versions/0040_article_refreshes.py"
     spec = importlib.util.spec_from_file_location("refresh_index_revision", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -117,6 +120,16 @@ def test_offline_refresh_index_sql_does_not_query_or_repair_live_relations(index
 def historical_refresh_database(integration_environment, monkeypatch):
     with database_at_revision(monkeypatch, "0039") as database:
         yield database
+
+
+def prepare_refresh_schema():
+    """Simulate the committed schema phase before concurrent index admission."""
+    revision = ScriptDirectory.from_config(config()).get_revision("0040").module
+    with (
+        get_engine().begin() as connection,
+        Operations.context(MigrationContext.configure(connection)),
+    ):
+        revision._create_schema()
 
 
 def config():
@@ -267,7 +280,7 @@ def test_refresh_upgrade_preserves_large_ordinary_history_and_post_import_schema
     seed_ordinary_records(database, (40_000, 40_000, 20_000))
     before = ordinary_fingerprints(database)
     assert [before[table][0] for table in JOB_TABLES] == [40_000, 40_000, 20_000]
-    command.upgrade(config(), "0040")
+    prepare_refresh_schema()
     assert ordinary_fingerprints(database) == before
     assert_owner_constraints(database, validated=False)
     command.upgrade(config(), "head")
@@ -375,7 +388,7 @@ def test_cancelled_concurrent_refresh_index_repairs_without_rebuilding_valid_sib
                 writer.close()
             event.remove(engine, "before_cursor_execute", before_create)
     with database() as session:
-        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0040"
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0039"
     failed = index_state(database)
     first = "ix_article_enrichment_jobs_refresh_id"
     assert failed[first]["indisvalid"] and not failed[second]["indisvalid"]
@@ -391,7 +404,7 @@ def test_cancelled_concurrent_refresh_index_repairs_without_rebuilding_valid_sib
         json.dumps(
             {
                 "interrupted_concurrent_index_phase": state["phase"],
-                "durable_failed_revision": "0040",
+                "durable_failed_revision": "0039",
                 "valid_sibling_oid_preserved": repaired[first]["oid"] == failed[first]["oid"],
                 "invalid_index_replaced": repaired[second]["oid"] != failed[second]["oid"],
                 "ordinary_row_xmin_payload_hashes_preserved": True,
@@ -408,7 +421,7 @@ def test_refresh_index_name_collision_preserves_the_unexpected_relation(
     database = historical_refresh_database
     seed_ordinary_records(database)
     before = ordinary_fingerprints(database)
-    command.upgrade(config(), "0040")
+    prepare_refresh_schema()
     name = "ix_article_enrichment_jobs_refresh_id"
     with database.begin() as session:
         statement = (
@@ -426,7 +439,7 @@ def test_refresh_index_name_collision_preserves_the_unexpected_relation(
         command.upgrade(config(), "head")
     with database() as session:
         assert session.scalar(text("SELECT CAST(:name AS regclass)::oid"), {"name": name}) == oid
-        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0040"
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0039"
     assert ordinary_fingerprints(database) == before
 
 
@@ -476,7 +489,7 @@ def test_refresh_history_refuses_downgrade_and_owner_deletion_but_article_cascad
     assert index_state(database) == indexes
     assert ordinary_fingerprints(database) == before
     with database() as session:
-        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0041"
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0040"
         assert session.scalar(text("SELECT count(*) FROM article_refreshes")) == 1
         assert (
             tuple(
@@ -510,3 +523,46 @@ def test_refresh_history_refuses_downgrade_and_owner_deletion_but_article_cascad
     with database() as session:
         for table in ("articles", "article_refreshes", *JOB_TABLES):
             assert session.scalar(text(f"SELECT count(*) FROM {table}")) == 0
+
+
+@pytest.mark.integration
+def test_refresh_upgrade_rejects_unowned_existing_table(historical_refresh_database):
+    database = historical_refresh_database
+    with database.begin() as session:
+        session.execute(text("CREATE TABLE article_refreshes(id integer)"))
+        oid = session.scalar(text("SELECT 'article_refreshes'::regclass::oid"))
+    with pytest.raises(RuntimeError, match="Unexpected existing article_refreshes"):
+        command.upgrade(config(), "head")
+    with database() as session:
+        assert session.scalar(text("SELECT 'article_refreshes'::regclass::oid")) == oid
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0039"
+
+
+@pytest.mark.integration
+def test_refresh_schema_phase_failure_rolls_back_all_additions(historical_refresh_database):
+    database = historical_refresh_database
+    seed_ordinary_records(database)
+    before = ordinary_fingerprints(database)
+    with database.begin() as session:
+        session.execute(text("CREATE TABLE ix_article_refresh_due(id integer)"))
+    with pytest.raises(DBAPIError, match="already exists"):
+        command.upgrade(config(), "head")
+    assert ordinary_fingerprints(database) == before
+    with database() as session:
+        assert session.scalar(text("SELECT to_regclass('article_refreshes')")) is None
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0039"
+        assert (
+            session.scalar(
+                text(
+                    "SELECT count(*) FROM information_schema.columns WHERE table_name IN "
+                    "('article_enrichment_jobs','article_analysis_jobs','article_image_jobs') "
+                    "AND column_name='refresh_id'"
+                )
+            )
+            == 0
+        )
+    with database.begin() as session:
+        session.execute(text("DROP TABLE ix_article_refresh_due"))
+    command.upgrade(config(), "head")
+    assert ordinary_fingerprints(database) == before
+    assert_owner_constraints(database, validated=True)
