@@ -56,15 +56,22 @@ private databases, so the PostgreSQL test role needs `CREATEDB`, and the
 ClickHouse test role needs database, table, and materialized-view creation and
 cleanup permissions. These credentials must belong only to disposable services.
 
-The session fixture upgrades PostgreSQL to Alembic `head`, including native
-capture functions and bootstrap state. Analytical fixtures initialize ClickHouse
-facts and serving generations; pytest does not require a separately running
-exporter or report worker. Native migration `0039` is forward-only: use a fresh
-disposable database when testing an earlier schema instead of downgrading through
-the native cutover. Creating ORM tables alone does not install this pipeline.
-Migration `0041` rebuilds only saved-report caches for explicit date-window keys;
-date-range tests must run against that schema. It preserves source records and
-retained analytical history.
+The session fixture upgrades PostgreSQL to Alembic `head`. Analytical fixtures
+initialize ClickHouse facts and serving generations; pytest does not require a
+separately running exporter or report worker. Creating ORM tables alone does not
+install the database triggers and runtime contracts. Use a fresh disposable
+database for historical migration tests so another runner's schema is unchanged.
+Historical analytics retirement also drops PostgreSQL tables, so its integration
+tests must own both a private PostgreSQL database and a private ClickHouse database.
+The shared row-truncating `database` fixture cannot isolate DDL. The resumable
+import runner test verifies retirement in its owned database and unchanged caller
+relation identities; decision accounting assertions use durable run checkpoints
+rather than retired PostgreSQL analytics tables.
+The single migration `0040` adds private article maintenance ownership, then validates
+its foreign keys and builds sparse job-link indexes concurrently. Its committed schema
+checkpoint lets interrupted index builds resume while Alembic remains at `0039`. Schema rollback
+is refused after maintenance history exists; tests of an unused schema can round
+trip without discarding approved articles or ordinary jobs.
 
 CI discovers nested test paths and balances whole files across its workers. Moving
 or merging files changes shard assignments but must retain cases, parametrizations,

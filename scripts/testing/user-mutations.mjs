@@ -5,6 +5,7 @@ import { createFixtureFeedViews } from "./feed-view-fixture.mjs";
 
 /** One backend fixture drives the real website and both unpacked extension readers. */
 export function userMutationFixture({ articles, topic }) {
+  let engagementReads = 0;
   let liked = false;
   let bookmarked = false;
   let followed = false;
@@ -107,8 +108,10 @@ export function userMutationFixture({ articles, topic }) {
     ],
     [
       "GET /v1/user/engagement",
-      () =>
-        response(
+      () => {
+        if (++engagementReads <= 2)
+          return response({ detail: "Temporary engagement failure" }, 503);
+        return response(
           articles.map((article) => ({
             article_id: article.id,
             liked,
@@ -116,7 +119,8 @@ export function userMutationFixture({ articles, topic }) {
             opens: 5,
             bookmarked,
           })),
-        ),
+        );
+      },
     ],
   ]);
   return {
@@ -125,6 +129,9 @@ export function userMutationFixture({ articles, topic }) {
     topic,
     writes,
     scopedViews,
+    get engagementReads() {
+      return engagementReads;
+    },
     handles(path, method) {
       return this.active && operations.has(`${method} ${path}`);
     },
@@ -166,6 +173,10 @@ export async function checkUserMutations(page, destination, fixture) {
     await clearEffects();
     const like = card.getByRole("button", { name: /^Like article/ });
     await like.click();
+    assert.ok(
+      fixture.engagementReads >= 3,
+      "Signed-in actions recover after failed engagement reads without navigation",
+    );
     await card.getByText("Couldn’t save. Try again.", { exact: true }).waitFor();
     assert.deepEqual(
       await effects(),

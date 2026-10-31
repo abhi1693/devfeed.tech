@@ -219,6 +219,18 @@ def test_native_insert_converts_typed_columns_and_coalesces_schema_discovery():
         ("other_table", [{"id": 1}]),
         ("analytics_events", [{}]),
         ("analytics_events", [{"id": 1}, {"other": 2}]),
+        ("analytics_card_canonical", [{"shard": 0}]),
+        ("analytics_card_canonical", [{"entity_id": str(uuid.UUID(int=0))}]),
+        ("analytics_card_canonical", [{"entity_id": "not-a-uuid", "shard": 0}]),
+        ("analytics_card_canonical", [{"entity_id": str(uuid.UUID(int=0)), "shard": 1}]),
+        ("analytics_card_canonical", [{"entity_id": str(uuid.UUID(int=1 << 120)), "shard": True}]),
+        (
+            "analytics_card_canonical",
+            [
+                {"entity_id": str(uuid.UUID(int=0)), "shard": 0},
+                {"entity_id": str(uuid.UUID(int=255 << 120)), "shard": 0},
+            ],
+        ),
     ],
 )
 def test_invalid_insert_never_opens_a_driver_or_builds_a_schema(table, rows):
@@ -230,6 +242,29 @@ def test_invalid_insert_never_opens_a_driver_or_builds_a_schema(table, rows):
             await client.insert("analytics_events", [])
             native.raw_query.assert_not_awaited()
             native.insert.assert_not_awaited()
+
+    asyncio.run(run())
+
+
+def test_canonical_card_shards_preserve_valid_string_and_uuid_identities():
+    async def run():
+        native = driver()
+        native.raw_query.return_value = (
+            b'{"name":"entity_id","type":"UUID"}\n{"name":"shard","type":"UInt16"}\n'
+        )
+        async with analytics.AnalyticsClient(configuration(), driver=native) as client:
+            identities = [str(uuid.UUID(int=0)), uuid.UUID(int=255 << 120)]
+            await client.insert(
+                "analytics_card_canonical",
+                [
+                    {"entity_id": identity, "shard": shard}
+                    for identity, shard in zip(identities, (0, 255), strict=True)
+                ],
+            )
+            assert native.insert.call_args.kwargs["data"] == [
+                [str(identity) for identity in identities],
+                [0, 255],
+            ]
 
     asyncio.run(run())
 

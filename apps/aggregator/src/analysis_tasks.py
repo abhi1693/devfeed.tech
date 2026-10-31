@@ -1,5 +1,7 @@
 """RQ analysis handler: short claims, bounded inference, revision-checked apply."""
 
+from __future__ import annotations
+
 import logging
 import time
 import uuid
@@ -52,7 +54,7 @@ from devfeed_core.publication_policy import apply_publication_policy
 from devfeed_core.topics import lock_topics
 from pydantic import ValidationError
 from sqlalchemy import select
-from sqlalchemy.orm import Session, lazyload, sessionmaker
+from sqlalchemy.orm import Session, defer, lazyload, load_only, sessionmaker
 
 from devfeed_aggregator.analysis_telemetry import record_attempt
 from devfeed_aggregator.codex_client import AnalysisError, CodexClient
@@ -128,61 +130,91 @@ def analyze_article(job_id: str) -> None:
 
 def _analyze(identifier: uuid.UUID) -> None:
     settings, factory = get_settings(), session_factory()
+    claimed = None
     with factory.begin() as session:
-        job = session.scalar(
-            select(ArticleAnalysisJob).where(ArticleAnalysisJob.id == identifier).with_for_update()
+        preview = session.scalar(
+            select(ArticleAnalysisJob)
+            .options(load_only(ArticleAnalysisJob.id, ArticleAnalysisJob.refresh_id))
+            .where(ArticleAnalysisJob.id == identifier)
         )
-        if job is None or job.status != "queued" or job.available_at > utcnow():
+        if preview is None:
             logger.debug("article_analysis_not_claimed")
             return
-        job.usage = {**(job.usage or {}), "active_step": None}
-        if not settings.ai_enabled:
-            fail_analysis(job, "ai_not_configured")
-            logger.warning("article_analysis_failed", extra={"reason": "ai_not_configured"})
-            return
-        if not approved_sources(session, job.article_id, lock=True):
-            finish_job(job, "unapproved", utcnow())
-            logger.info("article_analysis_skipped", extra={"reason": "unapproved"})
-            return
-        article = session.scalar(
-            select(Article).where(Article.id == job.article_id).with_for_update(of=Article)
-        )
-        if article is None:
-            finish_job(job, "superseded", utcnow())
-            logger.info("article_analysis_skipped", extra={"reason": "superseded"})
-            return
-        if article.publication_status == "published":
-            # Refresh promotion needs a separate candidate snapshot. Do not spend
-            # inference capacity or mix unfinished refresh fields into live data.
-            finish_job(job, "published_preserved", utcnow())
-            return
-        if not eligible_article(article):
-            finish_job(job, "content_date_deferred", utcnow())
-            logger.info("article_analysis_skipped", extra={"reason": "content_date_deferred"})
-            return
-        current = source_snapshot(article, session.get(ArticleContent, article.id))
-        if (
-            snapshot_hash(current) != job.input_hash
-            or article.editorial_revision != job.editorial_revision
-            or article.review_status == "rejected"
-        ):
-            finish_job(job, "superseded", utcnow())
-            refresh_superseded_analysis(session, article, job)
-            logger.info("article_analysis_skipped", extra={"reason": "superseded"})
-            return
-        token = start_job(job, utcnow(), 300)
-        # Old queued jobs run against the current catalog and output contract.
-        from devfeed_core.analysis import PROMPT_VERSION, VALIDATION_VERSION
+        refresh_id = preview.refresh_id
+        if refresh_id is None:
+            job = session.scalar(
+                select(ArticleAnalysisJob)
+                .options(defer(ArticleAnalysisJob.input_snapshot))
+                .where(ArticleAnalysisJob.id == identifier)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if job is None or job.status != "queued" or job.available_at > utcnow():
+                logger.debug("article_analysis_not_claimed")
+                return
+            refresh_id = job.refresh_id
+            # The ordinary path retains its existing claim behavior. Its source
+            # snapshot is needed only after the admission guards succeed.
+            if refresh_id is None:
+                claimed = _claim_ordinary_analysis(session, job, settings)
+    if refresh_id is not None:
+        from devfeed_aggregator.article_refresh_tasks import analyze_refresh
 
-        job.prompt_version = PROMPT_VERSION
-        job.usage = {**(job.usage or {}), "validation_version": VALIDATION_VERSION}
-        job.model = settings.codex_model
-        snapshot, article_id = job.input_snapshot, job.article_id
-        attempt = job.attempts
-    with log_context(article_id=article_id, attempt=attempt):
-        ArticleAnalysisService(settings, factory, CodexClient).run(
-            AnalysisContext(identifier, token, snapshot, article_id)
-        )
+        analyze_refresh(factory, settings, identifier, refresh_id)
+        return
+    if claimed is None:
+        return
+    context, attempt = claimed
+    with log_context(article_id=context.article_id, attempt=attempt):
+        ArticleAnalysisService(settings, factory, CodexClient).run(context)
+
+
+def _claim_ordinary_analysis(
+    session: Session, job: ArticleAnalysisJob, settings: Settings
+) -> tuple[AnalysisContext, int] | None:
+    job.usage = {**(job.usage or {}), "active_step": None}
+    if not settings.ai_enabled:
+        fail_analysis(job, "ai_not_configured")
+        logger.warning("article_analysis_failed", extra={"reason": "ai_not_configured"})
+        return None
+    if not approved_sources(session, job.article_id, lock=True):
+        finish_job(job, "unapproved", utcnow())
+        logger.info("article_analysis_skipped", extra={"reason": "unapproved"})
+        return None
+    article = session.scalar(
+        select(Article).where(Article.id == job.article_id).with_for_update(of=Article)
+    )
+    if article is None:
+        finish_job(job, "superseded", utcnow())
+        logger.info("article_analysis_skipped", extra={"reason": "superseded"})
+        return None
+    if article.publication_status == "published":
+        # Refresh promotion needs a separate candidate snapshot. Do not spend
+        # inference capacity or mix unfinished refresh fields into live data.
+        finish_job(job, "published_preserved", utcnow())
+        return None
+    if not eligible_article(article):
+        finish_job(job, "content_date_deferred", utcnow())
+        logger.info("article_analysis_skipped", extra={"reason": "content_date_deferred"})
+        return None
+    current = source_snapshot(article, session.get(ArticleContent, article.id))
+    if (
+        snapshot_hash(current) != job.input_hash
+        or article.editorial_revision != job.editorial_revision
+        or article.review_status == "rejected"
+    ):
+        finish_job(job, "superseded", utcnow())
+        refresh_superseded_analysis(session, article, job)
+        logger.info("article_analysis_skipped", extra={"reason": "superseded"})
+        return None
+    token = start_job(job, utcnow(), 300)
+    # Old queued jobs run against the current catalog and output contract.
+    from devfeed_core.analysis import PROMPT_VERSION, VALIDATION_VERSION
+
+    job.prompt_version = PROMPT_VERSION
+    job.usage = {**(job.usage or {}), "validation_version": VALIDATION_VERSION}
+    job.model = settings.codex_model
+    return AnalysisContext(job.id, token, job.input_snapshot, job.article_id), job.attempts
 
 
 @dataclass(frozen=True)
@@ -191,6 +223,8 @@ class AnalysisContext:
     token: uuid.UUID
     snapshot: SourceSnapshot
     article_id: uuid.UUID
+    refresh_id: uuid.UUID | None = None
+    input_hash: str | None = None
 
 
 class AnalysisClient(Protocol):
@@ -246,6 +280,29 @@ class ArticleAnalysisService:
             }
         )
 
+    def owned_job(self, session: Session, context: AnalysisContext) -> ArticleAnalysisJob | None:
+        if context.refresh_id is not None:
+            return owned_job(
+                session, ArticleAnalysisJob, context.identifier, context.token, defer_inputs=True
+            )
+        return owned_job(session, ArticleAnalysisJob, context.identifier, context.token)
+
+    def apply_result(
+        self,
+        context: AnalysisContext,
+        result: AnalysisResult,
+        topic_match_status: str | None,
+        attempt: AnalysisAttempt,
+    ) -> str | None:
+        return _apply_prepared(
+            self.factory,
+            context.article_id,
+            context.snapshot,
+            lambda session, taxonomy, current: self.apply(
+                session, context, result, topic_match_status, attempt, taxonomy, current
+            ),
+        )
+
     def run(self, context: AnalysisContext) -> None:
         logger.info("article_analysis_started")
         attempt = AnalysisAttempt()
@@ -255,14 +312,7 @@ class ArticleAnalysisService:
                 return
             result, topic_match_status = self.infer(context, prepared, attempt)
             self.propose_topics(context, result)
-            outcome = _apply_prepared(
-                self.factory,
-                context.article_id,
-                context.snapshot,
-                lambda session, taxonomy, current: self.apply(
-                    session, context, result, topic_match_status, attempt, taxonomy, current
-                ),
-            )
+            outcome = self.apply_result(context, result, topic_match_status, attempt)
             logger.info("article_analysis_completed", extra={"outcome": outcome})
         except _AnalysisStopped:
             logger.info("article_analysis_stopped")
@@ -299,7 +349,7 @@ class ArticleAnalysisService:
         taxonomy = analysis_candidates(inference_catalog, context.snapshot)
         del inference_catalog
         with self.factory.begin() as session:
-            job = owned_job(session, ArticleAnalysisJob, context.identifier, context.token)
+            job = self.owned_job(session, context)
             if job is None:
                 logger.warning("article_analysis_lease_lost")
                 return None
@@ -324,10 +374,10 @@ class ArticleAnalysisService:
                 name, context.snapshot, prepared.taxonomy, outputs
             )
             with self.factory.begin() as session:
-                job = owned_job(session, ArticleAnalysisJob, context.identifier, context.token)
-                if job is None:
-                    raise _AnalysisStopped()
-                cached = dict(job.steps.get(name, {}))
+                job = self.owned_job(session, context)
+                cached = dict(job.steps.get(name, {})) if job is not None else {}
+            if job is None:
+                raise _AnalysisStopped()
             if (
                 cached.get("status") == "succeeded"
                 and cached.get("input_hash") == digest
@@ -400,7 +450,7 @@ class ArticleAnalysisService:
 
     def start_step(self, context: AnalysisContext, name: str, digest: str) -> JsonRecord | None:
         with self.factory.begin() as session:
-            job = owned_job(session, ArticleAnalysisJob, context.identifier, context.token)
+            job = self.owned_job(session, context)
             if job is None:
                 raise _AnalysisStopped()
             if not approved_sources(session, context.article_id, lock=True):
@@ -426,66 +476,74 @@ class ArticleAnalysisService:
                     utcnow(),
                 )
                 return None
-            steps = dict(job.steps)
-            prior = dict(steps.get(name, {}))
-            same_input = (
-                prior.get("input_hash") == digest
-                and prior.get("prompt_version") == STEP_SPECS[name].prompt_version
-                and prior.get("model") == self.settings.codex_model
-                and prior.get("routing_binding") == self.routing_binding()
-            )
-            # Each specialist proves its own exact context. Independent valid
-            # outputs survive other task changes; dependent contexts (such as a
-            # description's accepted overview) invalidate through their own hash.
-            if identifying_title(context.snapshot.get("title")):
-                steps["identifying_title"] = {
-                    "status": "skipped",
-                    "prompt_version": STEP_SPECS["identifying_title"].prompt_version,
-                    "input_hash": snapshot_hash({"source_title": context.snapshot.get("title")}),
-                    "attempts": 0,
-                    "output": None,
-                    "reason": "source_title_identifies_subject",
-                }
-            now = utcnow()
-            step = {
-                **(prior if same_input else {}),
-                "status": "running",
-                "prompt_version": STEP_SPECS[name].prompt_version,
-                "input_hash": digest,
-                "model": self.settings.codex_model,
-                "routing_binding": self.routing_binding(),
-                "attempts": (prior.get("attempts", 0) if same_input else 0) + 1,
-                "started_at": now.isoformat(),
-                "finished_at": None,
-                "error": None,
+            return self.record_step(job, context, name, digest)
+
+    def record_step(
+        self, job: ArticleAnalysisJob, context: AnalysisContext, name: str, digest: str
+    ) -> JsonRecord:
+        steps = dict(job.steps)
+        prior = dict(steps.get(name, {}))
+        same_input = (
+            prior.get("input_hash") == digest
+            and prior.get("prompt_version") == STEP_SPECS[name].prompt_version
+            and prior.get("model") == self.settings.codex_model
+            and prior.get("routing_binding") == self.routing_binding()
+        )
+        # Each specialist proves its own exact context. Independent valid
+        # outputs survive other task changes; dependent contexts (such as a
+        # description's accepted overview) invalidate through their own hash.
+        if identifying_title(context.snapshot.get("title")):
+            steps["identifying_title"] = {
+                "status": "skipped",
+                "prompt_version": STEP_SPECS["identifying_title"].prompt_version,
+                "input_hash": snapshot_hash({"source_title": context.snapshot.get("title")}),
+                "attempts": 0,
                 "output": None,
+                "reason": "source_title_identifies_subject",
             }
-            steps[name] = step
-            job.steps = steps
-            job.usage = {**job.usage, "active_step": name}
-            job.lease_until = now + timedelta(
-                seconds=max(300, getattr(self.settings, "codex_timeout_seconds", 90) + 60)
-            )
-            return step
+        now = utcnow()
+        step = {
+            **(prior if same_input else {}),
+            "status": "running",
+            "prompt_version": STEP_SPECS[name].prompt_version,
+            "input_hash": digest,
+            "model": self.settings.codex_model,
+            "routing_binding": self.routing_binding(),
+            "attempts": (prior.get("attempts", 0) if same_input else 0) + 1,
+            "started_at": now.isoformat(),
+            "finished_at": None,
+            "error": None,
+            "output": None,
+        }
+        steps[name] = step
+        job.steps = steps
+        job.usage = {**job.usage, "active_step": name}
+        job.lease_until = now + timedelta(
+            seconds=max(300, getattr(self.settings, "codex_timeout_seconds", 90) + 60)
+        )
+        return step
 
     def complete_step(
         self, context: AnalysisContext, name: str, output: JsonRecord, client: AnalysisClient
     ) -> None:
         with self.factory.begin() as session:
-            job = owned_job(session, ArticleAnalysisJob, context.identifier, context.token)
-            if job is None:
-                raise _AnalysisStopped()
-            step = dict(job.steps[name])
-            step.update(
-                status="succeeded",
-                output=output,
-                finished_at=utcnow().isoformat(),
-                error=None,
-                tokens=dict(getattr(client, "usage", {})),
-                resolved_model=getattr(client, "model", self.settings.codex_model),
-            )
-            job.steps = {**job.steps, name: step}
-            job.usage = {**job.usage, "active_step": None}
+            job = self.owned_job(session, context)
+            if job is not None:
+                step = dict(job.steps[name])
+                step.update(
+                    status="succeeded",
+                    output=output,
+                    finished_at=utcnow().isoformat(),
+                    error=None,
+                    tokens=dict(getattr(client, "usage", {})),
+                    resolved_model=getattr(client, "model", self.settings.codex_model),
+                )
+                job.steps = {**job.steps, name: step}
+                job.usage = {**job.usage, "active_step": None}
+        if job is None:
+            # A private ownership guard may have retired the job. Commit that
+            # decision before stopping the remaining specialist calls.
+            raise _AnalysisStopped()
 
     def propose_topics(self, context: AnalysisContext, result: AnalysisResult) -> None:
         if not (
@@ -498,7 +556,7 @@ class ArticleAnalysisService:
 
         # Release proposal locks before classification and publication.
         with self.factory.begin() as session:
-            job = owned_job(session, ArticleAnalysisJob, context.identifier, context.token)
+            job = self.owned_job(session, context)
             if job is None:
                 logger.warning("article_analysis_lease_lost")
                 return
@@ -523,7 +581,7 @@ class ArticleAnalysisService:
         current_catalog: AnalysisCatalog,
         prepared_snapshot: SourceSnapshot | None,
     ) -> str | None:
-        job = owned_job(session, ArticleAnalysisJob, context.identifier, context.token)
+        job = self.owned_job(session, context)
         if job is None:
             logger.warning("article_analysis_lease_lost")
             return None
@@ -589,7 +647,7 @@ class ArticleAnalysisService:
             else 0
         )
         with self.factory.begin() as session:
-            job = owned_job(session, ArticleAnalysisJob, context.identifier, context.token)
+            job = self.owned_job(session, context)
             if job is not None:
                 if attempt.step is not None:
                     self.fail_step(job, attempt, feedback, reason, cooldown)

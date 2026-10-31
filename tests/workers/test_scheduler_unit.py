@@ -155,9 +155,11 @@ def test_specialist_recovery_uses_its_own_attempts_and_preserves_completed_work(
     ],
 )
 def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch, mode):
-    from devfeed_core import polling_reconciliation
+    from devfeed_core import article_refresh_processing, polling_reconciliation
 
     monkeypatch.setattr(polling_reconciliation, "reconcile_polling", Mock(return_value=0))
+    maintenance = Mock(return_value=0)
+    monkeypatch.setattr(article_refresh_processing, "reconcile_refreshes", maintenance)
     session, factory = Mock(), Mock()
     opened = 0
 

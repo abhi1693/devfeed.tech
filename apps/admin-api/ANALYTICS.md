@@ -122,6 +122,17 @@ so older empty reports do not bypass the new gates.
 
 ## Current cards and reports
 
+Current queue repair accepts at most 20,000 active job identities. Membership
+lookups and orphan exclusion send that complete UUID set as a request-scoped
+RowBinary external table (at most 320 KB), avoiding ClickHouse's multipart text
+field limit. Exclusion always uses the full set: splitting a `NOT IN` list into
+independent queries could tombstone valid jobs. External inputs create no durable
+tables, and failed requests or insert acknowledgements do not advance coverage.
+Card identity queries remain bounded to the configured batch of at most 200.
+Worker failure logs include only a structured integer `clickhouse_code` when
+available, so form-parser failures and query contention can be distinguished
+without exposing SQL, source identifiers or credentials.
+
 Five card kinds cover articles, sources, discovery candidates, topic proposals
 and relationship proposals. Builders hydrate at most 200 identities per batch.
 `analytics_card_canonical` stores each policy/kind/shard/entity's latest card or
@@ -188,6 +199,21 @@ request, the newest individual card or the one-time import-ready record.
 Incomplete coverage is shown as catching up; expired coverage is stale. Existing
 counts and cards remain visible during repair. Historical report readiness is
 independent of these current-view checkpoints.
+
+Each card population has its own `cards:<kind>` source and reverse-target cycle,
+with an independent source boundary and fair repair turns. Article boards use
+article coverage; Source boards combine source and candidate coverage. Aggregate
+operations views require all selected populations, using their oldest verified
+boundary and retaining any pending state. A large Article scan cannot hold a
+Source board's verified boundary back. Missing population checkpoints remain
+catching up; old whole-board or active-only checkpoints do not certify them.
+
+The existing `cards` progress row remains the durable dirty-owner ledger. Upgrades
+retain its queued owners, including historical identities outside the current
+window. It is not a coverage checkpoint. Dirty-owner repair rotates across kinds
+and completion of a population waits for its affected owners. Reverse-target
+passes remain required to detect deletions and no-longer-current ghost cards.
+
 An active or due queue snapshot takes one bounded page per turn until its coverage
 is acknowledged, so slower card and overview builders cannot age an unfinished
 queue snapshot. The queue poll interval starts at completion; card, overview and
@@ -197,6 +223,18 @@ Card identity pages return text IDs but order by the qualified UUID column.
 Ordering by the unqualified text output alias forces a sort of the remaining
 eligible set before `LIMIT`, defeating bounded primary-key pagination. Preserve
 the UUID ordering for every card kind and cursor.
+
+Canonical point reads also constrain the immutable UUID-derived shard in the
+`(policy,kind,shard,entity_id)` key. Keep `FINAL` so newer versions and tombstones
+win. Canonical inserts validate that shard invariant before contacting ClickHouse;
+invalid or partially valid batches are rejected without partial publication.
+
+The reconciler retains one revision-validated catalog and its bounded ranking
+cache across native builder pages. Every page still reads PostgreSQL catalog
+revisions and current article/job inputs; a catalog edit discards the previous
+generation before loading its replacement. This reuses preparation work, never
+a publication or readiness decision. Both contexts run inside the existing
+shielded native builder, whose exclusive ownership survives page cancellation.
 
 Current-state work uses these resource bounds:
 

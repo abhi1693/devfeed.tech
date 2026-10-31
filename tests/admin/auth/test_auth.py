@@ -903,6 +903,7 @@ def test_personal_settings_require_admin_and_writes_require_csrf(oidc_app, metho
         ("post", "/v1/admin/automation/articles/{id}/analyze"),
         ("post", "/v1/admin/automation/articles/{id}/enrich"),
         ("post", "/v1/admin/automation/articles/{id}/evaluate"),
+        ("post", "/v1/admin/articles/{id}/maintenance/retry"),
         ("put", "/v1/admin/sources/{id}/publication-policy"),
         ("get", "/v1/admin/automation/articles/{id}/decisions"),
         ("get", "/v1/admin/automation/sources/{id}/policies"),

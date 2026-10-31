@@ -39,10 +39,11 @@ export function catalogOffset(value: unknown) {
     : 0;
 }
 export function catalogPage<T>(items: T[], offset: number): CatalogPage<T> {
+  const hasMore = items.length > CATALOG_PAGE_SIZE;
   return {
     items: items.slice(0, CATALOG_PAGE_SIZE),
     next_cursor:
-      items.length > CATALOG_PAGE_SIZE && offset + CATALOG_PAGE_SIZE <= MAX_CATALOG_OFFSET
+      hasMore && offset + CATALOG_PAGE_SIZE <= MAX_CATALOG_OFFSET
         ? String(offset + CATALOG_PAGE_SIZE)
         : null,
   };

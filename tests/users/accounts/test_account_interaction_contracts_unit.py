@@ -81,7 +81,11 @@ def api(monkeypatch):
     app.dependency_overrides[require_user] = lambda: user
     app.dependency_overrides[engagement.optional_user] = lambda: None
     app.dependency_overrides[dependencies.get_session] = lambda: session
+    app.dependency_overrides[dependencies.get_read_session] = lambda: session
     app.dependency_overrides[dependencies.get_session_factory] = lambda: (
+        lambda: nullcontext(session)
+    )
+    app.dependency_overrides[dependencies.get_read_session_factory] = lambda: (
         lambda: nullcontext(session)
     )
     with TestClient(app, base_url=settings.base_url) as client:
@@ -342,6 +346,9 @@ def read_api(viewer=None):
     app.dependency_overrides[dependencies.get_session_factory] = lambda: (
         lambda: nullcontext(session)
     )
+    app.dependency_overrides[dependencies.get_read_session_factory] = lambda: (
+        lambda: nullcontext(session)
+    )
     with TestClient(app) as client:
         yield SimpleNamespace(client=client, session=session)
 
@@ -500,6 +507,7 @@ def test_concurrent_analytics_routes_close_each_worker_session_before_clickhouse
         app.state.analytics_client = Client()
         app.include_router(engagement.router)
         app.dependency_overrides[dependencies.get_session_factory] = lambda: WorkerSession
+        app.dependency_overrides[dependencies.get_read_session_factory] = lambda: WorkerSession
         app.dependency_overrides[require_user] = lambda: viewer
         app.dependency_overrides[engagement.optional_user] = lambda: None
 

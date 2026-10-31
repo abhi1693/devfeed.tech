@@ -5,7 +5,7 @@ from datetime import timedelta
 from typing import TypeVar
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from devfeed_core.job_lifecycle import DEFAULT_RETRY, fail_or_retry, start_job
 from devfeed_core.models import (
@@ -63,7 +63,14 @@ def owned_job[
         ResearchVerificationJob,
         NotificationDelivery,
     )
-](session: Session, model: type[JobT], job_id: uuid.UUID, token: uuid.UUID) -> JobT | None:
+](
+    session: Session,
+    model: type[JobT],
+    job_id: uuid.UUID,
+    token: uuid.UUID,
+    *,
+    defer_inputs: bool = False,
+) -> JobT | None:
     """Lock a running job and recheck ownership after external work.
 
     Callers own the transaction. Wait for concurrent recovery to commit before
@@ -72,7 +79,13 @@ def owned_job[
     """
     if model is IngestionJob and lock_ingestion_source(session, job_id) is None:
         return None
-    job = session.scalar(select(model).where(model.id == job_id).with_for_update())
+    statement = select(model).where(model.id == job_id).with_for_update()
+    if defer_inputs and model is ArticleAnalysisJob:
+        statement = statement.options(
+            defer(ArticleAnalysisJob.input_snapshot, raiseload=True),
+            defer(ArticleAnalysisJob.catalog_snapshot, raiseload=True),
+        )
+    job = session.scalar(statement)
     return job if job is not None and job.status == "running" and job.lease_token == token else None
 
 

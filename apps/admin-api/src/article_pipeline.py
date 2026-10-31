@@ -109,6 +109,7 @@ from sqlalchemy.orm import Session
 
 from devfeed_admin_api.analytics_current import preparing
 from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
+from devfeed_admin_api.article_maintenance import maintenance_detail
 from devfeed_admin_api.auth import Admin, actor, require_admin
 from devfeed_admin_api.dependencies import DB, DBFactory
 
@@ -325,6 +326,7 @@ def _detail(session: Session, article: Article) -> PipelineDetail:
         advance_label=labels.get(readiness.stage) if actions else None,
         analysis_steps=_analysis_steps(facts["analysis"]),
         retry_targets=processing_retry_targets(article, processing, facts),
+        maintenance=maintenance_detail(session, article),
     )
 
 
@@ -382,3 +384,21 @@ def retry(article_id: uuid.UUID, body: RetryPipeline, session: DB, admin: Admin)
     result = _detail(session, article)
     session.close()
     return result
+
+
+@router.post(
+    "/v1/admin/articles/{article_id}/maintenance/retry",
+    response_model=PipelineDetail,
+    operation_id="admin_article_maintenance_retry",
+)
+def maintenance_retry(
+    article_id: uuid.UUID, body: RetryPipeline, session: DB, admin: Admin
+) -> PipelineDetail:
+    # A distinct route fails closed on old API replicas, whose pipeline retry
+    # handler can withdraw publications. Never redirect or fall back to it.
+    # Prepare outside locks; the shared command rechecks editorial revision,
+    # source authority and publication under its existing subject locks.
+    article = record(session, Article, article_id)
+    if article.publication_status != "published":
+        raise OperationConflict("Only published articles can start private maintenance")
+    return retry(article_id, body, session, admin)

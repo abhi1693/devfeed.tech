@@ -234,15 +234,18 @@ def test_deadline_releases_the_lock_when_an_insert_stalls():
 
 
 @pytest.mark.integration
-def test_real_runner_resumes_cutover_and_rejects_partial_loss(database):
+def test_real_runner_resumes_cutover_and_rejects_partial_loss(integration_environment, monkeypatch):
     """Use only disposable test databases and never an existing app volume."""
     import os
     import uuid
 
     import psycopg
     from devfeed_core.analytics import AnalyticsClient
+    from devfeed_core.analytics_cutover import LegacyAnalyticsCutover
     from devfeed_core.config import get_settings
     from pydantic import SecretStr
+
+    from tests.support.legacy_migrations import database_at_revision
 
     url = os.environ.get("DEVFEED_TEST_CLICKHOUSE_URL")
     if not url:
@@ -250,18 +253,21 @@ def test_real_runner_resumes_cutover_and_rejects_partial_loss(database):
     db_name = os.environ.get("DEVFEED_TEST_CLICKHOUSE_DATABASE", "devfeed_test")
     if not db_name.endswith("_test"):
         pytest.fail("Disposable ClickHouse database name must end with _test")
-    settings = get_settings().model_copy(
-        update={
-            "clickhouse_url": url,
-            "clickhouse_database": db_name,
-            "clickhouse_username": os.environ.get("DEVFEED_TEST_CLICKHOUSE_USERNAME", "default"),
-            "clickhouse_password": SecretStr(
-                os.environ.get("DEVFEED_TEST_CLICKHOUSE_PASSWORD", "")
-            ),
-        }
-    )
+    original = get_settings().model_copy()
 
-    async def run():
+    async def source_schema(settings):
+        async with analytics_connections.postgres_connections(
+            settings.database_url
+        )() as connection:
+            rows = await (
+                await connection.execute(
+                    "SELECT relname,oid::bigint AS oid FROM pg_class "
+                    "WHERE relnamespace='public'::regnamespace"
+                )
+            ).fetchall()
+            return {row["relname"]: row["oid"] for row in rows}
+
+    async def run(settings):
         target = f"direct_runner_{uuid.uuid4().hex}_test"
         async with AnalyticsClient(
             settings.model_copy(update={"clickhouse_database": "default"})
@@ -293,6 +299,8 @@ def test_real_runner_resumes_cutover_and_rejects_partial_loss(database):
                     else:
                         pytest.fail("Historical import failed to finish")
                     assert resumed._importer.cutover == cutoff
+                    async with connect() as connection:
+                        assert not await LegacyAnalyticsCutover().tables(connection)
                     await client.execute("TRUNCATE TABLE analytics_article_open_cutover")
                     fresh = runner.AnalyticsImportRunner(client, connect, page_size=2)
                     with pytest.raises(RuntimeError, match="progress exists without its cutoff"):
@@ -300,7 +308,26 @@ def test_real_runner_resumes_cutover_and_rejects_partial_loss(database):
             finally:
                 await admin.execute(f"DROP DATABASE `{target}`")
 
-    asyncio.run(run())
+    # This runner retires PostgreSQL tables. Row truncation cannot isolate that
+    # DDL, so both stores must belong to this test rather than the suite fixture.
+    before = asyncio.run(source_schema(original))
+    with database_at_revision(monkeypatch, "head"):
+        settings = get_settings().model_copy(
+            update={
+                "clickhouse_url": url,
+                "clickhouse_database": db_name,
+                "clickhouse_username": os.environ.get(
+                    "DEVFEED_TEST_CLICKHOUSE_USERNAME", "default"
+                ),
+                "clickhouse_password": SecretStr(
+                    os.environ.get("DEVFEED_TEST_CLICKHOUSE_PASSWORD", "")
+                ),
+            }
+        )
+        assert "topic_decision_calls" in asyncio.run(source_schema(settings))
+        asyncio.run(run(settings))
+    # Preserve relation identities as well as names in the caller's database.
+    assert asyncio.run(source_schema(original)) == before
 
 
 @pytest.mark.integration

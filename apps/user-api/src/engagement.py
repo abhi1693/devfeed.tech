@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 from devfeed_user_api import oidc
 from devfeed_user_api.auth import TOKEN, User, UserIdentity, require_user
 from devfeed_user_api.config import Settings, get_settings
-from devfeed_user_api.dependencies import DBFactory
+from devfeed_user_api.dependencies import DBFactory, ReadDBFactory
 from devfeed_user_api.open_limits import limit_open_requests
 from devfeed_user_api.trending import trending_page
 
@@ -260,7 +260,7 @@ async def opened(
 
 @router.get("/trending", response_model=FeedPage)
 async def trending(
-    factory: DBFactory,
+    factory: ReadDBFactory,
     client: ClickHouse,
     limit: int = Query(24, ge=1, le=100),
     cursor: int = Query(0, ge=0, le=1_000_000),

@@ -20,6 +20,7 @@ import {
 import { useAdmin } from "@/components/molecules/admin-session";
 import { notify, notifyFailure } from "@/lib/notifications";
 import { ApiError } from "@/lib/api/client";
+import { ArticleMaintenance } from "./article-maintenance";
 
 export function ArticleReadiness({ id }: { id: string }) {
   const [revision, setRevision] = useState(0);
@@ -55,133 +56,142 @@ export function ArticleReadiness({ id }: { id: string }) {
     }
   }
   return (
-    <ResourcePanel title="Publication readiness">
-      <div className="space-y-4">
-        <RequestState
-          loading={result.loading}
-          error={result.error}
-          retry={() => setRevision((value) => value + 1)}
+    <div className="space-y-6">
+      {result.data?.maintenance && (
+        <ArticleMaintenance
+          key={`${result.data.maintenance.id}/${result.data.maintenance.version}`}
+          value={result.data.maintenance}
+          onUpdated={() => setRevision((value) => value + 1)}
         />
-        <RequestState error={actionError} />
-        {result.data && (
-          <>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm">
-                <strong>{pipelineLabels[result.data.stage]}</strong> ·{" "}
-                <StatusBadge value={result.data.state} />
+      )}
+      <ResourcePanel title="Publication readiness">
+        <div className="space-y-4">
+          <RequestState
+            loading={result.loading}
+            error={result.error}
+            retry={() => setRevision((value) => value + 1)}
+          />
+          <RequestState error={actionError} />
+          {result.data && (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm">
+                  <strong>{pipelineLabels[result.data.stage]}</strong> ·{" "}
+                  <StatusBadge value={result.data.state} />
+                </p>
+                {result.data.allowed_actions?.includes("advance") && (
+                  <Button
+                    size="sm"
+                    loading={busy}
+                    loadingText="Requesting…"
+                    onClick={() => void advance()}
+                  >
+                    {result.data.advance_label || "Run next processing step"}
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Updates every {seconds} seconds while visible. Updated{" "}
+                <DateTime value={result.data.receivedAt} />.
               </p>
-              {result.data.allowed_actions?.includes("advance") && (
-                <Button
-                  size="sm"
-                  loading={busy}
-                  loadingText="Requesting…"
-                  onClick={() => void advance()}
+              <p className="text-sm text-muted-foreground">
+                {result.data.stage === "published"
+                  ? "This article is published. Routine processing refreshes are prepared privately while readers keep seeing the approved version."
+                  : result.data.stage === "rejected"
+                    ? "This article was rejected. The editorial decision is complete."
+                    : result.data.can_publish
+                      ? "All publication requirements are met."
+                      : "Publication waits until processing and editorial requirements are complete."}
+              </p>
+              {!!result.data.checks.length && (
+                <ul
+                  className="divide-y rounded-md border px-3"
+                  aria-label="Publication readiness checks"
                 >
-                  {result.data.advance_label || "Run next processing step"}
-                </Button>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Updates every {seconds} seconds while visible. Updated{" "}
-              <DateTime value={result.data.receivedAt} />.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {result.data.stage === "published"
-                ? "This article is published. Unpublish it before changing or reprocessing it."
-                : result.data.stage === "rejected"
-                  ? "This article was rejected. The editorial decision is complete."
-                  : result.data.can_publish
-                    ? "All publication requirements are met."
-                    : "Publication waits until processing and editorial requirements are complete."}
-            </p>
-            {!!result.data.checks.length && (
-              <ul
-                className="divide-y rounded-md border px-3"
-                aria-label="Publication readiness checks"
-              >
-                {result.data.checks.map((check) => (
-                  <li key={check.code} className="space-y-1 py-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                      <span className="font-medium">{check.label}</span>
-                      <StatusBadge
-                        value={check.status}
-                        label={
-                          check.status === "passed"
-                            ? "Complete"
-                            : check.status === "blocked"
-                              ? "Needs attention"
-                              : "Waiting"
-                        }
-                        tone={
-                          check.status === "passed"
-                            ? "success"
-                            : check.status === "blocked"
-                              ? "danger"
-                              : "warning"
-                        }
-                      />
-                    </div>
-                    {check.detail && (
-                      <p className="break-words text-xs text-muted-foreground">{check.detail}</p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {(!terminal || Object.values(result.data.jobs).some(Boolean)) && (
-              <ol
-                className="space-y-2"
-                aria-label={terminal ? "Recorded processing runs" : "Current processing runs"}
-              >
-                {(["enrichment", "analysis", "images"] as const).map((key) => {
-                  const job = result.data!.jobs[key];
-                  if (terminal && !job) return null;
-                  return (
-                    <li key={key} className="rounded-md border p-3 text-sm">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <strong>{pipelineLabels[key]}</strong>
-                        {job ? (
-                          <StatusBadge value={job.status} />
-                        ) : (
-                          <span className="text-xs text-muted-foreground">Not started</span>
-                        )}
-                      </div>
-                      {job && (
-                        <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                          {job.outcome && <p>Outcome: {humanize(job.outcome)}</p>}
-                          {job.status === "queued" && (
-                            <p>
-                              Available <DateTime value={job.available_at} />
-                            </p>
-                          )}
-                          {job.finished_at && (
-                            <p>
-                              Finished <DateTime value={job.finished_at} />
-                            </p>
-                          )}
-                          <Link
-                            prefetch={false}
-                            href={pipelineJobHref(key, job.id)}
-                            className="inline-block pt-1 text-primary hover:underline"
-                          >
-                            {job.retryable ? "Open run to retry" : "View run and logs"}
-                          </Link>
-                        </div>
-                      )}
-                      {key === "analysis" && (
-                        <AnalysisStepList
-                          steps={result.data!.analysis_steps ?? []}
-                          jobStatus={job?.status}
+                  {result.data.checks.map((check) => (
+                    <li key={check.code} className="space-y-1 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                        <span className="font-medium">{check.label}</span>
+                        <StatusBadge
+                          value={check.status}
+                          label={
+                            check.status === "passed"
+                              ? "Complete"
+                              : check.status === "blocked"
+                                ? "Needs attention"
+                                : "Waiting"
+                          }
+                          tone={
+                            check.status === "passed"
+                              ? "success"
+                              : check.status === "blocked"
+                                ? "danger"
+                                : "warning"
+                          }
                         />
+                      </div>
+                      {check.detail && (
+                        <p className="break-words text-xs text-muted-foreground">{check.detail}</p>
                       )}
                     </li>
-                  );
-                })}
-              </ol>
-            )}
-          </>
-        )}
-      </div>
-    </ResourcePanel>
+                  ))}
+                </ul>
+              )}
+              {(!terminal || Object.values(result.data.jobs).some(Boolean)) && (
+                <ol
+                  className="space-y-2"
+                  aria-label={terminal ? "Recorded processing runs" : "Current processing runs"}
+                >
+                  {(["enrichment", "analysis", "images"] as const).map((key) => {
+                    const job = result.data!.jobs[key];
+                    if (terminal && !job) return null;
+                    return (
+                      <li key={key} className="rounded-md border p-3 text-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <strong>{pipelineLabels[key]}</strong>
+                          {job ? (
+                            <StatusBadge value={job.status} />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Not started</span>
+                          )}
+                        </div>
+                        {job && (
+                          <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                            {job.outcome && <p>Outcome: {humanize(job.outcome)}</p>}
+                            {job.status === "queued" && (
+                              <p>
+                                Available <DateTime value={job.available_at} />
+                              </p>
+                            )}
+                            {job.finished_at && (
+                              <p>
+                                Finished <DateTime value={job.finished_at} />
+                              </p>
+                            )}
+                            <Link
+                              prefetch={false}
+                              href={pipelineJobHref(key, job.id)}
+                              className="inline-block pt-1 text-primary hover:underline"
+                            >
+                              {job.retryable ? "Open run to retry" : "View run and logs"}
+                            </Link>
+                          </div>
+                        )}
+                        {key === "analysis" && (
+                          <AnalysisStepList
+                            steps={result.data!.analysis_steps ?? []}
+                            jobStatus={job?.status}
+                          />
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </>
+          )}
+        </div>
+      </ResourcePanel>
+    </div>
   );
 }

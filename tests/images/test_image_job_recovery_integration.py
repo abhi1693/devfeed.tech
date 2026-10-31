@@ -76,7 +76,7 @@ def assert_unclaimed(job):
     assert job.lease_until is None
 
 
-def test_published_article_image_requests_require_unpublishing(
+def test_published_article_image_requests_require_private_maintenance(
     storage_enabled, publish_for_read_test
 ):
     with storage_enabled.begin() as session:
@@ -91,7 +91,7 @@ def test_published_article_image_requests_require_unpublishing(
         assert article.published_to_feed_at is not None
         assert list(session.scalars(select(ArticleImageJob.id))) == []
         assert image_jobs.request_image(session, article_id, automatic=True) is None
-        with pytest.raises(OperationConflict, match="Unpublish the article"):
+        with pytest.raises(OperationConflict, match="article maintenance"):
             image_jobs.request_image(session, article_id, refresh=True)
         assert article.image_url is None
         assert article.publication_status == "published"

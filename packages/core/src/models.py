@@ -555,6 +555,86 @@ Index(
 )
 
 
+class ArticleRefresh(Base):
+    """Private maintenance owner; Article remains the approved public projection."""
+
+    __tablename__ = "article_refreshes"
+    __table_args__ = (
+        CheckConstraint("target IN ('enrichment','analysis','images')", name="ck_refresh_target"),
+        CheckConstraint(
+            "status IN ('active','review','promoted','superseded','cancelled')",
+            name="ck_refresh_status",
+        ),
+        CheckConstraint("base_revision >= 0 AND version > 0", name="ck_refresh_versions"),
+        CheckConstraint(
+            "jsonb_typeof(payload) = 'object' AND octet_length(payload::text) <= 1048576",
+            name="ck_refresh_payload",
+        ),
+        {"comment": "Private article maintenance ownership (0040)."},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("articles.id", ondelete="CASCADE"), index=True
+    )
+    target: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20), default="active", server_default="active")
+    base_revision: Mapped[int] = mapped_column(Integer)
+    base_hash: Mapped[str] = mapped_column(String(64))
+    source_hash: Mapped[str | None] = mapped_column(String(64))
+    version: Mapped[int] = mapped_column(BigInteger, default=1, server_default="1")
+    payload: Mapped[JsonRecord] = mapped_column(JSONB)
+    image_url: Mapped[str | None] = mapped_column(String(2048))
+    managed_image: Mapped[JsonRecord] = mapped_column(JSONB, default=dict, server_default="{}")
+    requested_by: Mapped[JsonRecord] = mapped_column(JSONB)
+    approved_version: Mapped[int | None] = mapped_column(BigInteger)
+    reviewed_by: Mapped[JsonRecord | None] = mapped_column(JSONB)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_note: Mapped[str | None] = mapped_column(String(1000))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_check_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
+    payload_pruned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    enrichment_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("article_enrichment_jobs.id", ondelete="SET NULL", use_alter=True)
+    )
+    analysis_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("article_analysis_jobs.id", ondelete="SET NULL", use_alter=True)
+    )
+    discovery_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("article_image_jobs.id", ondelete="SET NULL", use_alter=True)
+    )
+    storage_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("article_image_jobs.id", ondelete="SET NULL", use_alter=True)
+    )
+
+
+Index(
+    "uq_article_refresh_active",
+    ArticleRefresh.article_id,
+    unique=True,
+    postgresql_where=ArticleRefresh.status.in_(["active", "review"]),
+)
+Index(
+    "ix_article_refresh_due",
+    ArticleRefresh.next_check_at,
+    ArticleRefresh.id,
+    postgresql_where=ArticleRefresh.status.in_(["active", "review"]),
+)
+Index(
+    "ix_article_refresh_retention",
+    ArticleRefresh.completed_at,
+    ArticleRefresh.id,
+    postgresql_where=and_(
+        ArticleRefresh.payload_pruned_at.is_(None),
+        ArticleRefresh.completed_at.is_not(None),
+        ArticleRefresh.status.in_(["promoted", "superseded", "cancelled"]),
+    ),
+)
+
+
 class ArticleTag(Base):
     __tablename__ = "article_tags"
     origin: Mapped[str] = mapped_column(String(20), default="heuristic", server_default="heuristic")
@@ -655,6 +735,14 @@ class ArticleImageJob(LeasedJobMixin, Base):
     article_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("articles.id", ondelete="CASCADE"), index=True
     )
+    refresh_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "article_refreshes.id",
+            name="fk_article_image_jobs_refresh_id",
+            deferrable=True,
+            initially="DEFERRED",
+        )
+    )
     topic_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("topics.id", ondelete="CASCADE"), index=True
     )
@@ -742,6 +830,14 @@ class ArticleEnrichmentJob(LeasedJobMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     article_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("articles.id", ondelete="CASCADE"), index=True
+    )
+    refresh_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "article_refreshes.id",
+            name="fk_article_enrichment_jobs_refresh_id",
+            deferrable=True,
+            initially="DEFERRED",
+        )
     )
     http_status: Mapped[int | None] = mapped_column(Integer)
     outcome: Mapped[str | None] = mapped_column(String(20))
@@ -897,6 +993,14 @@ class ArticleAnalysisJob(LeasedJobMixin, Base):
     article_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("articles.id", ondelete="CASCADE"), index=True
     )
+    refresh_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "article_refreshes.id",
+            name="fk_article_analysis_jobs_refresh_id",
+            deferrable=True,
+            initially="DEFERRED",
+        )
+    )
     input_hash: Mapped[str | None] = mapped_column(String(64))
     input_snapshot: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
     catalog_snapshot: Mapped[JsonRecord] = mapped_column(JSONB, default=dict)
@@ -941,6 +1045,27 @@ Index(
     ArticleImageJob.article_id,
     ArticleImageJob.created_at.desc(),
     ArticleImageJob.id.desc(),
+)
+
+
+Index(
+    "ix_article_image_jobs_refresh_id",
+    ArticleImageJob.refresh_id,
+    postgresql_where=ArticleImageJob.refresh_id.is_not(None),
+)
+
+
+Index(
+    "ix_article_enrichment_jobs_refresh_id",
+    ArticleEnrichmentJob.refresh_id,
+    postgresql_where=ArticleEnrichmentJob.refresh_id.is_not(None),
+)
+
+
+Index(
+    "ix_article_analysis_jobs_refresh_id",
+    ArticleAnalysisJob.refresh_id,
+    postgresql_where=ArticleAnalysisJob.refresh_id.is_not(None),
 )
 
 

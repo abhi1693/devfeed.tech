@@ -92,3 +92,16 @@ it("advances catalog cursors without gaps or loops and stops at the offset bound
     propertyOptions(),
   );
 });
+
+it("uses one lookahead item to distinguish full pages from exact endings", () => {
+  const sixty = Array.from({ length: CATALOG_PAGE_SIZE }, (_, id) => id);
+  const first = catalogPage([...sixty, CATALOG_PAGE_SIZE], 0);
+  expect(first.items).toEqual(sixty);
+  expect(first.next_cursor).toBe("60");
+  expect(catalogPage(sixty, 0)).toEqual({ items: sixty, next_cursor: null });
+  expect(catalogPage(sixty, CATALOG_PAGE_SIZE)).toEqual({ items: sixty, next_cursor: null });
+  expect(
+    catalogPage([...sixty, CATALOG_PAGE_SIZE], MAX_CATALOG_OFFSET - CATALOG_PAGE_SIZE + 1)
+      .next_cursor,
+  ).toBeNull();
+});

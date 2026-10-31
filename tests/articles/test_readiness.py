@@ -426,7 +426,7 @@ def test_reconciliation_does_not_requeue_an_unchanged_current_analysis(runtime):
 
 
 @pytest.mark.parametrize("automatic", [False, True])
-def test_published_article_requires_withdrawal_before_new_enrichment(monkeypatch, automatic):
+def test_published_article_requires_private_maintenance_for_new_enrichment(monkeypatch, automatic):
     article = published(monkeypatch, "v2")
     session = Mock()
     session.scalar.return_value = article
@@ -437,7 +437,7 @@ def test_published_article_requires_withdrawal_before_new_enrichment(monkeypatch
     if automatic:
         assert article_jobs.request_article_enrichment(session, article.id, automatic=True) is None
     else:
-        with pytest.raises(OperationConflict, match="Unpublish the article before requesting"):
+        with pytest.raises(OperationConflict, match="article maintenance"):
             article_jobs.request_article_enrichment(session, article.id)
     approved.assert_not_called()
     session.add.assert_not_called()

@@ -348,6 +348,7 @@ def operator_detail(processing_case, monkeypatch):
     # The test supplies the read boundary's preloaded ORM rows; no SQL is simulated.
     monkeypatch.setattr(pipeline, "_batch_facts", loaded_facts)
     monkeypatch.setattr(pipeline, "catalog", lambda _: facts["taxonomy"])
+    monkeypatch.setattr(pipeline, "maintenance_detail", lambda *_args: None)
     return lambda: pipeline._detail(object(), article)
 
 

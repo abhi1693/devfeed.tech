@@ -143,7 +143,11 @@ def _latest[ArticleJobT: ArticleAnalysisJob | ArticleEnrichmentJob | ArticleImag
     operation: str | None = None,
     lightweight: bool = False,
 ) -> dict[uuid.UUID, ArticleJobT]:
-    current = select(model.id).where(model.article_id.in_(identifiers))
+    from devfeed_core.article_refresh_jobs import ArticleJobModel, ordinary_job_condition
+
+    current = select(model.id).where(
+        model.article_id.in_(identifiers), ordinary_job_condition(cast(ArticleJobModel, model))
+    )
     order = [model.article_id, model.status.in_(["queued", "running"]).desc()]
     if operation:
         image_model = cast(type[ArticleImageJob], model)

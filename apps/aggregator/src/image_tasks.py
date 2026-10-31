@@ -7,8 +7,8 @@ import uuid
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.feeds.fetcher import FeedError, fetch_page
-from devfeed_core.image_jobs import claim_image, request_image
-from devfeed_core.images import extract_image
+from devfeed_core.image_jobs import claim_image, current_refresh_image, request_image
+from devfeed_core.images import PageImage, extract_image
 from devfeed_core.job_lifecycle import fail_or_retry, finish_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import owned_job
@@ -16,7 +16,7 @@ from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.logos import logo_job_target
 from devfeed_core.models import Article, ArticleImageJob, utcnow
 from sqlalchemy import select, update
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, lazyload, sessionmaker
 
 from devfeed_aggregator.solver_jobs import defer_to_solver
 
@@ -43,6 +43,7 @@ def _enrich(job_id: str) -> None:
             return
         job, url = claimed
         token, article_id, attempt = job.lease_token, job.article_id, job.attempts
+        refresh_id = job.refresh_id
         operation = job.operation
         product_id = getattr(job, "product_id", None)
         account_id = getattr(job, "account_id", None)
@@ -81,7 +82,50 @@ def _enrich(job_id: str) -> None:
             store_image(factory, identifier, token, article_id, url)
             return
         assert article_id is not None
-        _enrich_claimed(factory, identifier, token, article_id, url, started)
+        _enrich_claimed(
+            factory,
+            identifier,
+            token,
+            article_id,
+            url,
+            started,
+            **({"refresh_id": refresh_id} if refresh_id is not None else {}),
+        )
+
+
+def _finish_refresh_discovery(
+    session: Session, article: Article, job: ArticleImageJob, url: str, image: PageImage | None
+) -> uuid.UUID | None:
+    from devfeed_core.article_refresh import touch_refresh
+
+    candidate = current_refresh_image(session, article, job)
+    if candidate is None or article.canonical_url != url:
+        finish_job(job, "already_present", utcnow())
+        return None
+    outcome = "not_found"
+    if image is not None:
+        expected = (
+            (job.storage or {}).get("previous_image_url")
+            if (job.storage or {}).get("article_refresh")
+            else None
+        )
+        outcome = "already_present"
+        if candidate.image_url == expected:
+            candidate.image_url, candidate.managed_image = image.url, {}
+            outcome = "found"
+        job.image_url, job.method = image.url, image.method
+    touch_refresh(candidate)
+    finish_job(job, outcome, utcnow())
+    if get_settings().image_storage_enabled:
+        session.flush()
+        request_image(
+            session,
+            article.id,
+            automatic=True,
+            refresh=outcome == "found",
+            refresh_id=candidate.id,
+        )
+    return candidate.id
 
 
 def _enrich_claimed(
@@ -91,43 +135,45 @@ def _enrich_claimed(
     article_id: uuid.UUID,
     url: str,
     started: float,
+    *,
+    refresh_id: uuid.UUID | None = None,
 ) -> None:
     logger.info("image_lookup_started")
     try:
         # No database connection/transaction held during HTTP or parsing.
         result = fetch_page(url)
         image = extract_image(result, allow_article_image=True)
+        promote = None
         with factory.begin() as session:
             # Match claims and storage completion: article before image job.
-            session.scalar(select(Article.id).where(Article.id == article_id).with_for_update())
+            article = None
+            if refresh_id is not None:
+                from devfeed_core.article_jobs import approved_sources
+
+                approved_sources(session, article_id, lock=True)
+                article = session.scalar(
+                    select(Article)
+                    .options(lazyload("*"))
+                    .where(Article.id == article_id)
+                    .with_for_update()
+                )
+            else:
+                session.scalar(select(Article.id).where(Article.id == article_id).with_for_update())
             job = owned_job(session, ArticleImageJob, identifier, token)
             if job is None:
                 logger.warning("image_lease_lost")
                 return
-            outcome = "not_found"
-            if image:
-                changed = session.scalar(
-                    update(Article)
-                    .where(
-                        Article.id == article_id,
-                        Article.canonical_url == url,
-                        Article.publication_status != "published",
-                        Article.image_url.is_not_distinct_from(
-                            (job.storage or {}).get("previous_image_url")
-                        )
-                        if (job.storage or {}).get("article_refresh")
-                        else Article.image_url.is_(None),
-                    )
-                    .values(image_url=image.url)
-                    .returning(Article.id)
-                )
-                outcome = "found" if changed is not None else "already_present"
-                job.image_url, job.method = image.url, image.method
+            if job.refresh_id != refresh_id:
+                return
             job.http_status = result.status
-            finish_job(job, outcome, utcnow())
-            if get_settings().image_storage_enabled:
-                session.flush()
-                request_image(session, article_id, automatic=True)
+            if refresh_id is not None:
+                if article is None:
+                    finish_job(job, "already_present", utcnow())
+                else:
+                    promote = _finish_refresh_discovery(session, article, job, url, image)
+                outcome = job.outcome
+            else:
+                outcome = _finish_article_discovery(session, job, article_id, url, image)
         logger.info(
             "image_lookup_completed",
             extra={
@@ -136,6 +182,10 @@ def _enrich_claimed(
                 "duration_ms": elapsed_ms(started),
             },
         )
+        if promote is not None:
+            from devfeed_core.article_refresh import try_promote_refresh
+
+            try_promote_refresh(factory, promote)
     except Exception as exc:
         transport = exc if isinstance(exc, FeedError) else None
         # Never store URL, page body, raw exception message, SQL or request parameters.
@@ -145,9 +195,27 @@ def _enrich_claimed(
             else f"Image lookup error: {type(exc).__name__}"
         )
         with factory.begin() as session:
+            article = None
+            if refresh_id is not None:
+                from devfeed_core.article_jobs import approved_sources
+
+                approved_sources(session, article_id, lock=True)
+                article = session.scalar(
+                    select(Article)
+                    .options(lazyload("*"))
+                    .where(Article.id == article_id)
+                    .with_for_update()
+                )
             job = owned_job(session, ArticleImageJob, identifier, token)
             if job is None:
                 logger.warning("image_lease_lost")
+                return
+            if job.refresh_id != refresh_id:
+                return
+            if refresh_id is not None and (
+                article is None or current_refresh_image(session, article, job) is None
+            ):
+                finish_job(job, "already_present", utcnow())
                 return
             if not defer_to_solver(job, transport, error):
                 fail_or_retry(
@@ -172,3 +240,32 @@ def _enrich_claimed(
             extra=fields,
             exc_info=transport is None,
         )
+
+
+def _finish_article_discovery(
+    session: Session, job: ArticleImageJob, article_id: uuid.UUID, url: str, image: PageImage | None
+) -> str:
+    outcome = "not_found"
+    if image:
+        changed = session.scalar(
+            update(Article)
+            .where(
+                Article.id == article_id,
+                Article.canonical_url == url,
+                Article.publication_status != "published",
+                Article.image_url.is_not_distinct_from(
+                    (job.storage or {}).get("previous_image_url")
+                )
+                if (job.storage or {}).get("article_refresh")
+                else Article.image_url.is_(None),
+            )
+            .values(image_url=image.url)
+            .returning(Article.id)
+        )
+        outcome = "found" if changed is not None else "already_present"
+        job.image_url, job.method = image.url, image.method
+    finish_job(job, outcome, utcnow())
+    if get_settings().image_storage_enabled:
+        session.flush()
+        request_image(session, article_id, automatic=True)
+    return outcome

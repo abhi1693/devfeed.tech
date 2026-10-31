@@ -76,6 +76,14 @@ def session_factory() -> sessionmaker[Session]:
     return sessionmaker(get_engine(), class_=AppSession, expire_on_commit=False)
 
 
+def read_session_factory() -> sessionmaker[Session]:
+    """Keep bounded article rows and relationship loads on one public snapshot."""
+    engine = get_engine().execution_options(
+        isolation_level="REPEATABLE READ", postgresql_readonly=True
+    )
+    return sessionmaker(engine, class_=AppSession, expire_on_commit=False)
+
+
 def database_revision(session: Session) -> str | None:
     # Health checks use the real application pool. The local timeout is rolled
     # back when the request session closes, preserving normal query budgets.

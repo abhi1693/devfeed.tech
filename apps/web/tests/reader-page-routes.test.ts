@@ -97,6 +97,50 @@ function expectNoDataRequests() {
 }
 
 describe.each(collections)("$kind page route validation", (collection) => {
+  it.each([undefined, "tutorials"])(
+    "indexes only populated views and keeps the canonical scope (%s)",
+    async (contentType) => {
+      const props = {
+        params: Promise.resolve({ ...collection.params, ...(contentType ? { contentType } : {}) }),
+        searchParams: Promise.resolve({}),
+      };
+      const canonical = `https://devfeed.tech/${collection.kind}/${encodeURIComponent(collection.params.slug)}${contentType ? `/${contentType}` : ""}`;
+      const scope =
+        collection.kind === "sources"
+          ? { source_id: source.id }
+          : collection.kind === "topics"
+            ? { topic: topic.slug }
+            : { tag: collection.params.slug };
+      const populated = await collection.metadata(props);
+      expect(populated.robots).toBeUndefined();
+      expect(populated.alternates).toMatchObject({ canonical });
+      expect(api.getFeed).toHaveBeenLastCalledWith(
+        expect.objectContaining({ ...scope, content_type: contentType ? "tutorial" : "" }),
+      );
+      vi.mocked(api.getFeed).mockResolvedValue({ items: [], next_cursor: null });
+      const empty = await collection.metadata(props);
+      expect(empty.robots).toEqual({ index: false, follow: true });
+      expect(empty.alternates).toEqual(populated.alternates);
+      vi.mocked(api.getFeed).mockResolvedValue({ items: [article], next_cursor: null });
+      expect((await collection.metadata(props)).robots).toBeUndefined();
+    },
+  );
+
+  it("keeps a feed outage out of the index and recovers without changing its route", async () => {
+    const props = {
+      params: Promise.resolve({ ...collection.params, contentType: "comparisons" }),
+      searchParams: Promise.resolve({}),
+    };
+    vi.mocked(api.getFeed).mockRejectedValue(new api.UserApiError(503));
+    expect((await collection.metadata(props)).robots).toEqual({ index: false, follow: true });
+    await collection.page(props);
+    expect(FeedView).toHaveBeenCalledWith(
+      expect.objectContaining({ filters: expect.objectContaining({ content_type: "comparison" }) }),
+    );
+    vi.mocked(api.getFeed).mockResolvedValue({ items: [article], next_cursor: null });
+    expect((await collection.metadata(props)).robots).toBeUndefined();
+  });
+
   it.each(["unknown", "article", "NEWS", "", "tutorials/extra", "tutorials%2Fnews"])(
     "rejects suffix %j before data requests in both metadata and rendering",
     async (contentType) => {
@@ -240,5 +284,6 @@ it.each(collections)(
     expect(FeedView).toHaveBeenCalledOnce();
     vi.mocked(loader).mockRejectedValue(new api.UserApiError(404));
     await expect(collection.page(props)).rejects.toThrow("NOT_FOUND");
+    await expect(collection.metadata(props)).rejects.toThrow("NOT_FOUND");
   },
 );
