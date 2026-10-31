@@ -1,5 +1,6 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -378,3 +379,56 @@ def test_publisher_metadata_wins_over_discovery_without_losing_provenance(
         assert origins["publisher"]["author"] == "Example Author"
         assert origins["aggregator"]["submitter"] == "Example Author"
         assert origins["aggregator"]["tags"] == ["python"]
+
+
+@pytest.mark.parametrize("ai_enabled", [False, True])
+def test_ingestion_loads_heuristic_catalog_only_for_entries_that_need_it(
+    database, rss_bytes, monkeypatch, ai_enabled
+):
+    from devfeed_core.config import get_settings
+    from devfeed_core.feeds.parser import parse_feed
+    from devfeed_core.models import Tag
+    from sqlalchemy import event, text
+    from sqlalchemy.orm import Session
+
+    monkeypatch.setattr(get_settings(), "ai_enabled", ai_enabled)
+    source_id, _ = make_job(database)
+    # A realistic unrelated catalog should not become one ORM graph per poll.
+    with database.begin() as session:
+        session.execute(
+            text(
+                "INSERT INTO topics(id,name,slug,kind,status,keywords,aliases,"
+                "facts,created_at,updated_at) "
+                "SELECT md5('ingestion-topic-'||g::text)::uuid,'Topic '||g,'topic-'||g,"
+                "'discipline','active',ARRAY['unrelated-'||g],ARRAY[]::varchar[],'[]',now(),now() "
+                "FROM generate_series(1,10000) g"
+            )
+        )
+        session.execute(
+            text(
+                "INSERT INTO tags(id,name,slug,aliases) "
+                "SELECT md5('ingestion-tag-'||g::text)::uuid,'Tag '||g,'tag-'||g,"
+                "ARRAY[]::varchar[] FROM generate_series(1,10000) g"
+            )
+        )
+    parsed = parse_feed(rss_bytes, "https://example.com/rss", utcnow(), source_type="publisher")
+    parsed = replace(parsed, entries=[replace(entry, tags=[]) for entry in parsed.entries])
+    hydrated = []
+
+    def loaded(_session, instance):
+        if isinstance(instance, (Topic, Tag)):
+            hydrated.append(type(instance).__name__)
+
+    event.listen(Session, "loaded_as_persistent", loaded)
+    try:
+        with database.begin() as session:
+            assert tasks.store_entries(session, source_id, parsed) == 2
+        first = len(hydrated)
+        # With AI disabled, one lazy catalog is shared by both new entries.
+        assert first == (0 if ai_enabled else 20000)
+        hydrated.clear()
+        with database.begin() as session:
+            assert tasks.store_entries(session, source_id, parsed) == 0
+        assert hydrated == []
+    finally:
+        event.remove(Session, "loaded_as_persistent", loaded)
