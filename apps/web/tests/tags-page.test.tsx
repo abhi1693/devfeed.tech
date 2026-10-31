@@ -21,7 +21,7 @@ it.each<[SearchParams, number, string, string]>([
     const tags = [{ id: "cpp", name: "C++", slug: "c++" }];
     vi.mocked(getTags).mockResolvedValue(tags);
     const page = await Tags({ searchParams: Promise.resolve(params) });
-    expect(getTags).toHaveBeenCalledWith(offset, 60, query, letter);
+    expect(getTags).toHaveBeenCalledWith(offset, 61, query, letter);
     expect(page.props.section).toBe("tags");
     expect(page.props.children.props).toEqual({ tags, query, letter, nextCursor: null });
     expect(page.props.children.key).toBe(`${query}:${letter}:${offset}`);
@@ -29,6 +29,18 @@ it.each<[SearchParams, number, string, string]>([
 );
 
 it("continues a full directory page using its bounded catalog cursor", async () => {
+  const tags = Array.from({ length: 61 }, (_, id) => ({
+    id: String(id),
+    name: `Tag ${id}`,
+    slug: `tag-${id}`,
+  }));
+  vi.mocked(getTags).mockResolvedValue(tags);
+  const page = await Tags({ searchParams: Promise.resolve({ offset: "60" }) });
+  expect(page.props.children.props.nextCursor).toBe("120");
+  expect(page.props.children.props.tags).toEqual(tags.slice(0, 60));
+});
+
+it("stops tag pagination when a direct continuation page has exactly 60 results", async () => {
   vi.mocked(getTags).mockResolvedValue(
     Array.from({ length: 60 }, (_, id) => ({
       id: String(id),
@@ -36,8 +48,12 @@ it("continues a full directory page using its bounded catalog cursor", async () 
       slug: `tag-${id}`,
     })),
   );
-  const page = await Tags({ searchParams: Promise.resolve({ offset: "60" }) });
-  expect(page.props.children.props.nextCursor).toBe("120");
+  const page = await Tags({
+    searchParams: Promise.resolve({ offset: "60", q: "C++", letter: "C" }),
+  });
+  expect(getTags).toHaveBeenCalledWith(60, 61, "C++", "C");
+  expect(page.props.children.props.nextCursor).toBeNull();
+  expect(page.props.children.props.tags).toHaveLength(60);
 });
 
 it("canonicalizes tag discovery independently of transient search filters", async () => {

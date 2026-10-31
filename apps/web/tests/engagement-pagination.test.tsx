@@ -175,3 +175,96 @@ it("queues new pages without cancelling or duplicating in-flight IDs", async () 
     ids(48).slice(24),
   ]);
 });
+
+it("recovers failed engagement without navigation and enables signed-in actions", async () => {
+  const { ArticleEngagement, ArticleBookmarkButton } =
+    await import("@/components/article-engagement");
+  vi.useFakeTimers();
+  try {
+    vi.mocked(userRequest).mockRejectedValueOnce(new Error("temporarily unavailable"));
+    render(
+      <EngagementProvider articleIds={ids(1)}>
+        <ArticleEngagement articleId="article-0" articleSlug="article-0" />
+        <ArticleBookmarkButton articleId="article-0" articleSlug="article-0" />
+      </EngagementProvider>,
+    );
+    await act(async () => {});
+    expect(screen.getByRole("button", { name: "Like article" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Save article for later" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(screen.getByRole("button", { name: "Like article, 2 likes" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+    expect(screen.getByRole("button", { name: "Save article for later" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+    expect(userRequest).toHaveBeenCalledTimes(2);
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
+});
+
+it("backs off failed reads and cancels retries when the provider unmounts", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.mocked(userRequest).mockRejectedValue(new Error("offline"));
+    const view = render(<Feed items={ids(1)} />);
+    await act(async () => {});
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(userRequest).toHaveBeenCalledTimes(2);
+    await act(async () => vi.advanceTimersByTimeAsync(1999));
+    expect(userRequest).toHaveBeenCalledTimes(2);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(userRequest).toHaveBeenCalledTimes(3);
+    view.unmount();
+    await act(async () => vi.advanceTimersByTimeAsync(60000));
+    expect(userRequest).toHaveBeenCalledTimes(3);
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
+});
+
+it("retries omitted records without refetching successful records", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.mocked(userRequest).mockResolvedValueOnce([engagement("article-0")]);
+    render(<Feed items={ids(2)} />);
+    await act(async () => {});
+    expect(screen.getByTestId("article-0").textContent).not.toContain("missing");
+    expect(screen.getByTestId("article-1").textContent).toBe("missing");
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(screen.getByTestId("article-1").textContent).not.toContain("missing");
+    expect(vi.mocked(userRequest).mock.calls.map(([path]) => requested(path))).toEqual([
+      ids(2),
+      ["article-1"],
+    ]);
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
+});
+
+it("cancels a failed account's retry when the signed-in owner changes", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.mocked(userRequest).mockRejectedValueOnce(new Error("offline"));
+    const view = render(<Feed items={ids(1)} />);
+    await act(async () => {});
+    account.user = identity("second");
+    view.rerender(<Feed items={ids(1)} />);
+    await act(async () => {});
+    expect(screen.getByTestId("article-0").textContent).not.toContain("missing");
+    await act(async () => vi.advanceTimersByTimeAsync(60000));
+    expect(userRequest).toHaveBeenCalledTimes(2);
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
+});

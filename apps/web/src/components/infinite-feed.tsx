@@ -137,7 +137,7 @@ export function InfiniteFeed({
       onLoadMore={loadMore}
       label="articles"
       endMessage={endMessage}
-      nextHref={nextHref}
+      nextHref={changed ? undefined : nextHref}
       errorMessage={changed ? "Your feed has been updated." : undefined}
       recovery={
         changed ? (

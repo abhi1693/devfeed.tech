@@ -16,11 +16,11 @@ export function tagLetter(name: string) {
   const first = name.charAt(0).toUpperCase();
   return alphabet.includes(first) ? first : "#";
 }
-export function tagsHref(query: string, letter: string, offset = 0) {
+export function tagsHref(query: string, letter: string, offset: number | string = 0) {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
   if (letter) params.set("letter", letter);
-  if (offset) params.set("offset", String(offset));
+  if (offset !== 0 && offset !== "0") params.set("offset", String(offset));
   return `/tags${params.size ? `?${params}` : ""}`;
 }
 export function TagsContent({
@@ -103,6 +103,7 @@ export function TagsContent({
         error={!!error}
         onLoadMore={loadMore}
         label="tags"
+        nextHref={cursor !== null ? tagsHref(query, letter, cursor) : undefined}
         endMessage={items.length ? "You’ve seen all matching tags." : ""}
       >
         {groups.map((group) => (

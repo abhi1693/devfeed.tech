@@ -446,6 +446,9 @@ def _candidate_scores(
     for text, weight in evidence:
         matches = set(cast(list[CandidateMatch], root.get(None, []))) if "  " in text else set()
         words = text.strip().split()
+        # A term contributes once per evidence field, even if it occurs at many
+        # positions. Visit each immutable terminal list once for this text only.
+        visited: set[int] = set()
         for start in range(len(words)):
             node = root
             for offset in range(start, len(words)):
@@ -453,7 +456,10 @@ def _candidate_scores(
                 if child is None:
                     break
                 node = cast(CandidateNode, child)
-                matches.update(cast(list[CandidateMatch], node.get(None, [])))
+                terminal = node.get(None)
+                if terminal is not None and (identity := id(node)) not in visited:
+                    visited.add(identity)
+                    matches.update(cast(list[CandidateMatch], terminal))
         for index, group, _ in matches:
             scores[index] += weight * (4 if group == 0 else 1)
 

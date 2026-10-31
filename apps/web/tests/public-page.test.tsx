@@ -24,7 +24,7 @@ it.each([
     vi.mocked(getTopics).mockReturnValue(held.then(() => [topic]));
     const page = await Page({ searchParams: Promise.resolve({ offset: "60" }) });
     expect(page.props.kind).toBe(kind);
-    expect(load).toHaveBeenCalledWith(...(kind === "sources" ? [60, 60] : [60]));
+    expect(load).toHaveBeenCalledWith(60, 61);
     release();
     const result = await page.props.content;
     expect(result.props[kind]).toEqual([item]);
@@ -32,6 +32,23 @@ it.each([
     expect(result.props.withShell).toBe(false);
   },
 );
+it.each([
+  [Sources, "sources"],
+  [Topics, "topics"],
+] as const)("loads direct %s continuations with a lookahead row", async (Page, kind) => {
+  vi.mocked(getSources).mockResolvedValue(
+    Array.from({ length: 61 }, (_, id) => ({ ...source, id: String(id) })),
+  );
+  vi.mocked(getTopics).mockResolvedValue(
+    Array.from({ length: 61 }, (_, id) => ({ ...topic, id: String(id) })),
+  );
+  const page = await Page({ searchParams: Promise.resolve({ offset: "60" }) });
+  const result = await page.props.content;
+  expect(kind === "sources" ? getSources : getTopics).toHaveBeenCalledWith(60, 61);
+  expect(result.props[kind]).toHaveLength(60);
+  expect(result.props.initialPage.items).toHaveLength(60);
+  expect(result.props.initialPage.next_cursor).toBe("120");
+});
 it("keeps the fallback separate from the eventual public content and propagates failures", async () => {
   const content = Promise.resolve(<p>Ready</p>);
   const filters = parseFilters({ q: "existing search" });

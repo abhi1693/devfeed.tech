@@ -1,5 +1,5 @@
 import { getTags, UserApiError } from "@/lib/api";
-import { catalogOffset, catalogPage } from "@/lib/catalog-page";
+import { CATALOG_PAGE_SIZE, catalogOffset, catalogPage } from "@/lib/catalog-page";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const headers = { "Cache-Control": "no-store" };
@@ -8,9 +8,10 @@ export async function GET(request: Request) {
   const query = (params.get("q") ?? "").trim().slice(0, 200);
   const letter = /^[A-Z#]$/.test(params.get("letter") ?? "") ? params.get("letter")! : "";
   try {
-    return Response.json(catalogPage(await getTags(offset, 60, query, letter), offset), {
-      headers,
-    });
+    return Response.json(
+      catalogPage(await getTags(offset, CATALOG_PAGE_SIZE + 1, query, letter), offset),
+      { headers },
+    );
   } catch (error) {
     return Response.json(
       { detail: "Couldn’t load tags" },

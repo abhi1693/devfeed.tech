@@ -45,14 +45,20 @@ export function readerRoutesFixture(article) {
     topics: [topic],
     sources: [source],
   }));
+  const fixture = { emptySourceContentType: null };
   const operations = new Map([
     [
       "/v1/feed",
       (url) => ({
         items: articles.filter(
           (item) =>
-            !url.searchParams.has("content_type") ||
-            item.content_type === url.searchParams.get("content_type"),
+            (!url.searchParams.has("content_type") ||
+              item.content_type === url.searchParams.get("content_type")) &&
+            !(
+              fixture.emptySourceContentType &&
+              url.searchParams.get("source_id") === source.id &&
+              url.searchParams.get("content_type") === fixture.emptySourceContentType
+            ),
         ),
         next_cursor: null,
       }),
@@ -75,6 +81,12 @@ export function readerRoutesFixture(article) {
     ]),
   ]);
   return {
+    get emptySourceContentType() {
+      return fixture.emptySourceContentType;
+    },
+    set emptySourceContentType(value) {
+      fixture.emptySourceContentType = value;
+    },
     active: false,
     topic,
     source,
@@ -244,6 +256,28 @@ export async function checkReaderRoutes(page, destination, fixture, output, exte
       await checkFeed(undefined, scope);
       assert.equal(currentRoute().pathname, `/${scope}/${slug}`, "All retains the catalog scope");
     }
+
+    fixture.emptySourceContentType = "comparison";
+    await page.goto(destination("/sources/publisher"));
+    await checkFeed(undefined, "sources");
+    await page
+      .locator(".feed-toolbar")
+      .getByRole("link", { name: "Comparisons", exact: true })
+      .click();
+    const empty = page.getByText("No articles match these filters", { exact: true });
+    await empty.waitFor();
+    assert.equal(currentRoute().pathname, "/sources/publisher/comparisons");
+    await page.goBack();
+    await checkFeed(undefined, "sources");
+    await page.goForward();
+    await empty.waitFor();
+    if (!extension) {
+      await page.locator('meta[name="robots"][content*="noindex"]').waitFor({ state: "attached" });
+    }
+    await page.screenshot({ path: `${output}/empty-source-view.png`, animations: "disabled" });
+    fixture.emptySourceContentType = null;
+    await page.goto(destination("/sources/publisher"));
+    await checkFeed(undefined, "sources");
     await checkPreviewBackground(page, `${output}/valid-preview.png`);
 
     if (extension) {

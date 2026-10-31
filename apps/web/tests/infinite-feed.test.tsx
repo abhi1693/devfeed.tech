@@ -167,6 +167,13 @@ it("loads once per cursor, preserves filters, appends without duplicates, and st
     }),
   );
   render(<InfiniteFeed initialPage={initialPage} filters={filters} />);
+  const nextPage = screen.getByRole("link", { name: "Next page of articles" });
+  const nextHref = new URL(nextPage.getAttribute("href")!, "https://devfeed.test");
+  expect(nextHref.pathname).toBe("/topics/python/tutorials");
+  expect(nextHref.searchParams.get("q")).toBe("python");
+  expect(nextHref.searchParams.has("content_type")).toBe(false);
+  expect(nextHref.searchParams.get("cursor")).toBe("next+/=");
+  expect(nextPage.getAttribute("rel")).toBe("next");
   expect(screen.queryByRole("link", { name: "More articles" })).toBeNull();
   expect(screen.queryByRole("button", { name: "More articles" })).toBeNull();
   await act(async () => {
@@ -192,6 +199,7 @@ it("loads once per cursor, preserves filters, appends without duplicates, and st
   expect(screen.getAllByTestId("article-grid")).toHaveLength(1);
   expect(screen.getByText("You’re all caught up.")).toBeTruthy();
   expect(screen.queryByRole("link", { name: "More articles" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Next page of articles" })).toBeNull();
   expect(disconnect).toHaveBeenCalled();
 });
 
@@ -204,7 +212,7 @@ it("keeps loaded cards on failure and retries only when requested", async () => 
   expect(screen.getByText(article.title)).toBeTruthy();
   expect(screen.getByText("Couldn’t load more articles.")).toBeTruthy();
   expect(fetcher).toHaveBeenCalledTimes(1);
-  await act(async () => fireEvent.click(screen.getByRole("link", { name: "Try again" })));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Try again" })));
   expect(screen.getByText(nextArticle.title)).toBeTruthy();
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
@@ -261,6 +269,7 @@ it.each([409, 200])(
     expect(fetcher.mock.calls[0][0]).toBe("/api/v1/user/feed?limit=24&cursor=next%2B%2F%3D");
     expect(screen.getByText(article.title)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Show updated feed" }).getAttribute("href")).toBe("/");
+    expect(screen.queryByRole("link", { name: "Next page of articles" })).toBeNull();
     expect(screen.queryByText("You’re all caught up.")).toBeNull();
   },
 );

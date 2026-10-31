@@ -11,7 +11,7 @@ export async function catalogRoute(request: Request, kind: "topics" | "sources")
       kind === "topics"
         ? await getTopics(
             offset,
-            CATALOG_PAGE_SIZE,
+            CATALOG_PAGE_SIZE + 1,
             request.signal,
             params.get("sort") === "articles" ? "articles" : "name",
             query,
@@ -19,7 +19,7 @@ export async function catalogRoute(request: Request, kind: "topics" | "sources")
           )
         : await getSources(
             offset,
-            CATALOG_PAGE_SIZE,
+            CATALOG_PAGE_SIZE + 1,
             request.signal,
             query,
             request.headers.get("cookie") ?? "",

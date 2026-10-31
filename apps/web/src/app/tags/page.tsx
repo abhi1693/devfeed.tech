@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { CollectionUnavailable } from "@/components/collection-unavailable";
 import { getTags, UserApiError } from "@/lib/api";
-import { catalogOffset, catalogPage } from "@/lib/catalog-page";
+import { CATALOG_PAGE_SIZE, catalogOffset, catalogPage } from "@/lib/catalog-page";
 import { pageMetadata, catalogCanonical } from "@/lib/metadata";
 import { UserShell } from "@/components/user-shell";
 import { TagsContent } from "@/components/tags-content";
@@ -17,7 +17,7 @@ function filters(params: SearchParams) {
 }
 const load = cache(async (offset: number, query: string, letter: string) => {
   try {
-    return await getTags(offset, 60, query, letter);
+    return await getTags(offset, CATALOG_PAGE_SIZE + 1, query, letter);
   } catch (error) {
     if (error instanceof UserApiError && error.status >= 500) return null;
     throw error;
@@ -39,14 +39,15 @@ export default async function Tags({ searchParams }: { searchParams: Promise<Sea
   const { offset, query, letter } = filters(params);
   const tags = await load(offset, query, letter);
   if (!tags) return <CollectionUnavailable kind="tags" />;
+  const page = catalogPage(tags, offset);
   return (
     <UserShell section="tags">
       <TagsContent
         key={`${query}:${letter}:${offset}`}
-        tags={tags}
+        tags={page.items}
         query={query}
         letter={letter}
-        nextCursor={catalogPage(tags, offset).next_cursor}
+        nextCursor={page.next_cursor}
       />
     </UserShell>
   );

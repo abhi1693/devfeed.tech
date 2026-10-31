@@ -245,6 +245,10 @@ async function createReaderFixture(
   const mutationFixture = userMutationFixture({ articles: [article], topic });
   const domCatalog = readerDomCatalogFixture();
   const routeFixture = readerRoutesFixture(article);
+  const seoSourceIds = {
+    "seo-populated": "66666666-6666-4666-8666-666666666666",
+    "seo-empty": "66666666-6666-4666-8666-666666666667",
+  };
   const feedMode = feedModeFixture(article);
   const readerContext = readerContextFixture(article);
   const readerDestinations = readerDestinationsFixture(article);
@@ -272,6 +276,16 @@ async function createReaderFixture(
   let rejectTopics = true;
   let onboardingSaved = false;
   let rejectOnboardingPage = true;
+  const choices = onboardingTopics(topic);
+  const onboardingCatalog = [
+    ...choices,
+    ...Array.from({ length: 61 - choices.length }, (_, i) => ({
+      ...topic,
+      id: `extra-${i}`,
+      slug: `extra-${i}`,
+      name: `Extra topic ${i}`,
+    })),
+  ];
   let rejectTopicFollow = true;
   let savedTopicIds = [topic.id];
   let savedSourceIds = [];
@@ -432,12 +446,23 @@ async function createReaderFixture(
       return;
     }
     // Collection indexing fixtures: metadata and page content use the same feed.
-    const collection = requestUrl.searchParams.get("tag") || requestUrl.searchParams.get("topic");
-    if (/^\/v1\/(?:tags|topics)\/seo-/.test(path)) {
+    const collection =
+      requestUrl.searchParams.get("tag") ||
+      requestUrl.searchParams.get("topic") ||
+      Object.entries(seoSourceIds).find(
+        ([, id]) => id === requestUrl.searchParams.get("source_id"),
+      )?.[0];
+    if (/^\/v1\/(?:tags|topics|sources)\/seo-/.test(path)) {
       const slug = path.split("/").at(-1);
       res.writeHead(slug === "seo-missing" ? 404 : 200, { "Content-Type": "application/json" });
       res.end(
-        JSON.stringify(slug === "seo-missing" ? { detail: "Not found" } : { ...topic, slug }),
+        JSON.stringify(
+          slug === "seo-missing"
+            ? { detail: "Not found" }
+            : path.startsWith("/v1/sources/")
+              ? { ...source, id: seoSourceIds[slug], slug }
+              : { ...topic, slug },
+        ),
       );
       return;
     }
@@ -643,34 +668,21 @@ async function createReaderFixture(
     else if (path === "/v1/topics") {
       if (mode === "onboarding")
         assert.equal(new URL(req.url, "http://localhost").searchParams.get("sort"), "articles");
-      if (mode === "onboarding" && requestUrl.searchParams.get("q")) {
-        body = onboardingTopics(topic).filter((item) =>
-          item.name.toLowerCase().includes(requestUrl.searchParams.get("q").toLowerCase()),
-        );
-      } else if (mode === "onboarding" && requestUrl.searchParams.get("offset") === "60") {
-        if (rejectOnboardingPage) {
+      if (mode === "onboarding") {
+        const query = (requestUrl.searchParams.get("q") ?? "").toLowerCase();
+        const offset = Number(requestUrl.searchParams.get("offset") ?? 0);
+        const limit = Number(requestUrl.searchParams.get("limit") ?? 60);
+        if (!query && offset === 60 && rejectOnboardingPage) {
           rejectOnboardingPage = false;
           await new Promise((resolve) => setTimeout(resolve, 1000));
           res.writeHead(503, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ detail: "Temporary catalog failure" }));
           return;
         }
-        body = [];
-      } else {
-        const choices = onboardingTopics(topic);
-        body =
-          mode === "onboarding"
-            ? [
-                ...choices,
-                ...Array.from({ length: 60 - choices.length }, (_, i) => ({
-                  ...topic,
-                  id: `extra-${i}`,
-                  slug: `extra-${i}`,
-                  name: `Extra topic ${i}`,
-                })),
-              ]
-            : [topic];
-      }
+        body = onboardingCatalog
+          .filter((item) => item.name.toLowerCase().includes(query))
+          .slice(offset, offset + limit);
+      } else body = [topic];
     } else if (path === `/v1/topics/${topic.slug}`) body = topic;
     else if (path === `/v1/sources/${source.slug}`) body = source;
     else if (path === "/v1/sources") body = onboardingSources;
@@ -891,7 +903,7 @@ async function createReaderFixture(
   });
   async function runJourney() {
     const seoPage = await browser.newPage();
-    for (const kind of ["tags", "topics"]) {
+    for (const kind of ["tags", "topics", "sources"]) {
       for (const [slug, suffix, empty] of [
         ["seo-populated", "", false],
         ["seo-empty", "", true],
@@ -1181,7 +1193,12 @@ async function createReaderFixture(
     // The earlier background-refresh page deliberately overrides hasFocus on every navigation.
     const onboardingPage = await context.newPage();
     await onboardingPage.clock.install();
-    await checkFeedOnboarding(onboardingPage, origin, `${output}/web`);
+    await checkFeedOnboarding(
+      onboardingPage,
+      origin,
+      `${output}/web`,
+      onboardingCatalog.at(-1).name,
+    );
     await onboardingPage.close();
     await page.bringToFront();
     assert.ok(onboardingSaved);
@@ -2460,6 +2477,38 @@ test("feed modes declare placement capabilities", { timeout: 180000 }, async (t)
     checkFeedMode(page, (path) => origin + path, feedMode, `${root}/reports/feed-mode/web`),
   );
 });
+
+test(
+  "source collection indexing follows the visible public feed",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    for (const agent of ["Mozilla/5.0", "Googlebot"]) {
+      for (const [path, empty] of [
+        ["/sources/seo-populated", false],
+        ["/sources/seo-empty", true],
+        ["/sources/seo-populated/tutorials", true],
+      ]) {
+        const response = await fetch(origin + path, { headers: { "User-Agent": agent } });
+        assert.equal(response.status, 200);
+        const html = await response.text();
+        assert.equal(/<meta name="robots" content="[^"]*noindex/.test(html), empty);
+        assert.ok(html.includes(`rel="canonical" href="${origin}${path}"`));
+      }
+      const missing = await fetch(`${origin}/sources/seo-missing`, {
+        headers: { "User-Agent": agent },
+      });
+      assert.equal(missing.status, 404);
+    }
+    await withReaderPage(browser, async (page) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(`${origin}/sources/seo-populated/tutorials`);
+      await page.getByText("No articles match these filters", { exact: true }).waitFor();
+      assert.equal(await page.locator(".article-card").count(), 0);
+      await page.locator('meta[name="robots"][content*="noindex"]').waitFor({ state: "attached" });
+    });
+  },
+);
 
 test(
   "reader routes validate destinations and recover from missing pages",

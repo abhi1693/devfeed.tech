@@ -194,6 +194,7 @@ it("preserves article-count sorting through the topic catalog gateway and pagina
   const url = fetcher.mock.calls[0][0];
   expect(url.searchParams.get("sort")).toBe("articles");
   expect(url.searchParams.get("offset")).toBe("60");
+  expect(url.searchParams.get("limit")).toBe("61");
   expect(url.searchParams.get("has_articles")).toBe("true");
 });
 
