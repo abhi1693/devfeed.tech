@@ -31,19 +31,43 @@ from sqlalchemy.dialects import postgresql
 from tests.articles.test_article_enrichment_integration import PAGE
 from tests.support.article_maintenance_workers import complete_private_analysis
 from tests.support.article_refresh import published_retry_case as published_retry_case
+from tests.support.postgres_work import postgres_work
 
 pytestmark = pytest.mark.integration
 
 
+@pytest.mark.parametrize("catalog_reuse", [False, True])
 def test_private_analysis_finishes_atomic_publication_without_identity_or_notification_reset(
     database,
     published_retry_case,
     monkeypatch,
+    catalog_reuse,
 ):
+    import weakref
+
+    from devfeed_core import analysis
+
+    monkeypatch.setattr(get_settings(), "analysis_catalog_reuse_enabled", catalog_reuse)
+    monkeypatch.setattr(get_settings(), "cache_enabled", True)
     case = published_retry_case
     with database.begin() as session:
         case.request(session, "analysis")
-    refresh_id, job_id, calls = complete_private_analysis(database, monkeypatch, case.article_id)
+    original, references = analysis._PreparedCatalog, []
+
+    class TrackedCatalog(original):
+        def __init__(self, taxonomy):
+            super().__init__(taxonomy)
+            references.append(weakref.ref(self))
+
+    monkeypatch.setattr(analysis, "_PreparedCatalog", TrackedCatalog)
+
+    def no_connection_during_inference(_):
+        assert measured["active_connections"] == 0
+
+    with postgres_work(database.kw["bind"]) as measured:
+        refresh_id, job_id, calls = complete_private_analysis(
+            database, monkeypatch, case.article_id, before_complete=no_connection_during_inference
+        )
     assert len(calls) >= 7
     with database() as session:
         owner, article = (
@@ -58,6 +82,12 @@ def test_private_analysis_finishes_atomic_publication_without_identity_or_notifi
         assert article.slug == case.slug and article.published_to_feed_at == case.published_at
         assert article.editorial_revision == owner.base_revision + 1
         assert session.scalar(select(func.count()).select_from(FeedNotificationEvent)) == 1
+    assert len(references) == (1 if catalog_reuse else 3)
+    assert all(reference() is None for reference in references)
+    print(
+        "PRIVATE_ANALYSIS_PG_WORK="
+        + json.dumps({"retained": catalog_reuse, "counts": dict(measured)}, sort_keys=True)
+    )
 
 
 def test_private_enrichment_keeps_live_body_until_its_analysis_completes(

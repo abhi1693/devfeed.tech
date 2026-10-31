@@ -219,7 +219,7 @@ def commit_promotion(
 
 
 def promote_processed_refresh(factory: sessionmaker[Session], refresh_id: uuid.UUID) -> str:
-    with reuse_snapshots(), reuse_candidates():
+    with reuse_snapshots(reuse_existing=True), reuse_candidates(reuse_existing=True):
         with factory() as session:
             prepared = prepare_promotion(session, refresh_id)
         if not prepared.ready:

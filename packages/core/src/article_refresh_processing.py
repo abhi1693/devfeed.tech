@@ -404,7 +404,7 @@ def resume_refresh(factory: sessionmaker[Session], refresh_id: uuid.UUID) -> str
         return "pending"
     if target == "images":
         return try_promote_refresh(factory, refresh_id)
-    with reuse_snapshots(), reuse_candidates():
+    with reuse_snapshots(reuse_existing=True), reuse_candidates(reuse_existing=True):
         with factory() as session:
             inputs = prepare_refresh_inputs(session, refresh_id)
             current_inputs: ProcessingInputs = {**inputs.facts, "taxonomy": inputs.taxonomy}
