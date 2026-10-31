@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Annotated
 
 from devfeed_core.config import get_settings
@@ -13,7 +14,8 @@ get_redis = redis_dependency(get_settings)
 database_session = Depends(get_session, scope="function")
 DB = Annotated[Session, database_session]
 get_read_session = session_dependency(read_session_factory)
-ReadDB = Annotated[Session, Depends(get_read_session, scope="function")]
+read_database_session = replace(database_session, dependency=get_read_session)
+ReadDB = Annotated[Session, read_database_session]
 
 
 def get_session_factory() -> sessionmaker[Session]:

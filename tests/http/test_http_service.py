@@ -241,3 +241,37 @@ def test_failed_analytics_cleanup_still_closes_admin_shared_clients(monkeypatch)
         asyncio.run(scenario())
     assert events == ["start", "request", "codex", "analytics", "clients", "telemetry"]
     assert shared == [module.get_redis]
+
+
+def test_user_read_session_closes_before_streaming_response():
+    from devfeed_user_api import dependencies
+    from fastapi.responses import StreamingResponse
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    events = []
+    session = object()
+
+    def get_read_session():
+        events.append("opened")
+        try:
+            yield session
+        finally:
+            events.append("closed")
+
+    @app.get("/read")
+    def read(current: dependencies.ReadDB):
+        assert current is session
+        assert events == ["opened"]
+
+        def body():
+            assert events == ["opened", "closed"]
+            yield b"approved article"
+
+        return StreamingResponse(body())
+
+    app.dependency_overrides[dependencies.get_read_session] = get_read_session
+    with TestClient(app) as client:
+        response = client.get("/read")
+    assert response.status_code == 200 and response.content == b"approved article"
+    assert events == ["opened", "closed"]
