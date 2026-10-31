@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const net = require("node:net");
 const { spawn } = require("node:child_process");
 const { createTransport } = require("./transport.cjs");
+const { createHealthServer } = require("./health-server.cjs");
 
 const socketPath = "/run/codex/app-server.sock";
 const sockets = new Set();
@@ -41,7 +42,15 @@ const bridge = net.createServer((client) => {
   client.pipe(upstream).pipe(client);
 });
 
+const health = createHealthServer({ isRunning: () => child.exitCode === null && !child.killed });
+health.listen(4502, "0.0.0.0");
+health.on("error", () => {
+  console.error("Codex health server failed");
+  stop();
+});
+
 function stop(signal = "SIGTERM") {
+  health.stop();
   tlsServer?.stop();
   bridge.close();
   for (const socket of sockets) socket.destroy();
@@ -58,6 +67,7 @@ child.on("error", () => {
   process.exit(1);
 });
 child.on("exit", (code) => {
+  health.stop();
   tlsServer?.stop();
   bridge.close();
   for (const socket of sockets) socket.destroy();

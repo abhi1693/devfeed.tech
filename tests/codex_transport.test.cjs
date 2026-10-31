@@ -27,6 +27,7 @@ test("server pins the Codex script and its Node interpreter independently of PAT
       },
     },
     "./transport.cjs": {},
+    "./health-server.cjs": { createHealthServer: () => ({ listen() {}, on() {}, stop() {} }) },
   };
   const filename = require.resolve("../infra/codex/server.cjs");
   vm.runInNewContext(

@@ -119,6 +119,8 @@ A continuation beyond the available results returns HTTP 404. Empty first-page s
 letter filters remain available with `noindex,follow`; populated directory pages retain their
 normalized canonical URLs. Next and previous links preserve the directory filters.
 
+See [Codex health checks](infra/codex/README.md) for the private bridge probe and rollout contract.
+
 The scheduler generates cached sitemaps in the background. Crawler requests serve
 the last completed snapshot while refreshes run; see
 [sitemap refresh and retention](apps/aggregator/README.md#cached-sitemaps).
