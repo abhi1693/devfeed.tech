@@ -122,6 +122,17 @@ so older empty reports do not bypass the new gates.
 
 ## Current cards and reports
 
+Current queue repair accepts at most 20,000 active job identities. Membership
+lookups and orphan exclusion send that complete UUID set as a request-scoped
+RowBinary external table (at most 320 KB), avoiding ClickHouse's multipart text
+field limit. Exclusion always uses the full set: splitting a `NOT IN` list into
+independent queries could tombstone valid jobs. External inputs create no durable
+tables, and failed requests or insert acknowledgements do not advance coverage.
+Card identity queries remain bounded to the configured batch of at most 200.
+Worker failure logs include only a structured integer `clickhouse_code` when
+available, so form-parser failures and query contention can be distinguished
+without exposing SQL, source identifiers or credentials.
+
 Five card kinds cover articles, sources, discovery candidates, topic proposals
 and relationship proposals. Builders hydrate at most 200 identities per batch.
 `analytics_card_canonical` stores each policy/kind/shard/entity's latest card or

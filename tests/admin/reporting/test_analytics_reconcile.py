@@ -111,8 +111,22 @@ class Sink:
         if self.after_ack is not None:
             self.after_ack(table)
 
-    async def query(self, statement, parameters=None):
+    async def query(self, statement, parameters=None, *, external_data=None):
         params = parameters or {}
+        if external_data is not None:
+            payload = external_data.files[0].data
+            assert external_data.files[0].structure == "id UUID"
+            assert len(payload) <= 16 * reconcile.MAX_ACTIVE_JOBS
+            identities = {
+                str(
+                    uuid.UUID(
+                        bytes=payload[start : start + 8][::-1]
+                        + payload[start + 8 : start + 16][::-1]
+                    )
+                )
+                for start in range(0, len(payload), 16)
+            }
+            params = {**params, "valid" if "NOT IN" in statement else "ids": identities}
         self.queries.append((statement, deepcopy(params)))
         if "FINAL" in statement:
             assert reconcile.FINAL_GUARDS in statement
@@ -782,6 +796,11 @@ def test_unknown_queue_ids_are_tombstoned_in_bounded_native_cursor_pages(monkeyp
     assert cleanup[0]["cursor"] is None
     assert any(params["cursor"] is not None for params in cleanup[1:])
     assert all(params["limit"] == 2 for params in cleanup)
+
+
+def test_queue_identifier_overflow_is_rejected_before_transport():
+    with pytest.raises(AnalyticsUnavailable, match="identifier set exceeds its bound"):
+        reconcile._queue_identifiers([identifier(1)] * (reconcile.MAX_ACTIVE_JOBS + 1))
 
 
 def test_fingerprint_and_owner_target_overflow_leave_existing_views_unmodified(monkeypatch):
@@ -1532,6 +1551,120 @@ def test_active_pass_remains_independent_of_unprocessed_dirty_owner_ledger(monke
         assert world.worker._state("cards")["todo"] == ["article:" + article]
         assert world.worker.progress[reconcile.card_scope("article")]["pending"]
         assert world.worker.progress[reconcile.card_scope("article")]["completed_at"] is None
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.integration
+@pytest.mark.failure_recovery
+def test_native_full_queue_set_survives_http_field_limit_and_uncertain_cleanup_ack(monkeypatch):
+    """Large IN/NOT IN sets remain exact across retry and preserve newer observations."""
+    from tests.support import analytics
+
+    async def scenario():
+        configured = analytics.settings()
+        name = f"queue_transport_{uuid.uuid4().hex}_test"
+        async with cards.AnalyticsClient(configured) as owner:
+            await owner.execute(f"CREATE DATABASE `{name}`")
+            try:
+                settings = configured.model_copy(
+                    update={"clickhouse_database": name, "analytics_reconcile_batch_size": 2}
+                )
+                async with cards.AnalyticsClient(settings) as client:
+                    await client.initialize()
+                    client.insert_settings = {"async_insert_busy_timeout_ms": 1}
+                    await client.execute("SYSTEM STOP MERGES analytics_pipeline_events")
+                    valid = {
+                        str(uuid.uuid5(uuid.NAMESPACE_OID, str(value))) for value in range(20_000)
+                    }
+                    removed = min(valid)
+                    stale = {identifier(value) for value in range(30_001, 30_004)}
+                    newer = identifier(30_004)
+                    rows = [
+                        reconcile._base("queue", identity, 1)
+                        | {"status": "queued", "task": "ingestion", "created_at": NOW}
+                        for identity in valid | stale | {newer}
+                    ]
+                    await client.insert("analytics_pipeline_events", rows)
+                    await client.insert(
+                        "analytics_pipeline_events",
+                        [
+                            reconcile._base("queue", newer, 11)
+                            | {"status": "running", "task": "ingestion", "created_at": NOW},
+                            reconcile._base("queue", removed, 3, deleted=True),
+                        ],
+                    )
+                    worker = reconcile.CurrentStateReconciler(client, settings, clock=lambda: NOW)
+                    requests = []
+                    original = client.query
+
+                    async def capture(statement, parameters=None, **kwargs):
+                        if (external := kwargs.get("external_data")) is not None:
+                            assert not any(
+                                isinstance(value, (list, set, tuple))
+                                for value in (parameters or {}).values()
+                            )
+                            requests.append(len(external.files[0].data))
+                        return await original(statement, parameters, **kwargs)
+
+                    monkeypatch.setattr(client, "query", capture)
+                    targets = await worker._queue_targets(sorted(valid))
+                    assert set(targets) == valid
+                    assert targets[removed]["revision"] == 3
+                    assert targets[removed]["deleted"] == 1
+                    assert requests == [320_000]
+
+                    # Empty external sets also have native exclusion semantics.
+                    empty = await client.query(
+                        "SELECT count() AS n FROM analytics_pipeline_events FINAL "
+                        "WHERE id NOT IN (SELECT id FROM reconcile_queue_ids)"
+                        + reconcile.FINAL_GUARDS,
+                        external_data=reconcile._queue_identifiers(set()),
+                    )
+                    assert empty == [{"n": 20_004}]
+                    cycle = reconcile.QueueCycle(10, NOW, [], valid, {})
+                    worker.queue_cycle = cycle
+                    original_insert = client.insert
+                    fail_ack = True
+
+                    async def uncertain_ack(table, records):
+                        nonlocal fail_ack
+                        await original_insert(table, records)
+                        if table == "analytics_pipeline_events" and fail_ack:
+                            fail_ack = False
+                            raise AnalyticsUnavailable("Uncertain cleanup acknowledgment")
+
+                    monkeypatch.setattr(client, "insert", uncertain_ack)
+                    with pytest.raises(AnalyticsUnavailable, match="Uncertain cleanup"):
+                        await worker._absent_queue_targets(cycle)
+                    assert cycle.cursor is None and worker.queue_cycle is cycle
+                    assert "queues" not in worker.progress
+                    # Retry observes already-persisted tombstones without deleting any
+                    # member of the full valid set or a live row beyond this fence.
+                    assert await worker._absent_queue_targets(cycle)
+                    assert worker.queue_cycle is None
+                    assert not worker.progress["queues"]["pending"]
+                    actual = await worker._queue_targets(sorted(valid))
+                    actual.update(await worker._queue_targets(sorted(stale | {newer})))
+                    assert {identity for identity, row in actual.items() if row["deleted"]} == (
+                        stale | {removed}
+                    )
+                    assert actual[newer]["revision"] == 11 and not actual[newer]["deleted"]
+                    assert all(size <= 16 * reconcile.MAX_ACTIVE_JOBS for size in requests)
+                    await worker.close()
+                # External inputs are request-local and do not leave durable tables.
+                async with cards.AnalyticsClient(settings) as restarted:
+                    assert not await restarted.query("SHOW TABLES LIKE 'reconcile_queue_ids'")
+                    assert (
+                        len(
+                            await reconcile.CurrentStateReconciler(
+                                restarted, settings
+                            )._queue_targets([newer])
+                        )
+                        == 1
+                    )
+            finally:
+                await owner.execute(f"DROP DATABASE IF EXISTS `{name}` SYNC")
 
     asyncio.run(scenario())
 
