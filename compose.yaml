@@ -877,7 +877,7 @@ services:
     networks: [default]
     healthcheck:
       <<: *healthcheck
-      test: [CMD, node, /opt/devfeed/health.cjs]
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:4502/readyz]
       interval: 5s
 
   # One independently sized worker deployment per priority by default.
