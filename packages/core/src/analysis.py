@@ -392,11 +392,7 @@ def candidate_index(terms: Iterable[tuple[frozenset[str], frozenset[str]]]) -> C
             for term in values:
                 node = root
                 for word in term.strip().split():
-                    child = node.get(word)
-                    if child is None:
-                        child = {}
-                        node[word] = child
-                    node = cast(CandidateNode, child)
+                    node = cast(CandidateNode, node.setdefault(word, {}))
                 cast(list[CandidateMatch], node.setdefault(None, [])).append((index, group, term))
     return root
 
@@ -424,8 +420,8 @@ def _shared_vocabulary(items: Sequence[CatalogItem]) -> bool:
     # Do not add per-value memo overhead to catalogs whose identifiers/keywords
     # are mostly unique. This bounded probe only selects an equivalent CPU path.
     sample = [
-        value
-        for item in items[:32]
+        value.lower().replace("-", " ").replace("_", " ")
+        for item in items[:: max(1, len(items) // 32)][:32]
         for value in islice(
             chain((item["name"], item["slug"]), item.get("aliases", []), item.get("keywords", [])),
             16,
@@ -455,7 +451,7 @@ def _candidate_indexes(
         # Keep a small construction-only vocabulary; Unicode/large values retain
         # the exact uncached path rather than occupying an unbounded byte budget.
         if value.isascii() and len(value) <= CANDIDATE_NORMALIZATION_CACHE_CHARS:
-            return cached_text(value)
+            return cached_text(value.lower().replace("-", " ").replace("_", " "))
         return candidate_text(value)
 
     memoize = not cache_terms and _shared_vocabulary(items)
@@ -857,13 +853,16 @@ def validate_evidence(
         " ".join(str(snapshot.get(field) or "").split())
         for field in ("title", "source_summary", "text")
     )
+    # A specialist shortlist needs only ID membership. Do not replace the
+    # job's complete retrieval generation just to validate a smaller catalog.
+    prepared = _ranking.get()
     for field, selections in (
         ("topics", result.topics),
         ("tags", result.tags),
     ):
         valid = (
-            _prepared_catalog(cast(AnalysisCatalog, taxonomy)).current(field)
-            if _ranking.get() is not None
+            prepared[0].current(field)
+            if prepared and prepared[0].taxonomy is taxonomy
             else {item["id"] for item in taxonomy[field]}
         )
         for item in selections:

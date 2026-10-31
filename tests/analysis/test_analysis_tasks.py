@@ -70,7 +70,10 @@ def runtime(monkeypatch):
         __call__ = begin
 
     settings = SimpleNamespace(
-        ai_enabled=True, full_automation=False, codex_model="configured-model"
+        ai_enabled=True,
+        full_automation=False,
+        codex_model="configured-model",
+        analysis_catalog_reuse_enabled=False,
     )
     monkeypatch.setattr(analysis_tasks, "session_factory", lambda: Factory())
     monkeypatch.setattr(analysis_tasks, "get_settings", lambda: settings)
@@ -121,10 +124,12 @@ def test_worker_claims_waiting_lock_and_persists_analysis_without_publication(ru
     assert "FOR UPDATE" in str(claim) and "SKIP LOCKED" not in str(claim)
 
 
+@pytest.mark.parametrize("retained", [False, True])
 def test_application_deadlock_retry_never_repeats_inference_or_holds_a_transaction(
-    runtime, monkeypatch
+    runtime, monkeypatch, retained
 ):
-    article, job, _, _ = runtime
+    article, job, settings, _ = runtime
+    settings.analysis_catalog_reuse_enabled = retained
     factory = analysis_tasks.session_factory()
     state = {"transactions": 0, "inferences": 0, "applies": 0}
     original_apply = analysis_tasks.apply_analysis
@@ -162,7 +167,7 @@ def test_application_deadlock_retry_never_repeats_inference_or_holds_a_transacti
     monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: client)
     monkeypatch.setattr(client, "complete", complete)
     monkeypatch.setattr(analysis_tasks, "apply_analysis", apply)
-    analysis_tasks._analyze(job.id)
+    analysis_tasks.analyze_article(str(job.id))
     assert state == {"transactions": 0, "inferences": 9, "applies": 2}
     assert job.outcome == "applied" and article.ai_summary == "Generated preview"
     assert list(job.usage["attempts"]) == ["1"]
@@ -894,3 +899,206 @@ def test_invalid_saved_specialist_output_is_revalidated_and_replaced_before_publ
     assert job.outcome == "applied" and job.status == "succeeded"
     assert sum("developer_relevance" in fields for fields in calls) == 2
     assert job.steps["developer_relevance"]["output"] != {"invalid": "saved output"}
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_job_catalog_reuse_spans_specialists_and_apply_without_retaining_transactions(
+    runtime, monkeypatch, enabled
+):
+    import weakref
+
+    from devfeed_core import catalog_cache
+
+    article, job, settings, _ = runtime
+    settings.analysis_catalog_reuse_enabled = enabled
+    factory = analysis_tasks.session_factory()
+    taxonomy = analysis_tasks.catalog(None)
+    state = {"transactions": 0, "inferences": 0, "revision_reads": 0, "loads": 0}
+    references = []
+    original = analysis._PreparedCatalog
+    complete = analysis_tasks.CodexClient(None).complete
+
+    class TrackedCatalog(original):
+        def __init__(self, taxonomy):
+            super().__init__(taxonomy)
+            references.append(weakref.ref(self))
+
+    class TrackingFactory:
+        @contextmanager
+        def begin(self):
+            state["transactions"] += 1
+            try:
+                with factory.begin() as session:
+                    session.get_bind = lambda: factory
+                    yield session
+            finally:
+                state["transactions"] -= 1
+
+        __call__ = begin
+
+    def revisions(*_):
+        state["revision_reads"] += 1
+        return (("tags", "revision"), ("topics", "revision"))
+
+    def load(_):
+        state["loads"] += 1
+        return json.loads(json.dumps(taxonomy))
+
+    def infer(*args):
+        assert state["transactions"] == 0
+        state["inferences"] += 1
+        assert (analysis._ranking.get() is not None) == enabled
+        return complete(*args)
+
+    monkeypatch.setattr(analysis_tasks, "session_factory", TrackingFactory)
+    monkeypatch.setattr(analysis_tasks, "catalog", analysis.catalog)
+    monkeypatch.setattr(analysis_tasks, "snapshot_current", catalog_cache.snapshot_current)
+    monkeypatch.setattr(analysis, "_read_catalog", load)
+    monkeypatch.setattr(catalog_cache, "_revisions", revisions)
+    monkeypatch.setattr(analysis, "_PreparedCatalog", TrackedCatalog)
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=infer)
+    )
+    analysis_tasks.analyze_article(str(job.id))
+    assert job.outcome == "applied" and article.ai_summary == "Generated preview"
+    assert state["transactions"] == 0 and state["inferences"] == 9
+    assert len(references) == (1 if enabled else 2)
+    assert state["loads"] == (1 if enabled else 2)
+    assert state["revision_reads"] == (4 if enabled else 3)
+    assert all(reference() is None for reference in references)
+    assert analysis._ranking.get() is None and catalog_cache._snapshots.get() is None
+
+
+@pytest.mark.parametrize("stopped", ["lease", "dependency", "invalid", "exception"])
+def test_job_catalog_reuse_cleans_up_after_interrupted_inference(runtime, monkeypatch, stopped):
+    import weakref
+
+    from devfeed_core import catalog_cache
+
+    _, job, settings, _ = runtime
+    settings.analysis_catalog_reuse_enabled = True
+    references, containers = [], []
+    original = analysis._PreparedCatalog
+    complete = analysis_tasks.CodexClient(None).complete
+
+    class TrackedCatalog(original):
+        def __init__(self, taxonomy):
+            super().__init__(taxonomy)
+            references.append(weakref.ref(self))
+
+    def infer(*args):
+        containers[:] = [analysis._ranking.get(), catalog_cache._snapshots.get()]
+        if stopped == "lease":
+            job.lease_token = uuid.uuid4()
+            return complete(*args)
+        if stopped == "dependency":
+            raise AnalysisError("codex_timeout")
+        if stopped == "invalid":
+            raise ValueError("malformed response")
+        raise RuntimeError("transport unavailable")
+
+    monkeypatch.setattr(analysis, "_PreparedCatalog", TrackedCatalog)
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=infer)
+    )
+    analysis_tasks.analyze_article(str(job.id))
+    assert job.outcome != "applied"
+    assert len(references) == 1 and references[0]() is None
+    assert containers == [[], {}]
+    assert analysis._ranking.get() is None and catalog_cache._snapshots.get() is None
+
+
+def test_durable_analysis_retry_starts_a_fresh_catalog_scope_and_reuses_saved_specialists(
+    runtime, monkeypatch
+):
+    import weakref
+
+    _, job, settings, _ = runtime
+    settings.analysis_catalog_reuse_enabled = True
+    original = analysis._PreparedCatalog
+    complete = analysis_tasks.CodexClient(None).complete
+    references, fields = [], []
+    failed = False
+
+    class TrackedCatalog(original):
+        def __init__(self, taxonomy):
+            assert not references or references[-1]() is None
+            super().__init__(taxonomy)
+            references.append(weakref.ref(self))
+
+    def infer(prompt, schema):
+        nonlocal failed
+        names = set(schema["properties"])
+        fields.append(names)
+        if "ai_description" in names and not failed:
+            failed = True
+            raise AnalysisError("codex_timeout")
+        return complete(prompt, schema)
+
+    monkeypatch.setattr(analysis, "_PreparedCatalog", TrackedCatalog)
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=infer)
+    )
+    analysis_tasks.analyze_article(str(job.id))
+    assert job.status == "queued" and references[0]() is None
+    job.available_at = utcnow()
+    analysis_tasks.analyze_article(str(job.id))
+    assert job.outcome == "applied" and job.attempts == 2
+    assert sum("developer_relevance" in names for names in fields) == 1
+    assert len(references) == 2 and all(reference() is None for reference in references)
+
+
+def test_uncaught_runtime_failure_releases_owned_catalog_even_with_retained_traceback(
+    runtime, monkeypatch
+):
+    import weakref
+
+    from devfeed_core import catalog_cache
+
+    _, job, settings, _ = runtime
+    settings.analysis_catalog_reuse_enabled = True
+    references, containers = [], []
+    taxonomy = analysis_tasks.catalog(None)
+
+    def fail(_):
+        analysis.analysis_candidates(taxonomy, job.input_snapshot)
+        references.append(weakref.ref(analysis._ranking.get()[0]))
+        containers[:] = [analysis._ranking.get(), catalog_cache._snapshots.get()]
+        raise RuntimeError("uncaught runtime failure")
+
+    monkeypatch.setattr(analysis_tasks, "_analyze", fail)
+    with pytest.raises(RuntimeError, match="uncaught runtime failure") as failure:
+        analysis_tasks.analyze_article(str(job.id))
+    assert failure.traceback is not None
+    assert references[0]() is None and containers == [[], {}]
+
+
+def test_concurrent_analysis_jobs_keep_catalog_scopes_independent(runtime, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from devfeed_core import catalog_cache
+
+    _, _, settings, _ = runtime
+    settings.analysis_catalog_reuse_enabled = True
+    barrier = Barrier(2, timeout=10)
+    scopes = []
+
+    def run(identifier):
+        taxonomy = {
+            "topics": [{"id": str(identifier), "name": str(identifier), "slug": "job"}],
+            "tags": [],
+        }
+        analysis.analysis_candidates(taxonomy, {"title": "job"})
+        ranking, snapshots = analysis._ranking.get(), catalog_cache._snapshots.get()
+        scopes.append((ranking, snapshots))
+        barrier.wait()
+        assert ranking[0].taxonomy is taxonomy
+        assert catalog_cache._snapshots.get() is snapshots
+
+    monkeypatch.setattr(analysis_tasks, "_analyze", run)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(analysis_tasks.analyze_article, [str(uuid.uuid4()), str(uuid.uuid4())]))
+    assert scopes[0][0] is not scopes[1][0] and scopes[0][1] is not scopes[1][1]
+    assert scopes == [([], {}), ([], {})]
+    assert analysis._ranking.get() is None and catalog_cache._snapshots.get() is None

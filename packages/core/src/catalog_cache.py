@@ -29,9 +29,15 @@ _invalidator: ContextVar[Callable[[], None] | None] = ContextVar(
 
 @contextmanager
 def reuse_snapshots(
-    *, retained: SnapshotCache | None = None, on_invalidate: Callable[[], None] | None = None
+    *,
+    retained: SnapshotCache | None = None,
+    on_invalidate: Callable[[], None] | None = None,
+    reuse_existing: bool = False,
 ) -> Iterator[None]:
     """Reuse revision-validated snapshots within a scope or a bounded owner cache."""
+    if reuse_existing and _snapshots.get() is not None:
+        yield
+        return
     token = _snapshots.set({} if retained is None else retained)
     invalidator_token = _invalidator.set(on_invalidate)
     try:
