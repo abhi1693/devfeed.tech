@@ -61,6 +61,7 @@ function ScopedEngagementProvider({
     [sessionRevision],
   );
   const ids = [...new Set(articleIds)].join(",");
+  const [retry, setRetry] = useState(0);
   // This cache belongs to the keyed session and is never persisted to browser storage.
   const loaded = useRef(new Set<string>());
   const loader = useRef<{
@@ -68,6 +69,9 @@ function ScopedEngagementProvider({
     queued: Set<string>;
     pending: Set<string>;
     running: boolean;
+    failures: number;
+    ids: string;
+    timer?: ReturnType<typeof setTimeout>;
   } | null>(null);
   const revision = useRef(0);
   const writes = useRef<Record<string, number>>({});
@@ -112,13 +116,26 @@ function ScopedEngagementProvider({
   useEffect(() => {
     const controller = new AbortController();
     loaded.current.clear();
-    loader.current = { controller, queued: new Set(), pending: new Set(), running: false };
-    return () => controller.abort();
+    const queue = {
+      controller,
+      queued: new Set<string>(),
+      pending: new Set<string>(),
+      running: false,
+      failures: 0,
+      ids: "",
+      timer: undefined as ReturnType<typeof setTimeout> | undefined,
+    };
+    loader.current = queue;
+    return () => {
+      controller.abort();
+      clearTimeout(queue.timer);
+    };
   }, [loading, sessionRevision]);
   useEffect(() => {
     if (loading || !ids) return;
     const queue = loader.current;
     if (!queue || queue.controller.signal.aborted) return;
+    queue.ids = ids;
     for (const id of ids.split(",")) {
       if (loaded.current.has(id) || queue.pending.has(id)) continue;
       queue.queued.add(id);
@@ -159,8 +176,8 @@ function ScopedEngagementProvider({
               return next;
             });
           } catch {
-            // Keep successful batches and continue. Missing records remain eligible for
-            // another attempt when the feed changes; reading never waits for metrics.
+            // Keep successful batches; retry missing state after the queue drains.
+            // Reading never waits for metrics.
             if (controller.signal.aborted) return;
           } finally {
             batch.forEach((id) => queue.pending.delete(id));
@@ -168,10 +185,24 @@ function ScopedEngagementProvider({
         }
       } finally {
         queue.running = false;
+        clearTimeout(queue.timer);
+        if (
+          !controller.signal.aborted &&
+          queue.ids.split(",").some((id) => !loaded.current.has(id))
+        ) {
+          // A transient metrics failure must not leave signed-in actions disabled
+          // until navigation. Back off during outages and cancel on session changes.
+          const delay = Math.min(1000 * 2 ** Math.min(queue.failures++, 5), 30000);
+          queue.timer = setTimeout(() => {
+            if (!controller.signal.aborted) setRetry((value) => value + 1);
+          }, delay);
+        } else {
+          queue.failures = 0;
+        }
       }
     };
     void load();
-  }, [ids, user?.user_id, loading, sessionRevision, setValues]);
+  }, [ids, user?.user_id, loading, sessionRevision, setValues, retry]);
   return (
     <Context.Provider
       value={!loading && snapshot.revision === sessionRevision ? snapshot.values : {}}
