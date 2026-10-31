@@ -231,6 +231,7 @@ class Settings(BaseSettings):
         return SolverService.validate_url(value)
 
     cache_enabled: bool = True
+    source_tag_shared_cache_enabled: bool = False
     cache_ttl_seconds: int = Field(default=300, ge=1, le=3600)
     cache_metadata_ttl_seconds: int = Field(default=600, ge=1, le=3600)
     cache_public_profile_ttl_seconds: int = Field(default=21600, ge=1, le=86400)

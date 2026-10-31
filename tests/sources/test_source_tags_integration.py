@@ -127,11 +127,16 @@ def test_ingestion_imports_explicit_tags_and_reuses_names_and_aliases(
         assert session.scalar(select(func.count()).select_from(ArticleTag)) == 4
 
 
+@pytest.mark.parametrize("shared_cache", [False, True])
 def test_repeated_fetch_restores_old_missing_tags_without_recreating_or_reclassifying_articles(
-    database, monkeypatch
+    database, monkeypatch, shared_cache
 ):
     monkeypatch.setenv("DEVFEED_AI_ENABLED", "true")
     get_settings.cache_clear()
+    monkeypatch.setattr(get_settings(), "cache_enabled", True)
+    from devfeed_core import source_tags
+
+    monkeypatch.setattr(get_settings(), "source_tag_shared_cache_enabled", shared_cache)
     source_id = source(database)
     parsed = feed(["supplied"])
     with database.begin() as session:
@@ -148,6 +153,7 @@ def test_repeated_fetch_restores_old_missing_tags_without_recreating_or_reclassi
         assert article.feed_at == original_date
         article.classification_provenance = {"origin": "manual"}
         session.execute(delete(ArticleTag))
+    monkeypatch.setattr(source_tags, "_identity_snapshot", None)
     with database.begin() as session:
         tasks.store_entries(session, source_id, parsed)
         assert not session.get(Article, article_id).tags
@@ -254,3 +260,194 @@ def test_backfill_respects_source_review_and_manual_classifications(database):
             article.classification_provenance = {"origin": "manual"}
     result = backfill_tags(limit=500)
     assert result["origins_examined"] == 1 and result["links_saved"] == 0
+
+
+def test_source_tag_projection_reuses_validated_data_after_a_fresh_worker(database, monkeypatch):
+    import json
+    import time
+    import zlib
+
+    from devfeed_core import cache, source_tags
+    from devfeed_core.db import get_engine
+    from sqlalchemy import event, text
+
+    monkeypatch.setattr(get_settings(), "cache_enabled", True)
+    monkeypatch.setattr(get_settings(), "source_tag_shared_cache_enabled", True)
+    cache.close_cache()
+    with database.begin() as session:
+        session.execute(
+            text(
+                "INSERT INTO tags(id,name,slug,aliases) "
+                "SELECT md5('source-tag-shared-'||g::text)::uuid,'Tool '||g,'tool-'||g,"
+                "ARRAY['alias-'||g] FROM generate_series(1,55000) g"
+            )
+        )
+    queries = []
+    normalized = []
+    normalize = source_tags.source_tag_names
+
+    def counted(values):
+        normalized.append(1)
+        return normalize(values)
+
+    monkeypatch.setattr(source_tags, "source_tag_names", counted)
+
+    def observe(_connection, _cursor, statement, _parameters, _context, _many):
+        if "tags.aliases" in statement and "ORDER BY tags.slug" in statement:
+            queries.append(statement)
+
+    event.listen(get_engine(), "before_cursor_execute", observe)
+    try:
+        monkeypatch.setattr(source_tags, "_identity_snapshot", None)
+        started = time.process_time()
+        with database() as session:
+            first, created = resolve_source_tags(session, ["alias-1", "Tool 2"])
+        cold_cpu = time.process_time() - started
+        cold_normalizations = len(normalized)
+        assert cold_normalizations == 110001
+        assert created == 0 and len(first) == 2 and len(queries) == 1
+        # Simulate a new RQ work horse with no inherited in-process projection.
+        monkeypatch.setattr(source_tags, "_identity_snapshot", None)
+        started = time.process_time()
+        with database() as session:
+            repeated, created = resolve_source_tags(session, ["alias-1", "Tool 2"])
+        warm_cpu = time.process_time() - started
+        assert len(normalized) == cold_normalizations + 1
+        payload = cache.get_cache().redis.getrange(
+            f"{cache.get_cache().namespace}:source-tag-identities:v1",
+            0,
+            source_tags._SHARED_INDEX_BYTES,
+        )
+        print(
+            json.dumps(
+                {
+                    "tags": 55000,
+                    "cold_cpu_seconds": cold_cpu,
+                    "warm_cpu_seconds": warm_cpu,
+                    "wire_bytes": len(payload),
+                    "decoded_bytes": len(zlib.decompress(payload)),
+                    "cold_normalizations": cold_normalizations,
+                    "warm_normalizations": 1,
+                }
+            )
+        )
+        assert repeated == first and created == 0 and len(queries) == 1
+        with database.begin() as session:
+            session.execute(text("UPDATE tags SET aliases=ARRAY['renamed'] WHERE slug='tool-1'"))
+        monkeypatch.setattr(source_tags, "_identity_snapshot", None)
+        with database() as session:
+            changed, created = resolve_source_tags(session, ["renamed"])
+        assert changed["renamed"] == first["alias-1"] and created == 0 and len(queries) == 2
+    finally:
+        event.remove(get_engine(), "before_cursor_execute", observe)
+        cache.close_cache()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "malformed",
+        "bad_uuid",
+        "bad_reference",
+        "oversized",
+        "decoded_oversized",
+        "trailing",
+        "unavailable",
+    ],
+)
+def test_source_tag_shared_projection_failure_falls_back_to_postgres(
+    database, monkeypatch, failure
+):
+    import json
+
+    from devfeed_core import cache, source_tags
+    from devfeed_core.models import CatalogRevision
+
+    monkeypatch.setattr(get_settings(), "cache_enabled", True)
+    monkeypatch.setattr(get_settings(), "source_tag_shared_cache_enabled", True)
+    cache.close_cache()
+    with database.begin() as session:
+        tag = Tag(name="Python", slug="python", aliases=["py"])
+        session.add(tag)
+        session.flush()
+        identifier = tag.id
+        revision = session.scalar(
+            select(CatalogRevision.revision).where(CatalogRevision.name == "tags")
+        )
+    client = cache.get_cache()
+    key = f"{client.namespace}:source-tag-identities:v1"
+    if failure == "malformed":
+        body = b"not-json"
+    elif failure == "bad_uuid":
+        import zlib
+
+        body = zlib.compress(
+            json.dumps(
+                {
+                    "revision": str(revision),
+                    "ids": ["invalid"],
+                    "identities": {"py": 0},
+                    "slugs": {},
+                }
+            ).encode()
+        )
+    elif failure == "bad_reference":
+        import zlib
+
+        body = zlib.compress(
+            json.dumps(
+                {
+                    "revision": str(revision),
+                    "ids": [str(identifier)],
+                    "identities": {"py": 2},
+                    "slugs": {},
+                }
+            ).encode()
+        )
+    else:
+        body = "x" * (source_tags._SHARED_INDEX_BYTES + 1)
+    if failure in {"decoded_oversized", "trailing"}:
+        import zlib
+
+        body = zlib.compress(b"x" * (source_tags._SHARED_INDEX_DECODED_BYTES + 1))
+        if failure == "trailing":
+            body = zlib.compress(b"{}") + b"extra"
+    client.redis.set(key, body)
+    if failure == "unavailable":
+
+        def unavailable(*_):
+            raise cache.CacheUnavailable
+
+        monkeypatch.setattr(client, "_run", unavailable)
+    monkeypatch.setattr(source_tags, "_identity_snapshot", None)
+    try:
+        with database() as session:
+            found, created = resolve_source_tags(session, ["py"])
+        assert found == {"py": identifier} and created == 0
+    finally:
+        cache.close_cache()
+
+
+def test_uncommitted_source_tag_projection_cannot_survive_catalog_rollback(database, monkeypatch):
+    from devfeed_core import cache, source_tags
+
+    monkeypatch.setattr(get_settings(), "cache_enabled", True)
+    monkeypatch.setattr(get_settings(), "source_tag_shared_cache_enabled", True)
+    cache.close_cache()
+    with database.begin() as session:
+        tag = Tag(name="Stable", slug="stable", aliases=["old"])
+        session.add(tag)
+        session.flush()
+        identifier = tag.id
+    try:
+        with database() as session:
+            session.get(Tag, identifier).aliases = ["temporary"]
+            monkeypatch.setattr(source_tags, "_identity_snapshot", None)
+            assert resolve_source_tags(session, ["temporary"])[0] == {"temporary": identifier}
+            session.rollback()
+        monkeypatch.setattr(source_tags, "_identity_snapshot", None)
+        with database() as session:
+            assert resolve_source_tags(session, ["old"])[0] == {"old": identifier}
+            assert session.get(Tag, identifier).aliases == ["old"]
+    finally:
+        cache.close_cache()

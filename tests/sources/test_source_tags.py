@@ -120,3 +120,207 @@ def test_source_tag_slugs_fit_the_catalog_contract(name):
 def test_source_tag_slugs_do_not_collapse_language_names_or_non_latin_labels():
     assert len({source_tag_slug(name) for name in ["C", "C++", "C#", "日本語", "中文"]}) == 5
     assert len({source_tag_slug(name) for name in ["AI", "AI 日本語", "AI 中文"]}) == 3
+
+
+@pytest.fixture
+def shared_projection(monkeypatch):
+    import uuid
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from devfeed_core import cache, source_tags
+
+    redis = Mock()
+    redis.getrange.return_value = b""
+    client = cache.ResponseCache(redis, "source-tag-test")
+    monkeypatch.setattr(source_tags, "get_cache", lambda: client)
+    monkeypatch.setattr(
+        source_tags,
+        "get_settings",
+        lambda: SimpleNamespace(cache_enabled=True, source_tag_shared_cache_enabled=True),
+    )
+    monkeypatch.setattr(source_tags, "_identity_snapshot", None)
+    identifier, revision = uuid.uuid4(), uuid.uuid4()
+    row = SimpleNamespace(id=identifier, name="Fast API", slug="fastapi", aliases=["fast"])
+    session = Mock()
+    session.scalar.return_value = revision
+    session.execute.return_value.all.return_value = [row]
+    return SimpleNamespace(
+        module=source_tags,
+        client=client,
+        redis=redis,
+        identifier=identifier,
+        revision=revision,
+        row=row,
+        session=session,
+    )
+
+
+def test_source_tag_projection_is_shared_without_repeating_normalization(shared_projection):
+    v = shared_projection
+    expected = v.module._source_tag_index(v.session)
+    assert expected[0]["fast"] == v.identifier
+    payload = v.redis.set.call_args.args[1]
+    assert v.redis.set.call_args.args[0] == "source-tag-test:source-tag-identities:v1"
+    assert v.redis.set.call_args.kwargs == {"ex": 600}
+    assert v.session.execute.call_count == 1
+    # The local snapshot needs no transport or catalog reload.
+    assert v.module._source_tag_index(v.session) == expected
+    assert v.redis.getrange.call_count == 1
+    v.module._identity_snapshot = None
+    v.redis.getrange.return_value = payload
+    assert v.module._source_tag_index(v.session) == expected
+    assert v.session.execute.call_count == 1
+    v.redis.getrange.assert_called_with(
+        "source-tag-test:source-tag-identities:v1", 0, v.module._SHARED_INDEX_BYTES
+    )
+    with pytest.raises(TypeError):
+        expected[0]["other"] = v.identifier
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        "missing",
+        "string_transport",
+        "too_many_ids",
+        "wire_oversized",
+        "bad_compression",
+        "truncated",
+        "trailing",
+        "decoded_oversized",
+        "invalid_json",
+        "stale",
+        "ids_not_list",
+        "non_string_id",
+        "invalid_uuid",
+        "map_not_dict",
+        "empty_key",
+        "long_key",
+        "bool_reference",
+        "negative_reference",
+        "large_reference",
+    ],
+)
+def test_invalid_shared_source_tag_data_is_never_used(shared_projection, monkeypatch, invalid):
+    import zlib
+
+    v = shared_projection
+    value = {
+        "revision": str(v.revision),
+        "ids": [str(v.identifier)],
+        "identities": {"fast": 0},
+        "slugs": {"fastapi": 0},
+    }
+    if invalid == "stale":
+        value["revision"] = "older"
+    elif invalid == "too_many_ids":
+        monkeypatch.setattr(v.module, "_SHARED_INDEX_MAX_TAGS", 0)
+    elif invalid == "ids_not_list":
+        value["ids"] = {}
+    elif invalid == "non_string_id":
+        value["ids"] = [42]
+    elif invalid == "invalid_uuid":
+        value["ids"] = ["invalid"]
+    elif invalid == "map_not_dict":
+        value["identities"] = []
+    elif invalid in {"empty_key", "long_key"}:
+        value["identities"] = {"" if invalid == "empty_key" else "x" * 301: 0}
+    elif invalid in {"bool_reference", "negative_reference", "large_reference"}:
+        value["identities"] = {
+            "fast": {"bool_reference": True, "negative_reference": -1, "large_reference": 9}[
+                invalid
+            ]
+        }
+    body = zlib.compress(json.dumps(value).encode())
+    if invalid == "missing":
+        body = b""
+    elif invalid == "string_transport":
+        body = "not compressed bytes"
+    elif invalid == "wire_oversized":
+        monkeypatch.setattr(v.module, "_SHARED_INDEX_BYTES", 16)
+        body = b"x" * 17
+    elif invalid == "bad_compression":
+        body = b"invalid"
+    elif invalid == "truncated":
+        body = body[:-1]
+    elif invalid == "trailing":
+        body += b"extra"
+    elif invalid == "decoded_oversized":
+        monkeypatch.setattr(v.module, "_SHARED_INDEX_DECODED_BYTES", 32)
+    elif invalid == "invalid_json":
+        body = zlib.compress(b"not json")
+    v.redis.getrange.return_value = body
+    assert v.module._shared_source_tag_index(v.revision) is None
+
+
+def test_unavailable_shared_source_tag_transport_does_not_block_database_resolution(
+    shared_projection,
+):
+    from redis.exceptions import ConnectionError
+
+    v = shared_projection
+    v.redis.getrange.side_effect = ConnectionError("unavailable")
+    assert v.module._source_tag_index(v.session)[0]["fast"] == v.identifier
+    assert v.session.execute.call_count == 1
+    v.redis.set.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "limit", ["_SHARED_INDEX_BYTES", "_SHARED_INDEX_DECODED_BYTES", "_SHARED_INDEX_MAX_TAGS"]
+)
+def test_oversized_source_tag_projection_is_not_published(shared_projection, monkeypatch, limit):
+    v = shared_projection
+    monkeypatch.setattr(v.module, limit, 0 if limit == "_SHARED_INDEX_MAX_TAGS" else 8)
+    assert v.module._source_tag_index(v.session)[0]["fast"] == v.identifier
+    v.redis.set.assert_not_called()
+
+
+def test_source_tag_catalog_change_during_shared_lookup_uses_fresh_database_rows(shared_projection):
+    import uuid
+
+    v = shared_projection
+    v.module._source_tag_index(v.session)
+    v.redis.getrange.return_value = v.redis.set.call_args.args[1]
+    v.redis.set.reset_mock()
+    v.module._identity_snapshot = None
+    newer = uuid.uuid4()
+    v.session.scalar.side_effect = [v.revision, newer, newer]
+    v.row.name = "Changed name"
+    found = v.module._source_tag_index(v.session)
+    assert found[0]["changed name"] == v.identifier
+    assert "fast api" not in found[0]
+    assert v.module._identity_snapshot is None
+    v.redis.set.assert_not_called()
+
+
+@pytest.mark.parametrize("public_cache", [False, True])
+def test_disabled_shared_source_tag_projection_keeps_existing_local_policy(
+    shared_projection, monkeypatch, public_cache
+):
+    from types import SimpleNamespace
+
+    v = shared_projection
+    monkeypatch.setattr(
+        v.module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            cache_enabled=public_cache,
+            source_tag_shared_cache_enabled=False,
+        ),
+    )
+    assert v.module._source_tag_index(v.session)[0]["fast"] == v.identifier
+    v.redis.getrange.assert_not_called()
+    v.redis.set.assert_not_called()
+
+
+def test_shared_projection_preserves_expanding_unicode_casefolds(shared_projection):
+    v = shared_projection
+    v.row.name = "ΐ" * 100
+    expected = v.module._source_tag_index(v.session)
+    key = next(iter(source_tag_names([v.row.name])))
+    assert len(key) == 300 and expected[0][key] == v.identifier
+    v.redis.getrange.return_value = v.redis.set.call_args.args[1]
+    v.module._identity_snapshot = None
+    assert v.module._source_tag_index(v.session)[0][key] == v.identifier
+    assert v.session.execute.call_count == 1
