@@ -4,7 +4,7 @@ import json
 import time
 from collections.abc import Callable, Coroutine
 from contextlib import suppress
-from typing import Literal
+from typing import Literal, get_args
 
 import anyio
 from devfeed_core.cache import CacheUnavailable, get_cache, record_cache_read
@@ -33,7 +33,10 @@ def query_identity_fields(dependant: Dependant) -> frozenset[str] | None:
         pending.extend(current.dependencies)
         for field in current.query_params:
             annotation = field.field_info.annotation
-            if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            if any(
+                isinstance(candidate, type) and issubclass(candidate, BaseModel)
+                for candidate in (annotation, *get_args(annotation))
+            ):
                 # Query models can reject unknown keys; dropping those keys
                 # could incorrectly turn a validation failure into a cache hit.
                 return None

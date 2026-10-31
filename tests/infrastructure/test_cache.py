@@ -811,7 +811,10 @@ def test_native_dependency_aliases_and_repeated_values_remain_in_cache_identity(
     assert len(calls) == 3
 
 
-def test_query_model_extra_validation_cannot_be_bypassed_by_normalized_cache(response_cache):
+@pytest.mark.parametrize("nullable", [False, True])
+def test_query_model_extra_validation_cannot_be_bypassed_by_normalized_cache(
+    response_cache, nullable
+):
     from typing import Annotated
 
     from devfeed_api.cache import CachedReadRoute, CachePolicy
@@ -823,7 +826,9 @@ def test_query_model_extra_validation_cannot_be_bypassed_by_normalized_cache(res
         model_config = ConfigDict(extra="forbid")
         limit: int = 10
 
-    def endpoint(filters: Annotated[Filters, Query()]):
+    annotation = Annotated[Filters | None, Query()] if nullable else Annotated[Filters, Query()]
+
+    def endpoint(filters: annotation):
         return filters
 
     app, router = FastAPI(), APIRouter(route_class=CachedReadRoute)
@@ -840,7 +845,10 @@ def test_query_model_extra_validation_cannot_be_bypassed_by_normalized_cache(res
     )
     app.include_router(router)
     with TestClient(app) as client:
-        assert client.get("/catalog").headers["x-cache"] == "MISS"
-        assert client.get("/catalog").headers["x-cache"] == "HIT"
+        assert client.get("/catalog?limit=10").headers["x-cache"] == "MISS"
+        assert client.get("/catalog?limit=10").headers["x-cache"] == "HIT"
+        for limit in (1, 2):
+            response = client.get(f"/catalog?limit={limit}")
+            assert response.headers["x-cache"] == "MISS" and response.json() == {"limit": limit}
         for _ in range(2):
-            assert client.get("/catalog?unexpected=invalid").status_code == 422
+            assert client.get("/catalog?limit=10&unexpected=invalid").status_code == 422
