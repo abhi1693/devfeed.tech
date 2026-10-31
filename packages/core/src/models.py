@@ -1519,6 +1519,7 @@ class SearchEvent(Base):
     kind: Mapped[str] = mapped_column(String(20))
     entity_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     fanout: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    public_change: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     after_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")

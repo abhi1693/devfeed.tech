@@ -14,7 +14,7 @@ EXPECTED = {
     "/v1/feed": ("feed", 1, "content"),
     "/v1/feed/options": ("feed-options", 1, "content"),
     "/v1/articles/{article_id}": ("article", 1, "content"),
-    "/v1/search": ("search", 1, "content"),
+    "/v1/search": ("search", 2, "content"),
     "/v1/search/suggestions": ("search-suggestions", 1, "content"),
     "/v1/sources": ("sources", 1, "metadata"),
     "/v1/sources/{source_id}": ("source", 1, "metadata"),
@@ -41,6 +41,7 @@ def test_public_cache_inventory_marks_only_the_twelve_shared_read_operations():
         policy = CachePolicy.model_validate(extra[CACHE_POLICY_EXTENSION])
         assert policy.namespace not in namespaces
         namespaces.add(policy.namespace)
+        assert policy.index_generation == (context.path == "/v1/search")
         actual[context.path] = (policy.namespace, policy.revision, policy.ttl)
         exported = app.openapi()["paths"][context.path]["get"][CACHE_POLICY_EXTENSION]
         assert exported == policy.model_dump()

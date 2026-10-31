@@ -203,6 +203,7 @@ class Settings(BaseSettings):
         return value
 
     search_enabled: bool = False
+    search_cache_isolation_enabled: bool = False
     search_analytics_enabled: bool = False
     search_url: str | None = None
     search_query_key: SecretStr | None = None

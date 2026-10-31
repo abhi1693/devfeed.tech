@@ -52,7 +52,8 @@ def runtime(monkeypatch):
     monkeypatch.setattr(index, "get_settings", lambda: configuration(search_index_batch_size=10))
     project, invalidate = Mock(), Mock()
     monkeypatch.setattr(index, "documents", project)
-    monkeypatch.setattr(index, "invalidate_public_cache", invalidate)
+    monkeypatch.setattr(index, "invalidate_search_cache", invalidate)
+    monkeypatch.setattr(index, "invalidate_public_cache", Mock())
     return SimpleNamespace(
         session=session, engine=engine, factory=factory, project=project, invalidate=invalidate
     )
@@ -88,7 +89,7 @@ def test_duplicate_events_share_one_projection_and_only_selected_events_are_ackn
 
     def invalidated(**kwargs):
         assert not runtime.factory.open
-        assert kwargs == {"reasons": ("search_index",)}
+        assert kwargs == {"public_change": True}
 
     runtime.invalidate.side_effect = invalidated
 
@@ -137,7 +138,9 @@ def test_catalog_fanout_queues_selected_article_ids_and_only_full_pages_continue
     ]
     assert len(writes) == int(bool(ids))
     if ids:
-        assert writes[0].args[1] == [{"kind": "articles", "entity_id": value} for value in ids]
+        assert writes[0].args[1] == [
+            {"kind": "articles", "entity_id": value, "public_change": False} for value in ids
+        ]
     if size == 10:
         continuation = runtime.session.add.call_args.args[0]
         assert continuation.kind == "topics" and continuation.entity_id == identifier

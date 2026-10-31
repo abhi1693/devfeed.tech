@@ -170,7 +170,9 @@ async def successful_click(body: SearchClick, factory: DBFactory, request: Reque
 @router.get(
     "",
     response_model=SearchResponse,
-    openapi_extra=CachePolicy(namespace="search", revision=1, ttl="content").openapi_extra(),
+    openapi_extra=CachePolicy(
+        namespace="search", revision=2, ttl="content", index_generation=True
+    ).openapi_extra(),
 )
 def search(
     session: DB,

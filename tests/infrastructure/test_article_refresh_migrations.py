@@ -20,6 +20,7 @@ from alembic.script import ScriptDirectory
 from devfeed_core.analytics_cutover import LegacyAnalyticsCutover
 from devfeed_core.config import get_settings
 from devfeed_core.db import get_engine
+from devfeed_core.version import SCHEMA_REVISION
 from psycopg.rows import dict_row
 from sqlalchemy import event, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
@@ -489,7 +490,7 @@ def test_refresh_history_refuses_downgrade_and_owner_deletion_but_article_cascad
     assert index_state(database) == indexes
     assert ordinary_fingerprints(database) == before
     with database() as session:
-        assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0040"
+        assert session.scalar(text("SELECT version_num FROM alembic_version")) == SCHEMA_REVISION
         assert session.scalar(text("SELECT count(*) FROM article_refreshes")) == 1
         assert (
             tuple(

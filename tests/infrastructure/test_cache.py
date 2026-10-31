@@ -52,9 +52,14 @@ class MemoryRedis:
                     self.values.pop(key, None)
                     return 1
             elif script == cache.PUBLISH:
-                epoch_key, lock_key, key, epoch, token, body, ttl = args
-                if self.get(epoch_key) == epoch and self.get(lock_key) == token.encode():
-                    self.set(key, body, ex=ttl)
+                keys, values = args[:count], args[count:]
+                generations = count - 2
+                token, body, ttl = values[generations:]
+                if (
+                    all(self.get(keys[i]) == values[i] for i in range(generations))
+                    and self.get(keys[-2]) == token.encode()
+                ):
+                    self.set(keys[-1], body, ex=ttl)
                     return 1
             else:
                 pytest.fail("Unexpected Redis script")
@@ -742,3 +747,92 @@ def test_loaded_tag_reassigned_its_current_value_does_not_evict_public_responses
         cache_events.track_objects(session, None, None)
         assert not session.info.get(cache_events.DIRTY)
         assert not session.info.get(cache_events.REASONS)
+
+
+@pytest.mark.parametrize("changed", ["public", "search-index"])
+def test_search_cache_publisher_fences_both_epochs(response_cache, changed):
+    lookup = response_cache.lookup("search", "public", dependencies=("search-index",))
+    assert lookup.token
+    response_cache.invalidate(changed)
+    assert not response_cache.publish(lookup, b'{"items":[]}', 60)
+    response_cache.release(lookup)
+    fresh = response_cache.lookup("search", "public", dependencies=("search-index",))
+    assert fresh.key != lookup.key and fresh.body is None
+
+
+def test_projection_epoch_preserves_content_but_changes_search_results(response_cache):
+    content = response_cache.lookup("article", "public")
+    search = response_cache.lookup("search", "public", dependencies=("search-index",))
+    assert response_cache.publish(content, b'{"title":"Approved"}', 60)
+    assert response_cache.publish(search, b'{"items":[]}', 60)
+    response_cache.invalidate("search-index")
+    assert response_cache.lookup("article", "public").body == b'{"title":"Approved"}'
+    assert response_cache.lookup("search", "public", dependencies=("search-index",)).body is None
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("public_change", [False, True])
+def test_projection_cache_isolation_retains_conservative_fallback(
+    response_cache, monkeypatch, enabled, public_change
+):
+    monkeypatch.setattr(get_settings(), "search_cache_isolation_enabled", enabled)
+    content = response_cache.lookup("article", "public")
+    search = response_cache.lookup("search", "public", dependencies=("search-index",))
+    cache.invalidate_search_cache(public_change=public_change)
+    current = response_cache.lookup("article", "public")
+    assert (current.key != content.key) == (public_change or not enabled)
+    assert (
+        response_cache.lookup("search", "public", dependencies=("search-index",)).key != search.key
+    )
+
+
+def test_search_route_uses_both_epochs_without_flushing_unrelated_reads(response_cache):
+    from devfeed_api.cache import CachedReadRoute, CachePolicy
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+
+    app, router = FastAPI(), APIRouter(route_class=CachedReadRoute)
+    counts = {"content": 0, "search": 0}
+    for kind in counts:
+
+        def endpoint(current=kind):
+            counts[current] += 1
+            return {"kind": current}
+
+        router.add_api_route(
+            f"/{kind}",
+            endpoint,
+            methods=["GET"],
+            openapi_extra=CachePolicy(
+                namespace=kind, revision=1, ttl="content", index_generation=kind == "search"
+            ).openapi_extra(),
+        )
+    app.include_router(router)
+    with TestClient(app) as client:
+        for path in ("/content", "/search"):
+            assert client.get(path).headers["x-cache"] == "MISS"
+            assert client.get(path).headers["x-cache"] == "HIT"
+        response_cache.invalidate("search-index")
+        assert client.get("/content").headers["x-cache"] == "HIT"
+        assert client.get("/search").headers["x-cache"] == "MISS"
+        response_cache.invalidate("public")
+        assert client.get("/content").headers["x-cache"] == "MISS"
+        assert client.get("/search").headers["x-cache"] == "MISS"
+    assert counts == {"content": 2, "search": 3}
+
+
+def test_unknown_cache_dependency_is_rejected_without_reading_redis(response_cache):
+    with pytest.raises(ValueError, match="Unknown cache dependency"):
+        response_cache.lookup("record", "public", dependencies=("arbitrary",))
+
+
+def test_disabled_search_cache_records_domains_without_contacting_redis(monkeypatch):
+    monkeypatch.setattr(get_settings(), "cache_enabled", False)
+    recorder = []
+    monkeypatch.setattr(cache, "record_cache_invalidation", lambda *args: recorder.append(args))
+    monkeypatch.setattr(cache, "get_cache", lambda: pytest.fail("Cache disabled"))
+    cache.invalidate_search_cache(public_change=True)
+    assert recorder == [
+        ("public", "disabled", ("search_index",)),
+        ("search-index", "disabled", ("search_index",)),
+    ]
