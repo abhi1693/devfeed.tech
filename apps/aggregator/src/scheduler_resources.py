@@ -16,9 +16,9 @@ from devfeed_aggregator.queue import get_queue
 class SchedulerResources(AbstractContextManager["SchedulerResources"]):
     """Reuse SQL within a main-loop cycle and Redis across main-loop cycles.
 
-    Main-loop SQL connections close before the polling wait. Interactive threads
-    retain their previous connection policy rather than pinning idle sessions in
-    the production session-mode PgBouncer pool.
+    When overriding NullPool, main-loop SQL connections close before polling.
+    Interactive threads retain their previous connection policy rather than
+    pinning idle sessions in the production session-mode PgBouncer pool.
     """
 
     def __init__(self, settings: Settings | None = None) -> None:
@@ -53,7 +53,7 @@ class SchedulerResources(AbstractContextManager["SchedulerResources"]):
 
     @contextmanager
     def cycle(self) -> Iterator[None]:
-        """Never reserve shared database capacity during the 15-second wait."""
+        """Release newly introduced database slots before the polling wait."""
         try:
             yield
         finally:

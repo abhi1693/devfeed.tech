@@ -380,20 +380,25 @@ def test_scheduler_closes_every_client_and_engine_even_if_a_client_close_fails(m
     from devfeed_aggregator import scheduler_resources
     from devfeed_core.config import get_settings
 
-    engine, first, second = Mock(), Mock(), Mock()
+    engine, background, first, second = Mock(), Mock(), Mock(), Mock()
     first.connection.close.side_effect = RuntimeError("close failed")
-    monkeypatch.setattr(scheduler_resources, "create_database_engine", lambda _: engine)
+    monkeypatch.setattr(
+        scheduler_resources, "create_database_engine", Mock(side_effect=[engine, background])
+    )
     monkeypatch.setattr(scheduler_resources, "sessionmaker", Mock())
     monkeypatch.setattr(scheduler_resources, "get_queue", Mock(side_effect=[first, second]))
     with (
         pytest.raises(RuntimeError, match="close failed"),
-        scheduler_resources.SchedulerResources(get_settings()) as resources,
+        scheduler_resources.SchedulerResources(
+            get_settings().model_copy(update={"database_pool_enabled": False})
+        ) as resources,
     ):
         resources.queue("ingestion")
         resources.queue("images")
     first.connection.close.assert_called_once_with()
     second.connection.close.assert_called_once_with()
     engine.dispose.assert_called_once_with()
+    background.dispose.assert_called_once_with()
     assert resources.queues == {}
 
 
@@ -429,3 +434,25 @@ def test_scheduler_preserves_an_explicitly_enabled_database_pool(monkeypatch):
         engine.dispose.assert_not_called()
         build.assert_called_once_with(settings)
     engine.dispose.assert_called_once_with()
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_main_cycle_cleanup_never_disposes_the_interactive_engine(monkeypatch, failed):
+    from devfeed_aggregator import scheduler_resources
+    from devfeed_core.config import get_settings
+
+    main, background = Mock(), Mock()
+    monkeypatch.setattr(
+        scheduler_resources, "create_database_engine", Mock(side_effect=[main, background])
+    )
+    settings = get_settings().model_copy(update={"database_pool_enabled": False})
+    with scheduler_resources.SchedulerResources(settings) as resources:
+        outcome = pytest.raises(RuntimeError, match="cycle failed") if failed else nullcontext()
+        with outcome, resources.cycle():
+            background.dispose.assert_not_called()
+            if failed:
+                raise RuntimeError("cycle failed")
+        main.dispose.assert_called_once_with()
+        background.dispose.assert_not_called()
+    assert main.dispose.call_count == 2
+    background.dispose.assert_called_once_with()
