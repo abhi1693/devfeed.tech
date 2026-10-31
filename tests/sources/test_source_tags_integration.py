@@ -300,7 +300,7 @@ def test_source_tag_projection_reuses_validated_data_after_a_fresh_worker(databa
     try:
         monkeypatch.setattr(source_tags, "_identity_snapshot", None)
         started = time.process_time()
-        with database() as session:
+        with source_tags.prefetch_source_tags(["alias-1", "Tool 2"]), database() as session:
             first, created = resolve_source_tags(session, ["alias-1", "Tool 2"])
         cold_cpu = time.process_time() - started
         cold_normalizations = len(normalized)
@@ -309,7 +309,7 @@ def test_source_tag_projection_reuses_validated_data_after_a_fresh_worker(databa
         # Simulate a new RQ work horse with no inherited in-process projection.
         monkeypatch.setattr(source_tags, "_identity_snapshot", None)
         started = time.process_time()
-        with database() as session:
+        with source_tags.prefetch_source_tags(["alias-1", "Tool 2"]), database() as session:
             repeated, created = resolve_source_tags(session, ["alias-1", "Tool 2"])
         warm_cpu = time.process_time() - started
         assert len(normalized) == cold_normalizations + 1
@@ -335,7 +335,7 @@ def test_source_tag_projection_reuses_validated_data_after_a_fresh_worker(databa
         with database.begin() as session:
             session.execute(text("UPDATE tags SET aliases=ARRAY['renamed'] WHERE slug='tool-1'"))
         monkeypatch.setattr(source_tags, "_identity_snapshot", None)
-        with database() as session:
+        with source_tags.prefetch_source_tags(["renamed"]), database() as session:
             changed, created = resolve_source_tags(session, ["renamed"])
         assert changed["renamed"] == first["alias-1"] and created == 0 and len(queries) == 2
     finally:
@@ -421,7 +421,7 @@ def test_source_tag_shared_projection_failure_falls_back_to_postgres(
         monkeypatch.setattr(client, "_run", unavailable)
     monkeypatch.setattr(source_tags, "_identity_snapshot", None)
     try:
-        with database() as session:
+        with source_tags.prefetch_source_tags(["py"]), database() as session:
             found, created = resolve_source_tags(session, ["py"])
         assert found == {"py": identifier} and created == 0
     finally:
@@ -450,4 +450,162 @@ def test_uncommitted_source_tag_projection_cannot_survive_catalog_rollback(datab
             assert resolve_source_tags(session, ["old"])[0] == {"old": identifier}
             assert session.get(Tag, identifier).aliases == ["old"]
     finally:
+        cache.close_cache()
+
+
+@pytest.mark.parametrize("commit", [False, True])
+def test_shared_projection_publication_runs_after_database_connection_release(
+    database, monkeypatch, commit
+):
+    from devfeed_core import cache, source_tags
+    from devfeed_core.db import get_engine
+    from sqlalchemy import event
+
+    with database.begin() as session:
+        session.add(Tag(name="Stable", slug="stable", aliases=["old"]))
+    monkeypatch.setattr(get_settings(), "cache_enabled", True)
+    monkeypatch.setattr(get_settings(), "source_tag_shared_cache_enabled", True)
+    monkeypatch.setattr(source_tags, "_identity_snapshot", None)
+    cache.close_cache()
+    checked_out, publications = [], []
+    engine = get_engine()
+
+    def checkout(*_):
+        checked_out.append(1)
+
+    def checkin(*_):
+        checked_out.pop()
+
+    publish = source_tags._publish_source_tag_index
+
+    def outside_transaction(*args):
+        assert checked_out == []
+        assert not active_session.in_transaction()
+        publications.append(1)
+        publish(*args)
+
+    monkeypatch.setattr(source_tags, "_publish_source_tag_index", outside_transaction)
+    event.listen(engine, "checkout", checkout)
+    event.listen(engine, "checkin", checkin)
+    try:
+        with database() as active_session:
+            assert resolve_source_tags(active_session, ["old"])[1] == 0
+            assert publications == [] and checked_out == [1]
+            if commit:
+                active_session.commit()
+        assert publications == [1] and checked_out == []
+    finally:
+        event.remove(engine, "checkout", checkout)
+        event.remove(engine, "checkin", checkin)
+        cache.close_cache()
+
+
+@pytest.mark.parametrize("transport", ["warm", "corrupt", "unavailable"])
+def test_ingestion_prefetches_shared_tags_before_opening_its_commit_transaction(
+    database, monkeypatch, transport
+):
+    from devfeed_core import cache, source_tags
+    from devfeed_core.db import get_engine
+    from devfeed_core.jobs import request_ingestion
+    from devfeed_core.models import IngestionJob
+    from redis.exceptions import ConnectionError
+    from sqlalchemy import event
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "cache_enabled", True)
+    monkeypatch.setattr(settings, "source_tag_shared_cache_enabled", True)
+    monkeypatch.setattr(settings, "ai_enabled", True)
+    cache.close_cache()
+    source_id = source(database)
+    with database.begin() as session:
+        session.add(Tag(name="Stable", slug="stable", aliases=["old"]))
+        identifier = request_ingestion(session, session.get(Source, source_id)).id
+    with database() as session:
+        assert resolve_source_tags(session, ["old"])[1] == 0
+    client = cache.get_cache()
+    if transport == "corrupt":
+        client.redis.set(f"{client.namespace}:source-tag-identities:v1", b"corrupt")
+    checked_out, prefetched = [], []
+
+    def checkout(*_):
+        checked_out.append(1)
+
+    def checkin(*_):
+        checked_out.pop()
+
+    getrange = client.redis.getrange
+
+    def outside_transaction(*args):
+        assert checked_out == []
+        prefetched.append(1)
+        if transport == "unavailable":
+            raise ConnectionError("test transport unavailable")
+        return getrange(*args)
+
+    monkeypatch.setattr(client.redis, "getrange", outside_transaction)
+    monkeypatch.setattr(source_tags, "_identity_snapshot", None)
+    body = b"""<rss version="2.0"><channel><title>Example</title><item>
+    <guid>prefetch</guid><title>An engineering article</title>
+    <link>https://example.com/prefetch</link><category>old</category>
+    <description>A sufficiently useful publisher summary.</description>
+    </item></channel></rss>"""
+    monkeypatch.setattr(tasks, "fetch_feed", lambda url, *_: FetchResult(200, body, url))
+    engine = get_engine()
+    event.listen(engine, "checkout", checkout)
+    event.listen(engine, "checkin", checkin)
+    try:
+        tasks.ingest(str(identifier))
+        assert prefetched == [1] and checked_out == []
+        with database() as session:
+            assert session.get(IngestionJob, identifier).status == "succeeded"
+            assert {tag.slug for tag in session.scalar(select(Article)).tags} == {"stable"}
+    finally:
+        event.remove(engine, "checkout", checkout)
+        event.remove(engine, "checkin", checkin)
+        cache.close_cache()
+
+
+def test_concurrent_shared_projection_fence_failure_keeps_baseline_sql_read_budget(
+    database, monkeypatch
+):
+    from devfeed_core import cache, source_tags
+    from devfeed_core.db import get_engine
+    from sqlalchemy import event, text
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "cache_enabled", True)
+    monkeypatch.setattr(settings, "source_tag_shared_cache_enabled", True)
+    cache.close_cache()
+    with database.begin() as session:
+        tag = Tag(name="Stable", slug="stable", aliases=["old"])
+        session.add(tag)
+        session.flush()
+        identifier = tag.id
+    with database() as session:
+        resolve_source_tags(session, ["old"])
+    monkeypatch.setattr(source_tags, "_identity_snapshot", None)
+    revision_reads, catalog_reads = [], []
+    changed = False
+
+    def after(_connection, _cursor, statement, *_):
+        nonlocal changed
+        if "catalog_revisions.revision" in statement:
+            revision_reads.append(1)
+            if not changed:
+                changed = True
+                with database.begin() as writer:
+                    writer.execute(text("UPDATE tags SET aliases=ARRAY['new'] WHERE slug='stable'"))
+        elif "tags.aliases" in statement and "ORDER BY tags.slug" in statement:
+            catalog_reads.append(1)
+
+    engine = get_engine()
+    event.listen(engine, "after_cursor_execute", after)
+    try:
+        with source_tags.prefetch_source_tags(["new"]), database() as session:
+            found, created = resolve_source_tags(session, ["new"])
+        assert found == {"new": identifier} and created == 0
+        assert len(revision_reads) == 2 and len(catalog_reads) == 1
+        assert source_tags._identity_snapshot is None
+    finally:
+        event.remove(engine, "after_cursor_execute", after)
         cache.close_cache()

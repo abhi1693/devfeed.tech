@@ -143,6 +143,7 @@ def shared_projection(monkeypatch):
     identifier, revision = uuid.uuid4(), uuid.uuid4()
     row = SimpleNamespace(id=identifier, name="Fast API", slug="fastapi", aliases=["fast"])
     session = Mock()
+    session.info = {}
     session.scalar.return_value = revision
     session.execute.return_value.all.return_value = [row]
     return SimpleNamespace(
@@ -156,10 +157,19 @@ def shared_projection(monkeypatch):
     )
 
 
+def prefetched_index(fixture):
+    with fixture.module.prefetch_source_tags(["fast"]):
+        return fixture.module._source_tag_index(fixture.session)
+
+
 def test_source_tag_projection_is_shared_without_repeating_normalization(shared_projection):
     v = shared_projection
-    expected = v.module._source_tag_index(v.session)
+    expected = prefetched_index(v)
     assert expected[0]["fast"] == v.identifier
+    v.redis.set.assert_not_called()
+    v.module._publish_pending_source_tags(
+        v.session, type("RootTransaction", (), {"parent": None})()
+    )
     payload = v.redis.set.call_args.args[1]
     assert v.redis.set.call_args.args[0] == "source-tag-test:source-tag-identities:v1"
     assert v.redis.set.call_args.kwargs == {"ex": 600}
@@ -169,7 +179,7 @@ def test_source_tag_projection_is_shared_without_repeating_normalization(shared_
     assert v.redis.getrange.call_count == 1
     v.module._identity_snapshot = None
     v.redis.getrange.return_value = payload
-    assert v.module._source_tag_index(v.session) == expected
+    assert prefetched_index(v) == expected
     assert v.session.execute.call_count == 1
     v.redis.getrange.assert_called_with(
         "source-tag-test:source-tag-identities:v1", 0, v.module._SHARED_INDEX_BYTES
@@ -261,7 +271,7 @@ def test_unavailable_shared_source_tag_transport_does_not_block_database_resolut
 
     v = shared_projection
     v.redis.getrange.side_effect = ConnectionError("unavailable")
-    assert v.module._source_tag_index(v.session)[0]["fast"] == v.identifier
+    assert prefetched_index(v)[0]["fast"] == v.identifier
     assert v.session.execute.call_count == 1
     v.redis.set.assert_not_called()
 
@@ -272,7 +282,10 @@ def test_unavailable_shared_source_tag_transport_does_not_block_database_resolut
 def test_oversized_source_tag_projection_is_not_published(shared_projection, monkeypatch, limit):
     v = shared_projection
     monkeypatch.setattr(v.module, limit, 0 if limit == "_SHARED_INDEX_MAX_TAGS" else 8)
-    assert v.module._source_tag_index(v.session)[0]["fast"] == v.identifier
+    assert prefetched_index(v)[0]["fast"] == v.identifier
+    v.module._publish_pending_source_tags(
+        v.session, type("RootTransaction", (), {"parent": None})()
+    )
     v.redis.set.assert_not_called()
 
 
@@ -280,18 +293,22 @@ def test_source_tag_catalog_change_during_shared_lookup_uses_fresh_database_rows
     import uuid
 
     v = shared_projection
-    v.module._source_tag_index(v.session)
+    prefetched_index(v)
+    v.module._publish_pending_source_tags(
+        v.session, type("RootTransaction", (), {"parent": None})()
+    )
     v.redis.getrange.return_value = v.redis.set.call_args.args[1]
     v.redis.set.reset_mock()
     v.module._identity_snapshot = None
     newer = uuid.uuid4()
     v.session.scalar.side_effect = [v.revision, newer, newer]
     v.row.name = "Changed name"
-    found = v.module._source_tag_index(v.session)
+    found = prefetched_index(v)
     assert found[0]["changed name"] == v.identifier
     assert "fast api" not in found[0]
     assert v.module._identity_snapshot is None
     v.redis.set.assert_not_called()
+    assert v.session.scalar.call_count == 4  # Two initial-build reads, two raced-hit reads.
 
 
 @pytest.mark.parametrize("public_cache", [False, True])
@@ -309,7 +326,7 @@ def test_disabled_shared_source_tag_projection_keeps_existing_local_policy(
             source_tag_shared_cache_enabled=False,
         ),
     )
-    assert v.module._source_tag_index(v.session)[0]["fast"] == v.identifier
+    assert prefetched_index(v)[0]["fast"] == v.identifier
     v.redis.getrange.assert_not_called()
     v.redis.set.assert_not_called()
 
@@ -317,10 +334,90 @@ def test_disabled_shared_source_tag_projection_keeps_existing_local_policy(
 def test_shared_projection_preserves_expanding_unicode_casefolds(shared_projection):
     v = shared_projection
     v.row.name = "ΐ" * 100
-    expected = v.module._source_tag_index(v.session)
+    expected = prefetched_index(v)
+    v.module._publish_pending_source_tags(
+        v.session, type("RootTransaction", (), {"parent": None})()
+    )
     key = next(iter(source_tag_names([v.row.name])))
     assert len(key) == 300 and expected[0][key] == v.identifier
     v.redis.getrange.return_value = v.redis.set.call_args.args[1]
     v.module._identity_snapshot = None
-    assert v.module._source_tag_index(v.session)[0][key] == v.identifier
+    assert prefetched_index(v)[0][key] == v.identifier
     assert v.session.execute.call_count == 1
+
+
+def test_shared_projection_waits_for_root_end_and_explicit_rollback_cancels_it(shared_projection):
+    from types import SimpleNamespace
+
+    v = shared_projection
+    prefetched_index(v)
+    v.redis.set.assert_not_called()
+    v.module._publish_pending_source_tags(v.session, SimpleNamespace(parent=object()))
+    v.redis.set.assert_not_called()
+    assert v.module._PENDING_INDEX in v.session.info
+    v.module._cancel_pending_source_tags(v.session)
+    v.module._publish_pending_source_tags(v.session, SimpleNamespace(parent=None))
+    v.redis.set.assert_not_called()
+
+
+def test_open_shared_cache_breaker_skips_large_serialization(shared_projection, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from redis.exceptions import ConnectionError
+
+    v = shared_projection
+    v.redis.getrange.side_effect = ConnectionError("unavailable")
+    compress = Mock()
+    monkeypatch.setattr(v.module.zlib, "compress", compress)
+    prefetched_index(v)
+    v.module._publish_pending_source_tags(v.session, SimpleNamespace(parent=None))
+    compress.assert_not_called()
+    v.redis.set.assert_not_called()
+
+
+def test_callers_without_prefetch_keep_sql_only_while_the_transaction_is_open(shared_projection):
+    v = shared_projection
+    assert v.module._source_tag_index(v.session)[0]["fast"] == v.identifier
+    v.redis.getrange.assert_not_called()
+    v.redis.set.assert_not_called()
+    assert v.session.execute.call_count == 1 and v.session.scalar.call_count == 2
+
+
+def test_prefetched_projection_is_cleared_after_delivery_and_nested_context(shared_projection):
+    v = shared_projection
+    prefetched_index(v)
+    v.module._publish_pending_source_tags(
+        v.session, type("RootTransaction", (), {"parent": None})()
+    )
+    v.redis.getrange.return_value = v.redis.set.call_args.args[1]
+    v.module._identity_snapshot = None
+    with v.module.prefetch_source_tags(["fast"]):
+        candidate = v.module._prefetched_projection.get()
+        assert candidate is not None
+        with v.module.prefetch_source_tags([]):
+            assert v.module._prefetched_projection.get() is None
+        assert v.module._prefetched_projection.get() is candidate
+    assert v.module._prefetched_projection.get() is None
+
+
+@pytest.mark.parametrize("deadline", [False, True])
+def test_post_transaction_publication_contains_cache_failure_but_propagates_deadline(
+    shared_projection, deadline
+):
+    from types import SimpleNamespace
+
+    from redis.exceptions import ConnectionError
+    from rq.timeouts import JobTimeoutException
+
+    v = shared_projection
+    prefetched_index(v)
+    v.redis.set.side_effect = (
+        JobTimeoutException("hard deadline") if deadline else ConnectionError("cache unavailable")
+    )
+    if deadline:
+        with pytest.raises(JobTimeoutException):
+            v.module._publish_pending_source_tags(v.session, SimpleNamespace(parent=None))
+    else:
+        v.module._publish_pending_source_tags(v.session, SimpleNamespace(parent=None))
+    assert v.module._PENDING_INDEX not in v.session.info

@@ -25,7 +25,12 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.polling import observe, schedule
-from devfeed_core.source_tags import attach_source_tags, resolve_source_tags, source_tag_names
+from devfeed_core.source_tags import (
+    attach_source_tags,
+    prefetch_source_tags,
+    resolve_source_tags,
+    source_tag_names,
+)
 from devfeed_core.source_types import SourceType
 from devfeed_core.taxonomy import classify, classify_tags, detect_content_type
 from devfeed_core.telemetry import current
@@ -246,7 +251,8 @@ def _ingest_claimed(
             if result.status == 200
             else None
         )
-        with factory.begin() as session:
+        labels = (tag for entry in parsed.entries for tag in entry.tags) if parsed else ()
+        with prefetch_source_tags(labels), factory.begin() as session:
             job = owned_job(session, IngestionJob, identifier, lease_token)
             if job is None:
                 logger.warning("ingestion_lease_lost")

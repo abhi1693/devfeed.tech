@@ -8,16 +8,17 @@ import re
 import unicodedata
 import uuid
 import zlib
-from collections.abc import Iterable, Mapping
-from contextlib import suppress
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from types import MappingProxyType
 
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Connection, Engine
-from sqlalchemy.orm import Session, lazyload
+from sqlalchemy.orm import Session, SessionTransaction, lazyload
 
-from devfeed_core.cache import CacheUnavailable, get_cache, record_cache_read
+from devfeed_core.cache import CacheUnavailable, ResponseCache, get_cache, record_cache_read
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.parser import plain_text
 from devfeed_core.models import Article, ArticleTag, CatalogRevision, Tag
@@ -64,6 +65,10 @@ _SHARED_INDEX_BYTES = 4_000_000
 _SHARED_INDEX_DECODED_BYTES = 16_000_000
 _SHARED_INDEX_TTL = 600
 _SHARED_INDEX_MAX_TAGS = 100_000
+_PENDING_INDEX = "devfeed_source_tag_projection_pending"
+_prefetched_projection: ContextVar[tuple[str, uuid.UUID, SourceTagIndex] | None] = ContextVar(
+    "source_tag_projection", default=None
+)
 
 
 def _decode_identity_map(value: object, identifiers: list[uuid.UUID]) -> Mapping[str, uuid.UUID]:
@@ -79,7 +84,9 @@ def _decode_identity_map(value: object, identifiers: list[uuid.UUID]) -> Mapping
     return MappingProxyType(result)
 
 
-def _decode_shared_source_tags(body: bytes, revision: uuid.UUID) -> SourceTagIndex | None:
+def _decode_shared_source_tags(
+    body: bytes, revision: uuid.UUID | None
+) -> tuple[uuid.UUID, SourceTagIndex] | None:
     decoder = zlib.decompressobj()
     decoded = decoder.decompress(body, _SHARED_INDEX_DECODED_BYTES + 1)
     if (
@@ -90,7 +97,8 @@ def _decode_shared_source_tags(body: bytes, revision: uuid.UUID) -> SourceTagInd
     ):
         raise ValueError("Invalid or oversized source tag identity projection")
     value = json.loads(decoded)
-    if value["revision"] != str(revision):
+    stored_revision = uuid.UUID(value["revision"])
+    if revision is not None and stored_revision != revision:
         return None
     raw_ids = value["ids"]
     if (
@@ -100,13 +108,15 @@ def _decode_shared_source_tags(body: bytes, revision: uuid.UUID) -> SourceTagInd
     ):
         raise ValueError("Invalid source tag identifier table")
     identifiers = [uuid.UUID(item) for item in raw_ids]
-    return (
+    return stored_revision, (
         _decode_identity_map(value["identities"], identifiers),
         _decode_identity_map(value["slugs"], identifiers),
     )
 
 
-def _shared_source_tag_index(revision: uuid.UUID) -> SourceTagIndex | None:
+def _shared_source_tag_index(
+    revision: uuid.UUID | None,
+) -> tuple[uuid.UUID, SourceTagIndex] | None:
     cache = get_cache()
     try:
         body = cache._run(
@@ -138,7 +148,35 @@ def _shared_source_tag_index(revision: uuid.UUID) -> SourceTagIndex | None:
     return None
 
 
-def _publish_source_tag_index(revision: uuid.UUID, index: SourceTagIndex) -> None:
+@contextmanager
+def prefetch_source_tags(values: Iterable[object]) -> Iterator[None]:
+    """Read/decode optional Redis data before the caller opens its SQL transaction."""
+    settings = get_settings()
+    candidate = None
+    if (
+        settings.cache_enabled
+        and settings.source_tag_shared_cache_enabled
+        and _identity_snapshot is None
+        and any(values)
+    ):
+        found = _shared_source_tag_index(None)
+        if found is not None:
+            candidate = (get_cache().namespace, *found)
+    token = _prefetched_projection.set(candidate)
+    try:
+        yield
+    finally:
+        _prefetched_projection.reset(token)
+
+
+def _publish_source_tag_index(
+    revision: uuid.UUID, index: SourceTagIndex, cache: ResponseCache | None = None
+) -> None:
+    cache = cache or get_cache()
+    try:
+        cache._run(lambda: None)  # Do not serialize a large payload behind an open breaker.
+    except CacheUnavailable:
+        return
     identifiers = sorted(set(index[0].values()) | set(index[1].values()))
     if len(identifiers) > _SHARED_INDEX_MAX_TAGS:
         return
@@ -158,13 +196,29 @@ def _publish_source_tag_index(revision: uuid.UUID, index: SourceTagIndex) -> Non
     value = zlib.compress(value, level=1)
     if len(value) > _SHARED_INDEX_BYTES:
         return
-    cache = get_cache()
     with suppress(CacheUnavailable):
         cache._run(
             lambda: cache.redis.set(
                 f"{cache.namespace}:{_SHARED_INDEX_SLOT}", value, ex=_SHARED_INDEX_TTL
             )
         )
+
+
+@event.listens_for(Session, "after_transaction_end")
+def _publish_pending_source_tags(session: Session, transaction: SessionTransaction) -> None:
+    if transaction.parent is not None:
+        return
+    pending = session.info.pop(_PENDING_INDEX, None)
+    if pending is not None:
+        # SQLAlchemy has closed the root transaction and returned its connection
+        # before this event. Compression and Redis cannot extend SQL lock life.
+        revision, index, cache = pending
+        _publish_source_tag_index(revision, index, cache)
+
+
+@event.listens_for(Session, "after_rollback")
+def _cancel_pending_source_tags(session: Session) -> None:
+    session.info.pop(_PENDING_INDEX, None)
 
 
 def _build_source_tag_index(session: Session) -> SourceTagIndex:
@@ -195,18 +249,28 @@ def _source_tag_index(session: Session) -> SourceTagIndex:
         settings.cache_enabled and settings.source_tag_shared_cache_enabled and revision is not None
     )
     if shared and revision is not None:
-        cached = _shared_source_tag_index(revision)
+        prefetched = _prefetched_projection.get()
+        cached = (
+            prefetched[2]
+            if prefetched is not None and prefetched[:2] == (get_cache().namespace, revision)
+            else None
+        )
+        if prefetched is not None and cached is None:
+            record_cache_read("catalog", "miss", "stale")
         if cached is not None and session.scalar(revision_query) == revision:
             record_cache_read("catalog", "hit")
             _identity_snapshot = (key, *cached)
             return cached
         if cached is not None:
             record_cache_read("catalog", "miss", "stale")
+            # The failed fence already proves this candidate cannot be cached.
+            # Read current rows without a third revision read or publication.
+            return _build_source_tag_index(session)
     result = _build_source_tag_index(session)
     if revision is not None and session.scalar(revision_query) == revision:
         _identity_snapshot = (key, *result)
         if shared:
-            _publish_source_tag_index(revision, result)
+            session.info[_PENDING_INDEX] = (revision, result, get_cache())
     return result
 
 
