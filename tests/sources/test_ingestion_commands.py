@@ -59,6 +59,7 @@ def ingestion(monkeypatch):
     monkeypatch.setattr(polling, "get_settings", lambda: settings)
     owner = Mock(return_value=row)
     monkeypatch.setattr(tasks, "owned_job", owner)
+    monkeypatch.setattr(tasks, "_entry_origins", lambda *_: {})
     return SimpleNamespace(source=current, row=row, session=session, factory=factory, owner=owner)
 
 
@@ -109,7 +110,7 @@ def test_success_resets_failures_and_emits_committed_counts_with_bounded_discove
 
     monkeypatch.setattr(tasks, "fetch_feed", fetch)
 
-    def store(session, identifier, parsed, *, activity):
+    def store(session, identifier, parsed, *, activity, known_origins):
         assert v.factory.open and session is v.session and identifier == v.source.id
         assert parsed.entries and parsed.entries[0].canonical_url.startswith("https://")
         assert len(parsed.entries) == parsed.seen == 4 and parsed.skipped == 0
@@ -456,3 +457,11 @@ def test_delivery_for_a_deleted_source_and_cascaded_job_has_no_claim_or_attempt(
     assert session.scalar.call_count == 1
     session.add.assert_not_called()
     session.flush.assert_not_called()
+
+
+def test_empty_feed_needs_no_origin_database_query():
+    from devfeed_core.feeds.parser import ParsedFeed
+
+    session = Mock()
+    assert tasks._entry_origins(session, uuid.uuid4(), ParsedFeed([], 0, 0)) == {}
+    session.execute.assert_not_called()
