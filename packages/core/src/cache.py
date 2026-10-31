@@ -103,7 +103,9 @@ def record_cache_read(
 def record_cache_invalidation(domain: str, outcome: str, reasons: Collection[str]) -> None:
     if runtime := current():
         attributes = {
-            "cache.domain": domain if domain in {"public", "operations"} else "other",
+            "cache.domain": domain
+            if domain in {"public", "operations", "search-index"}
+            else "other",
             "cache.outcome": (
                 outcome if outcome in {"success", "cache_unavailable", "disabled"} else "other"
             ),
@@ -121,13 +123,17 @@ def record_cache_invalidation(domain: str, outcome: str, reasons: Collection[str
 # A late user may not repopulate a generation invalidated by a committed write,
 # or replace another loader's response after losing its lock.
 PUBLISH = """
-if redis.call('GET', KEYS[1]) == ARGV[1]
-   and redis.call('GET', KEYS[2]) == ARGV[2] then
-    redis.call('SET', KEYS[3], ARGV[3], 'EX', ARGV[4])
+local generations = #KEYS - 2
+for i = 1, generations do
+    if redis.call('GET', KEYS[i]) ~= ARGV[i] then return 0 end
+end
+if redis.call('GET', KEYS[generations + 1]) == ARGV[generations + 1] then
+    redis.call('SET', KEYS[generations + 2], ARGV[generations + 2], 'EX', ARGV[generations + 3])
     return 1
 end
 return 0
 """
+
 RELEASE = """
 if redis.call('GET', KEYS[1]) == ARGV[1] then
     return redis.call('DEL', KEYS[1])
@@ -148,6 +154,7 @@ class CacheLookup:
     lock_key: str
     token: str | None = None
     body: bytes | None = None
+    dependencies: tuple[tuple[str, bytes], ...] = ()
 
 
 T = TypeVar("T")
@@ -176,9 +183,19 @@ class ResponseCache:
                 logger.warning("cache_unavailable", extra={"error_type": type(exc).__name__})
             raise CacheUnavailable from None
 
-    def lookup(self, identity: str, domain: str, *, observe: bool = True) -> CacheLookup:
-        def operation() -> CacheLookup:
-            generation_key = f"{self.namespace}:{domain}:generation"
+    def lookup(
+        self,
+        identity: str,
+        domain: str,
+        *,
+        observe: bool = True,
+        dependencies: tuple[str, ...] = (),
+    ) -> CacheLookup:
+        if any(dependency != "search-index" for dependency in dependencies):
+            raise ValueError("Unknown cache dependency")
+
+        def epoch(name: str) -> tuple[str, bytes]:
+            generation_key = f"{self.namespace}:{name}:generation"
             generation = self.redis.get(generation_key)
             if generation is None:
                 self.redis.set(generation_key, uuid.uuid4().hex, nx=True)
@@ -190,7 +207,19 @@ class ResponseCache:
             ):
                 # Never fall back to a fixed epoch after eviction/corruption.
                 raise CacheUnavailable
-            digest = hashlib.sha256(identity.encode()).hexdigest()
+            return generation_key, generation
+
+        def operation() -> CacheLookup:
+            generation_key, generation = epoch(domain)
+            extra = tuple(epoch(name) for name in dependencies)
+            # Include all dependency epochs in the response identity and fence
+            # them again atomically with publication below.
+            cache_identity = (
+                json.dumps([identity, [value.decode("ascii") for _, value in extra]])
+                if extra
+                else identity
+            )
+            digest = hashlib.sha256(cache_identity.encode()).hexdigest()
             key = f"{self.namespace}:{domain}:{generation.decode('ascii')}:{digest}"
             lock_key = f"{key}:lock"
             body = self.redis.get(key)
@@ -207,7 +236,7 @@ class ResponseCache:
                 candidate = uuid.uuid4().hex
                 if self.redis.set(lock_key, candidate, nx=True, ex=LOCK_SECONDS):
                     token = candidate
-            return CacheLookup(generation_key, generation, key, lock_key, token, body)
+            return CacheLookup(generation_key, generation, key, lock_key, token, body, extra)
 
         name = {
             "public": "public_response",
@@ -232,11 +261,13 @@ class ResponseCache:
             self._run(
                 lambda: self.redis.eval(
                     PUBLISH,
-                    3,
+                    3 + len(lookup.dependencies),
                     lookup.generation_key,
+                    *(key for key, _ in lookup.dependencies),
                     lookup.lock_key,
                     lookup.key,
                     lookup.generation,
+                    *(generation for _, generation in lookup.dependencies),
                     token,
                     body,
                     ttl,
@@ -252,7 +283,7 @@ class ResponseCache:
     def invalidate(
         self, domain: str = "public", *, reasons: Collection[str] = ("unspecified",)
     ) -> None:
-        if domain not in {"public", "operations"}:
+        if domain not in {"public", "operations", "search-index"}:
             raise ValueError("Unknown cache domain")
         try:
             self._run(
@@ -382,3 +413,15 @@ def invalidate_public_cache(*, reasons: Collection[str] = ("unspecified",)) -> N
             get_cache().invalidate(reasons=reasons)
     else:
         record_cache_invalidation("public", "disabled", reasons)
+
+
+def invalidate_search_cache(*, public_change: bool) -> None:
+    """Fence index completion separately, preserving unknown/raw SQL changes."""
+    settings = get_settings()
+    if public_change or not settings.search_cache_isolation_enabled:
+        invalidate_public_cache(reasons=("search_index",))
+    if settings.cache_enabled:
+        with suppress(CacheUnavailable):
+            get_cache().invalidate("search-index", reasons=("search_index",))
+    else:
+        record_cache_invalidation("search-index", "disabled", ("search_index",))

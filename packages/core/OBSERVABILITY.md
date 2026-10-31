@@ -100,9 +100,10 @@ pressure. A cache hit does not bypass authentication or visibility checks.
 
 Keep the existing generation boundaries and TTLs until measurements identify a
 specific cause. `devfeed.cache.invalidations` records one attempt with
-`cache.domain=public|operations` and
+`cache.domain=public|operations|search-index` and
 `cache.outcome=success|cache_unavailable|disabled`. Only `success` means a generation
-was replaced. Failures and the Redis circuit breaker are counted without failing
+was replaced. The separate `search-index` domain fences Typesense projection
+completion; search responses also depend on the public-data domain. Failures and the Redis circuit breaker are counted without failing
 the committed database write; disabled caching does not contact Redis.
 
 `devfeed.cache.invalidation.causes` adds `cache.invalidation_reason`. The bounded

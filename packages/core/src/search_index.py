@@ -9,7 +9,7 @@ from sqlalchemy import delete, func, insert, literal, select, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.sql import Select
 
-from devfeed_core.cache import invalidate_public_cache
+from devfeed_core.cache import invalidate_public_cache, invalidate_search_cache
 from devfeed_core.catalog_cache import snapshot
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
@@ -153,11 +153,17 @@ def backfill(factory: sessionmaker[Session]) -> int:
         for kind, model in MODELS.items():
             queued = (
                 insert(SearchEvent)
-                .from_select(["kind", "entity_id"], select(literal(kind), model.id))
+                .from_select(
+                    ["kind", "entity_id", "public_change"],
+                    select(literal(kind), model.id, literal(False)),
+                )
                 .returning(SearchEvent.id)
                 .cte("queued")
             )
             count += session.scalar(select(func.count()).select_from(queued)) or 0
+    # Backfill may repair direct SQL writes whose triggers were disabled. Fence
+    # public data once after the enqueue commit, rather than once per page.
+    invalidate_public_cache(reasons=("search_index",))
     return count
 
 
@@ -170,6 +176,7 @@ def sync_batch(factory: sessionmaker[Session], engine: Typesense | None = None) 
         events = session.scalars(select(SearchEvent).order_by(SearchEvent.id).limit(batch)).all()
         if not events:
             return 0
+        public_change = any(event.public_change is not False for event in events)
         for kind in KINDS:
             ids = {event.entity_id for event in events if event.kind == kind}
             if ids:
@@ -182,8 +189,8 @@ def sync_batch(factory: sessionmaker[Session], engine: Typesense | None = None) 
             for kind, (link, foreign) in LINKS.items():
                 session.execute(
                     insert(SearchEvent).from_select(
-                        ["kind", "entity_id"],
-                        select(literal(kind), foreign)
+                        ["kind", "entity_id", "public_change"],
+                        select(literal(kind), foreign, literal(False))
                         .where(link.article_id.in_(article_ids))
                         .distinct(),
                     )
@@ -207,12 +214,19 @@ def sync_batch(factory: sessionmaker[Session], engine: Typesense | None = None) 
             if related_ids:
                 session.execute(
                     insert(SearchEvent),
-                    [{"kind": "articles", "entity_id": value} for value in related_ids],
+                    [
+                        {"kind": "articles", "entity_id": value, "public_change": False}
+                        for value in related_ids
+                    ],
                 )
             if len(related_ids) == batch:
                 session.add(
                     SearchEvent(
-                        kind=kind, entity_id=identifier, fanout=True, after_id=related_ids[-1]
+                        kind=kind,
+                        entity_id=identifier,
+                        fanout=True,
+                        after_id=related_ids[-1],
+                        public_change=False,
                     )
                 )
         # Only acknowledge this batch. Changes committed during an HTTP import
@@ -220,5 +234,5 @@ def sync_batch(factory: sessionmaker[Session], engine: Typesense | None = None) 
         session.execute(
             delete(SearchEvent).where(SearchEvent.id.in_([event.id for event in events]))
         )
-    invalidate_public_cache(reasons=("search_index",))
+    invalidate_search_cache(public_change=public_change)
     return len(events)

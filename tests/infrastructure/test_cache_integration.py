@@ -348,4 +348,143 @@ def test_search_index_cause_requires_a_completed_nonempty_batch(database, observ
         (point.attributes["cache.outcome"], point.value)
         for point in points
         if point.attributes["cache.invalidation_reason"] == "search_index"
+        and point.attributes["cache.domain"] == "public"
     ] == [("success", 1)]
+
+
+def test_projection_only_indexing_keeps_content_cache_but_fences_search(
+    database, client, monkeypatch
+):
+    from unittest.mock import Mock
+
+    from devfeed_core.models import SearchEvent
+
+    monkeypatch.setattr(get_settings(), "search_cache_isolation_enabled", True)
+    identifier = approved_source(database)
+    engine = Mock()
+    assert sync_batch(database, engine) > 0
+    path = f"/v1/sources/{identifier}"
+    assert client.get(path).status_code == 200
+    assert client.get(path).headers["x-cache"] == "HIT"
+    store = cache.get_cache()
+    search = store.lookup("search-result", "public", dependencies=("search-index",))
+    content = store.lookup("unrelated-publisher", "public")
+    with database.begin() as session:
+        session.add(SearchEvent(kind="sources", entity_id=identifier, public_change=False))
+    assert sync_batch(database, engine) == 1
+    assert client.get(path).headers["x-cache"] == "HIT"
+    assert not store.publish(search, b'{"items":[]}', 30)
+    assert store.publish(content, b'{"title":"Approved"}', 30)
+
+
+@pytest.mark.parametrize("reject", [False, True])
+def test_raw_sql_changes_keep_the_conservative_indexer_invalidation(
+    database, client, monkeypatch, reject
+):
+    from unittest.mock import Mock
+
+    from devfeed_core.models import SearchEvent
+    from sqlalchemy import text
+
+    monkeypatch.setattr(get_settings(), "search_cache_isolation_enabled", True)
+    identifier = approved_source(database)
+    engine = Mock()
+    assert sync_batch(database, engine) > 0
+    path = f"/v1/sources/{identifier}"
+    assert client.get(path).json()["name"] == "Example"
+    assert client.get(path).headers["x-cache"] == "HIT"
+    old = cache.get_cache().lookup("late-source-reader", "public")
+    with get_engine().begin() as connection:
+        connection.execute(
+            text("UPDATE sources SET approval_status='rejected' WHERE id=:id")
+            if reject
+            else text("UPDATE sources SET name='Raw SQL' WHERE id=:id"),
+            {"id": identifier},
+        )
+    with database() as session:
+        assert session.scalar(select(SearchEvent.public_change)) is True
+    assert client.get(path).headers["x-cache"] == "HIT"
+    assert sync_batch(database, engine) == 1
+    result = client.get(path)
+    if reject:
+        assert result.status_code == 404
+    else:
+        assert result.headers["x-cache"] == "MISS" and result.json()["name"] == "Raw SQL"
+    assert not cache.get_cache().publish(old, b'{"name":"Old"}', 30)
+
+
+def test_backfill_fences_unknown_data_once_and_marks_projection_work(database, client, monkeypatch):
+    from unittest.mock import Mock
+
+    from devfeed_core.models import SearchEvent
+    from devfeed_core.search_index import backfill
+    from sqlalchemy import text
+
+    monkeypatch.setattr(get_settings(), "search_cache_isolation_enabled", True)
+    identifier = approved_source(database)
+    assert sync_batch(database, Mock()) > 0
+    path = f"/v1/sources/{identifier}"
+    assert client.get(path).status_code == 200
+    with get_engine().begin() as connection:
+        # Represent an explicit repair after direct maintenance; the backfill
+        # itself must provide the conservative public fence before page drains.
+        connection.execute(
+            text("UPDATE sources SET description='Repair' WHERE id=:id"), {"id": identifier}
+        )
+        connection.execute(text("DELETE FROM search_events"))
+    assert client.get(path).headers["x-cache"] == "HIT"
+    assert backfill(database) > 0
+    assert client.get(path).headers["x-cache"] == "MISS"
+    with database() as session:
+        assert all(value is False for value in session.scalars(select(SearchEvent.public_change)))
+    assert sync_batch(database, Mock()) > 0
+    assert client.get(path).headers["x-cache"] == "HIT"
+
+
+@pytest.mark.parametrize("isolation", [False, True])
+@pytest.mark.parametrize("scenario", ["available", "cache_unavailable", "public_churn"])
+def test_projection_pages_do_not_repeat_unrelated_api_queries(
+    database, client, monkeypatch, isolation, scenario
+):
+    from unittest.mock import Mock
+
+    from devfeed_core.models import SearchEvent
+
+    monkeypatch.setattr(get_settings(), "search_cache_isolation_enabled", isolation)
+    identifier = approved_source(database)
+    engine = Mock()
+    assert sync_batch(database, engine) > 0
+    path = f"/v1/sources/{identifier}"
+    assert client.get(path).status_code == 200
+    statuses, queries = [], []
+    store = cache.get_cache()
+    if scenario == "cache_unavailable":
+
+        def unavailable(*_):
+            raise cache.CacheUnavailable
+
+        monkeypatch.setattr(store, "_run", unavailable)
+
+    def observed(_connection, _cursor, statement, _parameters, _context, _many):
+        queries.append(statement)
+
+    for _ in range(20):
+        with database.begin() as session:
+            session.add(SearchEvent(kind="sources", entity_id=identifier, public_change=False))
+        assert sync_batch(database, engine) == 1
+        if scenario == "public_churn":
+            store.invalidate("public")
+        event.listen(get_engine(), "before_cursor_execute", observed)
+        try:
+            statuses.append(client.get(path).headers["x-cache"])
+        finally:
+            event.remove(get_engine(), "before_cursor_execute", observed)
+    expected = (
+        "BYPASS"
+        if scenario == "cache_unavailable"
+        else "HIT"
+        if isolation and scenario == "available"
+        else "MISS"
+    )
+    assert statuses == [expected] * 20
+    assert len(queries) == (0 if isolation and scenario == "available" else 20)

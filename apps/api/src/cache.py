@@ -28,6 +28,7 @@ class CachePolicy(BaseModel):
     namespace: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]*$")
     revision: int = Field(ge=1)
     ttl: Literal["content", "metadata"]
+    index_generation: bool = False
 
     def openapi_extra(self) -> dict[str, JsonValue]:
         return {CACHE_POLICY_EXTENSION: self.model_dump()}
@@ -129,7 +130,13 @@ class CachedReadRoute(BodyLimitedRoute):
             try:
                 while True:
                     lookup = await run_in_threadpool(
-                        lambda: cache.lookup(key, "public", observe=False)
+                        lambda: (
+                            cache.lookup(
+                                key, "public", observe=False, dependencies=("search-index",)
+                            )
+                            if policy.index_generation
+                            else cache.lookup(key, "public", observe=False)
+                        )
                     )
                     if lookup.body is not None:
                         return tagged(
