@@ -18,7 +18,11 @@ test("existing-process health checks both fresh readyz and the private bridge", 
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "devfeed-health-"));
   const socketPath = path.join(directory, "app.sock");
   let status = 200;
-  const upstream = http.createServer((_request, response) => response.writeHead(status).end());
+  let upstreamChecks = 0;
+  const upstream = http.createServer((_request, response) => {
+    upstreamChecks++;
+    response.writeHead(status).end();
+  });
   const socket = net.createServer((peer) => peer.end());
   let server;
   try {
@@ -29,6 +33,10 @@ test("existing-process health checks both fresh readyz and the private bridge", 
     const origin = await listening(server);
     const probe = () => fetch(`${origin}/readyz`).then((response) => response.status);
     assert.equal(await probe(), 200);
+    for (let index = 1; index < 20; index++) assert.equal(await probe(), 200);
+    // Each sequential probe performs the same single upstream readiness read as
+    // the legacy probe; reducing process startup must not multiply downstream work.
+    assert.equal(upstreamChecks, 20);
     status = 503;
     assert.equal(await probe(), 503);
     status = 200;
