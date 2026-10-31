@@ -732,3 +732,74 @@ def test_repeated_match_candidates_equal_the_unindexed_semantic_reference(monkey
     assert actual == expected
     assert oversized["id"] not in {item["id"] for item in actual["topics"]}
     assert len(actual["topics"]) == settings.analysis_max_candidates
+
+
+@pytest.mark.parametrize("vocabulary", ["shared", "unique", "unicode", "large"])
+def test_prepared_vocabulary_reuse_keeps_all_indexes_and_rankings_exact(vocabulary):
+    taxonomy = {"topics": [], "tags": []}
+    for index in range(160):
+        item = entry(f"Runtime {index}", aliases=[f"Runtime alias {index}"])
+        item["keywords"] = (
+            ["container runtime", "Python", "distributed systems"]
+            if vocabulary == "shared"
+            else [f"keyword {index} {j}" for j in range(3)]
+        )
+        item["description"] = "Container runtime and Python systems."
+        if vocabulary == "unicode":
+            item["aliases"] += ["Ｃ＋＋", "Straße", "数学", "é", "e\u0301"]
+        elif vocabulary == "large":
+            item["keywords"] += ["x" * 20_000]
+        taxonomy["topics" if index % 2 else "tags"].append(item)
+    prepared = analysis._PreparedCatalog(taxonomy)
+    entries = [item for _, item in prepared.entries]
+    assert prepared.indexes == analysis._candidate_indexes(entries)
+    for snapshot in ({"title": "Container runtime in Python"}, {"text": "数学 and STRASSE"}, {}):
+        expected = analysis.candidate_scores(entries, snapshot)
+        assert analysis._candidate_scores(*prepared.indexes, len(entries), snapshot) == expected
+
+
+def test_prepared_normalization_reuses_only_bounded_shared_vocabulary(monkeypatch):
+    taxonomy = {
+        "topics": [
+            entry(f"Runtime {i}", keywords=["shared", "python", "systems"]) for i in range(200)
+        ],
+        "tags": [],
+    }
+    calls = []
+    original = analysis.candidate_text
+
+    def normalize(value):
+        calls.append(value)
+        return original(value)
+
+    monkeypatch.setattr(analysis, "candidate_text", normalize)
+    analysis._PreparedCatalog(taxonomy)
+    assert calls.count("python") == calls.count("shared") == calls.count("systems") == 1
+    calls.clear()
+    # No vocabulary or prepared data survives index construction.
+    analysis._PreparedCatalog(taxonomy)
+    assert calls.count("python") == 1
+    assert not analysis._shared_vocabulary([entry(f"Unique {i}") for i in range(32)])
+
+
+def test_prepared_normalization_keeps_large_and_unicode_values_on_exact_path(monkeypatch):
+    repeated = ["common", "word", "terms", "shared"]
+    large = "x" * (analysis.CANDIDATE_NORMALIZATION_CACHE_CHARS + 1)
+    unicode_value = "Straße"
+    taxonomy = {
+        "topics": [
+            entry(f"Topic {i}", keywords=[*repeated, large, unicode_value]) for i in range(100)
+        ],
+        "tags": [],
+    }
+    calls = []
+    original = analysis.candidate_text
+
+    def normalize(value):
+        calls.append(value)
+        return original(value)
+
+    monkeypatch.setattr(analysis, "candidate_text", normalize)
+    analysis._PreparedCatalog(taxonomy)
+    assert calls.count("common") == 1
+    assert calls.count(large) == calls.count(unicode_value) == 100
