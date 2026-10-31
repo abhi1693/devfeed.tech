@@ -15,12 +15,13 @@ import math
 import re
 import time
 import uuid
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, TypedDict
 
+from clickhouse_connect.driver.external import ExternalData
 from psycopg import AsyncConnection, sql
 from psycopg.errors import LockNotAvailable, QueryCanceled
 
@@ -52,6 +53,29 @@ FINAL_GUARDS = (
 )
 type Connections = Callable[[], AbstractAsyncContextManager[AsyncConnection[SqlRecord]]]
 logger = logging.getLogger(__name__)
+
+
+def _queue_identifiers(identifiers: Collection[str]) -> ExternalData:
+    """Send the complete bounded set as a file, never a large HTTP form field.
+
+    ClickHouse's multipart text-field limit is smaller than a valid 20,000-job
+    snapshot. A RowBinary UUID file is at most 320 KB, scoped to this request,
+    and preserves both membership and exclusion semantics, including empty sets.
+    """
+    if len(identifiers) > MAX_ACTIVE_JOBS:
+        raise AnalyticsUnavailable("Current queue identifier set exceeds its bound")
+    data = bytearray()
+    for identity in identifiers:
+        value = uuid.UUID(identity).bytes
+        # ClickHouse UUID RowBinary stores each of the two UInt64 halves little endian.
+        data.extend(value[:8][::-1])
+        data.extend(value[8:][::-1])
+    return ExternalData(
+        file_name="reconcile_queue_ids",
+        data=bytes(data),
+        fmt="RowBinary",
+        structure="id UUID",
+    )
 
 
 def _finished_builder(task: asyncio.Task[list[SqlRecord]]) -> None:
@@ -447,9 +471,9 @@ class CurrentStateReconciler:
             return {}
         rows = await self.client.query(
             "SELECT id,revision,deleted,task,status,attempt,created_at "
-            "FROM analytics_pipeline_events FINAL WHERE domain='queue' AND id IN {ids:Array(UUID)}"
-            + FINAL_GUARDS,
-            {"ids": list(identifiers)},
+            "FROM analytics_pipeline_events FINAL WHERE domain='queue' "
+            "AND id IN (SELECT id FROM reconcile_queue_ids)" + FINAL_GUARDS,
+            external_data=_queue_identifiers(identifiers),
         )
         return {str(row["id"]): row for row in rows}
 
@@ -507,7 +531,7 @@ class CurrentStateReconciler:
         rows = await self.client.query(
             "SELECT id FROM analytics_pipeline_events FINAL WHERE domain='queue' "
             "AND deleted=0 AND status IN ('queued','running') AND revision<={fence:UInt64}"
-            " AND id NOT IN {valid:Array(UUID)}"
+            " AND id NOT IN (SELECT id FROM reconcile_queue_ids)"
             + bound
             + " ORDER BY id LIMIT {limit:UInt32}"
             + FINAL_GUARDS,
@@ -515,8 +539,8 @@ class CurrentStateReconciler:
                 "fence": cycle.revision,
                 "cursor": cycle.cursor,
                 "limit": self.batch,
-                "valid": sorted(cycle.valid),
             },
+            external_data=_queue_identifiers(cycle.valid),
         )
         missing = [str(row["id"]) for row in rows if str(row["id"]) not in cycle.valid]
         if missing:

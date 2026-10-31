@@ -22,6 +22,7 @@ from devfeed_core.analytics_import_runner import (
 )
 from devfeed_core.analytics_migrations import ClickHouseMigrationRunner
 from devfeed_core.analytics_observation import pipeline_policy_version
+from devfeed_core.analytics_producer import _delivery_error_fields
 from devfeed_core.analytics_reconcile import CurrentStateReconciler
 from devfeed_core.analytics_status import AnalyticsStatus
 from devfeed_core.config import Settings, get_settings
@@ -141,15 +142,18 @@ async def run(once: bool = False) -> None:
                         if isinstance(error, AnalyticsUnavailable)
                         else "source_or_builder_failure"
                     )
+                    fields: dict[str, object] = {
+                        "error_type": type(error).__name__,
+                        "reason_code": reason,
+                        "cause_type": type(cause).__name__ if cause is not None else "none",
+                    }
+                    if (code := _delivery_error_fields(error).get("clickhouse_code")) is not None:
+                        fields["clickhouse_code"] = code
                     logger.error(
                         "analytics_history_import_failed"
                         if worker.bootstrapping
                         else "analytics_current_reconciliation_failed",
-                        extra={
-                            "error_type": type(error).__name__,
-                            "reason_code": reason,
-                            "cause_type": type(cause).__name__ if cause is not None else "none",
-                        },
+                        extra=fields,
                     )
                     if once:
                         raise
