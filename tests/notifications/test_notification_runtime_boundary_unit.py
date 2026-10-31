@@ -228,7 +228,12 @@ def test_batch_shares_transport_but_preserves_per_delivery_context_and_timeout(m
 
 
 @pytest.mark.parametrize(
-    "failure", [RuntimeError("database unavailable"), delivery.JobTimeoutException("deadline")]
+    "failure",
+    [
+        RuntimeError("database unavailable"),
+        delivery.JobTimeoutException("deadline"),
+        KeyboardInterrupt(),
+    ],
 )
 def test_batch_continues_independent_rows_but_never_swallows_rq_deadline(monkeypatch, failure):
     identifiers = [uuid.uuid4() for _ in range(3)]
@@ -238,7 +243,7 @@ def test_batch_continues_independent_rows_but_never_swallows_rq_deadline(monkeyp
     monkeypatch.setattr(delivery, "_release_batch", release)
     with pytest.raises(type(failure)):
         delivery.deliver_notification(batch_payload(identifiers))
-    assert run.call_count == (1 if isinstance(failure, delivery.JobTimeoutException) else 3)
+    assert run.call_count == (3 if type(failure) is RuntimeError else 1)
     release.assert_called_once_with(identifiers, NOW)
 
 
