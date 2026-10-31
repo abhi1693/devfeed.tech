@@ -349,3 +349,24 @@ def test_search_index_cause_requires_a_completed_nonempty_batch(database, observ
         for point in points
         if point.attributes["cache.invalidation_reason"] == "search_index"
     ] == [("success", 1)]
+
+
+def test_tracking_query_noise_keeps_one_public_response_and_one_database_read(database, client):
+    identifier = approved_source(database)
+    path = f"/v1/sources/{identifier}"
+    queries = []
+
+    def observed(_connection, _cursor, statement, _parameters, _context, _many):
+        queries.append(statement)
+
+    event.listen(get_engine(), "before_cursor_execute", observed)
+    try:
+        first = client.get(path)
+        assert first.status_code == 200 and first.headers["x-cache"] == "MISS"
+        baseline = len(queries)
+        for number in range(100):
+            result = client.get(f"{path}?utm_source=campaign-{number}&unrelated={number}")
+            assert result.headers["x-cache"] == "HIT" and result.json() == first.json()
+        assert baseline > 0 and len(queries) == baseline
+    finally:
+        event.remove(get_engine(), "before_cursor_execute", observed)

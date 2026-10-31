@@ -742,3 +742,105 @@ def test_loaded_tag_reassigned_its_current_value_does_not_evict_public_responses
         cache_events.track_objects(session, None, None)
         assert not session.info.get(cache_events.DIRTY)
         assert not session.info.get(cache_events.REASONS)
+
+
+def test_ignored_tracking_queries_share_public_feed_cache_without_changing_validation(
+    cached_client,
+):
+    client, _, calls, _, _ = cached_client
+    assert client.get("/v1/feed?limit=1&utm_source=first").headers["x-cache"] == "MISS"
+    assert (
+        client.get("/v1/feed?utm_source=second&limit=1&unused=anything").headers["x-cache"] == "HIT"
+    )
+    assert len(calls) == 1
+    for _ in range(2):
+        response = client.get("/v1/feed?limit=invalid&utm_source=second")
+        assert response.status_code == 422 and response.headers.get("x-cache") != "HIT"
+
+
+def test_native_dependency_aliases_and_repeated_values_remain_in_cache_identity(response_cache):
+    from typing import Annotated
+
+    from devfeed_api.cache import CachedReadRoute, CachePolicy
+    from fastapi import APIRouter, Depends, FastAPI, Query
+    from fastapi.testclient import TestClient
+    from pydantic import AliasChoices
+
+    app, router, calls = FastAPI(), APIRouter(route_class=CachedReadRoute), []
+
+    def filters(
+        tags: Annotated[list[str], Query(alias="tag")],
+        kind: Annotated[str, Query(validation_alias=AliasChoices("kind", "type"))] = "all",
+    ):
+        return {"tags": tags, "kind": kind}
+
+    def endpoint(values: Annotated[dict, Depends(filters)]):
+        calls.append(values)
+        return values
+
+    router.add_api_route(
+        "/catalog",
+        endpoint,
+        methods=["GET"],
+        openapi_extra=CachePolicy(
+            namespace="aliased",
+            revision=1,
+            ttl="content",
+            normalize_query=True,
+        ).openapi_extra(),
+    )
+    app.include_router(router)
+    with TestClient(app) as client:
+        first = client.get("/catalog?tag=Python&tag=C%2B%2B&type=article&utm_campaign=one")
+        assert first.status_code == 200 and first.json() == {
+            "tags": ["Python", "C++"],
+            "kind": "article",
+        }
+        assert (
+            client.get("/catalog?type=article&tag=Python&tag=C%2B%2B&utm_campaign=two").headers[
+                "x-cache"
+            ]
+            == "HIT"
+        )
+        assert (
+            client.get("/catalog?type=article&tag=C%2B%2B&tag=Python").headers["x-cache"] == "MISS"
+        )
+        assert (
+            client.get("/catalog?kind=tutorial&tag=Python&tag=C%2B%2B").headers["x-cache"] == "MISS"
+        )
+    assert len(calls) == 3
+
+
+def test_query_model_extra_validation_cannot_be_bypassed_by_normalized_cache(response_cache):
+    from typing import Annotated
+
+    from devfeed_api.cache import CachedReadRoute, CachePolicy
+    from fastapi import APIRouter, FastAPI, Query
+    from fastapi.testclient import TestClient
+    from pydantic import BaseModel, ConfigDict
+
+    class Filters(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        limit: int = 10
+
+    def endpoint(filters: Annotated[Filters, Query()]):
+        return filters
+
+    app, router = FastAPI(), APIRouter(route_class=CachedReadRoute)
+    router.add_api_route(
+        "/catalog",
+        endpoint,
+        methods=["GET"],
+        openapi_extra=CachePolicy(
+            namespace="strict-model",
+            revision=1,
+            ttl="content",
+            normalize_query=True,
+        ).openapi_extra(),
+    )
+    app.include_router(router)
+    with TestClient(app) as client:
+        assert client.get("/catalog").headers["x-cache"] == "MISS"
+        assert client.get("/catalog").headers["x-cache"] == "HIT"
+        for _ in range(2):
+            assert client.get("/catalog?unexpected=invalid").status_code == 422

@@ -153,7 +153,9 @@ def feed_conditions(
 @router.get(
     "/feed/options",
     response_model=FeedOptionsOut,
-    openapi_extra=CachePolicy(namespace="feed-options", revision=1, ttl="content").openapi_extra(),
+    openapi_extra=CachePolicy(
+        namespace="feed-options", revision=1, ttl="content", normalize_query=True
+    ).openapi_extra(),
 )
 def feed_options(
     session: DB,
@@ -269,7 +271,9 @@ def _filtered_feed_options(
 @router.get(
     "/feed",
     response_model=FeedPage,
-    openapi_extra=CachePolicy(namespace="feed", revision=1, ttl="content").openapi_extra(),
+    openapi_extra=CachePolicy(
+        namespace="feed", revision=1, ttl="content", normalize_query=True
+    ).openapi_extra(),
 )
 def feed(
     session: DB,
@@ -367,7 +371,9 @@ def feed(
 @router.get(
     "/articles/{article_id}",
     response_model=ArticleOut,
-    openapi_extra=CachePolicy(namespace="article", revision=1, ttl="content").openapi_extra(),
+    openapi_extra=CachePolicy(
+        namespace="article", revision=1, ttl="content", normalize_query=True
+    ).openapi_extra(),
 )
 def article_detail(article_id: TextInput, session: DB) -> ArticleOut:
     try:
