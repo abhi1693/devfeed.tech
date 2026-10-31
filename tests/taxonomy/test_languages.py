@@ -252,6 +252,7 @@ def test_worker_detects_outside_transaction_only_for_new_response(monkeypatch, s
     )
     monkeypatch.setattr(tasks, "detect_feed_languages", detect)
     monkeypatch.setattr(tasks, "store_entries", store)
+    monkeypatch.setattr(tasks, "_entry_origins", lambda *_: {})
     tasks.ingest(str(job.id))
     assert job.status == "succeeded"
     assert calls == (["detect", "store"] if status == 200 else [])

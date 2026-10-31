@@ -1,5 +1,6 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -378,3 +379,226 @@ def test_publisher_metadata_wins_over_discovery_without_losing_provenance(
         assert origins["publisher"]["author"] == "Example Author"
         assert origins["aggregator"]["submitter"] == "Example Author"
         assert origins["aggregator"]["tags"] == ["python"]
+
+
+def test_known_feed_entries_skip_language_work_and_use_bounded_origin_reads(database, monkeypatch):
+    from dataclasses import replace
+
+    from devfeed_core.db import get_engine
+    from sqlalchemy import event
+
+    entries = "".join(
+        f"<item><guid>known-{index}</guid><title>Engineering article {index}</title>"
+        f"<link>https://example.com/article-{index}</link>"
+        "<description>A sufficiently useful publisher summary.</description></item>"
+        for index in range(500)
+    )
+    body = (
+        "<rss version='2.0'><channel><title>Publisher</title>" + entries + "</channel></rss>"
+    ).encode()
+    inferred = []
+
+    def infer(parsed):
+        inferred.append(len(parsed.entries))
+        return replace(parsed, entries=[replace(entry, language="en") for entry in parsed.entries])
+
+    monkeypatch.setattr(tasks, "detect_feed_languages", infer)
+    monkeypatch.setattr(tasks, "fetch_feed", lambda url, *_: FetchResult(200, body, url))
+    source_id, job_id = make_job(database)
+    tasks.ingest(str(job_id))
+    with database.begin() as session:
+        repeat = request_ingestion(session, session.get(Source, source_id)).id
+    origin_reads = []
+
+    def observe(_connection, _cursor, statement, _parameters, _context, _many):
+        if "article_origins.entry_key" in statement:
+            origin_reads.append(statement)
+
+    event.listen(get_engine(), "before_cursor_execute", observe)
+    try:
+        tasks.ingest(str(repeat))
+    finally:
+        event.remove(get_engine(), "before_cursor_execute", observe)
+    assert inferred == [500, 500]
+    assert len(origin_reads) == 1
+    assert all(" IN (" in statement for statement in origin_reads)
+    assert all("ingestion_jobs" not in statement for statement in origin_reads)
+    assert all("FOR UPDATE" not in statement for statement in origin_reads)
+    with database() as session:
+        job = session.get(IngestionJob, repeat)
+        assert (job.status, job.entries_seen, job.new_source_entries, job.articles_created) == (
+            "succeeded",
+            500,
+            0,
+            0,
+        )
+        assert session.scalar(select(func.count()).select_from(ArticleOrigin)) == 500
+
+
+def test_origin_removed_during_inference_uses_current_batched_snapshot(database, monkeypatch):
+    from dataclasses import replace
+
+    from sqlalchemy import delete
+
+    counts = []
+    items = "".join(
+        f"<item><guid>retained-{index}</guid><title>Engineering article {index}</title>"
+        f"<link>https://example.com/retained-{index}</link>"
+        "<description>A useful publisher summary.</description></item>"
+        for index in range(128)
+    )
+    body = (
+        "<rss version='2.0'><channel><title>Publisher</title>" + items + "</channel></rss>"
+    ).encode()
+    source_id, job_id = make_job(database)
+    removed = []
+
+    def infer(parsed):
+        counts.append(len(parsed.entries))
+        if len(counts) == 2:
+            # Inference holds no SQL connection. This opposing writer removes
+            # one origin before the authoritative persistence snapshot is read.
+            with database.begin() as session:
+                identifier = session.scalar(select(Article.id).order_by(Article.id))
+                removed.append(identifier)
+                session.execute(delete(Article).where(Article.id == identifier))
+        language = "ja" if len(counts) > 1 else "en"
+        return replace(
+            parsed, entries=[replace(entry, language=language) for entry in parsed.entries]
+        )
+
+    monkeypatch.setattr(tasks, "detect_feed_languages", infer)
+    monkeypatch.setattr(tasks, "fetch_feed", lambda url, *_: FetchResult(200, body, url))
+    tasks.ingest(str(job_id))
+    new_body = body.replace(
+        b"</channel>",
+        b"<item><guid>new-entry</guid><title>Another engineering article</title>"
+        b"<link>https://example.com/new-entry</link><description>A publisher summary.</description>"
+        b"</item></channel>",
+    )
+    with database.begin() as session:
+        repeat = request_ingestion(session, session.get(Source, source_id)).id
+    monkeypatch.setattr(tasks, "fetch_feed", lambda url, *_: FetchResult(200, new_body, url))
+    tasks.ingest(str(repeat))
+    assert counts == [128, 129]
+    with database() as session:
+        job = session.get(IngestionJob, repeat)
+        assert job.status == "succeeded" and job.attempts == 1 and job.articles_created == 2
+        assert session.scalar(select(func.count()).select_from(ArticleOrigin)) == 129
+        assert session.get(Article, removed[0]) is None
+        assert (
+            session.scalar(
+                select(func.count()).select_from(Article).where(Article.language == "ja")
+            )
+            == 2
+        )
+
+
+@pytest.mark.parametrize("count", [0, 1])
+def test_tiny_feeds_keep_the_existing_origin_query_and_transaction_budget(
+    database, monkeypatch, count
+):
+    from devfeed_core.db import get_engine
+    from sqlalchemy import event
+
+    items = "".join(
+        f"<item><guid>tiny-{index}</guid><title>Engineering article {index}</title>"
+        f"<link>https://example.com/tiny-{index}</link>"
+        "<description>A useful publisher summary.</description></item>"
+        for index in range(count)
+    )
+    body = (
+        "<rss version='2.0'><channel><title>Publisher</title>" + items + "</channel></rss>"
+    ).encode()
+    monkeypatch.setattr(tasks, "fetch_feed", lambda url, *_: FetchResult(200, body, url))
+    source_id, identifier = make_job(database)
+    tasks.ingest(str(identifier))
+    with database.begin() as session:
+        repeat = request_ingestion(session, session.get(Source, source_id)).id
+    origin_reads, transactions = [], []
+
+    def statement(_connection, _cursor, sql, *_):
+        if "article_origins.entry_key" in sql:
+            origin_reads.append(sql)
+
+    def begin(_connection):
+        transactions.append(1)
+
+    engine = get_engine()
+    event.listen(engine, "before_cursor_execute", statement)
+    event.listen(engine, "begin", begin)
+    try:
+        tasks.ingest(str(repeat))
+    finally:
+        event.remove(engine, "before_cursor_execute", statement)
+        event.remove(engine, "begin", begin)
+    assert len(transactions) == 2  # Existing claim and persistence transactions only.
+    assert len(origin_reads) == count
+    assert all("ingestion_jobs" not in sql and " IN (" not in sql for sql in origin_reads)
+
+
+def test_batched_origin_lookup_uses_index_with_large_retained_source_history(database, rss_bytes):
+    import json
+
+    from devfeed_core.feeds.parser import parse_feed
+    from sqlalchemy import text
+
+    source_id, _ = make_job(database)
+    with database.begin() as session:
+        article = Article(
+            title="Retained article",
+            summary="A sufficiently useful publisher summary.",
+            canonical_url="https://example.com/retained",
+            url_hash="a" * 64,
+        )
+        session.add(article)
+        session.flush()
+        # Query selectivity depends on the retained origin history, independent
+        # of how many old GUIDs refer to the same canonical article.
+        # Seed only this disposable history without queueing 100,000 downstream
+        # events; internal foreign-key triggers remain active.
+        session.execute(text("ALTER TABLE article_origins DISABLE TRIGGER USER"))
+        session.execute(
+            text(
+                "INSERT INTO article_origins(id,article_id,source_id,entry_key,original_url,"
+                "source_metadata) SELECT md5('origin-plan-'||g::text)::uuid,:article,:source,"
+                "'historical-'||g,'https://example.com/retained','{}' "
+                "FROM generate_series(1,100000) g"
+            ),
+            {"article": article.id, "source": source_id},
+        )
+        session.execute(text("ALTER TABLE article_origins ENABLE TRIGGER USER"))
+        session.execute(text("ANALYZE article_origins"))
+    parsed = parse_feed(rss_bytes, "https://example.com/rss", utcnow(), source_type="publisher")
+    keys = [f"historical-{index * 199}" for index in range(1, 501)]
+    parsed = replace(parsed, entries=[replace(parsed.entries[0], entry_key=key) for key in keys])
+    query = select(ArticleOrigin.entry_key, ArticleOrigin.article_id).where(
+        ArticleOrigin.source_id == source_id, ArticleOrigin.entry_key.in_(keys)
+    )
+    with database() as session:
+        assert set(tasks._entry_origins(session, source_id, parsed)) == set(keys)
+        sql = str(query.compile(bind=session.get_bind(), compile_kwargs={"literal_binds": True}))
+        report = session.scalar(text(f"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {sql}"))[0]
+    nodes = []
+
+    def visit(node):
+        nodes.append(node)
+        for child in node.get("Plans", []):
+            visit(child)
+
+    visit(report["Plan"])
+    assert report["Plan"]["Actual Rows"] == 500
+    assert any("Index" in node["Node Type"] for node in nodes)
+    assert not any(
+        node["Node Type"] == "Seq Scan" and node.get("Relation Name") == "article_origins"
+        for node in nodes
+    )
+    print(
+        json.dumps(
+            {
+                "source_origin_history": 100000,
+                "feed_entries": 500,
+                "plan": report,
+            }
+        )
+    )

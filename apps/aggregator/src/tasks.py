@@ -49,6 +49,7 @@ class PollingMetrics(TypedDict):
 
 
 logger = logging.getLogger(__name__)
+_ORIGIN_BATCH_MIN_ENTRIES = 2
 
 
 def store_entries(
@@ -57,6 +58,7 @@ def store_entries(
     parsed: ParsedFeed,
     *,
     activity: list[datetime | None] | None = None,
+    known_origins: dict[str, uuid.UUID] | None = None,
 ) -> int:
     topics = session.scalars(select(Topic).where(Topic.status == "active")).all()
     supplied_tags, _ = resolve_source_tags(
@@ -67,9 +69,13 @@ def store_entries(
     # Stable lock order across workers importing the same URLs from different feeds.
     for entry in sorted(parsed.entries, key=lambda item: item.canonical_url):
         source_tag_ids = [supplied_tags[key] for key in source_tag_names(entry.tags)]
-        existing_origin = session.scalar(
-            select(ArticleOrigin.article_id).where(
-                ArticleOrigin.source_id == source_id, ArticleOrigin.entry_key == entry.entry_key
+        existing_origin = (
+            known_origins.get(entry.entry_key)
+            if known_origins is not None
+            else session.scalar(
+                select(ArticleOrigin.article_id).where(
+                    ArticleOrigin.source_id == source_id, ArticleOrigin.entry_key == entry.entry_key
+                )
             )
         )
         if existing_origin is not None:
@@ -145,6 +151,8 @@ def store_entries(
                 index_elements=[ArticleOrigin.source_id, ArticleOrigin.entry_key]
             )
         )
+        if known_origins is not None:
+            known_origins[entry.entry_key] = article_id
         if (
             entry.source_type == SourceType.AGGREGATOR
             or not entry.summary
@@ -188,6 +196,21 @@ def store_entries(
                 .on_conflict_do_nothing()
             )
     return created
+
+
+def _entry_origins(
+    session: Session, source_id: uuid.UUID, parsed: ParsedFeed
+) -> dict[str, uuid.UUID]:
+    keys = {entry.entry_key for entry in parsed.entries}
+    if not keys:
+        return {}
+    return dict(
+        session.execute(
+            select(ArticleOrigin.entry_key, ArticleOrigin.article_id).where(
+                ArticleOrigin.source_id == source_id, ArticleOrigin.entry_key.in_(keys)
+            )
+        ).all()
+    )
 
 
 def ingest(job_id: str) -> None:
@@ -276,7 +299,14 @@ def _ingest_claimed(
                 return
             activity: list[datetime | None] = []
             if parsed:
-                job.articles_created = store_entries(session, source.id, parsed, activity=activity)
+                origins = (
+                    _entry_origins(session, source.id, parsed)
+                    if len(parsed.entries) >= _ORIGIN_BATCH_MIN_ENTRIES
+                    else None
+                )
+                job.articles_created = store_entries(
+                    session, source.id, parsed, activity=activity, known_origins=origins
+                )
                 job.entries_seen = parsed.seen
                 job.entries_skipped = parsed.skipped
             job.status = "succeeded"
