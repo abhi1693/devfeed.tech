@@ -75,3 +75,25 @@ checked under representative load. Active bursts still own one backend while
 working and can delay other waiting clients until the burst yields; the cap is not
 a production pool-budget guarantee. No production requests, limits or manifests
 change in this PR.
+
+## Negative capacity result
+
+A deeper session-pooler check sampled `SHOW POOLS` every 5 ms through a persistent
+admin connection (`prepare_threshold=None`). Five paired active-burst comparisons
+processed the same 200 documents in 20 batches. Empty-query pings and pooler resets
+were still included in the PostgreSQL-work audit. Assigned slot-seconds estimate
+the time a PgBouncer backend cannot serve another client; they are not CPU.
+Sampling can miss short assignments, so these are estimates rather than exact
+capacity accounting.
+
+| Assigned backend occupancy | Before | After | Measurement basis |
+| --- | ---: | ---: | --- |
+| No extra remote delay | 0.2794 slot-s | 0.2830 slot-s | Median of five paired active-burst samples; mixed directions between pairs. |
+| Fixed 5 ms remote sync delay | 0.3250 slot-s | 0.3648 slot-s | Median of five pairs; candidate higher in four pairs. Delay occurs inside the existing batch transaction in both modes. |
+| Peak assigned backends / assigned backends during idle waits | 1 / 0 | 1 / 0 | Same disposable session-mode pooler. |
+
+The pool can reduce SQL setup/reset work and database CPU while increasing backend
+assignment time between active batches. The evidence does not establish neutral
+shared-pool capacity. Do not promote this SQL-reuse proposal under a requirement to
+avoid shifting pressure to PostgreSQL; the default-off gate alone is not proof that
+the enabled behavior satisfies that requirement.
