@@ -37,3 +37,35 @@ Integration cases require disposable services as described in
 [the test guide](../tests/README.md). Before sizing production, compare CPU per
 request, key/cardinality and hit ratios under a representative request mix.
 This change introduces no migration, cache TTL or production manifest changes.
+
+## PostgreSQL impact
+
+A local x86-64 PostgreSQL 18 / session-mode PgBouncer / Redis comparison ran three
+samples per policy with alternating order. The baseline uses the original exact
+query identity (normalization metadata omitted); the candidate uses native declared
+query metadata. Warm-up is excluded. A separate observer role captured all workload
+PostgreSQL statements, including driver setup, read-only transactions and pooler
+`DISCARD ALL`, rather than relying only on SQLAlchemy application SQL events.
+The warmed pool has one existing backend, so backend startups were zero in both
+modes. The fixture reads the same approved source detail with unchanged inputs.
+
+| Metric | Before | After | Measurement basis |
+| --- | ---: | ---: | --- |
+| Cache outcomes for 100 tracking variants | 100 MISS | 100 HIT | Exact-query baseline versus normalization, three samples each. |
+| API data SELECTs / all recorded PostgreSQL commands | 100 / 500 | 0 / 0 | Same 100 requests, including transaction/configuration/pooler commands. |
+| Rows returned / shared buffer hits | 100 / 300 | 0 / 0 | Same tracking fixture; no reads, temporary spill or WAL in the candidate. |
+| Read transactions rolled back / pooler resets | 100 / 100 | 0 / 0 | Read-only session completion, not failed requests. |
+| PG planning + execution elapsed | 24.243 ms | 0 ms | Median of three tracking samples; elapsed time is not CPU. |
+| PostgreSQL-container CPU | 130.147 ms | 18.659 ms | Median cgroup delta; includes logging, background work and probes. Candidate has no workload PG statements; the nonzero counter is not attributed to SQL. |
+| Real Redis outage: commands / rows / buffer hits | 500 / 100 / 300 | 500 / 100 / 300 | 100 requests per mode, three samples; owned Redis paused, all requests bypass cache. |
+| Real Redis outage: PostgreSQL-container CPU range | 122.921–130.143 ms | 127.980–133.433 ms | Three samples; overlapping noisy ranges with identical statement/row/buffer work. |
+| Epoch churn: commands / rows / buffer hits | 100 / 20 / 60 | 100 / 20 / 60 | 20 requests per mode, three samples, public epoch invalidated before every read. |
+| Epoch churn: PostgreSQL-container CPU range | 39.485–55.934 ms | 40.285–41.330 ms | Three samples; no PG work added by normalization. |
+| WAL / idle transactions / remaining locks | 0 / 0 / 0 | 0 / 0 / 0 | All measured read scenarios. |
+
+There is no new SQL path or schema change. The native policy regression exercises
+both exact and normalized identities with available cache, unavailable cache and
+public-epoch churn. The avoided work depends on actual irrelevant-query traffic;
+these fixtures do not establish production container savings. Native ARM64 and a
+representative traffic/pooler canary remain required before promotion. Equal work
+under cache failure does not mean the database can absorb an arbitrary cache outage.

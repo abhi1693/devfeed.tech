@@ -351,7 +351,20 @@ def test_search_index_cause_requires_a_completed_nonempty_batch(database, observ
     ] == [("success", 1)]
 
 
-def test_tracking_query_noise_keeps_one_public_response_and_one_database_read(database, client):
+@pytest.mark.parametrize("normalize", [False, True])
+@pytest.mark.parametrize("scenario", ["available", "unavailable", "epoch_churn"])
+def test_tracking_query_noise_does_not_move_work_to_postgres(
+    database, client, monkeypatch, normalize, scenario
+):
+    from devfeed_api.cache import CachePolicy
+
+    identity = CachePolicy.identity
+
+    def policy_identity(self, request, query_names=None):
+        # Passing no metadata is the exact-query policy used before normalization.
+        return identity(self, request, query_names if normalize else None)
+
+    monkeypatch.setattr(CachePolicy, "identity", policy_identity)
     identifier = approved_source(database)
     path = f"/v1/sources/{identifier}"
     queries = []
@@ -364,9 +377,26 @@ def test_tracking_query_noise_keeps_one_public_response_and_one_database_read(da
         first = client.get(path)
         assert first.status_code == 200 and first.headers["x-cache"] == "MISS"
         baseline = len(queries)
+        store = cache.get_cache()
+        if scenario == "unavailable":
+
+            def unavailable(*_):
+                raise cache.CacheUnavailable
+
+            monkeypatch.setattr(store, "_run", unavailable)
         for number in range(100):
+            if scenario == "epoch_churn":
+                store.invalidate("public")
             result = client.get(f"{path}?utm_source=campaign-{number}&unrelated={number}")
-            assert result.headers["x-cache"] == "HIT" and result.json() == first.json()
-        assert baseline > 0 and len(queries) == baseline
+            status = (
+                "BYPASS"
+                if scenario == "unavailable"
+                else "HIT"
+                if normalize and scenario == "available"
+                else "MISS"
+            )
+            assert result.headers["x-cache"] == status and result.json() == first.json()
+        assert baseline > 0
+        assert len(queries) == baseline * (1 if normalize and scenario == "available" else 101)
     finally:
         event.remove(get_engine(), "before_cursor_execute", observed)
