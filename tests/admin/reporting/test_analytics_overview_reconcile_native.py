@@ -798,3 +798,77 @@ def test_native_insert_arriving_after_cancel_restart_cannot_resurrect_deleted_so
 if __name__ == "__main__":
     assert len(sys.argv) == 5 and sys.argv[1] == "--resume"
     asyncio.run(resumed_service(*sys.argv[2:]))
+
+
+def test_native_card_readers_require_only_their_independent_population_coverage():
+    from devfeed_admin_api.analytics_current import current_snapshot
+    from devfeed_core.analytics_reconcile import CARD_KINDS, card_scope
+
+    async def run():
+        async with target() as (client, settings, _snapshots, _clock):
+            policy = pipeline_policy_version(settings)
+            legacy_sql = (
+                "SELECT * FROM analytics_reconcile_progress FINAL "
+                "WHERE policy={policy:String} "
+                "AND scope IN ('cards','queues','active-cards','sweep') "
+                "ORDER BY scope" + FINAL
+            )
+            legacy = await client.query(legacy_sql, {"policy": policy})
+            missing = await current_snapshot(
+                client,
+                policy,
+                NOW,
+                scope="cards",
+                generation="7",
+                card_kinds=("source", "candidate"),
+            )
+            assert missing.status == "catching_up" and missing.generated_at is None
+            rows = [
+                {
+                    "policy": policy,
+                    "scope": card_scope(kind),
+                    "version": 8,
+                    "source_at": NOW - timedelta(seconds=20 if kind == "candidate" else 10),
+                    "completed_at": NOW,
+                    "pending": 0,
+                    "cursor": "{}",
+                }
+                for kind in CARD_KINDS
+            ]
+            article = next(row for row in rows if row["scope"] == card_scope("article"))
+            article.update(source_at=NOW - timedelta(hours=1), pending=1)
+            await client.insert("analytics_reconcile_progress", rows)
+            sources = await current_snapshot(
+                client,
+                policy,
+                NOW,
+                scope="cards",
+                generation="7",
+                card_kinds=("source", "candidate"),
+            )
+            assert sources.status == "fresh"
+            assert sources.generated_at == NOW - timedelta(seconds=20)
+            assert sources.coverage_expires_at == NOW + timedelta(seconds=40)
+            articles = await current_snapshot(
+                client, policy, NOW, scope="cards", generation="7", card_kinds=("article",)
+            )
+            assert articles.status == "stale"
+            operations = await current_snapshot(client, policy, NOW, scope="cards", generation="7")
+            assert operations.status == "stale"
+            # A newly incomplete candidate pass must invalidate Sources, even when
+            # the source-kind and import/global rows have very recent timestamps.
+            candidate = next(row for row in rows if row["scope"] == card_scope("candidate"))
+            candidate.update(version=9, source_at=None, completed_at=None, pending=1)
+            await client.insert("analytics_reconcile_progress", [candidate])
+            sources = await current_snapshot(
+                client,
+                policy,
+                NOW,
+                scope="cards",
+                generation="7",
+                card_kinds=("source", "candidate"),
+            )
+            assert sources.status == "catching_up" and sources.generated_at is None
+            assert await client.query(legacy_sql, {"policy": policy}) == legacy
+
+    asyncio.run(run())

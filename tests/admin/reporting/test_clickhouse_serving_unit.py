@@ -132,7 +132,7 @@ class Client:
 
 @pytest.fixture(autouse=True)
 def reconciliation_coverage(monkeypatch):
-    async def read(client, policy):
+    async def read(client, policy, *, card_kinds):
         assert policy == client.policy
         client.coverage_reads += 1
         return deepcopy(client.coverage)
@@ -1239,7 +1239,7 @@ async def test_cached_current_view_expires_at_source_coverage_deadline_without_m
 async def test_unavailable_current_coverage_does_not_fall_back_to_import_status(monkeypatch):
     client = Client()
 
-    async def offline(*_args):
+    async def offline(*_args, **_kwargs):
         raise AnalyticsUnavailable("coverage unavailable")
 
     monkeypatch.setattr(analytics_current, "read_reconciliation_status", offline)
@@ -1319,3 +1319,62 @@ async def test_bounded_current_cohorts_cache_each_selected_period_independently(
     observed_end = NOW.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     expected_end = observed_end if section in {"queues", "audience"} else today.bounds[1]
     assert all(params["end"] == expected_end for params in queries)
+
+
+@pytest.mark.parametrize("article_age,article_pending", [(0, True), (1200, False)])
+@run_async
+async def test_source_board_coverage_does_not_wait_for_article_population(
+    monkeypatch, article_age, article_pending
+):
+    from devfeed_core.analytics_reconcile import card_scope, read_reconciliation_status
+
+    rows = [
+        {
+            "scope": card_scope(kind),
+            "completed_at": NOW,
+            "pending": 0,
+            "source_at": NOW - timedelta(seconds=20 if kind == "candidate" else 10),
+        }
+        for kind in analytics_current.CARD_KINDS
+    ]
+    article = next(row for row in rows if row["scope"] == card_scope("article"))
+    article.update(source_at=NOW - timedelta(seconds=article_age), pending=int(article_pending))
+
+    class IndependentCoverageClient(Client):
+        async def query(self, statement, parameters=None):
+            if "analytics:reconciliation-status" in statement:
+                self.queries.append((statement, deepcopy(parameters)))
+                return deepcopy([row for row in rows if row["scope"] in parameters["scopes"]])
+            return await super().query(statement, parameters)
+
+    monkeypatch.setattr(analytics_current, "read_reconciliation_status", read_reconciliation_status)
+    service = CurrentCards(IndependentCoverageClient(), now=NOW)
+    source = await service.source_board(
+        SimpleNamespace(
+            terminal_since=NOW - timedelta(days=7),
+            limit=20,
+            q=None,
+            source_type=None,
+            needs_attention=False,
+        )
+    )
+    assert source.snapshot.status == "fresh"
+    assert source.snapshot.generated_at == NOW - timedelta(seconds=20)
+    assert source.snapshot.coverage_expires_at == NOW + timedelta(seconds=580)
+    articles = await service.article_board(q=None, source_id=None, needs_attention=False, limit=20)
+    expected = "catching_up" if article_pending else "stale"
+    assert articles.snapshot.status == expected
+    assert (await service.selection(analytics_current.CARD_KINDS)).snapshot.status == expected
+    # Both kinds are required for the complete Sources board, including Discovery candidates.
+    rows[:] = [row for row in rows if row["scope"] != card_scope("candidate")]
+    missing = await service.source_board(
+        SimpleNamespace(
+            terminal_since=NOW - timedelta(days=7),
+            limit=20,
+            q=None,
+            source_type=None,
+            needs_attention=False,
+        )
+    )
+    assert missing.snapshot.status == "catching_up"
+    assert missing.snapshot.generated_at is None
