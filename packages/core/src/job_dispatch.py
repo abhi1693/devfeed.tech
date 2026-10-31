@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from itertools import batched, groupby
 from typing import Protocol, cast
 
 from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.sql.elements import ColumnElement
 
+from devfeed_core.config import get_settings
 from devfeed_core.delivery import delivery_id
 from devfeed_core.job_definitions import (
     JOB_DEFINITIONS,
@@ -110,28 +113,63 @@ class JobDispatcher:
         self, jobs: Iterable[tuple[PipelineKind, Job, bool, bool]]
     ) -> list[tuple[str, dict[str, uuid.UUID | str]]]:
         logs = []
-        for kind, job, solver, source_analysis in jobs:
-            definition = JOB_DEFINITIONS[kind]
-            delivery = self.queue.enqueue(
-                definition.handler,
-                str(job.id),
-                job_timeout=max(240, definition.timeout) if solver else definition.timeout,
-                result_ttl=0,
-                failure_ttl=86400,
-                ttl=None,
-                job_id=delivery_id(
-                    f"{kind}-solver" if solver else f"{kind}-ai" if source_analysis else kind,
-                    job.id,
-                    job.available_at,
-                    job.attempts,
-                ),
-                unique=True,
-            )
-            job.dispatched_at = self.now
-            fields = definition.log_fields(job)
-            if definition.kind != "notifications":
-                fields["rq_job_id"] = delivery.id
-            logs.append((definition.event, fields))
+        for kind, grouped in groupby(jobs, key=lambda row: row[0]):
+            rows = list(grouped)
+            size = get_settings().notification_delivery_batch_size if kind == "notifications" else 1
+            for page in batched(rows, size):
+                if len(page) == 1:
+                    logs.extend(self._publish_one(*page[0]))
+                    continue
+                # Durable rows remain individually claimed and retried. This
+                # transport grouping only amortizes work-horse startup.
+                identifiers = [str(row[1].id) for row in page]
+                identities = sorted(
+                    delivery_id(kind, row[1].id, row[1].available_at, row[1].attempts)
+                    for row in page
+                )
+                self.queue.enqueue(
+                    JOB_DEFINITIONS[kind].handler,
+                    json.dumps({"deliveries": identifiers, "published_at": self.now.isoformat()}),
+                    job_timeout=30,
+                    result_ttl=0,
+                    failure_ttl=86400,
+                    ttl=None,
+                    job_id="devfeed-notifications-batch-"
+                    + str(uuid.uuid5(uuid.NAMESPACE_URL, "/".join(identities))),
+                    unique=True,
+                )
+                for _, job, _, _ in page:
+                    job.dispatched_at = self.now
+                    logs.append(
+                        (JOB_DEFINITIONS[kind].event, JOB_DEFINITIONS[kind].log_fields(job))
+                    )
+        return logs
+
+    def _publish_one(
+        self, kind: PipelineKind, job: Job, solver: bool, source_analysis: bool
+    ) -> list[tuple[str, dict[str, uuid.UUID | str]]]:
+        logs = []
+        definition = JOB_DEFINITIONS[kind]
+        delivery = self.queue.enqueue(
+            definition.handler,
+            str(job.id),
+            job_timeout=max(240, definition.timeout) if solver else definition.timeout,
+            result_ttl=0,
+            failure_ttl=86400,
+            ttl=None,
+            job_id=delivery_id(
+                f"{kind}-solver" if solver else f"{kind}-ai" if source_analysis else kind,
+                job.id,
+                job.available_at,
+                job.attempts,
+            ),
+            unique=True,
+        )
+        job.dispatched_at = self.now
+        fields = definition.log_fields(job)
+        if definition.kind != "notifications":
+            fields["rq_job_id"] = delivery.id
+        logs.append((definition.event, fields))
         return logs
 
     @staticmethod

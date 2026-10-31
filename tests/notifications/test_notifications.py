@@ -358,3 +358,31 @@ def test_lightweight_worker_rejects_missing_delivery_adapter_before_dequeue(monk
     with pytest.raises(OperationConflict, match=r"devfeed-aggregator\[notifications\]"):
         worker.run(burst=True, queue_name="notifications")
     assert stopped == ["runtime"]
+
+
+def test_batched_dispatch_keeps_individual_rows_and_stable_attempt_identities(monkeypatch):
+    from devfeed_core.job_dispatch import JobDispatcher
+
+    monkeypatch.setattr(get_settings(), "notification_delivery_batch_size", 10)
+    now = utcnow()
+    jobs = [
+        NotificationDelivery(id=uuid.uuid4(), attempts=0, available_at=now, dispatched_at=None)
+        for _ in range(25)
+    ]
+    calls = []
+    queue = SimpleNamespace(enqueue=lambda *args, **kwargs: calls.append((args, kwargs)))
+    dispatcher = JobDispatcher(None, queue, now)
+    rows = [("notifications", job, False, False) for job in jobs]
+    assert len(dispatcher._publish(rows)) == 25
+    assert len(calls) == 3
+    assert [len(json.loads(args[1])["deliveries"]) for args, _ in calls] == [10, 10, 5]
+    assert all(job.dispatched_at == now for job in jobs)
+    assert all(options["unique"] and options["job_timeout"] == 30 for _, options in calls)
+    before = [options["job_id"] for _, options in calls]
+    calls.clear()
+    dispatcher._publish(rows)
+    assert [options["job_id"] for _, options in calls] == before
+    jobs[0].attempts += 1
+    calls.clear()
+    dispatcher._publish(rows)
+    assert calls[0][1]["job_id"] != before[0]
