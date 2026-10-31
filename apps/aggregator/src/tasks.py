@@ -1,6 +1,7 @@
 import logging
 import time
 import uuid
+from contextlib import nullcontext
 from datetime import datetime
 from typing import TypedDict
 
@@ -37,6 +38,7 @@ from devfeed_core.telemetry import current
 from devfeed_core.urls import fingerprint
 from sqlalchemy import case, func, select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_aggregator.languages import detect_feed_languages
@@ -252,7 +254,12 @@ def _ingest_claimed(
             else None
         )
         labels = (tag for entry in parsed.entries for tag in entry.tags) if parsed else ()
-        with prefetch_source_tags(labels), factory.begin() as session:
+        prefetch = (
+            nullcontext()
+            if isinstance(getattr(factory, "kw", {}).get("bind"), Connection)
+            else prefetch_source_tags(labels)
+        )
+        with prefetch, factory.begin() as session:
             job = owned_job(session, IngestionJob, identifier, lease_token)
             if job is None:
                 logger.warning("ingestion_lease_lost")

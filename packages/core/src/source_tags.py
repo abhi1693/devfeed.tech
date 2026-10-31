@@ -269,7 +269,9 @@ def _source_tag_index(session: Session) -> SourceTagIndex:
     result = _build_source_tag_index(session)
     if revision is not None and session.scalar(revision_query) == revision:
         _identity_snapshot = (key, *result)
-        if shared:
+        if shared and not isinstance(key[0], Connection):
+            # A borrowed Connection can outlive this Session transaction. Its
+            # external owner, rather than after_transaction_end, returns it.
             session.info[_PENDING_INDEX] = (revision, result, get_cache())
     return result
 

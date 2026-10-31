@@ -9,7 +9,9 @@ Ingestion now prefetches the bounded Redis payload and decodes it before opening
 its final SQL transaction. A delivery-scoped context carries that immutable
 candidate; the database revision is still authoritative before and after reuse.
 The context is cleared on every exit. Without prefetch, other callers skip shared
-Redis reads and use the baseline SQL path. Cold projection compression/publication
+Redis reads and use the baseline SQL path. Sessions bound to a borrowed
+Connection skip publication, and ingestion factories with an explicit Connection
+bind skip prefetch too: their external transaction can outlive the Session. Cold projection compression/publication
 runs only after the root transaction has ended and its connection is checked in;
 explicit rollback cancels publication. A known-open cache breaker skips expensive
 serialization. Cache failures cannot turn a committed transaction into a failed

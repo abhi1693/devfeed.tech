@@ -3207,5 +3207,6 @@
         55002.0
       ]
     }
-  }
+  },
+  "borrowed_connection_followup": "Measured Engine-owned paths unchanged. Connection-bound Sessions skip publication; ingestion with factory.kw.bind set to Connection skips shared prefetch. Four focused owned/borrowed lifecycle native cases pass; no broad pressure benchmark repeated for this guard."
 }

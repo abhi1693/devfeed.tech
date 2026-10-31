@@ -500,6 +500,78 @@ def test_shared_projection_publication_runs_after_database_connection_release(
         cache.close_cache()
 
 
+def test_borrowed_connection_never_publishes_inside_its_external_transaction(database, monkeypatch):
+    from unittest.mock import Mock
+
+    from devfeed_core import cache, source_tags
+    from devfeed_core.db import get_engine
+    from sqlalchemy.orm import Session
+
+    with database.begin() as session:
+        session.add(Tag(name="Stable", slug="stable", aliases=["old"]))
+    monkeypatch.setattr(get_settings(), "cache_enabled", True)
+    monkeypatch.setattr(get_settings(), "source_tag_shared_cache_enabled", True)
+    monkeypatch.setattr(source_tags, "_identity_snapshot", None)
+    publisher = Mock()
+    monkeypatch.setattr(source_tags, "_publish_source_tag_index", publisher)
+    cache.close_cache()
+    try:
+        with get_engine().begin() as connection:
+            with Session(bind=connection) as borrowed:
+                assert resolve_source_tags(borrowed, ["old"])[1] == 0
+                borrowed.commit()
+            assert connection.in_transaction()
+            publisher.assert_not_called()
+        publisher.assert_not_called()
+    finally:
+        cache.close_cache()
+
+
+def test_ingestion_with_borrowed_connection_skips_shared_transport(database, monkeypatch):
+    from unittest.mock import Mock
+
+    from devfeed_core import cache, source_tags
+    from devfeed_core.cache_events import AppSession
+    from devfeed_core.db import get_engine
+    from devfeed_core.jobs import request_ingestion
+    from devfeed_core.models import IngestionJob
+    from sqlalchemy.orm import sessionmaker
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "cache_enabled", True)
+    monkeypatch.setattr(settings, "source_tag_shared_cache_enabled", True)
+    monkeypatch.setattr(settings, "ai_enabled", True)
+    cache.close_cache()
+    source_id = source(database)
+    with database.begin() as session:
+        session.add(Tag(name="Stable", slug="stable", aliases=["old"]))
+        identifier = request_ingestion(session, session.get(Source, source_id)).id
+    transport, publisher = Mock(), Mock()
+    monkeypatch.setattr(cache.get_cache().redis, "getrange", transport)
+    monkeypatch.setattr(source_tags, "_publish_source_tag_index", publisher)
+    monkeypatch.setattr(source_tags, "_identity_snapshot", None)
+    body = b"""<rss version="2.0"><channel><title>Example</title><item>
+    <guid>borrowed</guid><title>An engineering article</title>
+    <link>https://example.com/borrowed</link><category>old</category>
+    <description>A sufficiently useful publisher summary.</description>
+    </item></channel></rss>"""
+    monkeypatch.setattr(tasks, "fetch_feed", lambda url, *_: FetchResult(200, body, url))
+    try:
+        with get_engine().begin() as connection:
+            borrowed_factory = sessionmaker(connection, class_=AppSession, expire_on_commit=False)
+            monkeypatch.setattr(tasks, "session_factory", lambda: borrowed_factory)
+            tasks.ingest(str(identifier))
+            assert connection.in_transaction()
+            transport.assert_not_called()
+            publisher.assert_not_called()
+        with database() as session:
+            assert session.get(IngestionJob, identifier).status == "succeeded"
+        transport.assert_not_called()
+        publisher.assert_not_called()
+    finally:
+        cache.close_cache()
+
+
 @pytest.mark.parametrize("transport", ["warm", "corrupt", "unavailable"])
 def test_ingestion_prefetches_shared_tags_before_opening_its_commit_transaction(
     database, monkeypatch, transport
