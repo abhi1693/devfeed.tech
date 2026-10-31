@@ -123,7 +123,7 @@ def _apply_prepared[T](
 
 def analyze_article(job_id: str) -> None:
     with job_log_context("analysis", job_id), ExitStack() as scope:
-        if get_settings().analysis_catalog_reuse_enabled:
+        if get_settings().analysis_catalog_reuse_enabled and get_settings().cache_enabled:
             snapshots: SnapshotCache = {}
             rankings: list[_PreparedCatalog] = []
             # Clear owned containers even when an exception traceback retains this

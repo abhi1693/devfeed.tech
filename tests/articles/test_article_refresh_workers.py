@@ -31,6 +31,7 @@ from sqlalchemy.dialects import postgresql
 from tests.articles.test_article_enrichment_integration import PAGE
 from tests.support.article_maintenance_workers import complete_private_analysis
 from tests.support.article_refresh import published_retry_case as published_retry_case
+from tests.support.postgres_work import postgres_work
 
 pytestmark = pytest.mark.integration
 
@@ -47,6 +48,7 @@ def test_private_analysis_finishes_atomic_publication_without_identity_or_notifi
     from devfeed_core import analysis
 
     monkeypatch.setattr(get_settings(), "analysis_catalog_reuse_enabled", catalog_reuse)
+    monkeypatch.setattr(get_settings(), "cache_enabled", True)
     case = published_retry_case
     with database.begin() as session:
         case.request(session, "analysis")
@@ -58,7 +60,14 @@ def test_private_analysis_finishes_atomic_publication_without_identity_or_notifi
             references.append(weakref.ref(self))
 
     monkeypatch.setattr(analysis, "_PreparedCatalog", TrackedCatalog)
-    refresh_id, job_id, calls = complete_private_analysis(database, monkeypatch, case.article_id)
+
+    def no_connection_during_inference(_):
+        assert measured["active_connections"] == 0
+
+    with postgres_work(database.kw["bind"]) as measured:
+        refresh_id, job_id, calls = complete_private_analysis(
+            database, monkeypatch, case.article_id, before_complete=no_connection_during_inference
+        )
     assert len(calls) >= 7
     with database() as session:
         owner, article = (
@@ -75,6 +84,10 @@ def test_private_analysis_finishes_atomic_publication_without_identity_or_notifi
         assert session.scalar(select(func.count()).select_from(FeedNotificationEvent)) == 1
     assert len(references) == (1 if catalog_reuse else 3)
     assert all(reference() is None for reference in references)
+    print(
+        "PRIVATE_ANALYSIS_PG_WORK="
+        + json.dumps({"retained": catalog_reuse, "counts": dict(measured)}, sort_keys=True)
+    )
 
 
 def test_private_enrichment_keeps_live_body_until_its_analysis_completes(

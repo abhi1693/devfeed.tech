@@ -5,6 +5,11 @@ inference, then prepares it again for the final revision-checked application.
 The opt-in `DEVFEED_ANALYSIS_CATALOG_REUSE_ENABLED=true` retains one catalog and
 retrieval generation for that job, so unchanged inputs reuse the first preparation.
 The default is `false` because this keeps the generation in memory during inference.
+The longer scope also requires `DEVFEED_CACHE_ENABLED=true`. When caching is
+disabled, the worker keeps its existing per-stage scopes instead of adding revision
+queries to cold, failed, or continuously changing jobs. Cache transport failure
+still permits local retention: the enabled-cache path already checks PostgreSQL
+revisions and falls back to authoritative catalog reads.
 The owner clears both containers on success, dependency failure, lost lease, and
 uncaught exceptions; another delivery or durable retry starts with fresh containers.
 No session or SQL connection remains open during external inference.
@@ -83,3 +88,8 @@ compare CPU, peak memory, inference admission and throughput under the same work
 Start with one worker; disable the flag and restart workers to return to the shorter
 preparation lifetime. No migration, provider quota, polling interval or replica
 change is included.
+
+Paired native PostgreSQL work across disabled, cold, warm, unavailable and changing
+catalogs is documented in the [PostgreSQL work report](analysis-postgres-work.md). The
+additional job scope is bypassed with caching disabled to preserve the existing
+revision-query budget. Raw buffers/WAL and negative/noisy observations are retained.

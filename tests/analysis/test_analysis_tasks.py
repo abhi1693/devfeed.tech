@@ -74,6 +74,7 @@ def runtime(monkeypatch):
         full_automation=False,
         codex_model="configured-model",
         analysis_catalog_reuse_enabled=False,
+        cache_enabled=True,
     )
     monkeypatch.setattr(analysis_tasks, "session_factory", lambda: Factory())
     monkeypatch.setattr(analysis_tasks, "get_settings", lambda: settings)
@@ -967,6 +968,23 @@ def test_job_catalog_reuse_spans_specialists_and_apply_without_retaining_transac
     assert state["revision_reads"] == (4 if enabled else 3)
     assert all(reference() is None for reference in references)
     assert analysis._ranking.get() is None and catalog_cache._snapshots.get() is None
+
+
+def test_disabled_cache_does_not_add_job_owned_revision_reads(runtime, monkeypatch):
+    from devfeed_core import catalog_cache
+
+    _, job, settings, _ = runtime
+    settings.analysis_catalog_reuse_enabled = True
+    settings.cache_enabled = False
+    observed = []
+
+    def run(identifier):
+        assert identifier == job.id
+        observed.append((catalog_cache._snapshots.get(), analysis._ranking.get()))
+
+    monkeypatch.setattr(analysis_tasks, "_analyze", run)
+    analysis_tasks.analyze_article(str(job.id))
+    assert observed == [(None, None)]
 
 
 @pytest.mark.parametrize("stopped", ["lease", "dependency", "invalid", "exception"])

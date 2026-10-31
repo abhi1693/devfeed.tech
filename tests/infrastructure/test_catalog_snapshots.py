@@ -265,7 +265,7 @@ def test_analysis_job_reuses_catalog_without_holding_connections_over_inference(
     from tests.support.article_step_helpers import article_step_client
     from tests.workers.test_automation_integration import enable
 
-    enable(monkeypatch, ANALYSIS_CATALOG_REUSE_ENABLED=enabled)
+    enable(monkeypatch, ANALYSIS_CATALOG_REUSE_ENABLED=enabled, CACHE_ENABLED=True)
     with database.begin() as session:
         _, article, topic = seed(session)
         session.execute(
@@ -348,7 +348,7 @@ def test_job_retained_catalog_rebuilds_after_raw_sql_and_refuses_stale_selection
     from tests.support.article_step_helpers import article_step_client
     from tests.workers.test_automation_integration import enable
 
-    enable(monkeypatch, ANALYSIS_CATALOG_REUSE_ENABLED=True)
+    enable(monkeypatch, ANALYSIS_CATALOG_REUSE_ENABLED=True, CACHE_ENABLED=True)
     with database.begin() as session:
         _, article, topic = seed(session)
         identifier, topic_id = article.id, topic.id
