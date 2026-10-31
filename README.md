@@ -120,7 +120,7 @@ letter filters remain available with `noindex,follow`; populated directory pages
 normalized canonical URLs. Next and previous links preserve the directory filters.
 
 See [scheduler resource budgets and liveness](dev/scheduler-resources.md) for
-connection reuse, measurements, and production canary guidance.
+Redis-client reuse, measurements, and production canary guidance.
 
 The scheduler generates cached sitemaps in the background. Crawler requests serve
 the last completed snapshot while refreshes run; see

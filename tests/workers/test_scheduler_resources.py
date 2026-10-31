@@ -1,13 +1,10 @@
-"""Bounded scheduler pools preserve dispatch, recovery and concurrent feed progress."""
+"""Redis reuse preserves the scheduler's PostgreSQL work and connection policy."""
 
 import json
 import platform
 import statistics
-import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import nullcontext
 from datetime import timedelta
 
 import pytest
@@ -21,40 +18,6 @@ from sqlalchemy import event, select, text
 from tests.support import scheduler as fixtures
 
 pytestmark = pytest.mark.integration
-
-
-def test_reused_pool_reconnects_after_its_idle_backend_is_lost(database):
-    with SchedulerResources() as resources:
-        with resources.factory() as session:
-            pid = session.scalar(text("SELECT pg_backend_pid()"))
-        with database() as observer:
-            assert observer.scalar(text("SELECT pg_terminate_backend(:pid)"), {"pid": pid})
-        with resources.factory() as session:
-            assert session.scalar(text("SELECT 1")) == 1
-            assert session.scalar(text("SELECT pg_backend_pid()")) != pid
-
-
-def test_pool_serves_main_partner_and_reader_lanes_without_overflow(database):
-    settings = get_settings().model_copy(
-        update={"scheduler_database_pool_size": 3, "database_pool_enabled": False}
-    )
-    barrier = threading.Barrier(3)
-    with SchedulerResources(settings) as resources:
-
-        def operation(main):
-            factory = resources.factory if main else resources.background_factory
-            with resources.cycle() if main else nullcontext(), factory() as session:
-                backend = session.scalar(text("SELECT pg_backend_pid()"))
-                barrier.wait(timeout=5)
-                return backend
-
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = [executor.submit(operation, main) for main in (True, False, False)]
-            pids = [future.result(timeout=10) for future in futures]
-        assert len(set(pids)) == 3
-        assert resources.engine.pool.checkedout() == 0
-        assert resources.engine.pool.overflow() <= 0
-        assert resources.engine.pool.checkedin() == 0
 
 
 @pytest.mark.parametrize("reuse", [False, True])
@@ -104,16 +67,24 @@ def test_main_loop_keeps_queued_work_and_recovers_expired_leases(database, monke
         assert session.get(IngestionJob, jobs[0]).dispatched_at is not None
 
 
-def test_scheduler_reuse_keeps_query_work_and_reduces_connection_churn(database, monkeypatch):
+def test_scheduler_reuse_keeps_database_work_and_reduces_redis_clients(database, monkeypatch):
     monkeypatch.setattr(get_settings(), "ai_enabled", True)
     monkeypatch.setattr(get_settings(), "ai_quota_pacing_enabled", False)
     settings = get_settings().model_copy(update={"database_pool_enabled": False})
     article = fixtures.retained_analysis_jobs(database)
+    from unittest.mock import Mock
+
+    from devfeed_aggregator import scheduler_resources
+
+    lookup = Mock(wraps=scheduler_resources.get_queue)
+    monkeypatch.setattr(scheduler_resources, "get_queue", lookup)
     reports = {}
     for reuse in (False, True):
         settings.scheduler_connection_reuse_enabled = reuse
         with SchedulerResources(settings) as resources:
             scheduler.tick(resources)
+            lookup.reset_mock()
+            engine = resources.factory.kw["bind"]
             counts = {"connections": 0, "statements": 0, "wire_commands": 0, "closed": 0}
 
             class ObservedCursor(Cursor):
@@ -133,10 +104,10 @@ def test_scheduler_reuse_keeps_query_work_and_reduces_connection_churn(database,
             def statement(*_, current=counts):
                 current["statements"] += 1
 
-            event.listen(resources.engine, "connect", connected)
-            event.listen(resources.engine, "before_cursor_execute", statement)
-            event.listen(resources.engine, "do_connect", cursor_factory)
-            event.listen(resources.engine, "close", closed)
+            event.listen(engine, "connect", connected)
+            event.listen(engine, "before_cursor_execute", statement)
+            event.listen(engine, "do_connect", cursor_factory)
+            event.listen(engine, "close", closed)
             cpu, durations, outcomes = time.process_time(), [], []
             try:
                 for _ in range(10):
@@ -144,12 +115,13 @@ def test_scheduler_reuse_keeps_query_work_and_reduces_connection_churn(database,
                     outcomes.append(scheduler.tick(resources))
                     durations.append(time.perf_counter() - started)
             finally:
-                event.remove(resources.engine, "connect", connected)
-                event.remove(resources.engine, "before_cursor_execute", statement)
-                event.remove(resources.engine, "do_connect", cursor_factory)
-                event.remove(resources.engine, "close", closed)
+                event.remove(engine, "connect", connected)
+                event.remove(engine, "before_cursor_execute", statement)
+                event.remove(engine, "do_connect", cursor_factory)
+                event.remove(engine, "close", closed)
             reports[str(reuse)] = {
                 **counts,
+                "redis_clients": lookup.call_count,
                 "cpu_seconds": time.process_time() - cpu,
                 "median_tick_seconds": statistics.median(durations),
                 "outcomes": outcomes,
@@ -157,10 +129,10 @@ def test_scheduler_reuse_keeps_query_work_and_reduces_connection_churn(database,
     old, new = reports["False"], reports["True"]
     assert new["outcomes"] == old["outcomes"]
     assert new["statements"] == old["statements"]
-    assert new["wire_commands"] <= old["wire_commands"]
-    assert new["connections"] == new["closed"]
-    assert old["connections"] == old["closed"]
-    assert new["connections"] == 10 and old["connections"] > 100
+    assert new["wire_commands"] == old["wire_commands"]
+    assert new["connections"] == old["connections"]
+    assert new["closed"] == old["closed"]
+    assert new["redis_clients"] == 0 and old["redis_clients"] > 0
     with database() as session:
         assert (
             session.scalar(
@@ -193,46 +165,24 @@ def test_owned_queue_reconnects_without_replacing_its_delivery_policy(database):
         assert queue.connection.ping()
 
 
-@pytest.mark.parametrize("failed", [False, True])
-def test_main_cycle_closes_every_database_socket_before_polling(database, failed):
-    settings = get_settings().model_copy(update={"database_pool_enabled": False})
-    with SchedulerResources(settings) as resources:
-        events = {"connect": 0, "close": 0}
+@pytest.mark.parametrize("reuse", [False, True])
+def test_resources_use_the_existing_database_engine_without_opening_or_closing_it(database, reuse):
+    engine = database.kw["bind"]
+    calls = []
 
-        def connected(*_):
-            events["connect"] += 1
+    def connected(*_):
+        calls.append("connect")
 
-        def closed(*_):
-            events["close"] += 1
+    def disposed(*_):
+        calls.append("dispose")
 
-        event.listen(resources.engine, "connect", connected)
-        event.listen(resources.engine, "close", closed)
-        for _ in range(2):
-            outcome = pytest.raises(RuntimeError, match="cycle failed") if failed else nullcontext()
-            with outcome, resources.cycle():
-                with resources.factory.begin() as session:
-                    first = session.scalar(text("SELECT pg_backend_pid()"))
-                with resources.factory.begin() as session:
-                    assert session.scalar(text("SELECT pg_backend_pid()")) == first
-                if failed:
-                    raise RuntimeError("cycle failed")
-            assert events["connect"] == events["close"]
-            assert resources.engine.pool.checkedout() == 0
-        assert events == {"connect": 2, "close": 2}
-
-
-def test_main_and_interactive_transactions_keep_independent_commit_boundaries(database):
-    settings = get_settings().model_copy(update={"database_pool_enabled": False})
-    with (
-        SchedulerResources(settings) as resources,
-        resources.cycle(),
-        resources.factory.begin() as session,
-    ):
-        main = session.scalar(text("SELECT pg_backend_pid()"))
-        with resources.background_factory.begin() as background:
-            assert background.scalar(text("SELECT pg_backend_pid()")) != main
-            assert background.scalar(text("SELECT 1")) == 1
-        # A separate helper transaction can commit while this one remains open.
-        with resources.factory.begin() as nested:
-            assert nested.scalar(text("SELECT pg_backend_pid()")) != main
-        assert session.scalar(text("SELECT pg_backend_pid()")) == main
+    event.listen(engine, "connect", connected)
+    event.listen(engine, "engine_disposed", disposed)
+    try:
+        settings = get_settings().model_copy(update={"scheduler_connection_reuse_enabled": reuse})
+        with SchedulerResources(settings) as resources:
+            assert resources.factory.kw["bind"] is engine
+        assert calls == []
+    finally:
+        event.remove(engine, "connect", connected)
+        event.remove(engine, "engine_disposed", disposed)

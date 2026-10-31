@@ -1,47 +1,30 @@
 # Scheduler resources
 
-The scheduler reuses a bounded SQL pool **within one main-loop cycle** and
-closes its database sockets before the 15-second polling wait, including after a
-failed cycle. The initialized SQLAlchemy dialect remains reusable. Sessions keep
-independent transactions and commit/rollback boundaries. Only the main thread
-uses this engine, so disposing its idle connections cannot interrupt the
-interactive dispatch threads.
+The scheduler retains the Redis clients used by its main dispatch loop. It uses
+the existing shared SQL session factory unchanged: no scheduler-specific SQL pool,
+connection cap, pre-ping policy, transaction scope, isolation level or database
+connection lifetime is introduced. Interactive dispatchers, workers, APIs and the
+sitemap refresher keep their existing database ownership.
 
-When the generic database pool is already explicitly enabled, its original
-shared engine, limits and idle behavior are preserved without an additional pool.
-The active-cycle override applies only to a NullPool baseline.
-
-Interactive recommendation and partner dispatch retain their previous database
-connection policy. In production that policy is NullPool; they release each
-transaction's client connection instead of retaining extra idle sessions. APIs,
-workers and the sitemap refresher keep their existing database access paths.
-
-`DEVFEED_SCHEDULER_CONNECTION_REUSE_ENABLED=true` enables active-cycle reuse even
-when workers use `DEVFEED_DATABASE_POOL_ENABLED=false`. The main pool has four
-connections and no overflow; `DEVFEED_SCHEDULER_DATABASE_POOL_SIZE` accepts 3–16.
-This is an active-cycle maximum, not an idle reservation. Helper connections
-outside the main pool still count toward the database/PgBouncer budget. No
-inference or article-content cache is introduced. SQLAlchemy rolls back returned
-transactions and checks connections between helpers within an active cycle.
-
-Production uses a session-mode PgBouncer pool with ten server slots per replica.
-A permanently retained scheduler pool would reserve those slots while idle. That
-implementation was replaced: native lifecycle checks prove all main client sockets
-close before polling. Session-mode pooler measurements include client setup,
-`DISCARD ALL`, implicit transactions and empty driver pre-pings; application query
-counts alone omit that work.
+`DEVFEED_SCHEDULER_CONNECTION_REUSE_ENABLED=true` controls Redis-client reuse only.
+The SQL-pool proposal was withdrawn because the production session-mode PgBouncer
+pool has finite server slots. Even active-cycle reuse indicated higher assigned
+slot-time in local sampling. Keeping that optimization would trade application CPU
+for database capacity. Its negative evidence remains in the measurement report.
 
 Each logical main-loop queue retains its own Redis client, preserving queue
 routing, retries, fresh/background budgets and delivery identities. Redis reconnects
-broken sockets. Interactive threads own their Redis clients separately. Owned SQL
-and Redis resources close on shutdown, including when one client's close fails.
+broken sockets. Interactive threads own their Redis clients separately. Owned
+Redis clients close on shutdown, including when one client's close fails.
+The shared SQL engine remains owned by its existing application lifecycle.
 
 ## Work and latency
 
 The main loop still waits 15 seconds after completion. Interactive dispatchers
 still poll every second. Batch sizes, source due times, job leases, retries,
 publication checks, retention checkpoints and sitemap freshness are unchanged.
-The change reduces repeated setup within a cycle; scheduling work is not delayed. CPU needed for ranking and sustained backlog processing still
+The change avoids repeated Redis-client setup and expensive liveness imports;
+scheduling work is not delayed. CPU needed for ranking and sustained backlog processing still
 scales with workload. [Measurements](../benchmarks/scheduler-resources.md) compare
 identical work with and without reuse.
 
@@ -81,8 +64,8 @@ GitOps convergence before reducing production resource reservations.
 
 A 100m CPU request and 256 MiB memory request are initial canary candidates, not
 validated production sizing. Keep burst capacity and measured memory headroom.
-Main-loop database sockets are released before polling; retained Redis clients
-remain bounded by the logical queue count. Check PgBouncer assigned clients,
+PostgreSQL connection ownership is unchanged; retained Redis clients remain
+bounded by the logical queue count. Check PgBouncer assigned clients,
 waiters, PostgreSQL CPU, SQL/WAL/buffer work and lock/transaction duration during
 canary admission. More completed jobs per second can increase database QPS even
 when work per job falls; compare both fixed arrival rates and a sustained backlog
@@ -90,6 +73,6 @@ at unchanged replicas and admission budgets. Stop the canary on a sustained
 PostgreSQL or pooler regression. No before/after production rollout has occurred.
 
 Set `DEVFEED_SCHEDULER_CONNECTION_REUSE_ENABLED=false` and restart the scheduler to
-restore the previous connection policy. No migration or job rewrite is required.
+restore per-pass Redis-client creation. No migration or job rewrite is required.
 Keep the old Redis health probe during an image rollback: an older image does not
 publish the local marker required by the new probe.

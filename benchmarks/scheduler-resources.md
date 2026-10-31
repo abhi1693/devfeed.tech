@@ -1,99 +1,89 @@
-# Scheduler resource and PostgreSQL impact
+# Scheduler resources and PostgreSQL impact
 
-Local x86-64, disposable PostgreSQL 18 and Redis 8, 100,000 retained terminal
-jobs, ten warmed main-loop ticks per mode. The current implementation reuses SQL
-only within a tick, disposes its sockets before polling, and leaves interactive
-SQL on its original policy. Earlier results for permanently retained SQL pools
-are superseded by this report.
+The proposed implementation reuses only Redis clients and uses a lightweight
+local liveness probe. Its SQL session factory and engine are the same shared
+objects used before this PR. No PostgreSQL pool or connection-lifetime change is
+included. Earlier SQL-reuse performance claims are withdrawn.
 
-## Session-mode PgBouncer comparison
+## Current implementation: session-mode PgBouncer control
 
-The pooler matches the production session mode and limits: default/max DB/max user
-pool 10, max clients 60, minimum pool 1, idle timeout 120 s, `DISCARD ALL` on return.
-One local paired sample was recorded per mode. Do not interpret timings as stable
-production estimates or CI thresholds.
+One local x86-64 paired sample, PostgreSQL 18 and Redis 8, 100,000 retained terminal
+jobs, ten warmed main-loop ticks. The session-mode pooler matches production:
+default/max DB/max user pool 10, max clients 60, minimum pool 1, idle timeout 120 s,
+DISCARD ALL on client return. The workload role was separate from the observer.
 
-| Metric, ten warmed ticks                                           |            Before |             After |
-| ------------------------------------------------------------------ | ----------------: | ----------------: |
-| Scheduler process CPU                                              |           1.274 s |           0.917 s |
-| Median tick latency                                                |          219.5 ms |          174.1 ms |
-| Application SQL statements                                         |               400 |               400 |
-| DBAPI cursor commands, including setup and empty pre-pings         |               750 |               750 |
-| New/closed PgBouncer client connections                            |         350 / 350 |           10 / 10 |
-| New PostgreSQL backends behind the prewarmed pooler                |                 0 |                 0 |
-| Server-recorded commands, including transaction/utility SQL        |             1,800 |             1,120 |
-| Additional empty pre-ping commands excluded by pg_stat_statements  |                 0 |               340 |
-| DISCARD ALL commands                                               |               350 |                10 |
-| Server planning / execution time                                   | 112.54 / 30.52 ms | 110.98 / 10.42 ms |
-| Returned SQL rows                                                  |                60 |                60 |
-| Shared buffer hits / physical reads                                |         4,802 / 0 |         4,800 / 0 |
-| WAL bytes / temporary blocks                                       |             0 / 0 |             0 / 0 |
-| PostgreSQL container CPU                                           |            503 ms |            436 ms |
-| Assigned application clients after the cycle                       |                 0 |                 0 |
-| Prewarmed PostgreSQL server connections after the cycle            |      1, available |      1, available |
-| Idle transactions / lock waiters / held workload locks after cycle |         0 / 0 / 0 |         0 / 0 / 0 |
+| Metric                                                                |            Before |             After |
+| --------------------------------------------------------------------- | ----------------: | ----------------: |
+| New logical main-loop Redis clients after warm-up                     |               110 |                 0 |
+| Application SQL statements                                            |               400 |               400 |
+| DBAPI cursor commands, including setup/driver SQL                     |               750 |               750 |
+| Opened / closed PgBouncer SQL clients                                 |         350 / 350 |         350 / 350 |
+| Server-recorded SQL commands, including transactions and utility SQL  |             1,800 |             1,800 |
+| New PostgreSQL backends behind the prewarmed pool                     |                 0 |                 0 |
+| Returned rows / WAL bytes / physical reads                            |        60 / 0 / 0 |        60 / 0 / 0 |
+| Shared buffer hits                                                    |             4,802 |             4,800 |
+| SQL planning / execution elapsed                                      | 119.50 / 35.37 ms | 113.96 / 35.55 ms |
+| PostgreSQL container CPU                                              |            526 ms |            543 ms |
+| Scheduler process CPU                                                 |           1.720 s |           1.671 s |
+| Median tick latency                                                   |          234.2 ms |          217.1 ms |
+| Assigned clients after work / held workload locks / idle transactions |         0 / 0 / 0 |         0 / 0 / 0 |
+| Prewarmed, available PostgreSQL server connections                    |                 1 |                 1 |
 
-The same work uses about 28% less scheduler process CPU in this sample, with no
-additional application queries, result rows, WAL, physical reads or idle server
-slot reservation. PostgreSQL container CPU includes background work and observer
-probe overhead; planning/execution time is not a direct database CPU measurement.
-The two-hit buffer difference is incidental. This proves a bounded fixture, not
-all production workloads. No production sizing or p95/p99 guarantee is made.
+Work, statements, rows, writes and connection lifetimes match. Small timing and
+buffer variations are noise; there is no established main-loop or database CPU
+speedup in this sample. PostgreSQL container CPU includes background and observer
+probe work, and SQL execution elapsed is not pure CPU. The useful result is removal
+of repeated Redis setup without any new PostgreSQL code path. Empty driver commands
+are traced separately because pg_stat_statements can omit them.
 
-`pg_stat_statements.track=all`, planning and I/O timing were enabled in the disposable
-server. An observer superuser distinct from the workload role collected counters;
-only the workload role's statements were totaled. Driver tracing also captures
-empty psycopg pre-pings (`;` in the installed version), which server statement
-statistics omit. Statistics were reset only on the isolated disposable server.
-Pooler SHOW POOLS/CLIENTS/SERVERS verified no assigned application client after
-closing each measured mode. No production statistics were reset.
-
-## Direct PostgreSQL control
-
-A separate direct-connection control used the same retained fixture and ten ticks.
-It intentionally excludes the production pooler and cannot represent production
-backend-creation savings.
-
-| Metric                                              |              Before |             After |
-| --------------------------------------------------- | ------------------: | ----------------: |
-| Application SQL / cursor commands                   |           400 / 750 |         400 / 750 |
-| New/closed PostgreSQL connections                   |           350 / 350 |           10 / 10 |
-| Server-recorded commands                            |               1,450 |             1,110 |
-| Server planning / execution time                    | 1,291.92 / 30.65 ms | 450.73 / 12.60 ms |
-| Shared buffer hits / physical reads                 |         142,322 / 0 |        45,820 / 0 |
-| Returned rows / WAL bytes                           |              60 / 0 |            60 / 0 |
-| PostgreSQL container CPU                            |             6.361 s |           1.040 s |
-| Idle transactions / held workload locks after cycle |               0 / 0 |             0 / 0 |
-
-## Lifecycle and correctness checks
-
-The native retained-history regression asserts identical scheduling outcomes,
-application query counts, no higher driver-command count, and equal created/closed
-client counts. Two consecutive successful/failed cycles close every socket before
-polling. Other native cases cover concurrent main/partner/reader work, independent
-nested transaction boundaries, backend loss within an active cycle, Redis recovery,
-expired ingestion leases, and the original queued-job behavior.
+The native regression asserts identical scheduling outcomes, application SQL,
+driver command and opened/closed SQL connection counts. It also asserts that the
+resource owner uses the same shared engine and neither opens nor disposes it at
+construction/shutdown. Other cases cover queued work, expired lease recovery and
+Redis reconnection.
 
 ```sh
 uv run pytest -q -s tests/workers/test_scheduler_resources.py
 ```
 
-Use only disposable `DEVFEED_TEST_DATABASE_URL` ending in `_test` and Redis database
-15, as described in [the test guide](../tests/README.md). The fixture inserts
-100,000 terminal jobs and truncates tables. For server-side measurement, enable
-pg_stat_statements on that disposable server, collect workload-role counters before
-and after the warmed comparison, and trace driver commands separately. Repeat
-through session-mode PgBouncer with production-equivalent limits and inspect its
-assigned client/server counts between cycles.
+Use disposable DEVFEED_TEST_DATABASE_URL ending in `_test` and Redis database 15,
+as described in [the test guide](../tests/README.md). Never point the truncating
+fixture at an application database. Server counters were collected with
+pg_stat_statements.track=all, planning/I/O timing and workload-role filtering on
+an isolated server; no production statistics were reset.
 
-## Probe cost and remaining gates
+## Probe savings
 
-The unchanged probe comparison measured twenty legacy Redis subprocesses at
-6.101 CPU seconds versus 1.231 seconds for local-marker probes. The local probe
-imports no service configuration or database code and creates no database client.
+Twenty legacy Redis liveness subprocesses consumed 6.101 CPU seconds versus
+1.231 seconds for the local-marker probes (about 80% less probe CPU). Probe code
+is unchanged from that measurement. The new probe imports no settings, Redis or
+database modules and opens no network/database connection. It preserves heartbeat
+expiry, Redis-outage handling and stalled-cycle semantics.
 
-Native ARM64, a full daemon resource-cap comparison on this revised implementation,
-representative active catalogs, sustained mixed backlog, peak RSS and production
-before/after CPU/latency remain unmeasured. The earlier full-daemon and RSS values
-were collected before the database lifecycle redesign and are not carried forward
-as evidence for this head. See the [canary procedure](../dev/scheduler-resources.md).
+## Rejected SQL-reuse proposal
+
+A prototype reused SQL connections during a main-loop cycle and closed them before
+the 15-second wait. It reduced setup/reset work and PostgreSQL CPU in local tests,
+but PostgreSQL slot occupancy is also a resource budget. Three paired samples via
+SHOW POOLS at 5 ms intervals indicated more assigned slot-time during active cycles:
+
+| Estimated assigned database-slot time, ten ticks | Previous connection policy |    SQL-reuse prototype |
+| ------------------------------------------------ | -------------------------: | ---------------------: |
+| Median across three paired samples               |          1.50 slot-seconds |      1.76 slot-seconds |
+| Sample range                                     |     1.32–1.67 slot-seconds | 1.66–1.82 slot-seconds |
+| Peak assigned clients                            |                          1 |                      1 |
+| Assigned clients after each cycle                |                          0 |                      0 |
+
+Sampling can miss brief baseline connections, so this is not a precise capacity
+forecast. The repeated indication was enough to reject the proposal under the
+requirement not to transfer pressure to PostgreSQL. Permanent and active-cycle
+scheduler SQL pooling are absent from the proposed code. No unsafe opt-in remains.
+
+## Remaining rollout gates
+
+Native ARM64, the revised full-daemon resource-cap comparison, representative active
+catalogs, sustained mixed backlog, peak RSS and production CPU/latency remain
+unmeasured. Old daemon/RSS numbers included SQL pooling and do not certify this
+implementation. Compare fixed arrival rates and backlog at unchanged admission and
+replicas before resizing. More completed jobs can increase database QPS even when
+per-job work is unchanged. See the [canary procedure](../dev/scheduler-resources.md).

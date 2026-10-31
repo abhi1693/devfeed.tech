@@ -297,7 +297,7 @@ def test_scheduler_heartbeat_only_advances_after_successful_cycles(
     signal_handler = Mock()
     monkeypatch.setattr(scheduler.signal, "signal", signal_handler)
     monkeypatch.setattr(scheduler, "scheduler_health", health_context)
-    resources = NS(factory=Mock(), background_factory=Mock())
+    resources = NS(factory=Mock())
     monkeypatch.setattr(scheduler, "SchedulerResources", lambda _: nullcontext(resources))
     monkeypatch.setattr(scheduler, "session_factory", Mock())
     monkeypatch.setattr(scheduler, "recommendation_dispatcher", lambda *_: nullcontext())
@@ -341,64 +341,44 @@ def test_scheduler_cli_reports_failed_once_runs(monkeypatch, mode):
 
 
 @pytest.mark.parametrize("reuse", [False, True])
-def test_scheduler_owns_bounded_clients_and_keeps_global_worker_settings(monkeypatch, reuse):
+def test_scheduler_reuses_only_redis_and_preserves_the_shared_sql_factory(monkeypatch, reuse):
     from devfeed_aggregator import scheduler_resources
     from devfeed_core.config import get_settings
 
-    settings = get_settings().model_copy(
-        update={
-            "database_pool_enabled": False,
-            "scheduler_connection_reuse_enabled": reuse,
-            "scheduler_database_pool_size": 3,
-        }
-    )
-    engine = Mock()
-    build = Mock(return_value=engine)
-    queue = Mock()
-    lookup = Mock(return_value=queue)
-    monkeypatch.setattr(scheduler_resources, "create_database_engine", build)
-    monkeypatch.setattr(scheduler_resources, "sessionmaker", Mock())
+    settings = get_settings().model_copy(update={"scheduler_connection_reuse_enabled": reuse})
+    factory, queue = Mock(kw={"bind": Mock()}), Mock()
+    build, lookup = Mock(return_value=factory), Mock(return_value=queue)
+    monkeypatch.setattr(scheduler_resources, "session_factory", build)
     monkeypatch.setattr(scheduler_resources, "get_queue", lookup)
     with scheduler_resources.SchedulerResources(settings) as resources:
+        assert resources.factory is factory
         for _ in range(20):
             actual = resources.queue("ingestion")
             assert actual is queue
             resources.release(actual)
         assert queue.connection.close.call_count == (0 if reuse else 20)
         assert lookup.call_count == (1 if reuse else 20)
-        effective = build.call_args_list[0].args[0]
-        assert effective.database_pool_enabled is reuse
-        if reuse:
-            assert effective.database_pool_size == 3 and effective.database_max_overflow == 0
-            assert build.call_args_list[1].args[0].database_pool_enabled is False
-        assert settings.database_pool_enabled is False
+    build.assert_called_once_with()
     assert queue.connection.close.call_count == (1 if reuse else 20)
-    engine.dispose.assert_called_once_with()
+    factory.kw["bind"].dispose.assert_not_called()
 
 
-def test_scheduler_closes_every_client_and_engine_even_if_a_client_close_fails(monkeypatch):
+def test_scheduler_closes_every_redis_client_even_when_one_close_fails(monkeypatch):
     from devfeed_aggregator import scheduler_resources
-    from devfeed_core.config import get_settings
 
-    engine, background, first, second = Mock(), Mock(), Mock(), Mock()
+    first, second, factory = Mock(), Mock(), Mock(kw={"bind": Mock()})
     first.connection.close.side_effect = RuntimeError("close failed")
-    monkeypatch.setattr(
-        scheduler_resources, "create_database_engine", Mock(side_effect=[engine, background])
-    )
-    monkeypatch.setattr(scheduler_resources, "sessionmaker", Mock())
+    monkeypatch.setattr(scheduler_resources, "session_factory", lambda: factory)
     monkeypatch.setattr(scheduler_resources, "get_queue", Mock(side_effect=[first, second]))
     with (
         pytest.raises(RuntimeError, match="close failed"),
-        scheduler_resources.SchedulerResources(
-            get_settings().model_copy(update={"database_pool_enabled": False})
-        ) as resources,
+        scheduler_resources.SchedulerResources() as resources,
     ):
         resources.queue("ingestion")
         resources.queue("images")
     first.connection.close.assert_called_once_with()
     second.connection.close.assert_called_once_with()
-    engine.dispose.assert_called_once_with()
-    background.dispose.assert_called_once_with()
+    factory.kw["bind"].dispose.assert_not_called()
     assert resources.queues == {}
 
 
@@ -407,8 +387,7 @@ def test_scheduler_retries_failed_queue_creation_without_retaining_a_broken_clie
 
     queue = Mock()
     lookup = Mock(side_effect=[RuntimeError("Redis unavailable"), queue])
-    monkeypatch.setattr(scheduler_resources, "create_database_engine", Mock())
-    monkeypatch.setattr(scheduler_resources, "sessionmaker", Mock())
+    monkeypatch.setattr(scheduler_resources, "session_factory", Mock())
     monkeypatch.setattr(scheduler_resources, "get_queue", lookup)
     with scheduler_resources.SchedulerResources() as resources:
         with pytest.raises(RuntimeError, match="Redis unavailable"):
@@ -418,41 +397,3 @@ def test_scheduler_retries_failed_queue_creation_without_retaining_a_broken_clie
         assert resources.queue("ingestion") is queue
     assert lookup.call_count == 2
     queue.connection.close.assert_called_once_with()
-
-
-def test_scheduler_preserves_an_explicitly_enabled_database_pool(monkeypatch):
-    from devfeed_aggregator import scheduler_resources
-    from devfeed_core.config import get_settings
-
-    settings = get_settings().model_copy(update={"database_pool_enabled": True})
-    engine = Mock()
-    build = Mock(return_value=engine)
-    monkeypatch.setattr(scheduler_resources, "create_database_engine", build)
-    with scheduler_resources.SchedulerResources(settings) as resources:
-        with resources.cycle():
-            assert resources.background_factory is resources.factory
-        engine.dispose.assert_not_called()
-        build.assert_called_once_with(settings)
-    engine.dispose.assert_called_once_with()
-
-
-@pytest.mark.parametrize("failed", [False, True])
-def test_main_cycle_cleanup_never_disposes_the_interactive_engine(monkeypatch, failed):
-    from devfeed_aggregator import scheduler_resources
-    from devfeed_core.config import get_settings
-
-    main, background = Mock(), Mock()
-    monkeypatch.setattr(
-        scheduler_resources, "create_database_engine", Mock(side_effect=[main, background])
-    )
-    settings = get_settings().model_copy(update={"database_pool_enabled": False})
-    with scheduler_resources.SchedulerResources(settings) as resources:
-        outcome = pytest.raises(RuntimeError, match="cycle failed") if failed else nullcontext()
-        with outcome, resources.cycle():
-            background.dispose.assert_not_called()
-            if failed:
-                raise RuntimeError("cycle failed")
-        main.dispose.assert_called_once_with()
-        background.dispose.assert_not_called()
-    assert main.dispose.call_count == 2
-    background.dispose.assert_called_once_with()
