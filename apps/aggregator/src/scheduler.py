@@ -193,6 +193,9 @@ def _tick() -> dict[str, int]:
     profiles_recovered = recover_jobs(factory, batch, now, kind="source-enrichment")
     articles_recovered = recover_jobs(factory, batch, now, kind="article-enrichment")
     analyses_recovered = recover_jobs(factory, batch, now)
+    from devfeed_core.article_refresh_processing import reconcile_refreshes
+
+    reconcile_refreshes(factory, batch, now)
     topic_analyses_recovered = recover_jobs(factory, batch, now, kind="topic-analysis")
     verifications_recovered = recover_jobs(factory, batch, now, kind="research-verification")
     notifications_dispatched = notifications_recovered = 0

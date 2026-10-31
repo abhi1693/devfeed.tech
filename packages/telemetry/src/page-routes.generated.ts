@@ -475,6 +475,10 @@ export const pageRouteCatalogs = {
       label: "/v1/admin/notifications/chimely/v1/inbox/stream",
     },
     {
+      path: "/api/v1/admin/articles/:id/maintenance/:id/review",
+      label: "/v1/admin/articles/:id/maintenance/:id/review",
+    },
+    {
       path: "/api/v1/admin/partner-accounts/:id/assets/:id/metrics",
       label: "/v1/admin/partner-accounts/:id/assets/:id/metrics",
     },
@@ -493,6 +497,10 @@ export const pageRouteCatalogs = {
     {
       path: "/api/v1/admin/source-pipeline/items/:id/:id/retry",
       label: "/v1/admin/source-pipeline/items/:id/:id/retry",
+    },
+    {
+      path: "/api/v1/admin/articles/:id/maintenance/retry",
+      label: "/v1/admin/articles/:id/maintenance/retry",
     },
     {
       path: "/api/v1/admin/articles/:id/pipeline/advance",
@@ -565,6 +573,10 @@ export const pageRouteCatalogs = {
       label: "/v1/admin/source-pipeline/items/:id/:id",
     },
     {
+      path: "/v1/admin/articles/:id/maintenance/:id/review",
+      label: "/v1/admin/articles/:id/maintenance/:id/review",
+    },
+    {
       path: "/v1/admin/partner-accounts/:id/assets/:id/metrics",
       label: "/v1/admin/partner-accounts/:id/assets/:id/metrics",
     },
@@ -586,6 +598,7 @@ export const pageRouteCatalogs = {
     },
     { path: "/api/v1/admin/articles/:id/classify", label: "/v1/admin/articles/:id/classify" },
     { path: "/api/v1/admin/articles/:id/content", label: "/v1/admin/articles/:id/content" },
+    { path: "/api/v1/admin/articles/:id/maintenance", label: "/v1/admin/articles/:id/maintenance" },
     { path: "/api/v1/admin/articles/:id/pipeline", label: "/v1/admin/articles/:id/pipeline" },
     { path: "/api/v1/admin/articles/:id/review", label: "/v1/admin/articles/:id/review" },
     { path: "/api/v1/admin/articles/:id/reviews", label: "/v1/admin/articles/:id/reviews" },
@@ -705,6 +718,10 @@ export const pageRouteCatalogs = {
     },
     { path: "/api/v1/admin/users/:id/sources", label: "/v1/admin/users/:id/sources" },
     { path: "/api/v1/admin/users/:id/topics", label: "/v1/admin/users/:id/topics" },
+    {
+      path: "/v1/admin/articles/:id/maintenance/retry",
+      label: "/v1/admin/articles/:id/maintenance/retry",
+    },
     {
       path: "/v1/admin/articles/:id/pipeline/advance",
       label: "/v1/admin/articles/:id/pipeline/advance",
@@ -962,6 +979,7 @@ export const pageRouteCatalogs = {
     },
     { path: "/v1/admin/articles/:id/classify", label: "/v1/admin/articles/:id/classify" },
     { path: "/v1/admin/articles/:id/content", label: "/v1/admin/articles/:id/content" },
+    { path: "/v1/admin/articles/:id/maintenance", label: "/v1/admin/articles/:id/maintenance" },
     { path: "/v1/admin/articles/:id/pipeline", label: "/v1/admin/articles/:id/pipeline" },
     { path: "/v1/admin/articles/:id/review", label: "/v1/admin/articles/:id/review" },
     { path: "/v1/admin/articles/:id/reviews", label: "/v1/admin/articles/:id/reviews" },

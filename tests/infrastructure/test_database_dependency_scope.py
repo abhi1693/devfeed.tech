@@ -1,6 +1,7 @@
 """The supported function scope releases each API's session before response I/O."""
 
 import importlib
+from contextlib import nullcontext
 from unittest.mock import Mock
 
 import pytest
@@ -8,6 +9,25 @@ from devfeed_core import db
 from fastapi import BackgroundTasks, FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, field_serializer
+from starlette.requests import Request
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
+def test_public_get_snapshots_do_not_change_mutation_session_policy(monkeypatch, method):
+    from devfeed_api import dependencies
+
+    session = object()
+    read = Mock(return_value=lambda: nullcontext(session))
+    write = Mock(return_value=lambda: nullcontext(session))
+    monkeypatch.setattr(dependencies, "read_session_factory", read)
+    monkeypatch.setattr(dependencies, "session_factory", write)
+    request = Request({"type": "http", "method": method})
+    generator = dependencies.get_session(request)
+    assert next(generator) is session and request.state.public_read_session is session
+    generator.close()
+    expected, other = (read, write) if method in {"GET", "HEAD"} else (write, read)
+    expected.assert_called_once_with()
+    other.assert_not_called()
 
 
 @pytest.mark.parametrize("service", ["devfeed_api", "devfeed_admin_api", "devfeed_user_api"])

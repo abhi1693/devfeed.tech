@@ -236,6 +236,8 @@ class Settings(BaseSettings):
     cache_public_profile_ttl_seconds: int = Field(default=21600, ge=1, le=86400)
     cache_max_bytes: int = Field(default=1_000_000, ge=1024, le=5_000_000)
     ai_enabled: bool = False
+    # Enable only after schema upgrade and draining every worker from the older release.
+    published_article_refresh_enabled: bool = False
     ai_content_not_before: date | None = None
 
     @field_validator("ai_content_not_before", mode="before")

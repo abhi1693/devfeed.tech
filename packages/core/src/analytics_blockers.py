@@ -16,6 +16,7 @@ from sqlalchemy.dialects.postgresql import JSONPATH
 from sqlalchemy.orm import Session
 
 from devfeed_core.ai_content import eligible_articles
+from devfeed_core.article_refresh_jobs import ordinary_job_condition
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Article,
@@ -111,7 +112,9 @@ def automation_blockers(
             ArticleAnalysisJob.outcome,
             ArticleAnalysisJob.result,
         )
-        .where(ArticleAnalysisJob.article_id == Article.id)
+        .where(
+            ArticleAnalysisJob.article_id == Article.id, ordinary_job_condition(ArticleAnalysisJob)
+        )
         .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id.desc())
         .limit(1)
         .correlate(Article)
@@ -119,7 +122,10 @@ def automation_blockers(
     )
     latest_enrichment = (
         select(ArticleEnrichmentJob.status, ArticleEnrichmentJob.result)
-        .where(ArticleEnrichmentJob.article_id == Article.id)
+        .where(
+            ArticleEnrichmentJob.article_id == Article.id,
+            ordinary_job_condition(ArticleEnrichmentJob),
+        )
         .order_by(ArticleEnrichmentJob.created_at.desc(), ArticleEnrichmentJob.id.desc())
         .limit(1)
         .correlate(Article)
@@ -155,6 +161,7 @@ def automation_blockers(
             .where(
                 ArticleEnrichmentJob.article_id == Article.id,
                 ArticleEnrichmentJob.status.in_(["queued", "running"]),
+                ordinary_job_condition(ArticleEnrichmentJob),
             )
             .exists()
             .label("enriching"),

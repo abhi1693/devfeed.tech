@@ -99,6 +99,9 @@ def test_backfill_filters_eligible_origins_and_attempts_before_limit(monkeypatch
     assert "NOT (EXISTS" in sql and "SKIP LOCKED" in sql and "LIMIT" in sql
     assert "approval_status" in sql and source_id in statements[0].params.values()
     assert "image_url IS NULL" not in sql
+    assert "article_enrichment_jobs.refresh_id IS NULL" in sql
+    assert "article_refreshes.enrichment_job_id = article_enrichment_jobs.id" in sql
+    assert "promoted" in statements[0].params.values()
     for invalid in (0, 501):
         with pytest.raises(ValueError):
             article_jobs.backfill_articles(None, invalid)
@@ -109,7 +112,7 @@ def test_claim_cannot_steal_or_repeat_work(status):
     current = job(status="queued" if status == "delayed" else status)
     if status == "delayed":
         current.available_at = utcnow() + timedelta(minutes=5)
-    assert article_jobs.claim_article(session_with(current), current.id) is None
+    assert article_jobs.claim_article(session_with(current, current), current.id) is None
     assert current.attempts == 0
 
 
@@ -120,7 +123,7 @@ def test_claim_leases_and_checks_publisher_supersession_and_approval(monkeypatch
         metadata_source_type="aggregator",
         canonical_url="https://example.com/article",
     )
-    session = session_with(current)
+    session = session_with(current, current)
     session.get = lambda *a, **k: article
     assert article_jobs.claim_article(session, current.id) == (current, article.canonical_url)
     assert current.status == "running" and current.attempts == 1
@@ -128,7 +131,7 @@ def test_claim_leases_and_checks_publisher_supersession_and_approval(monkeypatch
     for kind, outcome in [("publisher", "unapproved"), ("aggregator", "unapproved")]:
         current = job()
         article.metadata_source_type = kind
-        session = session_with(current)
+        session = session_with(current, current)
         session.get = lambda *a, **k: article
         monkeypatch.setattr(article_jobs, "approved_sources", lambda *a, **k: [])
         assert article_jobs.claim_article(session, current.id) is None
@@ -144,7 +147,7 @@ def test_bounded_retries_honor_retry_after_and_retain_history(monkeypatch):
     fail_or_retry(current, "exhausted", utcnow())
     assert current.status == "failed" and current.finished_at
     replacement = job(article_id=current.article_id)
-    monkeypatch.setattr(article_jobs, "request_article_enrichment", lambda *a: replacement)
+    monkeypatch.setattr(article_jobs, "request_article_enrichment", lambda *a, **kw: replacement)
     assert (
         article_jobs.retry_article(SimpleNamespace(get=lambda *a: current), current.id)
         is replacement

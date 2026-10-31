@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from typing import cast
+from typing import Literal, cast
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, lazyload
+from sqlalchemy.orm import Session, lazyload, load_only
 
 from devfeed_core.config import get_settings
 from devfeed_core.job_lifecycle import finish_job, start_job
@@ -18,7 +18,7 @@ from devfeed_core.managed_images import (
     THUMBNAIL_VERSION,
     image_variants,
 )
-from devfeed_core.models import Article, ArticleImageJob, utcnow
+from devfeed_core.models import Article, ArticleImageJob, ArticleRefresh, utcnow
 from devfeed_core.services import OperationConflict, RecordNotFound
 
 
@@ -49,8 +49,17 @@ def thumbnail_maintenance_current(article: Article, job: ArticleImageJob) -> boo
 
 
 def request_image(
-    session: Session, article_id: uuid.UUID, *, automatic: bool = False, refresh: bool = False
+    session: Session,
+    article_id: uuid.UUID,
+    *,
+    automatic: bool = False,
+    refresh: bool = False,
+    refresh_id: uuid.UUID | None = None,
 ) -> ArticleImageJob | None:
+    if refresh_id is not None:
+        return _request_refresh_image(
+            session, article_id, refresh_id, automatic=automatic, refresh=refresh
+        )
     article = session.scalar(
         select(Article)
         .options(lazyload("*"))
@@ -62,7 +71,7 @@ def request_image(
     if article.publication_status == "published":
         if automatic:
             return None
-        raise OperationConflict("Unpublish the article before requesting image processing")
+        raise OperationConflict("Use article maintenance to refresh a published article")
     store = bool(article.image_url and get_settings().image_storage_enabled)
     if article.image_url and (not store or image_variants(article)) and not refresh:
         return None
@@ -73,6 +82,8 @@ def request_image(
         )
     )
     if active is not None:
+        if active.refresh_id is not None:
+            raise OperationConflict("Image processing belongs to a private maintenance candidate")
         return active
     if automatic and session.scalar(
         select(ArticleImageJob.id)
@@ -100,6 +111,99 @@ def request_image(
     )
     session.add(job)
     session.flush()
+    return job
+
+
+def refresh_image_slot(job: ArticleImageJob) -> Literal["discovery", "storage"]:
+    return "storage" if job.operation == "store" else "discovery"
+
+
+def current_refresh_image(
+    session: Session, article: Article, job: ArticleImageJob
+) -> ArticleRefresh | None:
+    """Caller holds source authority, Article and job before candidate metadata."""
+    from devfeed_core.article_refresh import refresh_for_article, refresh_job_current
+
+    if job.refresh_id is None or job.operation not in {"discover", "store"}:
+        return None
+    candidate = refresh_for_article(session, article, job.refresh_id, lock=True)
+    if candidate is None or not refresh_job_current(
+        candidate, article, job, refresh_image_slot(job)
+    ):
+        return None
+    if job.operation == "store" and candidate.image_url != job.image_url:
+        return None
+    return candidate
+
+
+def _request_refresh_image(
+    session: Session,
+    article_id: uuid.UUID,
+    refresh_id: uuid.UUID,
+    *,
+    automatic: bool,
+    refresh: bool,
+) -> ArticleImageJob | None:
+    from devfeed_core.article_jobs import approved_sources
+    from devfeed_core.article_refresh import refresh_for_article, select_refresh_job
+
+    approved_sources(session, article_id, lock=True)
+    article = session.scalar(
+        select(Article).options(lazyload("*")).where(Article.id == article_id).with_for_update()
+    )
+    if article is None:
+        raise RecordNotFound("Article not found")
+    candidate = refresh_for_article(session, article, refresh_id, lock=True)
+    if candidate is None:
+        raise OperationConflict("This maintenance candidate is no longer current")
+    store = bool(candidate.image_url and get_settings().image_storage_enabled)
+    if (
+        candidate.image_url
+        and (not store or image_variants(cast(Article, candidate)))
+        and not refresh
+    ):
+        return None
+    active = session.scalar(
+        select(ArticleImageJob).where(
+            ArticleImageJob.article_id == article_id,
+            ArticleImageJob.status.in_(["queued", "running"]),
+        )
+    )
+    if active is not None:
+        if (
+            active.refresh_id != refresh_id
+            or current_refresh_image(session, article, active) is None
+        ):
+            raise OperationConflict("Another image task owns this article's processing")
+        return active
+    operation = "store" if store else "discover"
+    if automatic and session.scalar(
+        select(ArticleImageJob.id)
+        .where(
+            ArticleImageJob.article_id == article_id,
+            ArticleImageJob.refresh_id == refresh_id,
+            ArticleImageJob.operation == operation,
+            ArticleImageJob.image_url == candidate.image_url
+            if store
+            else ArticleImageJob.storage["input_url"].as_string() == article.canonical_url,
+        )
+        .limit(1)
+    ):
+        return None
+    job = ArticleImageJob(
+        article_id=article_id,
+        refresh_id=refresh_id,
+        operation=operation,
+        image_url=candidate.image_url if store else None,
+        storage={
+            **({"input_url": article.canonical_url} if not store else {}),
+            **({"article_refresh": True} if refresh else {}),
+            **({"previous_image_url": candidate.image_url} if refresh and not store else {}),
+        },
+    )
+    session.add(job)
+    session.flush()
+    select_refresh_job(candidate, refresh_image_slot(job), job)
     return job
 
 
@@ -136,7 +240,23 @@ def retry_image(
             "Only failed image jobs can be retried; use images fetch for a new lookup"
         )
     target = logo_job_target(previous)
-    if previous.operation == "product-ad-image":
+    if previous.refresh_id is not None:
+        from devfeed_core.article_jobs import approved_sources
+
+        assert previous.article_id is not None
+        approved_sources(session, previous.article_id, lock=True)
+        article = session.scalar(
+            select(Article)
+            .options(lazyload("*"))
+            .where(Article.id == previous.article_id)
+            .with_for_update()
+        )
+        if article is None or current_refresh_image(session, article, previous) is None:
+            raise OperationConflict("This image task no longer owns the maintenance candidate")
+        job = request_image(
+            session, previous.article_id, refresh=True, refresh_id=previous.refresh_id
+        )
+    elif previous.operation == "product-ad-image":
         from devfeed_core.partner_product_images import request_product_ad_image
 
         assert previous.product_id is not None and previous.account_id is not None
@@ -225,6 +345,21 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
     )
     from devfeed_core.models import PartnerProduct, PartnerProductPromotion, Source, Topic
 
+    preview = session.scalar(
+        select(ArticleImageJob)
+        .options(
+            load_only(ArticleImageJob.id, ArticleImageJob.article_id, ArticleImageJob.refresh_id)
+        )
+        .where(ArticleImageJob.id == job_id)
+    )
+    if preview is None:
+        return None
+    preview_article_id, preview_refresh_id = preview.article_id, preview.refresh_id
+    if preview_refresh_id is not None:
+        from devfeed_core.article_jobs import approved_sources
+
+        assert preview_article_id is not None
+        approved_sources(session, preview_article_id, lock=True)
     # Match saves/completion by locking the logo subject before its job.
     # Article-only jobs do not match either query.
     for model in (Topic, Source, PartnerProduct):
@@ -253,10 +388,15 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
     )
     # Targeted claims wait for dispatch to commit; a locked row is not a missing job.
     job = session.scalar(
-        select(ArticleImageJob).where(ArticleImageJob.id == job_id).with_for_update()
+        select(ArticleImageJob)
+        .where(ArticleImageJob.id == job_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     now = utcnow()
     if job is None or job.status != "queued" or job.available_at > now:
+        return None
+    if (job.article_id, job.refresh_id) != (preview_article_id, preview_refresh_id):
         return None
     if job.operation == "product-ad-image":
         assert job.account_id is not None  # The promotion subject requires this FK.
@@ -345,6 +485,23 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
         return None  # FK cascade removes jobs for deleted articles.
     if job.operation == "store" and not get_settings().image_storage_enabled:
         return None
+    if job.refresh_id is not None:
+        candidate = current_refresh_image(session, article, job)
+        if candidate is None or (job.operation == "store" and candidate.image_url != job.image_url):
+            finish_job(job, "already_present", now)
+            return None
+        if job.operation == "store":
+            assert job.image_url is not None
+            start_job(job, now, LEASE_SECONDS)
+            return job, job.image_url
+        if candidate.image_url and not (job.storage or {}).get("article_refresh"):
+            finish_job(job, "already_present", now)
+            session.flush()
+            request_image(session, article.id, automatic=True, refresh_id=job.refresh_id)
+            return None
+        job.storage = {**(job.storage or {}), "input_url": article.canonical_url}
+        start_job(job, now, LEASE_SECONDS)
+        return job, article.canonical_url
     if article.publication_status == "published" and not thumbnail_maintenance_current(
         article, job
     ):

@@ -8329,6 +8329,256 @@
         "title": "ListingOut",
         "type": "object"
       },
+      "MaintenanceDetail": {
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "enum": [
+                "approve",
+                "reject"
+              ],
+              "type": "string"
+            },
+            "title": "Allowed Actions",
+            "type": "array"
+          },
+          "article_id": {
+            "format": "uuid",
+            "title": "Article Id",
+            "type": "string"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "jobs": {
+            "$ref": "#/components/schemas/PipelineJobs"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "replacement": {
+            "$ref": "#/components/schemas/MaintenancePreview"
+          },
+          "retry_targets": {
+            "items": {
+              "enum": [
+                "enrichment",
+                "analysis",
+                "images"
+              ],
+              "type": "string"
+            },
+            "title": "Retry Targets",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "review",
+              "promoted",
+              "superseded",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target": {
+            "enum": [
+              "enrichment",
+              "analysis",
+              "images"
+            ],
+            "title": "Target",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "article_id",
+          "target",
+          "status",
+          "version",
+          "created_at",
+          "completed_at",
+          "ready",
+          "reasons",
+          "allowed_actions",
+          "jobs",
+          "retry_targets",
+          "replacement"
+        ],
+        "title": "MaintenanceDetail",
+        "type": "object"
+      },
+      "MaintenancePreview": {
+        "properties": {
+          "content_format": {
+            "enum": [
+              "article",
+              "podcast",
+              "video",
+              "paper",
+              "discussion"
+            ],
+            "title": "Content Format",
+            "type": "string"
+          },
+          "content_type": {
+            "enum": [
+              "article",
+              "news",
+              "tutorial",
+              "release",
+              "comparison",
+              "opinion"
+            ],
+            "title": "Content Type",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/MaintenanceTag"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/MaintenanceTopic"
+            },
+            "title": "Topics",
+            "type": "array"
+          }
+        },
+        "required": [
+          "title",
+          "summary",
+          "description",
+          "image_url",
+          "language",
+          "content_type",
+          "content_format",
+          "topics",
+          "tags"
+        ],
+        "title": "MaintenancePreview",
+        "type": "object"
+      },
+      "MaintenanceTag": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "MaintenanceTag",
+        "type": "object"
+      },
+      "MaintenanceTopic": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role"
+        ],
+        "title": "MaintenanceTopic",
+        "type": "object"
+      },
       "ManualProductInput": {
         "additionalProperties": false,
         "properties": {
@@ -10707,6 +10957,16 @@
           "jobs": {
             "$ref": "#/components/schemas/PipelineJobs"
           },
+          "maintenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaintenanceDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "retry_targets": {
             "items": {
               "enum": [
@@ -13079,6 +13339,43 @@
           "expected_revision"
         ],
         "title": "ReviewArticle",
+        "type": "object"
+      },
+      "ReviewMaintenance": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "expected_version",
+          "action"
+        ],
+        "title": "ReviewMaintenance",
         "type": "object"
       },
       "ReviewQueue": {
@@ -18377,6 +18674,263 @@
           }
         ],
         "summary": "Content",
+        "tags": [
+          "admin-articles"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/admin/articles/{article_id}/maintenance": {
+      "get": {
+        "operationId": "adminArticleMaintenanceDetail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "article_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Article Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/MaintenanceDetail"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Adminarticlemaintenancedetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Detail",
+        "tags": [
+          "admin-articles"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/admin/articles/{article_id}/maintenance/retry": {
+      "post": {
+        "operationId": "admin_article_maintenance_retry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "article_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Article Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetryPipeline"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Maintenance Retry",
+        "tags": [
+          "admin-articles"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/admin/articles/{article_id}/maintenance/{refresh_id}/review": {
+      "post": {
+        "operationId": "adminArticleMaintenanceReview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "article_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Article Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "refresh_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Refresh Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewMaintenance"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Review",
         "tags": [
           "admin-articles"
         ],
@@ -36380,6 +36934,78 @@
         }
       ],
       "path": "/v1/admin/articles/{article_id}/pipeline/retry",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "admin_article_maintenance_retry",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "article_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Article Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/articles/{article_id}/maintenance/retry",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "adminArticleMaintenanceDetail",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "article_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Article Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/articles/{article_id}/maintenance",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "adminArticleMaintenanceReview",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "article_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Article Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "refresh_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Refresh Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/articles/{article_id}/maintenance/{refresh_id}/review",
       "policy": {
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,

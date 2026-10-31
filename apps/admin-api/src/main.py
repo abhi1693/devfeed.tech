@@ -18,6 +18,7 @@ from fastapi import FastAPI
 
 from devfeed_admin_api import (
     ai_connection,
+    article_maintenance,
     article_pipeline,
     articles,
     auth,
@@ -115,6 +116,7 @@ def create_app() -> FastAPI:
         search_analytics.router,
         articles.router,
         article_pipeline.router,
+        article_maintenance.router,
         topics.router,
         jobs.router,
         notifications.router,

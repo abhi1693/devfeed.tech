@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import timedelta
 from functools import lru_cache
-from typing import Literal, NotRequired, Self, TypedDict, cast, overload
+from typing import TYPE_CHECKING, Literal, NotRequired, Self, TypedDict, cast, overload
 
 from pydantic import Field, model_validator
 from sqlalchemy import delete, select
@@ -44,6 +44,9 @@ from devfeed_core.models import (
     TopicAnalysisJob,
     utcnow,
 )
+
+if TYPE_CHECKING:
+    from devfeed_core.article_refresh_processing import RefreshInputs
 from devfeed_core.schemas import (
     ContentFormat,
     ContentType,
@@ -844,6 +847,8 @@ def request_analysis(
     automatic: Literal[False] = False,
     force: bool = False,
     taxonomy: AnalysisCatalog | None = None,
+    refresh_id: uuid.UUID | None = None,
+    refresh_inputs: RefreshInputs | None = None,
 ) -> ArticleAnalysisJob: ...
 
 
@@ -855,6 +860,8 @@ def request_analysis(
     automatic: bool,
     force: bool = False,
     taxonomy: AnalysisCatalog | None = None,
+    refresh_id: uuid.UUID | None = None,
+    refresh_inputs: RefreshInputs | None = None,
 ) -> ArticleAnalysisJob | None: ...
 
 
@@ -865,7 +872,17 @@ def request_analysis(
     automatic: bool = False,
     force: bool = False,
     taxonomy: AnalysisCatalog | None = None,
+    refresh_id: uuid.UUID | None = None,
+    refresh_inputs: RefreshInputs | None = None,
 ) -> ArticleAnalysisJob | None:
+    if refresh_id is not None:
+        from devfeed_core.article_refresh_processing import request_refresh_analysis
+
+        return request_refresh_analysis(
+            session, refresh_id, prepared=refresh_inputs, expected_article_id=identifier
+        )
+    from devfeed_core.article_refresh_jobs import ordinary_job_condition
+
     article = session.scalar(
         select(Article).where(Article.id == identifier).with_for_update(of=Article)
     )
@@ -874,7 +891,7 @@ def request_analysis(
     if article.publication_status == "published":
         if automatic:
             return None
-        raise OperationConflict("Unpublish the article before requesting analysis")
+        raise OperationConflict("Use article maintenance to refresh a published article")
     if not eligible_article(article):
         if automatic:
             return None
@@ -894,6 +911,10 @@ def request_analysis(
         )
     )
     if active:
+        if active.refresh_id is not None:
+            if automatic:
+                return None
+            raise OperationConflict("Previous private maintenance is still stopping")
         return active
     snapshot = source_snapshot(article, session.get(ArticleContent, identifier))
     if not meaningful_text(snapshot["text"]):
@@ -912,6 +933,7 @@ def request_analysis(
             select(ArticleAnalysisJob)
             .where(
                 ArticleAnalysisJob.article_id == identifier,
+                ordinary_job_condition(ArticleAnalysisJob),
                 ArticleAnalysisJob.input_hash == digest,
                 ArticleAnalysisJob.prompt_version == PROMPT_VERSION,
                 ArticleAnalysisJob.model == settings.codex_model,
@@ -951,7 +973,10 @@ def request_analysis(
     if automatic and not force:
         latest = session.scalar(
             select(ArticleAnalysisJob)
-            .where(ArticleAnalysisJob.article_id == identifier)
+            .where(
+                ArticleAnalysisJob.article_id == identifier,
+                ordinary_job_condition(ArticleAnalysisJob),
+            )
             .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id.desc())
             .limit(1)
         )
@@ -1084,6 +1109,8 @@ def fail_analysis(
 def apply_analysis(
     session: Session, article: Article, job: ArticleAnalysisJob, result: AnalysisResult
 ) -> None:
+    if job.refresh_id is not None:
+        raise OperationConflict("Private maintenance must use its guarded replacement application")
     current = source_snapshot(article, session.get(ArticleContent, article.id))
     if (
         article.editorial_revision != job.editorial_revision

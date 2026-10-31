@@ -17,7 +17,7 @@ their triggers and functions, and both projector services. Article/source ID
 checksums and article, inference-call, account, and topic counts matched after
 migration. Completed historical cursors and ClickHouse facts were preserved.
 
-Both a fresh schema and a 0041 upgrade were tested in separate scratch databases.
+Both a fresh schema and a 0040 upgrade were tested in separate scratch databases.
 The upgrade preserves pending format-1/2 event IDs, contents, and identity sequence;
 new format-3 captures use the renamed queue to fence incompatible exporters.
 
