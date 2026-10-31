@@ -41,6 +41,7 @@ def test_public_cache_inventory_marks_only_the_twelve_shared_read_operations():
         policy = CachePolicy.model_validate(extra[CACHE_POLICY_EXTENSION])
         assert policy.namespace not in namespaces
         namespaces.add(policy.namespace)
+        assert policy.normalize_query
         actual[context.path] = (policy.namespace, policy.revision, policy.ttl)
         exported = app.openapi()["paths"][context.path]["get"][CACHE_POLICY_EXTENSION]
         assert exported == policy.model_dump()
