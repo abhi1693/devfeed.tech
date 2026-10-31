@@ -114,6 +114,11 @@ require published articles visible to anonymous readers (English by default), wi
 or supporting assignments for topics. Non-English article detail pages remain eligible
 for the article sitemap.
 
+Topic, source, and tag directories validate continuation pages before sending response headers.
+A continuation beyond the available results returns HTTP 404. Empty first-page searches and
+letter filters remain available with `noindex,follow`; populated directory pages retain their
+normalized canonical URLs. Next and previous links preserve the directory filters.
+
 The scheduler generates cached sitemaps in the background. Crawler requests serve
 the last completed snapshot while refreshes run; see
 [sitemap refresh and retention](apps/aggregator/README.md#cached-sitemaps).

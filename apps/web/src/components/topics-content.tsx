@@ -8,12 +8,14 @@ import { CatalogContent } from "./catalog-content";
 export function TopicsContent({
   topics,
   offset,
+  query = "",
   initialPage,
   children,
   withShell,
 }: {
   topics: Topic[];
   offset: number;
+  query?: string;
   initialPage?: CatalogPage<Topic>;
   children?: ReactNode;
   withShell?: boolean;
@@ -25,6 +27,7 @@ export function TopicsContent({
       title="Explore topics"
       items={topics}
       offset={offset}
+      query={query}
       initialPage={initialPage}
       emptyIcon={<Hash size={32} />}
       emptyTitle={{

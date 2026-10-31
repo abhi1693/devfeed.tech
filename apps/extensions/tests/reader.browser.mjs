@@ -1,3 +1,7 @@
+import {
+  catalogDirectoriesFixture,
+  checkCatalogDirectories,
+} from "../../../scripts/testing/catalog-directories.mjs";
 import { checkAppIcons } from "../../../scripts/testing/app-icons.mjs";
 import { tagsFixture, checkTags, checkTagFollow } from "../../../scripts/testing/tags.mjs";
 import { checkCatalogSharing } from "../../../scripts/testing/catalog-sharing.mjs";
@@ -216,6 +220,7 @@ async function readerFixture(t, imageProfile) {
     topic: { ...article.topics[0], id: "ABCDEF00-0000-4000-8000-000000000001" },
   });
   const domCatalog = readerDomCatalogFixture();
+  const directoryFixture = catalogDirectoriesFixture();
   const routeFixture = readerRoutesFixture(article);
   const feedMode = feedModeFixture(article);
   const readerContext = readerContextFixture(article);
@@ -273,6 +278,7 @@ async function readerFixture(t, imageProfile) {
         ),
       );
     if (domCatalog.handles(url)) return route.fulfill({ json: domCatalog.respond(url) });
+    if (directoryFixture.handles(url)) return route.fulfill(await directoryFixture.respond(url));
     routeFixture.record(url);
     if (routeFixture.handles(url)) return route.fulfill(routeFixture.respond(url));
     const mutationPath = url.pathname.slice("/api".length);
@@ -504,6 +510,7 @@ async function readerFixture(t, imageProfile) {
     loginDestinations,
     serverReads,
     domCatalog,
+    directoryFixture,
     topicContext,
     pathFor: (path) => readerBase + path,
   };
@@ -1337,3 +1344,18 @@ test("built new tab favicon loads the shared brand asset", async (t) => {
   const { page } = await readerFixture(t);
   await checkAppIcons(page, { apple: false });
 });
+
+test(
+  "directory pages enforce bounded existence and navigation in built new tabs",
+  { timeout: 180000 },
+  async (t) => {
+    const { page, pathFor, directoryFixture } = await readerFixture(t);
+    await checkCatalogDirectories(
+      page,
+      pathFor,
+      directoryFixture,
+      path.resolve(import.meta.dirname, `../../../reports/catalog-directories/${browser}`),
+      true,
+    );
+  },
+);

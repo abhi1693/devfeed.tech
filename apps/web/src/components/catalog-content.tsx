@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import { InfiniteCatalog } from "./infinite-catalog";
 import { UserShell } from "./user-shell";
-import { catalogPage, type CatalogPage } from "@/lib/catalog-page";
+import { catalogHref, catalogPage, type CatalogPage } from "@/lib/catalog-page";
 import type { Source, Topic } from "@/lib/types";
 
 type CatalogKind = "topics" | "sources";
@@ -14,6 +14,7 @@ export function CatalogContent({
   title,
   items,
   offset,
+  query = "",
   initialPage,
   children,
   withShell = true,
@@ -26,6 +27,7 @@ export function CatalogContent({
   title: string;
   items: (Source | Topic)[];
   offset: number;
+  query?: string;
   initialPage?: CatalogPage<Source | Topic>;
   children?: ReactNode;
   /** PublicPage owns the persistent shell for streamed listings. */
@@ -47,20 +49,30 @@ export function CatalogContent({
       </div>
       {items.length ? (
         <InfiniteCatalog
-          key={offset}
+          key={`${kind}:${query}:${offset}`}
           kind={kind}
+          query={query}
           initialPage={initialPage ?? catalogPage(items, offset)}
         />
       ) : (
         <section className="empty-state">
           {emptyIcon}
-          <h2>{offset ? emptyTitle.paginated : emptyTitle.firstPage}</h2>
+          <h2>
+            {query
+              ? `No ${kind} match these filters`
+              : offset
+                ? emptyTitle.paginated
+                : emptyTitle.firstPage}
+          </h2>
           {emptyAction}
         </section>
       )}
       <nav className="pagination" aria-label={`${label} pages`}>
         {offset > 0 && (
-          <Link className="button" href={`/${kind}?offset=${Math.max(0, offset - 60)}`}>
+          <Link
+            className="button"
+            href={catalogHref(kind, { query, offset: Math.max(0, offset - 60) })}
+          >
             <ArrowLeft size={16} />
             Previous {kind}
           </Link>

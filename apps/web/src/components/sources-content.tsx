@@ -9,12 +9,14 @@ import { CatalogContent } from "./catalog-content";
 export function SourcesContent({
   sources,
   offset,
+  query = "",
   initialPage,
   children,
   withShell,
 }: {
   sources: Source[];
   offset: number;
+  query?: string;
   initialPage?: CatalogPage<Source>;
   children?: ReactNode;
   withShell?: boolean;
@@ -26,6 +28,7 @@ export function SourcesContent({
       title="Sources"
       items={sources}
       offset={offset}
+      query={query}
       initialPage={initialPage}
       headerAction={<SuggestSourceLink />}
       emptyIcon={

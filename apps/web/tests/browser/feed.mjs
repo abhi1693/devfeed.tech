@@ -1,3 +1,7 @@
+import {
+  catalogDirectoriesFixture,
+  checkCatalogDirectories,
+} from "../../../../scripts/testing/catalog-directories.mjs";
 import { checkAppIcons } from "../../../../scripts/testing/app-icons.mjs";
 import { checkFeaturedOn } from "../../../../scripts/testing/featured-on.mjs";
 import { tagsFixture, checkTags, checkTagFollow } from "../../../../scripts/testing/tags.mjs";
@@ -244,6 +248,7 @@ async function createReaderFixture(
   const readingFixture = readingStreakFixture();
   const mutationFixture = userMutationFixture({ articles: [article], topic });
   const domCatalog = readerDomCatalogFixture();
+  const directoryFixture = catalogDirectoriesFixture();
   const routeFixture = readerRoutesFixture(article);
   const seoSourceIds = {
     "seo-populated": "66666666-6666-4666-8666-666666666666",
@@ -411,6 +416,12 @@ async function createReaderFixture(
     if (domCatalog.handles(requestUrl)) {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(domCatalog.respond(requestUrl)));
+      return;
+    }
+    if (directoryFixture.handles(requestUrl)) {
+      const result = await directoryFixture.respond(requestUrl);
+      res.writeHead(result.status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result.json));
       return;
     }
     routeFixture.record(requestUrl);
@@ -1433,6 +1444,7 @@ async function createReaderFixture(
     readingFixture,
     mustReadsFixture,
     domCatalog,
+    directoryFixture,
     renderReads,
     topicContext,
     previewRequests,
@@ -2824,4 +2836,16 @@ test("Sign out also opens provider SSO logout", { timeout: 180000 }, async (t) =
     await page.waitForURL("https://identity.example/end-session?state=correlated");
     assert.equal(starts.length, 1);
   });
+});
+
+test("directory pages enforce bounded existence and navigation", { timeout: 180000 }, async (t) => {
+  const { browser, origin, directoryFixture } = await createReaderFixture(t);
+  await withReaderPage(browser, (page) =>
+    checkCatalogDirectories(
+      page,
+      (path) => origin + path,
+      directoryFixture,
+      `${root}/reports/catalog-directories/web`,
+    ),
+  );
 });

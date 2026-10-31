@@ -92,7 +92,7 @@ export async function renderPublicMarkdown(
         : route.collection === "sources"
           ? await getSources(offset, limit, undefined, "", "")
           : await getTags(offset, limit);
-    const page = catalogPage(items, offset);
+    const page = catalogPage<{ id: string; slug: string; name: string }>(items, offset);
     const links = page.items.map((item) => {
       const id = item.slug;
       const description = "description" in item ? item.description : null;
@@ -103,7 +103,7 @@ export async function renderPublicMarkdown(
       `# DevFeed ${route.collection}`,
       "Public entries with published articles. This directory is paginated.",
       ...links,
-      !page.items.length && "No more entries.",
+      !items.length && "No more entries.",
       next && nextLink(path, new URLSearchParams(), "offset", next),
     ]
       .filter(Boolean)

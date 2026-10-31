@@ -15,7 +15,8 @@ import { NotificationSettings } from "../../web/src/components/notification-sett
 import { TopicPreferences } from "../../web/src/components/topic-preferences";
 import { SourcePreferences } from "../../web/src/components/source-preferences";
 import { SourceSuggestion } from "../../web/src/components/source-suggestion";
-import { catalogOffset } from "../../web/src/lib/catalog-page";
+import { ReaderNotFound } from "../../web/src/components/reader-not-found";
+import { catalogFilters } from "../../web/src/lib/catalog-page";
 import type { CatalogPage } from "../../web/src/lib/catalog-page";
 import type { Source, Topic, Tag } from "../../web/src/lib/types";
 import type { UserProfile } from "../../web/src/lib/user";
@@ -122,16 +123,10 @@ export function LocalPage({
           <SourceSuggestion />
         </UserShell>
       );
-    case "catalog":
-      return (
-        <CatalogPage
-          key={route}
-          kind={match.catalog}
-          offset={catalogOffset(url.searchParams.get("offset"))}
-          query={url.searchParams.get("q") ?? ""}
-          letter={url.searchParams.get("letter") ?? ""}
-        />
-      );
+    case "catalog": {
+      const filters = catalogFilters(url.searchParams, match.catalog);
+      return <CatalogPage key={route} kind={match.catalog} {...filters} />;
+    }
   }
 }
 function CatalogPage({
@@ -167,6 +162,7 @@ function CatalogPage({
       });
     return () => controller.abort();
   }, [kind, offset, query, letter, retry]);
+  if (page && offset > 0 && page.items.length === 0) return <ReaderNotFound />;
   return (
     <UserShell section={kind}>
       {page ? (
@@ -176,12 +172,14 @@ function CatalogPage({
             query={query}
             letter={letter}
             nextCursor={page.next_cursor}
+            offset={offset}
           />
         ) : kind === "topics" ? (
           <TopicsContent
             topics={page.items as Topic[]}
             initialPage={page as CatalogPage<Topic>}
             offset={offset}
+            query={query}
             withShell={false}
           />
         ) : (
@@ -189,6 +187,7 @@ function CatalogPage({
             sources={page.items as Source[]}
             initialPage={page as CatalogPage<Source>}
             offset={offset}
+            query={query}
             withShell={false}
           />
         )
