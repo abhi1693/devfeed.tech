@@ -87,6 +87,8 @@ ClickHouse serves historical reports and operator boards. The analytics process
 repairs missed current job/card observations in bounded background pages, and
 boards show the source state verified by its latest completed coverage pass.
 See [analytics delivery and recovery](apps/admin-api/ANALYTICS.md).
+The [card catalog benchmark](benchmarks/analytics-card-catalog.md) checks importer
+and reconciler reuse, revision invalidation, and source-card query budgets.
 
 Published article retries preserve the current approval while a private replacement
 is prepared. See [maintenance rollout and recovery review](dev/published-article-maintenance.md)

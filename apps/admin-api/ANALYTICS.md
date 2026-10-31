@@ -264,6 +264,16 @@ or 200 current card identities per page. Source
 transactions close before ClickHouse network writes. Durable ClickHouse
 checkpoints advance only after acknowledged writes; failed pages replay safely.
 
+Historical card pages retain one immutable, revision-validated catalog and prepared
+ranking index per importer, matching the recurring reconciler's existing reuse.
+Every page reloads current article/job inputs in a read-only source snapshot.
+Catalog changes release the previous prepared generation before replacing it;
+rolled-back edits leave the committed generation valid. The owner refuses a second
+builder while an interrupted native thread is still running, and discards its
+unacknowledged result. Import completion releases the retained catalog and index.
+See the [catalog reuse benchmark](../../benchmarks/analytics-card-catalog.md) for
+the native regression and production-size invocation.
+
 The worker installs temporary rejection guards on old analytics relations and
 removes old calculation/capture triggers under short NOWAIT metadata locks. These
 guards stop old analytics writes while business tables remain writable. Old
