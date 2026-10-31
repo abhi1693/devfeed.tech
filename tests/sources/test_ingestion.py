@@ -413,22 +413,34 @@ def test_ingestion_loads_heuristic_catalog_only_for_entries_that_need_it(
         )
     parsed = parse_feed(rss_bytes, "https://example.com/rss", utcnow(), source_type="publisher")
     parsed = replace(parsed, entries=[replace(entry, tags=[]) for entry in parsed.entries])
-    hydrated = []
+    hydrated, catalog_rows = [], []
+
+    def executed(_connection, cursor, statement, *_):
+        if statement.startswith("SELECT") and (
+            "FROM topics" in statement or "FROM tags" in statement
+        ):
+            catalog_rows.append(cursor.rowcount)
 
     def loaded(_session, instance):
         if isinstance(instance, (Topic, Tag)):
             hydrated.append(type(instance).__name__)
 
+    engine = database.kw["bind"]
     event.listen(Session, "loaded_as_persistent", loaded)
+    event.listen(engine, "after_cursor_execute", executed)
     try:
         with database.begin() as session:
             assert tasks.store_entries(session, source_id, parsed) == 2
         first = len(hydrated)
         # With AI disabled, one lazy catalog is shared by both new entries.
         assert first == (0 if ai_enabled else 20000)
+        assert catalog_rows == ([] if ai_enabled else [10000, 10000])
         hydrated.clear()
+        catalog_rows.clear()
         with database.begin() as session:
             assert tasks.store_entries(session, source_id, parsed) == 0
         assert hydrated == []
+        assert catalog_rows == []  # No server-side catalog scan or returned rows either.
     finally:
         event.remove(Session, "loaded_as_persistent", loaded)
+        event.remove(engine, "after_cursor_execute", executed)
