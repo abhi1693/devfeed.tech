@@ -245,6 +245,10 @@ async function createReaderFixture(
   const mutationFixture = userMutationFixture({ articles: [article], topic });
   const domCatalog = readerDomCatalogFixture();
   const routeFixture = readerRoutesFixture(article);
+  const seoSourceIds = {
+    "seo-populated": "66666666-6666-4666-8666-666666666666",
+    "seo-empty": "66666666-6666-4666-8666-666666666667",
+  };
   const feedMode = feedModeFixture(article);
   const readerContext = readerContextFixture(article);
   const readerDestinations = readerDestinationsFixture(article);
@@ -442,12 +446,23 @@ async function createReaderFixture(
       return;
     }
     // Collection indexing fixtures: metadata and page content use the same feed.
-    const collection = requestUrl.searchParams.get("tag") || requestUrl.searchParams.get("topic");
-    if (/^\/v1\/(?:tags|topics)\/seo-/.test(path)) {
+    const collection =
+      requestUrl.searchParams.get("tag") ||
+      requestUrl.searchParams.get("topic") ||
+      Object.entries(seoSourceIds).find(
+        ([, id]) => id === requestUrl.searchParams.get("source_id"),
+      )?.[0];
+    if (/^\/v1\/(?:tags|topics|sources)\/seo-/.test(path)) {
       const slug = path.split("/").at(-1);
       res.writeHead(slug === "seo-missing" ? 404 : 200, { "Content-Type": "application/json" });
       res.end(
-        JSON.stringify(slug === "seo-missing" ? { detail: "Not found" } : { ...topic, slug }),
+        JSON.stringify(
+          slug === "seo-missing"
+            ? { detail: "Not found" }
+            : path.startsWith("/v1/sources/")
+              ? { ...source, id: seoSourceIds[slug], slug }
+              : { ...topic, slug },
+        ),
       );
       return;
     }
@@ -888,7 +903,7 @@ async function createReaderFixture(
   });
   async function runJourney() {
     const seoPage = await browser.newPage();
-    for (const kind of ["tags", "topics"]) {
+    for (const kind of ["tags", "topics", "sources"]) {
       for (const [slug, suffix, empty] of [
         ["seo-populated", "", false],
         ["seo-empty", "", true],
@@ -1441,13 +1456,21 @@ async function createReaderFixture(
 
 let readerPageSequence = 0;
 async function withReaderPage(browser, check, options = {}) {
-  const context = await browser.newContext({ reducedMotion: "reduce", ...options });
+  const { livePreferredSource = false, ...contextOptions } = options;
+  const context = await browser.newContext({ reducedMotion: "reduce", ...contextOptions });
   const reportPath = artifactPath(`preferred-source-report-only-${++readerPageSequence}.json`);
   let errors = [];
   let preferredSourceReports = [];
   try {
     await mockManagedImages(context);
     await mockSourceLogos(context);
+    if (!livePreferredSource) {
+      // Remote widget policy reports belong to the dedicated real-SDK journey.
+      // Other reader journeys retain strict console checks without loading that SDK.
+      await context.route("https://news.google.com/swg/js/v1/publisher.js", (route) =>
+        route.fulfill({ contentType: "application/javascript", body: "" }),
+      );
+    }
     const page = await context.newPage();
     ({ errors, preferredSourceReports } = collectReaderPageErrors(page));
     await check(page, context);
@@ -1470,59 +1493,67 @@ test(
   { timeout: 120000 },
   async (t) => {
     const { browser, origin } = await createReaderFixture(t, { analyticsEnabled: true });
-    await withReaderPage(browser, async (page, context) => {
-      await context.route("https://www.googletagmanager.com/gtag/js**", (route) =>
-        route.fulfill({ contentType: "application/javascript", body: "" }),
-      );
-      // Optional offline proof uses an unchanged copy of Google's real SDK, never a mock widget.
-      const sdkPath = process.env.DEVFEED_PREFERRED_SOURCE_SDK_PATH;
-      if (sdkPath) {
-        const sdk = await readFile(sdkPath);
-        await context.route("https://news.google.com/swg/js/v1/publisher.js", (route) =>
-          route.fulfill({ contentType: "application/javascript", body: sdk }),
+    await withReaderPage(
+      browser,
+      async (page, context) => {
+        await context.route("https://www.googletagmanager.com/gtag/js**", (route) =>
+          route.fulfill({ contentType: "application/javascript", body: "" }),
         );
-      }
-      let preferredTheme = "light";
-      await context.route("**/api/v1/user/settings/appearance", (route) => {
-        if (route.request().method() === "PUT")
-          preferredTheme = route.request().postDataJSON().theme;
-        return route.fulfill({ json: { theme: preferredTheme } });
-      });
-      for (const member of [false, true]) {
-        await page.emulateMedia({ colorScheme: member ? "dark" : "light" });
-        if (member)
-          await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
-        await page.goto(`${origin}/latest`);
-        await page.locator(".card-open-link").first().waitFor();
-        if (member) {
-          await page
-            .getByRole("button", { name: "Theme: Light. Switch to dark theme", exact: true })
-            .click();
-          await page.waitForFunction(() => document.documentElement.classList.contains("dark"));
+        // Optional offline proof uses an unchanged copy of Google's real SDK, never a mock widget.
+        const sdkPath = process.env.DEVFEED_PREFERRED_SOURCE_SDK_PATH;
+        if (sdkPath) {
+          const sdk = await readFile(sdkPath);
+          await context.route("https://news.google.com/swg/js/v1/publisher.js", (route) =>
+            route.fulfill({ contentType: "application/javascript", body: sdk }),
+          );
         }
-        assert.equal(
+        let preferredTheme = "light";
+        await context.route("**/api/v1/user/settings/appearance", (route) => {
+          if (route.request().method() === "PUT")
+            preferredTheme = route.request().postDataJSON().theme;
+          return route.fulfill({ json: { theme: preferredTheme } });
+        });
+        for (const member of [false, true]) {
+          await page.emulateMedia({ colorScheme: member ? "dark" : "light" });
+          if (member)
+            await context.addCookies([
+              { name: "devfeed_user_session", value: "valid", url: origin },
+            ]);
+          await page.goto(`${origin}/latest`);
+          await page.locator(".card-open-link").first().waitFor();
+          if (member) {
+            await page
+              .getByRole("button", { name: "Theme: Light. Switch to dark theme", exact: true })
+              .click();
+            await page.waitForFunction(() => document.documentElement.classList.contains("dark"));
+          }
+          assert.equal(
+            await page
+              .locator("[data-google-preferred-source], .google-preferred-source-widget")
+              .count(),
+            0,
+          );
+          await page.locator(".card-open-link").first().click();
+          await page.getByRole("dialog", { name: "Article preview" }).waitFor();
+          await checkGooglePreferredSource(
+            page,
+            `${root}/reports/google-preferred-source/web-${member ? "member" : "guest"}.png`,
+            { analytics: "ga4", measurementId: "G-PREFERREDTEST" },
+          );
+          await page.getByRole("button", { name: "Close preview", exact: true }).click();
           await page
-            .locator("[data-google-preferred-source], .google-preferred-source-widget")
-            .count(),
-          0,
-        );
-        await page.locator(".card-open-link").first().click();
-        await page.getByRole("dialog", { name: "Article preview" }).waitFor();
-        await checkGooglePreferredSource(
-          page,
-          `${root}/reports/google-preferred-source/web-${member ? "member" : "guest"}.png`,
-          { analytics: "ga4", measurementId: "G-PREFERREDTEST" },
-        );
-        await page.getByRole("button", { name: "Close preview", exact: true }).click();
-        await page.getByRole("dialog", { name: "Article preview" }).waitFor({ state: "detached" });
-        assert.equal(
-          await page
-            .locator("[data-google-preferred-source], .google-preferred-source-widget")
-            .count(),
-          0,
-        );
-      }
-    });
+            .getByRole("dialog", { name: "Article preview" })
+            .waitFor({ state: "detached" });
+          assert.equal(
+            await page
+              .locator("[data-google-preferred-source], .google-preferred-source-widget")
+              .count(),
+            0,
+          );
+        }
+      },
+      { livePreferredSource: true },
+    );
   },
 );
 
@@ -2446,6 +2477,38 @@ test("feed modes declare placement capabilities", { timeout: 180000 }, async (t)
     checkFeedMode(page, (path) => origin + path, feedMode, `${root}/reports/feed-mode/web`),
   );
 });
+
+test(
+  "source collection indexing follows the visible public feed",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    for (const agent of ["Mozilla/5.0", "Googlebot"]) {
+      for (const [path, empty] of [
+        ["/sources/seo-populated", false],
+        ["/sources/seo-empty", true],
+        ["/sources/seo-populated/tutorials", true],
+      ]) {
+        const response = await fetch(origin + path, { headers: { "User-Agent": agent } });
+        assert.equal(response.status, 200);
+        const html = await response.text();
+        assert.equal(/<meta name="robots" content="[^"]*noindex/.test(html), empty);
+        assert.ok(html.includes(`rel="canonical" href="${origin}${path}"`));
+      }
+      const missing = await fetch(`${origin}/sources/seo-missing`, {
+        headers: { "User-Agent": agent },
+      });
+      assert.equal(missing.status, 404);
+    }
+    await withReaderPage(browser, async (page) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(`${origin}/sources/seo-populated/tutorials`);
+      await page.getByText("No articles match these filters", { exact: true }).waitFor();
+      assert.equal(await page.locator(".article-card").count(), 0);
+      await page.locator('meta[name="robots"][content*="noindex"]').waitFor({ state: "attached" });
+    });
+  },
+);
 
 test(
   "reader routes validate destinations and recover from missing pages",

@@ -382,7 +382,7 @@ def test_stale_reads_never_attempt_a_refresh(client, database, monkeypatch):
 def test_collection_sitemaps_match_anonymous_feed_language_and_visibility(client, database):
     from devfeed_core.models import ArticleTag, ArticleTopic, Tag
 
-    source, _, _, articles = seed(database)
+    source_id, _, _, _ = seed(database)
     scenarios = [
         ("english", "en", "published", "primary"),
         ("russian", "ru", "published", "primary"),
@@ -392,10 +392,18 @@ def test_collection_sitemaps_match_anonymous_feed_language_and_visibility(client
         ("empty", None, None, None),
     ]
     with database.begin() as session:
+        seed_source_slug = session.get(Source, source_id).slug
         for slug, language, publication, role in scenarios:
             topic = Topic(name=slug, slug=slug, kind="technology", status="active")
             tag = Tag(name=slug, slug=slug)
-            session.add_all([topic, tag])
+            source = Source(
+                name=slug,
+                slug=slug,
+                feed_url=f"https://{slug}.example/feed",
+                source_type="publisher",
+                approval_status="approved",
+            )
+            session.add_all([topic, tag, source])
             session.flush()
             if language is None:
                 continue
@@ -413,7 +421,7 @@ def test_collection_sitemaps_match_anonymous_feed_language_and_visibility(client
                 [
                     ArticleOrigin(
                         article_id=article.id,
-                        source_id=source,
+                        source_id=source.id,
                         entry_key=slug,
                         original_url=article.canonical_url,
                     ),
@@ -432,11 +440,29 @@ def test_collection_sitemaps_match_anonymous_feed_language_and_visibility(client
     slugs = {kind: {row.slug for row in rows if row.kind == kind} for kind in sitemaps.KINDS}
     assert slugs["topics"] == {"kubernetes", "english"}
     assert slugs["tags"] == {"kubernetes", "english", "incidental"}
+    assert slugs["sources"] == {seed_source_slug, "english", "incidental"}
     # Public non-English article detail pages remain indexable.
     assert len(slugs["articles"]) == 6
+    sitemaps.refresh_snapshot()
+    manifest = client.get("/v1/sitemaps").json()
+    source_paths = {
+        path
+        for part in manifest["parts"]
+        if part["kind"] == "sources"
+        for path in client.get(
+            f"/v1/sitemaps/sources/{part['page']}?v={manifest['generation']}"
+        ).json()["paths"]
+    }
+    assert source_paths == {f"/sources/{slug}" for slug in slugs["sources"]}
     for slug, *_ in scenarios:
-        for kind, key in [("topics", "topic"), ("tags", "tag")]:
-            response = client.get("/v1/feed", params={key: slug, "languages": "en"})
+        source = client.get(f"/v1/sources/{slug}")
+        assert source.status_code == 200
+        for kind, key, value in [
+            ("topics", "topic", slug),
+            ("tags", "tag", slug),
+            ("sources", "source_id", source.json()["id"]),
+        ]:
+            response = client.get("/v1/feed", params={key: value, "languages": "en"})
             assert response.status_code == 200
             assert bool(response.json()["items"]) == (slug in slugs[kind])
     assert client.get("/v1/feed?tag=russian").json()["items"]
