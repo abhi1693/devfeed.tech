@@ -7,6 +7,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from datetime import timedelta
 
 import pytest
@@ -14,6 +15,7 @@ from devfeed_aggregator import scheduler
 from devfeed_aggregator.scheduler_resources import SchedulerResources
 from devfeed_core.config import get_settings
 from devfeed_core.models import IngestionJob, Source, utcnow
+from psycopg import Cursor
 from sqlalchemy import event, select, text
 
 from tests.support import scheduler as fixtures
@@ -33,22 +35,26 @@ def test_reused_pool_reconnects_after_its_idle_backend_is_lost(database):
 
 
 def test_pool_serves_main_partner_and_reader_lanes_without_overflow(database):
-    settings = get_settings().model_copy(update={"scheduler_database_pool_size": 3})
+    settings = get_settings().model_copy(
+        update={"scheduler_database_pool_size": 3, "database_pool_enabled": False}
+    )
     barrier = threading.Barrier(3)
     with SchedulerResources(settings) as resources:
 
-        def operation():
-            with resources.factory() as session:
+        def operation(main):
+            factory = resources.factory if main else resources.background_factory
+            with resources.cycle() if main else nullcontext(), factory() as session:
                 backend = session.scalar(text("SELECT pg_backend_pid()"))
                 barrier.wait(timeout=5)
                 return backend
 
         with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = [executor.submit(operation) for _ in range(3)]
+            futures = [executor.submit(operation, main) for main in (True, False, False)]
             pids = [future.result(timeout=10) for future in futures]
         assert len(set(pids)) == 3
         assert resources.engine.pool.checkedout() == 0
-        assert resources.engine.pool.overflow() == 0
+        assert resources.engine.pool.overflow() <= 0
+        assert resources.engine.pool.checkedin() == 0
 
 
 @pytest.mark.parametrize("reuse", [False, True])
@@ -108,7 +114,18 @@ def test_scheduler_reuse_keeps_query_work_and_reduces_connection_churn(database,
         settings.scheduler_connection_reuse_enabled = reuse
         with SchedulerResources(settings) as resources:
             scheduler.tick(resources)
-            counts = {"connections": 0, "statements": 0}
+            counts = {"connections": 0, "statements": 0, "wire_commands": 0, "closed": 0}
+
+            class ObservedCursor(Cursor):
+                def execute(self, *args, _counts=counts, **kwargs):
+                    _counts["wire_commands"] += 1
+                    return super().execute(*args, **kwargs)
+
+            def cursor_factory(_dialect, _record, _args, options):
+                options["cursor_factory"] = ObservedCursor
+
+            def closed(*_, current=counts):
+                current["closed"] += 1
 
             def connected(*_, current=counts):
                 current["connections"] += 1
@@ -118,6 +135,8 @@ def test_scheduler_reuse_keeps_query_work_and_reduces_connection_churn(database,
 
             event.listen(resources.engine, "connect", connected)
             event.listen(resources.engine, "before_cursor_execute", statement)
+            event.listen(resources.engine, "do_connect", cursor_factory)
+            event.listen(resources.engine, "close", closed)
             cpu, durations, outcomes = time.process_time(), [], []
             try:
                 for _ in range(10):
@@ -127,6 +146,8 @@ def test_scheduler_reuse_keeps_query_work_and_reduces_connection_churn(database,
             finally:
                 event.remove(resources.engine, "connect", connected)
                 event.remove(resources.engine, "before_cursor_execute", statement)
+                event.remove(resources.engine, "do_connect", cursor_factory)
+                event.remove(resources.engine, "close", closed)
             reports[str(reuse)] = {
                 **counts,
                 "cpu_seconds": time.process_time() - cpu,
@@ -136,7 +157,10 @@ def test_scheduler_reuse_keeps_query_work_and_reduces_connection_churn(database,
     old, new = reports["False"], reports["True"]
     assert new["outcomes"] == old["outcomes"]
     assert new["statements"] == old["statements"]
-    assert new["connections"] == 0 and old["connections"] > 100
+    assert new["wire_commands"] <= old["wire_commands"]
+    assert new["connections"] == new["closed"]
+    assert old["connections"] == old["closed"]
+    assert new["connections"] == 10 and old["connections"] > 100
     with database() as session:
         assert (
             session.scalar(
@@ -167,3 +191,48 @@ def test_owned_queue_reconnects_without_replacing_its_delivery_policy(database):
         queue.connection.connection_pool.disconnect()
         assert resources.queue("ingestion") is queue
         assert queue.connection.ping()
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_main_cycle_closes_every_database_socket_before_polling(database, failed):
+    settings = get_settings().model_copy(update={"database_pool_enabled": False})
+    with SchedulerResources(settings) as resources:
+        events = {"connect": 0, "close": 0}
+
+        def connected(*_):
+            events["connect"] += 1
+
+        def closed(*_):
+            events["close"] += 1
+
+        event.listen(resources.engine, "connect", connected)
+        event.listen(resources.engine, "close", closed)
+        for _ in range(2):
+            outcome = pytest.raises(RuntimeError, match="cycle failed") if failed else nullcontext()
+            with outcome, resources.cycle():
+                with resources.factory.begin() as session:
+                    first = session.scalar(text("SELECT pg_backend_pid()"))
+                with resources.factory.begin() as session:
+                    assert session.scalar(text("SELECT pg_backend_pid()")) == first
+                if failed:
+                    raise RuntimeError("cycle failed")
+            assert events["connect"] == events["close"]
+            assert resources.engine.pool.checkedout() == 0
+        assert events == {"connect": 2, "close": 2}
+
+
+def test_main_and_interactive_transactions_keep_independent_commit_boundaries(database):
+    settings = get_settings().model_copy(update={"database_pool_enabled": False})
+    with (
+        SchedulerResources(settings) as resources,
+        resources.cycle(),
+        resources.factory.begin() as session,
+    ):
+        main = session.scalar(text("SELECT pg_backend_pid()"))
+        with resources.background_factory.begin() as background:
+            assert background.scalar(text("SELECT pg_backend_pid()")) != main
+            assert background.scalar(text("SELECT 1")) == 1
+        # A separate helper transaction can commit while this one remains open.
+        with resources.factory.begin() as nested:
+            assert nested.scalar(text("SELECT pg_backend_pid()")) != main
+        assert session.scalar(text("SELECT pg_backend_pid()")) == main

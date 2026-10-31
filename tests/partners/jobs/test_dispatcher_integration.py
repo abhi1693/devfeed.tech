@@ -40,7 +40,7 @@ def test_refill_progresses_without_a_main_scheduler_cycle(database, monkeypatch,
         )
         with (
             SchedulerResources(settings) as resources,
-            partner_dispatcher(resources.factory, interval=0.01),
+            partner_dispatcher(resources.background_factory, interval=0.01),
         ):
             wait_for_publications(database, 2 * batch)
             assert queue.count == 2 * batch

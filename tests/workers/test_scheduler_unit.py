@@ -297,7 +297,7 @@ def test_scheduler_heartbeat_only_advances_after_successful_cycles(
     signal_handler = Mock()
     monkeypatch.setattr(scheduler.signal, "signal", signal_handler)
     monkeypatch.setattr(scheduler, "scheduler_health", health_context)
-    resources = NS(factory=Mock())
+    resources = NS(factory=Mock(), background_factory=Mock())
     monkeypatch.setattr(scheduler, "SchedulerResources", lambda _: nullcontext(resources))
     monkeypatch.setattr(scheduler, "session_factory", Mock())
     monkeypatch.setattr(scheduler, "recommendation_dispatcher", lambda *_: nullcontext())
@@ -366,10 +366,11 @@ def test_scheduler_owns_bounded_clients_and_keeps_global_worker_settings(monkeyp
             resources.release(actual)
         assert queue.connection.close.call_count == (0 if reuse else 20)
         assert lookup.call_count == (1 if reuse else 20)
-        effective = build.call_args.args[0]
+        effective = build.call_args_list[0].args[0]
         assert effective.database_pool_enabled is reuse
         if reuse:
             assert effective.database_pool_size == 3 and effective.database_max_overflow == 0
+            assert build.call_args_list[1].args[0].database_pool_enabled is False
         assert settings.database_pool_enabled is False
     assert queue.connection.close.call_count == (1 if reuse else 20)
     engine.dispose.assert_called_once_with()
@@ -412,3 +413,19 @@ def test_scheduler_retries_failed_queue_creation_without_retaining_a_broken_clie
         assert resources.queue("ingestion") is queue
     assert lookup.call_count == 2
     queue.connection.close.assert_called_once_with()
+
+
+def test_scheduler_preserves_an_explicitly_enabled_database_pool(monkeypatch):
+    from devfeed_aggregator import scheduler_resources
+    from devfeed_core.config import get_settings
+
+    settings = get_settings().model_copy(update={"database_pool_enabled": True})
+    engine = Mock()
+    build = Mock(return_value=engine)
+    monkeypatch.setattr(scheduler_resources, "create_database_engine", build)
+    with scheduler_resources.SchedulerResources(settings) as resources:
+        with resources.cycle():
+            assert resources.background_factory is resources.factory
+        engine.dispose.assert_not_called()
+        build.assert_called_once_with(settings)
+    engine.dispose.assert_called_once_with()

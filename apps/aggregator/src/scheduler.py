@@ -5,7 +5,7 @@ import threading
 import time
 import uuid
 from collections.abc import Sequence
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from datetime import datetime
 from typing import Literal, cast
 
@@ -85,7 +85,10 @@ def tick(resources: SchedulerResources | None = None) -> dict[str, int]:
     with log_context(service="scheduler", tick_id=str(uuid.uuid4())):
         started = time.perf_counter()
         try:
-            with background_cycle("scheduler.tick"):
+            with (
+                background_cycle("scheduler.tick"),
+                resources.cycle() if resources else nullcontext(),
+            ):
                 result = _tick(resources) if resources else _tick()
         except Exception:
             logger.exception("scheduler_tick_failed", extra={"duration_ms": elapsed_ms(started)})
@@ -447,10 +450,10 @@ def run() -> None:
                 SchedulerResources(settings) as resources,
                 scheduler_health() as health,
                 recommendation_dispatcher(
-                    resources.factory,
+                    resources.background_factory,
                     lambda: get_queue("recommendations"),
                 ),
-                partner_dispatcher(resources.factory),
+                partner_dispatcher(resources.background_factory),
                 sitemap_refresher(),
             ):
                 while not stop.is_set():
