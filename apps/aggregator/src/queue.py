@@ -1,4 +1,5 @@
 import re
+import zlib
 from collections.abc import Callable
 from typing import Any
 
@@ -26,6 +27,22 @@ redis.call('RPUSH', KEYS[2], ARGV[1])
 return 1
 """
 
+# Only unclaimed notification carriers can accept a fresh publication fence.
+# LMOVE can precede the worker's status update, so intermediate membership must
+# be checked atomically with rewriting data and restoring the original queue.
+REFRESH_QUEUED_ARGS = """
+if redis.call('HGET', KEYS[1], 'status') == 'queued'
+    and redis.call('HGET', KEYS[1], 'origin') == ARGV[2]
+    and not redis.call('LPOS', KEYS[3], ARGV[1]) then
+    redis.call('HSET', KEYS[1], 'data', ARGV[3])
+    if not redis.call('LPOS', KEYS[2], ARGV[1]) then
+        redis.call('SADD', KEYS[4], KEYS[2])
+        redis.call('RPUSH', KEYS[2], ARGV[1])
+    end
+end
+return redis.call('HGET', KEYS[1], 'data')
+"""
+
 
 class DurableQueue(Queue):
     """Keep an existing delivery in place when the database outbox checks it again."""
@@ -33,7 +50,42 @@ class DurableQueue(Queue):
     logical_name: str | None = None
     redirect_queue: Callable[[str], "DurableQueue"] | None = None
 
+    def _refresh_notification_args(self, existing: Job, args: tuple[Any, ...]) -> Job:
+        # DB outbox row locks serialize overlapping publishers. The Lua result
+        # is also authoritative when a worker won the dequeue/status race.
+        original = existing.args
+        existing.args = args
+        replacement = existing.to_dict(include_meta=False, include_result=False)["data"]
+        existing.args = original
+        key = f"rq:queue:{existing.origin}"
+        stored = self.connection.eval(
+            REFRESH_QUEUED_ARGS,
+            4,
+            existing.key,
+            key,
+            f"{key}:intermediate",
+            "rq:queues",
+            existing.id,
+            existing.origin,
+            replacement,
+        )
+        if not stored:
+            raise NoSuchJobError("Notification carrier disappeared during publication")
+        # RQ stores compressed job.data; decode the exact bytes returned by Lua,
+        # rather than returning requested args after a refused refresh.
+        try:
+            existing.data = zlib.decompress(stored)
+        except zlib.error:
+            existing.data = stored  # Match RQ's legacy uncompressed-data support.
+        return existing
+
     def enqueue(self, f: str | Callable[..., object], *args: Any, **kwargs: Any) -> Job:
+        refresh = kwargs.pop("refresh_queued_payload", False)
+        if refresh and (
+            f != "devfeed_notifications.delivery.deliver_notification"
+            or not str(kwargs.get("job_id", "")).startswith("devfeed-notifications-batch-")
+        ):
+            raise ValueError("Only notification batch carriers can refresh queued payloads")
         aliases = {
             "devfeed_aggregator.recommendation_tasks.refresh": "recommendations",
             "devfeed_aggregator.partner_tasks.process_evaluation": "partner-evaluation",
@@ -73,6 +125,13 @@ class DurableQueue(Queue):
                     # published. Repair its original transport instead of duplicating it.
                     owned = (existing.meta or {}).get("devfeed_queue") in ROUTABLE_QUEUES
                     if owned and re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", origin or ""):
+                        if refresh:
+                            if (
+                                existing.func_name != f
+                                or existing.meta.get("devfeed_queue") != "notifications"
+                            ):
+                                raise ValueError("Notification carrier handler changed") from None
+                            return self._refresh_notification_args(existing, args)
                         key = f"rq:queue:{origin}"
                         self.connection.eval(
                             RESTORE_QUEUED,

@@ -1,0 +1,583 @@
+{
+  "metadata": {
+    "accepted_batch_size": 1,
+    "architecture": "x86_64",
+    "experimental_batch_size": 10,
+    "measured_on": "2026-10-31",
+    "notes": [
+      "Each pair makes exactly100HTTPattempts; mock HTTP time advances11seconds per request for soft_timeout/slow_outage without sleeping.",
+      "Server SQL ms includes planning and execution. Server totals include one fixed pg_stat_statements reset observer call in both paths.",
+      "Peak application checkout is1 and zero application connections are checked out during every HTTP callback.",
+      "Redis repair/rollback paths use native RQ and real PostgreSQL; failures are injected at the described boundary.",
+      "rollback_regroup deliberately changes group membership after rollback to expose duplicate-carrier lookup amplification.",
+      "Physical buffer/WAL totals are preserved; SQL times are one sequential local pair, not production CPU or a significance claim."
+    ],
+    "postgres": "18-alpine",
+    "postgres_cpu_limit": 2,
+    "postgres_memory_limit_bytes": 2147483648,
+    "pressure_gate": "FAIL; experimental batching cannot be enabled",
+    "repetitions": 1
+  },
+  "scenarios": [
+    {
+      "accepted_batch_size": 1,
+      "deliveries": 100,
+      "experimental_sql_regression": false,
+      "runs": [
+        {
+          "active_connections": 0,
+          "batch_size": 1,
+          "client_sql_seconds": 2.690855322045536,
+          "max_transaction_seconds": 0.13548648299911292,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1507.0,
+            "notification_update_calls": 300.0,
+            "notification_update_rows": 300.0,
+            "rows": 1001.0,
+            "shared_blks_dirtied": 7.0,
+            "shared_blks_hit": 59856.0,
+            "shared_blks_read": 4.0,
+            "shared_blks_written": 5.0,
+            "total_exec_time": 78.451618,
+            "total_plan_time": 552.746961,
+            "wal_bytes": 189171.0
+          },
+          "sql_calls": 903,
+          "sql_rows": 1000,
+          "statements": {
+            "SELECT notification_deliveries": 603,
+            "UPDATE notification_deliveries": 300
+          },
+          "transactions": 201
+        },
+        {
+          "active_connections": 0,
+          "batch_size": 10,
+          "client_sql_seconds": 2.717720763022953,
+          "max_transaction_seconds": 0.042772722998051904,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1507.0,
+            "notification_update_calls": 300.0,
+            "notification_update_rows": 300.0,
+            "rows": 1001.0,
+            "shared_blks_dirtied": 7.0,
+            "shared_blks_hit": 59859.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 5.0,
+            "total_exec_time": 77.46432400000003,
+            "total_plan_time": 552.7682940000002,
+            "wal_bytes": 189171.0
+          },
+          "sql_calls": 903,
+          "sql_rows": 1000,
+          "statements": {
+            "SELECT notification_deliveries": 603,
+            "UPDATE notification_deliveries": 300
+          },
+          "transactions": 201
+        }
+      ],
+      "scenario": "success"
+    },
+    {
+      "accepted_batch_size": 1,
+      "deliveries": 100,
+      "experimental_sql_regression": false,
+      "runs": [
+        {
+          "active_connections": 0,
+          "batch_size": 1,
+          "client_sql_seconds": 2.734890814019309,
+          "max_transaction_seconds": 0.12084682099884958,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1507.0,
+            "notification_update_calls": 300.0,
+            "notification_update_rows": 300.0,
+            "rows": 981.0,
+            "shared_blks_dirtied": 7.0,
+            "shared_blks_hit": 59863.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 5.0,
+            "total_exec_time": 77.80777700000002,
+            "total_plan_time": 553.7111620000001,
+            "wal_bytes": 189343.0
+          },
+          "sql_calls": 903,
+          "sql_rows": 980,
+          "statements": {
+            "SELECT notification_deliveries": 603,
+            "UPDATE notification_deliveries": 300
+          },
+          "transactions": 201
+        },
+        {
+          "active_connections": 0,
+          "batch_size": 10,
+          "client_sql_seconds": 2.7724240940005984,
+          "max_transaction_seconds": 0.04277258599904599,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1507.0,
+            "notification_update_calls": 300.0,
+            "notification_update_rows": 300.0,
+            "rows": 981.0,
+            "shared_blks_dirtied": 7.0,
+            "shared_blks_hit": 59863.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 5.0,
+            "total_exec_time": 79.851217,
+            "total_plan_time": 561.9589790000001,
+            "wal_bytes": 189343.0
+          },
+          "sql_calls": 903,
+          "sql_rows": 980,
+          "statements": {
+            "SELECT notification_deliveries": 603,
+            "UPDATE notification_deliveries": 300
+          },
+          "transactions": 201
+        }
+      ],
+      "scenario": "partial"
+    },
+    {
+      "accepted_batch_size": 1,
+      "deliveries": 100,
+      "experimental_sql_regression": false,
+      "runs": [
+        {
+          "active_connections": 0,
+          "batch_size": 1,
+          "client_sql_seconds": 2.7347597540538118,
+          "max_transaction_seconds": 0.09347876399988309,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1507.0,
+            "notification_update_calls": 300.0,
+            "notification_update_rows": 300.0,
+            "rows": 901.0,
+            "shared_blks_dirtied": 6.0,
+            "shared_blks_hit": 60494.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 5.0,
+            "total_exec_time": 76.56390499999999,
+            "total_plan_time": 553.9260279999999,
+            "wal_bytes": 191258.0
+          },
+          "sql_calls": 903,
+          "sql_rows": 900,
+          "statements": {
+            "SELECT notification_deliveries": 603,
+            "UPDATE notification_deliveries": 300
+          },
+          "transactions": 201
+        },
+        {
+          "active_connections": 0,
+          "batch_size": 10,
+          "client_sql_seconds": 2.822317650028708,
+          "max_transaction_seconds": 0.04065477199765155,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1507.0,
+            "notification_update_calls": 300.0,
+            "notification_update_rows": 300.0,
+            "rows": 901.0,
+            "shared_blks_dirtied": 6.0,
+            "shared_blks_hit": 60494.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 5.0,
+            "total_exec_time": 79.62623199999999,
+            "total_plan_time": 557.8801299999998,
+            "wal_bytes": 191258.0
+          },
+          "sql_calls": 903,
+          "sql_rows": 900,
+          "statements": {
+            "SELECT notification_deliveries": 603,
+            "UPDATE notification_deliveries": 300
+          },
+          "transactions": 201
+        }
+      ],
+      "scenario": "http_outage"
+    },
+    {
+      "accepted_batch_size": 1,
+      "deliveries": 100,
+      "experimental_sql_regression": true,
+      "runs": [
+        {
+          "active_connections": 0,
+          "batch_size": 1,
+          "client_sql_seconds": 2.959688233957422,
+          "max_transaction_seconds": 0.1613534720017924,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1507.0,
+            "notification_update_calls": 300.0,
+            "notification_update_rows": 300.0,
+            "rows": 1001.0,
+            "shared_blks_dirtied": 7.0,
+            "shared_blks_hit": 59859.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 5.0,
+            "total_exec_time": 81.04482600000001,
+            "total_plan_time": 565.91108,
+            "wal_bytes": 189171.0
+          },
+          "sql_calls": 903,
+          "sql_rows": 1000,
+          "statements": {
+            "SELECT notification_deliveries": 603,
+            "UPDATE notification_deliveries": 300
+          },
+          "transactions": 201
+        },
+        {
+          "active_connections": 0,
+          "batch_size": 10,
+          "client_sql_seconds": 3.7950651139799447,
+          "max_transaction_seconds": 0.05790027500188444,
+          "peak_connections": 1,
+          "server": {
+            "calls": 2229.0,
+            "notification_update_calls": 700.0,
+            "notification_update_rows": 1004.0,
+            "rows": 2429.0,
+            "shared_blks_dirtied": 10.0,
+            "shared_blks_hit": 81578.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 8.0,
+            "total_exec_time": 117.64757800000001,
+            "total_plan_time": 765.2769160000007,
+            "wal_bytes": 302982.0
+          },
+          "sql_calls": 1442,
+          "sql_rows": 2428,
+          "statements": {
+            "SELECT notification_deliveries": 694,
+            "SET control": 48,
+            "UPDATE notification_deliveries": 700
+          },
+          "transactions": 262
+        }
+      ],
+      "scenario": "soft_timeout"
+    },
+    {
+      "accepted_batch_size": 1,
+      "deliveries": 100,
+      "experimental_sql_regression": true,
+      "runs": [
+        {
+          "active_connections": 0,
+          "batch_size": 1,
+          "client_sql_seconds": 2.945622379993438,
+          "max_transaction_seconds": 0.16835636500036344,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1507.0,
+            "notification_update_calls": 300.0,
+            "notification_update_rows": 300.0,
+            "rows": 901.0,
+            "shared_blks_dirtied": 6.0,
+            "shared_blks_hit": 60494.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 5.0,
+            "total_exec_time": 78.384503,
+            "total_plan_time": 568.7643529999998,
+            "wal_bytes": 191258.0
+          },
+          "sql_calls": 903,
+          "sql_rows": 900,
+          "statements": {
+            "SELECT notification_deliveries": 603,
+            "UPDATE notification_deliveries": 300
+          },
+          "transactions": 201
+        },
+        {
+          "active_connections": 0,
+          "batch_size": 10,
+          "client_sql_seconds": 3.54556213495016,
+          "max_transaction_seconds": 0.05494940499920631,
+          "peak_connections": 1,
+          "server": {
+            "calls": 2229.0,
+            "notification_update_calls": 700.0,
+            "notification_update_rows": 1004.0,
+            "rows": 2329.0,
+            "shared_blks_dirtied": 8.0,
+            "shared_blks_hit": 83082.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 7.0,
+            "total_exec_time": 118.11677500000002,
+            "total_plan_time": 749.5035510000004,
+            "wal_bytes": 305166.0
+          },
+          "sql_calls": 1442,
+          "sql_rows": 2328,
+          "statements": {
+            "SELECT notification_deliveries": 694,
+            "SET control": 48,
+            "UPDATE notification_deliveries": 700
+          },
+          "transactions": 262
+        }
+      ],
+      "scenario": "slow_outage"
+    },
+    {
+      "accepted_batch_size": 1,
+      "deliveries": 100,
+      "experimental_sql_regression": false,
+      "runs": [
+        {
+          "active_connections": 0,
+          "batch_size": 1,
+          "client_sql_seconds": 3.2136400550407416,
+          "max_transaction_seconds": 0.28694737700061523,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1613.0,
+            "notification_update_calls": 400.0,
+            "notification_update_rows": 400.0,
+            "rows": 1301.0,
+            "shared_blks_dirtied": 10.0,
+            "shared_blks_hit": 61706.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 8.0,
+            "total_exec_time": 88.541613,
+            "total_plan_time": 561.7296640000001,
+            "wal_bytes": 251873.0
+          },
+          "sql_calls": 1006,
+          "sql_rows": 1300,
+          "statements": {
+            "SELECT notification_deliveries": 606,
+            "UPDATE notification_deliveries": 400
+          },
+          "transactions": 202
+        },
+        {
+          "active_connections": 0,
+          "batch_size": 10,
+          "client_sql_seconds": 2.995920589972229,
+          "max_transaction_seconds": 0.08093483500124421,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1613.0,
+            "notification_update_calls": 400.0,
+            "notification_update_rows": 400.0,
+            "rows": 1301.0,
+            "shared_blks_dirtied": 10.0,
+            "shared_blks_hit": 61706.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 8.0,
+            "total_exec_time": 91.49033400000002,
+            "total_plan_time": 562.8433160000002,
+            "wal_bytes": 251873.0
+          },
+          "sql_calls": 1006,
+          "sql_rows": 1300,
+          "statements": {
+            "SELECT notification_deliveries": 606,
+            "UPDATE notification_deliveries": 400
+          },
+          "transactions": 202
+        }
+      ],
+      "scenario": "redis_repair"
+    },
+    {
+      "accepted_batch_size": 1,
+      "deliveries": 100,
+      "experimental_sql_regression": false,
+      "runs": [
+        {
+          "active_connections": 0,
+          "batch_size": 1,
+          "client_sql_seconds": 2.8111720079614315,
+          "max_transaction_seconds": 0.3419508090009913,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1511.0,
+            "notification_update_calls": 300.0,
+            "notification_update_rows": 300.0,
+            "rows": 1101.0,
+            "shared_blks_dirtied": 7.0,
+            "shared_blks_hit": 60197.0,
+            "shared_blks_read": 4.0,
+            "shared_blks_written": 5.0,
+            "total_exec_time": 81.89124299999999,
+            "total_plan_time": 557.8262090000001,
+            "wal_bytes": 194571.0
+          },
+          "sql_calls": 904,
+          "sql_rows": 1100,
+          "statements": {
+            "SELECT notification_deliveries": 604,
+            "UPDATE notification_deliveries": 300
+          },
+          "transactions": 202
+        },
+        {
+          "active_connections": 0,
+          "batch_size": 10,
+          "client_sql_seconds": 2.87522094902306,
+          "max_transaction_seconds": 0.07916619599927799,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1511.0,
+            "notification_update_calls": 300.0,
+            "notification_update_rows": 300.0,
+            "rows": 1101.0,
+            "shared_blks_dirtied": 7.0,
+            "shared_blks_hit": 60200.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 5.0,
+            "total_exec_time": 89.037009,
+            "total_plan_time": 556.36998,
+            "wal_bytes": 194571.0
+          },
+          "sql_calls": 904,
+          "sql_rows": 1100,
+          "statements": {
+            "SELECT notification_deliveries": 604,
+            "UPDATE notification_deliveries": 300
+          },
+          "transactions": 202
+        }
+      ],
+      "scenario": "rollback"
+    },
+    {
+      "accepted_batch_size": 1,
+      "deliveries": 100,
+      "experimental_sql_regression": false,
+      "runs": [
+        {
+          "active_connections": 0,
+          "batch_size": 1,
+          "client_sql_seconds": 2.8429069249832537,
+          "max_transaction_seconds": 0.18682389600144234,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1511.0,
+            "notification_update_calls": 300.0,
+            "notification_update_rows": 300.0,
+            "rows": 1101.0,
+            "shared_blks_dirtied": 7.0,
+            "shared_blks_hit": 60200.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 5.0,
+            "total_exec_time": 79.66496099999999,
+            "total_plan_time": 565.8094780000004,
+            "wal_bytes": 194571.0
+          },
+          "sql_calls": 904,
+          "sql_rows": 1100,
+          "statements": {
+            "SELECT notification_deliveries": 604,
+            "UPDATE notification_deliveries": 300
+          },
+          "transactions": 202
+        },
+        {
+          "active_connections": 0,
+          "batch_size": 10,
+          "client_sql_seconds": 2.7267335019678285,
+          "max_transaction_seconds": 0.04757704199801083,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1511.0,
+            "notification_update_calls": 300.0,
+            "notification_update_rows": 300.0,
+            "rows": 1101.0,
+            "shared_blks_dirtied": 7.0,
+            "shared_blks_hit": 60200.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 5.0,
+            "total_exec_time": 79.890289,
+            "total_plan_time": 554.064382,
+            "wal_bytes": 194571.0
+          },
+          "sql_calls": 904,
+          "sql_rows": 1100,
+          "statements": {
+            "SELECT notification_deliveries": 604,
+            "UPDATE notification_deliveries": 300
+          },
+          "transactions": 202
+        }
+      ],
+      "scenario": "redis_outage"
+    },
+    {
+      "accepted_batch_size": 1,
+      "deliveries": 100,
+      "experimental_sql_regression": true,
+      "runs": [
+        {
+          "active_connections": 0,
+          "batch_size": 1,
+          "client_sql_seconds": 2.6781561379902996,
+          "max_transaction_seconds": 0.2621881490013038,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1511.0,
+            "notification_update_calls": 300.0,
+            "notification_update_rows": 300.0,
+            "rows": 1101.0,
+            "shared_blks_dirtied": 7.0,
+            "shared_blks_hit": 60234.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 5.0,
+            "total_exec_time": 75.68564099999998,
+            "total_plan_time": 544.601938,
+            "wal_bytes": 193376.0
+          },
+          "sql_calls": 904,
+          "sql_rows": 1100,
+          "statements": {
+            "SELECT notification_deliveries": 604,
+            "UPDATE notification_deliveries": 300
+          },
+          "transactions": 202
+        },
+        {
+          "active_connections": 0,
+          "batch_size": 10,
+          "client_sql_seconds": 3.236012980036321,
+          "max_transaction_seconds": 0.04931061400202452,
+          "peak_connections": 1,
+          "server": {
+            "calls": 1911.0,
+            "notification_update_calls": 300.0,
+            "notification_update_rows": 300.0,
+            "rows": 1201.0,
+            "shared_blks_dirtied": 7.0,
+            "shared_blks_hit": 80389.0,
+            "shared_blks_read": 2.0,
+            "shared_blks_written": 5.0,
+            "total_exec_time": 83.981564,
+            "total_plan_time": 731.4203760000001,
+            "wal_bytes": 198888.0
+          },
+          "sql_calls": 1004,
+          "sql_rows": 1200,
+          "statements": {
+            "SELECT notification_deliveries": 704,
+            "UPDATE notification_deliveries": 300
+          },
+          "transactions": 302
+        }
+      ],
+      "scenario": "rollback_regroup"
+    }
+  ]
+}

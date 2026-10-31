@@ -1,5 +1,6 @@
 """RQ delivery recovery protocol. Redis Lua membership/atomicity is not emulated."""
 
+import zlib
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -190,3 +191,97 @@ def test_logical_metadata_cannot_be_spoofed_by_the_enqueue_caller(runtime):
         "devfeed_queue": "source-analysis",
         "owner": "outbox",
     }
+
+
+@pytest.mark.parametrize("refused", [False, True])
+@pytest.mark.parametrize("compressed", [False, True])
+def test_notification_refresh_returns_exact_stored_args_even_when_worker_wins(
+    runtime, refused, compressed
+):
+    row = existing(runtime, JobStatus.QUEUED, origin="notifications")
+    row.id = "devfeed-notifications-batch-test"
+    row.func_name = "devfeed_notifications.delivery.deliver_notification"
+    row.args, row.kwargs = ["old-envelope"], {}
+    runtime.base.side_effect = DuplicateJobError()
+    expected = ["old-envelope"] if refused else ["fresh-envelope"]
+    stored = JSONSerializer.dumps((row.func_name, None, expected, {}))
+    if compressed:
+        stored = zlib.compress(stored)
+    runtime.connection.eval.return_value = stored
+    assert (
+        runtime.queue.enqueue(
+            row.func_name,
+            "fresh-envelope",
+            job_id=row.id,
+            unique=True,
+            refresh_queued_payload=True,
+        )
+        is row
+    )
+    assert row.args == expected
+    assert "refresh_queued_payload" not in runtime.base.call_args.kwargs
+    script, keys, job_key, queue_key, intermediate, queues_key, identity, origin, data = (
+        runtime.connection.eval.call_args.args
+    )
+    assert (script, keys, job_key, queue_key, intermediate, queues_key, identity, origin) == (
+        queues.REFRESH_QUEUED_ARGS,
+        4,
+        row.key,
+        "rq:queue:notifications",
+        "rq:queue:notifications:intermediate",
+        "rq:queues",
+        row.id,
+        row.origin,
+    )
+    assert JSONSerializer.loads(zlib.decompress(data))[2] == ["fresh-envelope"]
+
+
+def test_notification_refresh_disappearance_rolls_back_the_publisher(runtime):
+    row = existing(runtime, JobStatus.QUEUED, origin="notifications")
+    row.id = "devfeed-notifications-batch-test"
+    row.func_name, row.args, row.kwargs = (
+        "devfeed_notifications.delivery.deliver_notification",
+        ["old"],
+        {},
+    )
+    runtime.base.side_effect = DuplicateJobError()
+    runtime.connection.eval.return_value = None
+    with pytest.raises(NoSuchJobError, match="disappeared"):
+        runtime.queue.enqueue(
+            row.func_name, "new", job_id=row.id, unique=True, refresh_queued_payload=True
+        )
+    assert row.args == ["old"]
+
+
+@pytest.mark.parametrize(
+    "handler,identity",
+    [
+        ("other", "devfeed-notifications-batch-test"),
+        ("devfeed_notifications.delivery.deliver_notification", "singleton"),
+    ],
+)
+def test_payload_refresh_is_restricted_to_notification_batch_carriers(runtime, handler, identity):
+    with pytest.raises(ValueError, match="Only notification batch carriers"):
+        runtime.queue.enqueue(handler, "new", job_id=identity, refresh_queued_payload=True)
+    runtime.base.assert_not_called()
+
+
+@pytest.mark.parametrize("changed", ["handler", "owner"])
+def test_notification_refresh_rejects_a_different_carrier_owner(runtime, changed):
+    row = existing(runtime, JobStatus.QUEUED, origin="notifications")
+    row.id = "devfeed-notifications-batch-test"
+    row.func_name = (
+        "other" if changed == "handler" else "devfeed_notifications.delivery.deliver_notification"
+    )
+    if changed == "owner":
+        row.meta["devfeed_queue"] = "ingestion"
+    runtime.base.side_effect = DuplicateJobError()
+    with pytest.raises(ValueError, match="handler changed"):
+        runtime.queue.enqueue(
+            "devfeed_notifications.delivery.deliver_notification",
+            "new",
+            job_id=row.id,
+            unique=True,
+            refresh_queued_payload=True,
+        )
+    runtime.connection.eval.assert_not_called()

@@ -296,7 +296,18 @@ class Settings(BaseSettings):
     codex_auth_token: SecretStr | None = None
     codex_timeout_seconds: int = Field(default=90, ge=10, le=120)
     notifications_enabled: bool = False
+    notification_delivery_batch_size: int = Field(default=1, ge=1, le=1)
     chimely_user_environment: str | None = None
+
+    @field_validator("notification_delivery_batch_size", mode="before")
+    @classmethod
+    def notification_batch_requires_database_budget(cls, value: object) -> object:
+        if value not in (1, "1"):
+            raise ValueError(
+                "Notification batching is disabled pending a PostgreSQL-neutral design; "
+                "DEVFEED_NOTIFICATION_DELIVERY_BATCH_SIZE must be 1"
+            )
+        return value
 
     @field_validator("partner_credential_key")
     @classmethod

@@ -26,6 +26,17 @@ def message(**changes):
     )
 
 
+@pytest.mark.parametrize("size", [0, 2, 10, 11])
+def test_notification_batch_configuration_rejects_unproved_database_pressure(monkeypatch, size):
+    from devfeed_core.config import Settings as CoreSettings
+
+    monkeypatch.setenv("DEVFEED_NOTIFICATION_DELIVERY_BATCH_SIZE", str(size))
+    with pytest.raises(ValidationError, match="disabled pending a PostgreSQL-neutral design"):
+        CoreSettings(_env_file=None)
+    monkeypatch.setenv("DEVFEED_NOTIFICATION_DELIVERY_BATCH_SIZE", "1")
+    assert CoreSettings(_env_file=None).notification_delivery_batch_size == 1
+
+
 @pytest.mark.parametrize("model", notifications.PIPELINES)
 @pytest.mark.parametrize(
     "status,severity", [("failed", "error"), ("queued", "warning"), ("running", None)]
@@ -358,3 +369,70 @@ def test_lightweight_worker_rejects_missing_delivery_adapter_before_dequeue(monk
     with pytest.raises(OperationConflict, match=r"devfeed-aggregator\[notifications\]"):
         worker.run(burst=True, queue_name="notifications")
     assert stopped == ["runtime"]
+
+
+def test_batched_dispatch_keeps_individual_rows_and_stable_attempt_identities(monkeypatch):
+    from devfeed_core.job_dispatch import JobDispatcher
+
+    monkeypatch.setattr(get_settings(), "notification_delivery_batch_size", 10)
+    now = utcnow()
+    jobs = [
+        NotificationDelivery(id=uuid.uuid4(), attempts=0, available_at=now, dispatched_at=None)
+        for _ in range(25)
+    ]
+    calls = []
+
+    def enqueue(*args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(id=kwargs["job_id"], args=args[1:])
+
+    queue = SimpleNamespace(enqueue=enqueue)
+    dispatcher = JobDispatcher(None, queue, now)
+    rows = [("notifications", job, False, False) for job in jobs]
+    assert len(dispatcher._publish(rows)) == 25
+    assert len(calls) == 3
+    assert [len(json.loads(args[1])["deliveries"]) for args, _ in calls] == [10, 10, 5]
+    assert all(job.dispatched_at == now for job in jobs)
+    assert all(options["unique"] and options["job_timeout"] == 30 for _, options in calls)
+    before = [options["job_id"] for _, options in calls]
+    calls.clear()
+    dispatcher._publish(rows)
+    assert [options["job_id"] for _, options in calls] == before
+    jobs[0].attempts += 1
+    calls.clear()
+    dispatcher._publish(rows)
+    assert calls[0][1]["job_id"] != before[0]
+
+
+def test_batch_publication_stamps_retained_carrier_fence_and_rejects_changed_identity(monkeypatch):
+    from devfeed_core.job_dispatch import JobDispatcher
+
+    monkeypatch.setattr(get_settings(), "notification_delivery_batch_size", 3)
+    now, published = utcnow(), utcnow() - timedelta(seconds=301)
+    jobs = [NotificationDelivery(id=uuid.uuid4(), attempts=0, available_at=now) for _ in range(3)]
+    payload = json.dumps(
+        {"deliveries": [str(job.id) for job in jobs], "published_at": published.isoformat()}
+    )
+    enqueue = SimpleNamespace(
+        enqueue=lambda *args, **kwargs: SimpleNamespace(id=kwargs["job_id"], args=[payload])
+    )
+    dispatcher = JobDispatcher(None, enqueue, now)
+    rows = [("notifications", job, False, False) for job in jobs]
+    dispatcher._publish(rows)
+    assert all(job.dispatched_at == published for job in jobs)
+    payload = json.dumps({"deliveries": [], "published_at": now.isoformat()})
+    with pytest.raises(ValueError, match="identities changed"):
+        dispatcher._publish(rows)
+    assert all(job.dispatched_at == published for job in jobs)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [[], [123], [json.dumps({"deliveries": [], "published_at": "2026-10-31T00:00:00"})]],
+    ids=["missing", "not-json-string", "naive-publication"],
+)
+def test_batch_publication_requires_a_valid_queued_envelope(args):
+    from devfeed_core.job_dispatch import _batch_publication
+
+    with pytest.raises(ValueError):
+        _batch_publication(SimpleNamespace(args=args), [])

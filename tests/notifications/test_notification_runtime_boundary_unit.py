@@ -191,3 +191,138 @@ def test_runtime_entry_binds_job_log_context_and_reraises_failures_for_worker_re
         assert delivery.deliver_notification(identifier) is None
         assert runtime.job.status == "succeeded" and len(runtime.requests) == 1
     assert phases == [("notifications", identifier), "closed"]
+
+
+def batch_payload(identifiers, published=NOW):
+    return json.dumps(
+        {"deliveries": [str(value) for value in identifiers], "published_at": published.isoformat()}
+    )
+
+
+def test_batch_shares_transport_but_preserves_per_delivery_context_and_timeout(monkeypatch):
+    identifiers = [uuid.uuid4() for _ in range(10)]
+    client = Mock()
+    # Real context ownership checks that there is only one close for ten rows.
+    closes, calls = [], []
+
+    @contextmanager
+    def transport(**options):
+        calls.append(options)
+        try:
+            yield client
+        finally:
+            closes.append(True)
+
+    monkeypatch.setattr(delivery.httpx, "Client", transport)
+    sent = Mock()
+    monkeypatch.setattr(delivery, "_deliver", sent)
+    monkeypatch.setattr(delivery, "_release_batch", Mock())
+    delivery.deliver_notification(batch_payload(identifiers))
+    assert len(calls) == 1 and closes == [True]
+    assert [call.args[0] for call in sent.call_args_list] == identifiers
+    assert all(
+        call.kwargs["client"] is client and 0 < call.kwargs["timeout"] <= 10
+        for call in sent.call_args_list
+    )
+    delivery._release_batch.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        RuntimeError("database unavailable"),
+        delivery.JobTimeoutException("deadline"),
+        KeyboardInterrupt(),
+    ],
+)
+def test_batch_continues_independent_rows_but_never_swallows_rq_deadline(monkeypatch, failure):
+    identifiers = [uuid.uuid4() for _ in range(3)]
+    run = Mock(side_effect=[failure, None, None])
+    release = Mock()
+    monkeypatch.setattr(delivery, "_deliver", run)
+    monkeypatch.setattr(delivery, "_release_batch", release)
+    with pytest.raises(type(failure)):
+        delivery.deliver_notification(batch_payload(identifiers))
+    assert run.call_count == (3 if type(failure) is RuntimeError else 1)
+    release.assert_called_once_with(identifiers, NOW)
+
+
+def test_batch_soft_budget_releases_unstarted_rows_for_fast_redispatch(monkeypatch):
+    identifiers = [uuid.uuid4() for _ in range(10)]
+    clock = NS(value=0)
+
+    def run(*args, **kwargs):
+        clock.value += 11
+
+    sent = Mock(side_effect=run)
+    release = Mock()
+    monkeypatch.setattr(delivery, "time", NS(monotonic=lambda: clock.value))
+    monkeypatch.setattr(delivery, "_deliver", sent)
+    monkeypatch.setattr(delivery, "_release_batch", release)
+    delivery.deliver_notification(batch_payload(identifiers))
+    assert sent.call_count == 2
+    release.assert_called_once_with(identifiers, NOW)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "{}",
+        '{"deliveries":[]}',
+        batch_payload([]),
+        batch_payload([uuid.uuid4()] * 2),
+        batch_payload([uuid.uuid4() for _ in range(11)]),
+        batch_payload([uuid.uuid4()], NOW.replace(tzinfo=None)),
+        "{" + "x" * 4096,
+    ],
+    ids=[
+        "empty",
+        "missing-publication",
+        "no-deliveries",
+        "duplicate",
+        "too-many",
+        "naive",
+        "oversized",
+    ],
+)
+def test_malformed_batches_are_rejected_before_any_delivery(monkeypatch, payload):
+    sent = Mock()
+    monkeypatch.setattr(delivery, "_deliver", sent)
+    with pytest.raises((ValueError, TypeError)):
+        delivery.deliver_notification(payload)
+    sent.assert_not_called()
+
+
+def test_batch_release_failure_keeps_durable_redispatch_as_fallback(monkeypatch, caplog):
+    monkeypatch.setattr(
+        delivery, "session_factory", Mock(side_effect=RuntimeError("database offline"))
+    )
+    delivery._release_batch([uuid.uuid4()], NOW)
+    assert "notification_batch_release_failed" in caplog.messages
+
+
+@pytest.mark.parametrize("stage", ["factory", "begin", "timeout_sql", "release_sql"])
+def test_batch_cleanup_propagates_rq_hard_deadline_at_every_database_boundary(
+    monkeypatch, caplog, stage
+):
+    expired = delivery.JobTimeoutException("hard deadline during cleanup")
+    execute = Mock(side_effect=[expired] if stage == "timeout_sql" else [None, expired])
+
+    @contextmanager
+    def begin():
+        if stage == "begin":
+            raise expired
+        yield NS(execute=execute)
+
+    provider = Mock(return_value=NS(begin=begin))
+    if stage == "factory":
+        provider.side_effect = expired
+    monkeypatch.setattr(delivery, "session_factory", provider)
+    monkeypatch.setattr(delivery, "time", NS(monotonic=Mock(side_effect=[0, 21])))
+    sent = Mock()
+    monkeypatch.setattr(delivery, "_deliver", sent)
+    with pytest.raises(delivery.JobTimeoutException) as caught:
+        delivery.deliver_notification(batch_payload([uuid.uuid4(), uuid.uuid4()]))
+    assert caught.value is expired
+    sent.assert_not_called()
+    assert "notification_batch_release_failed" not in caplog.messages
