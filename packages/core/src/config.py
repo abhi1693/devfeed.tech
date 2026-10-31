@@ -162,6 +162,8 @@ class Settings(BaseSettings):
     solver_queue_enabled: bool = False
     solver_timeout_seconds: int = Field(default=45, ge=5, le=60)
     scheduler_batch_size: int = Field(default=100, ge=1, le=1000)
+    scheduler_connection_reuse_enabled: bool = True
+    scheduler_database_pool_size: int = Field(default=4, ge=3, le=16)
     sitemap_refresh_seconds: int = Field(default=900, ge=60, le=3600)
     sitemap_retention_seconds: int = Field(default=86400, ge=7200, le=604800)
     image_storage_enabled: bool = False
