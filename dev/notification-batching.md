@@ -1,4 +1,26 @@
-# Bounded notification transport batches
+# Notification transport experiment: disabled
+
+Only `DEVFEED_NOTIFICATION_DELIVERY_BATCH_SIZE=1` is accepted. Environment or CLI
+startup with another value fails validation with an explicit PostgreSQL-budget
+message. The grouped-carrier prototype remains available to controlled tests and
+to drain any previously queued experimental envelope; it cannot be enabled through
+supported configuration. This draft is **not ready for activation**.
+
+At fixed throughput of 100 HTTP attempts, repeated 20-second soft stops increase
+database writes because untouched rows are cleared and dispatched again. Keeping
+the default at one would not be a sufficient safeguard: the configuration now
+enforces one. The PostgreSQL gate fails for the experimental ten-item path, even
+though it reduces process/client lifecycles in a ready backlog. See
+[`notification-postgres-work.md`](../benchmarks/notification-postgres-work.md)
+for the paired server measurements, including negative results.
+
+The next design must preserve individual durable RQ identities and avoid grouped
+dispatch/release writes. A bounded notification-only child/runtime that consumes
+several existing individual RQ jobs is a possible direction; it needs separate
+deadline, shutdown, fairness, telemetry, idempotency, and PostgreSQL work proof.
+No persistent-child implementation or production configuration change is included.
+
+## Prototype behavior retained for review
 
 Notification delivery can group up to ten ready database rows into one RQ transport
 job. Each row keeps its own delivery ID, idempotency key, audience credential,
@@ -7,12 +29,9 @@ transaction. Only the work-horse/import/telemetry lifecycle and HTTP client are
 shared. Cookies returned by one delivery are cleared before another request, so
 admin/user audiences cannot inherit ambient transport credentials.
 
-`DEVFEED_NOTIFICATION_DELIVERY_BATCH_SIZE` defaults to **1**. This emits exactly the
-legacy handler, argument and stable per-attempt identity. Upgrade every low/common
-worker and the dispatcher before increasing it to 2–10; older workers do not
-understand the batch envelope. No migration is needed. Existing singleton jobs
-remain executable after the upgrade. Do not enable the gate during a mixed-version
-worker rollout.
+Size one emits exactly the legacy handler, argument and stable per-attempt identity.
+It does not create grouped carriers or execute batch release SQL. Existing singleton
+jobs remain compatible, and no schema migration is introduced.
 
 Batches use a stable ID derived from the selected rows' existing attempt identities.
 Dispatch still publishes to Redis before stamping PostgreSQL rows; a rollback or
@@ -55,9 +74,8 @@ failed. A restored batch's soft stop releases untouched work immediately while a
 genuinely newer carrier keeps its own freshness. Unit cases inject RQ hard deadlines
 at session-factory, transaction-entry, timeout-setting and release-update boundaries.
 
-Keep this PR in draft for native ARM64 CPU/latency profiling with real tracing and
-profiling enabled. Compare total worker CPU, notification age, throughput, low-queue
-fairness and partial-failure recovery. Parent-worker telemetry remains unchanged;
-no profiler/exporter threads are started before fork. Returning the batch size to
-1 stops creating new batches; keep compatible workers until existing batches drain
-before rolling back their image. No production configuration is changed by this PR.
+Keep this PR in draft until a replacement design passes the PostgreSQL gate before
+considering native ARM64 CPU/latency rollout profiling. Parent-worker telemetry
+remains unchanged; no profiler/exporter threads are started before fork. Supported
+configuration stays at one. Compatible workers are still needed to drain any
+previously queued experimental envelopes before an image rollback.

@@ -26,6 +26,17 @@ def message(**changes):
     )
 
 
+@pytest.mark.parametrize("size", [0, 2, 10, 11])
+def test_notification_batch_configuration_rejects_unproved_database_pressure(monkeypatch, size):
+    from devfeed_core.config import Settings as CoreSettings
+
+    monkeypatch.setenv("DEVFEED_NOTIFICATION_DELIVERY_BATCH_SIZE", str(size))
+    with pytest.raises(ValidationError, match="disabled pending a PostgreSQL-neutral design"):
+        CoreSettings(_env_file=None)
+    monkeypatch.setenv("DEVFEED_NOTIFICATION_DELIVERY_BATCH_SIZE", "1")
+    assert CoreSettings(_env_file=None).notification_delivery_batch_size == 1
+
+
 @pytest.mark.parametrize("model", notifications.PIPELINES)
 @pytest.mark.parametrize(
     "status,severity", [("failed", "error"), ("queued", "warning"), ("running", None)]
