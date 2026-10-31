@@ -18,11 +18,29 @@ export async function checkMcp(page, screenshotPrefix) {
     .locator(".sidebar")
     .getByRole("link", { name: "Connect your agent", exact: true });
   await link.click();
-  await page.getByRole("heading", { name: "Connect your agent", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "DevFeed MCP server", exact: true }).waitFor();
   const setupUrl = page.url();
   assert.equal(await page.getByRole("link", { name: "Server documentation" }).count(), 0);
   assert.equal(await page.getByRole("row").filter({ hasText: "get_my_must_reads" }).count(), 1);
-  assert.equal(await page.locator(".mcp-page-header p").count(), 0);
+  const introduction = page.locator(".mcp-introduction");
+  assert.match(await introduction.textContent(), /six public read tools/);
+  assert.match(await introduction.textContent(), /nine optional account tools/);
+  assert.match(await introduction.textContent(), /manage bookmarks and follows, and like articles/);
+  const examples = page.getByRole("region", { name: "Try asking your agent", exact: true });
+  assert.equal(await examples.getByRole("listitem").count(), 3);
+  assert.match(await examples.textContent(), /Find recent PostgreSQL articles/);
+  assert.match(await examples.textContent(), /Show my saved articles/);
+  assert.match(await examples.textContent(), /Follow the PostgreSQL topic/);
+  assert.equal(
+    await examples.evaluate((node) =>
+      Boolean(
+        node.compareDocumentPosition(document.querySelector(".mcp-server")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ),
+    true,
+    "The introduction and real examples precede connection controls",
+  );
   assert.equal(await link.getAttribute("aria-current"), "page");
   await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   assert.equal(await link.locator("span").textContent(), "Connect your agent");
@@ -244,6 +262,12 @@ export async function checkMcp(page, screenshotPrefix) {
   await page.setViewportSize({ width: 360, height: 800 });
   const mobile = page.locator(".mobile-nav").getByRole("link", { name: "Connect your agent" });
   assert.equal(await mobile.count(), 0, "Agents are omitted from the compact mobile navigation");
+  assert.equal(await introduction.isVisible(), true);
+  assert.equal(
+    await introduction.evaluate((node) => node.scrollWidth <= node.clientWidth),
+    true,
+    "The server explanation wraps within the mobile viewport",
+  );
   assert.equal(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     true,
