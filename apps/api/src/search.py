@@ -89,7 +89,7 @@ def click_tokens() -> SearchClickTokens | None:
     "/suggestions",
     response_model=list[str],
     openapi_extra=CachePolicy(
-        namespace="search-suggestions", revision=1, ttl="content"
+        namespace="search-suggestions", revision=1, ttl="content", normalize_query=True
     ).openapi_extra(),
 )
 async def suggestions(
@@ -170,7 +170,9 @@ async def successful_click(body: SearchClick, factory: DBFactory, request: Reque
 @router.get(
     "",
     response_model=SearchResponse,
-    openapi_extra=CachePolicy(namespace="search", revision=1, ttl="content").openapi_extra(),
+    openapi_extra=CachePolicy(
+        namespace="search", revision=1, ttl="content", normalize_query=True
+    ).openapi_extra(),
 )
 def search(
     session: DB,

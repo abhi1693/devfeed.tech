@@ -21,7 +21,9 @@ router = APIRouter(prefix="/v1/sources", tags=["sources"], route_class=CachedRea
 @router.get(
     "",
     response_model=list[SourcePublicOut],
-    openapi_extra=CachePolicy(namespace="sources", revision=1, ttl="metadata").openapi_extra(),
+    openapi_extra=CachePolicy(
+        namespace="sources", revision=1, ttl="metadata", normalize_query=True
+    ).openapi_extra(),
 )
 def sources(
     session: DB,
@@ -62,7 +64,9 @@ def sources(
 @router.get(
     "/{source_id}",
     response_model=SourcePublicOut,
-    openapi_extra=CachePolicy(namespace="source", revision=1, ttl="metadata").openapi_extra(),
+    openapi_extra=CachePolicy(
+        namespace="source", revision=1, ttl="metadata", normalize_query=True
+    ).openapi_extra(),
 )
 def source_detail(source_id: TextInput, session: DB) -> Source:
     if not 1 <= len(source_id) <= 200:

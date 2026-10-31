@@ -22,7 +22,9 @@ router = APIRouter(prefix="/v1", tags=["taxonomy"], route_class=CachedReadRoute)
 @router.get(
     "/tags",
     response_model=list[TagPublicOut],
-    openapi_extra=CachePolicy(namespace="tags", revision=2, ttl="metadata").openapi_extra(),
+    openapi_extra=CachePolicy(
+        namespace="tags", revision=2, ttl="metadata", normalize_query=True
+    ).openapi_extra(),
 )
 def tags(
     session: DB,
@@ -57,7 +59,9 @@ def tags(
 @router.get(
     "/tags/{slug}",
     response_model=TagPublicOut,
-    openapi_extra=CachePolicy(namespace="tag", revision=1, ttl="metadata").openapi_extra(),
+    openapi_extra=CachePolicy(
+        namespace="tag", revision=1, ttl="metadata", normalize_query=True
+    ).openapi_extra(),
 )
 def tag(slug: TextInput, session: DB, by_id: bool = False) -> Tag:
     """Read a visible tag by canonical slug, or by stable UUID when by_id is true."""
