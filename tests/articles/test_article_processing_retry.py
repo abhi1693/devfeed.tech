@@ -11,7 +11,6 @@ from devfeed_aggregator import article_tasks, image_storage_tasks, image_tasks
 from devfeed_aggregator.article_pages import PageArticle
 from devfeed_core import editorial
 from devfeed_core.analysis import apply_analysis
-from devfeed_core.article_automation import schedule_article_automation
 from devfeed_core.article_lifecycle import processing_readiness
 from devfeed_core.article_processing_retry import request_processing_retry
 from devfeed_core.config import get_settings
@@ -24,6 +23,7 @@ from devfeed_core.models import (
     ArticleAnalysisJob,
     ArticleEnrichmentJob,
     ArticleImageJob,
+    ArticleRefresh,
     ArticleReview,
     FeedNotificationEvent,
     utcnow,
@@ -36,6 +36,7 @@ from tests.admin.articles.test_article_pipeline import make_article
 from tests.admin.auth.test_auth import complete
 from tests.admin.auth.test_auth import oidc_app as oidc_app
 from tests.analysis.test_analysis import result as analysis_result
+from tests.support.article_refresh import published_retry_case as published_retry_case
 
 
 def retry_body(client, identifier, target):
@@ -252,63 +253,166 @@ def test_concurrent_requests_with_one_baseline_queue_one_task(database, monkeypa
 
 
 @pytest.mark.integration
-def test_published_image_retry_unpublishes_atomically_preserves_ai_and_feed_history(
-    admin_client, database, monkeypatch
+@pytest.mark.parametrize("route", ["pipeline", "maintenance"])
+def test_disabled_published_retry_preserves_publication_ai_and_durable_history(
+    admin_client, client, database, monkeypatch, published_retry_case, route
 ):
-    monkeypatch.setattr(get_settings(), "ai_enabled", True)
-    monkeypatch.setattr(get_settings(), "full_automation", True)
-    with database.begin() as session:
-        article = make_article(session, state="published")
-        identifier, published = article.id, article.published_to_feed_at
+    case = published_retry_case
+    monkeypatch.setattr(get_settings(), "published_article_refresh_enabled", False)
+    with database() as session:
+        article = session.get(Article, case.article_id)
         original_ai = (
             article.ai_summary,
             article.ai_description,
             dict(article.classification_provenance),
         )
-    body = retry_body(admin_client, identifier, "images")
-    response = admin_client.post(f"/v1/admin/articles/{identifier}/pipeline/retry", json=body)
-    assert response.status_code == 200, response.text
-    assert response.json()["stage"] == "images"
-    assert response.json()["editorial_revision"] == body["expected_revision"] + 1
-    schedule_article_automation(database)
-    with database.begin() as session:
-        article = session.get(Article, identifier)
-        assert article.publication_status == "unpublished" and article.review_status == "approved"
+        counts = {
+            model: session.scalar(select(func.count()).select_from(model))
+            for model in (
+                ArticleEnrichmentJob,
+                ArticleAnalysisJob,
+                ArticleImageJob,
+                ArticleRefresh,
+                ArticleReview,
+                FeedNotificationEvent,
+            )
+        }
+    body = retry_body(admin_client, case.article_id, "images")
+    response = admin_client.post(f"/v1/admin/articles/{case.article_id}/{route}/retry", json=body)
+    assert response.status_code == 409 and "disabled" in response.json()["detail"]
+    assert client.get(case.path).json() == case.body
+    assert str(case.article_id) in {
+        item["id"] for item in client.get("/v1/feed?languages=en").json()["items"]
+    }
+    with database() as session:
+        article = session.get(Article, case.article_id)
+        assert article.publication_status == "published" and article.review_status == "approved"
+        assert article.editorial_revision == body["expected_revision"]
+        assert article.published_to_feed_at == case.published_at and article.slug == case.slug
         assert (
             article.ai_summary,
             article.ai_description,
             article.classification_provenance,
         ) == original_ai
-        assert article.published_to_feed_at == published
-        image = session.scalar(
-            select(ArticleImageJob).where(ArticleImageJob.article_id == identifier)
+        assert {
+            model: session.scalar(select(func.count()).select_from(model)) for model in counts
+        } == counts
+
+
+@pytest.mark.integration
+def test_published_image_maintenance_promotes_privately_without_republishing(
+    admin_client, client, database, monkeypatch, published_retry_case
+):
+    case = published_retry_case
+    monkeypatch.setattr(get_settings(), "image_storage_enabled", False)
+    notification_snapshot = select(
+        FeedNotificationEvent.article_id,
+        FeedNotificationEvent.topic_ids,
+        FeedNotificationEvent.source_ids,
+        FeedNotificationEvent.created_at,
+        FeedNotificationEvent.recipient_cursor,
+        FeedNotificationEvent.completed_at,
+    ).order_by(FeedNotificationEvent.article_id)
+    with database() as session:
+        article = session.get(Article, case.article_id)
+        original_ai = (
+            article.ai_summary,
+            article.ai_description,
+            dict(article.classification_provenance),
         )
-        finish_job(image, "not_found", utcnow())
-        assert processing_readiness(session, article).stage == "ready"
-    schedule_article_automation(database)
-    with database.begin() as session:
+        notifications = session.execute(notification_snapshot).all()
+        assert len(notifications) == 1 and notifications[0].article_id == case.article_id
+    body = retry_body(admin_client, case.article_id, "images")
+    response = admin_client.post(
+        f"/v1/admin/articles/{case.article_id}/maintenance/retry", json=body
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["stage"] == "published"
+    assert result["editorial_revision"] == body["expected_revision"]
+    assert result["maintenance"]["target"] == "images"
+    assert result["maintenance"]["status"] == "active"
+    refresh_id = uuid.UUID(result["maintenance"]["id"])
+    with database() as session:
+        article = session.get(Article, case.article_id)
+        owner = session.get(ArticleRefresh, refresh_id)
+        image = session.get(ArticleImageJob, owner.discovery_job_id)
+        image_id = image.id
+        assert image.refresh_id == owner.id and image.status == "queued"
+        assert owner.base_revision == article.editorial_revision == body["expected_revision"]
+        assert article.publication_status == "published" and article.review_status == "approved"
+        assert (
+            article.ai_summary,
+            article.ai_description,
+            article.classification_provenance,
+        ) == original_ai
+        audit = session.scalar(select(ArticleReview).where(ArticleReview.action == "retry"))
+        assert audit.automation["refresh_id"] == str(owner.id)
+        assert audit.automation["job_id"] == str(image.id)
+
+    replacement = "https://publisher.example/replacement.png"
+    reads_during_work = []
+
+    def fetch(url):
+        reads_during_work.append(client.get(case.path).json())
+        return FetchResult(
+            200,
+            b'<html><head><meta property="og:image" content="/replacement.png"></head></html>',
+            url,
+        )
+
+    monkeypatch.setattr(image_tasks, "session_factory", lambda: database)
+    monkeypatch.setattr(image_tasks, "fetch_page", fetch)
+    image_tasks.enrich_image(str(image_id))
+    assert reads_during_work == [case.body]
+    updated = client.get(case.path)
+    assert updated.status_code == 200 and updated.json() == {**case.body, "image_url": replacement}
+    assert str(case.article_id) in {
+        item["id"] for item in client.get("/v1/feed?languages=en").json()["items"]
+    }
+    with database() as session:
+        article = session.get(Article, case.article_id)
+        owner = session.get(ArticleRefresh, refresh_id)
+        image = session.get(ArticleImageJob, image_id)
+        assert owner.status == "promoted" and owner.completed_at is not None
+        assert image.status == "succeeded" and image.outcome == "found"
+        assert image.refresh_id == owner.id  # Selected jobs retain their private owner.
+        assert article.publication_status == "published" and article.review_status == "approved"
+        # Image-only promotion preserves the approved text/classification revision.
+        assert article.editorial_revision == owner.base_revision == body["expected_revision"]
+        assert article.slug == case.slug and article.published_to_feed_at == case.published_at
+        assert (
+            article.ai_summary,
+            article.ai_description,
+            article.classification_provenance,
+        ) == original_ai
         assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) == 1
-        editorial.decide_article(session, identifier, editorial.EditorialDecision(action="publish"))
-        assert session.get(Article, identifier).published_to_feed_at == published
-        assert session.scalar(select(func.count()).select_from(FeedNotificationEvent)) == 0
-        assert all(
-            review.automation
-            for review in session.scalars(
-                select(ArticleReview).where(ArticleReview.action != "publish")
-            )
-        )
+        promotion = session.scalar(select(ArticleReview).where(ArticleReview.action == "refresh"))
+        assert promotion.revision == body["expected_revision"]
+        assert promotion.automation == {
+            "kind": "maintenance_promotion",
+            "refresh_id": str(refresh_id),
+        }
+        assert session.execute(notification_snapshot).all() == notifications
 
 
 @pytest.mark.integration
 @pytest.mark.parametrize("unsafe", ["cutoff", "source", "stale_ai"])
-def test_published_unsafe_image_retry_conflicts_before_unpublishing(
+def test_published_unsafe_image_maintenance_rejects_its_context_with_the_gate_enabled(
     admin_client, database, monkeypatch, unsafe
 ):
     monkeypatch.setattr(get_settings(), "ai_enabled", True)
+    monkeypatch.setattr(get_settings(), "published_article_refresh_enabled", True)
     monkeypatch.setattr(get_settings(), "ai_content_not_before", datetime(2026, 10, 1, tzinfo=UTC))
     with database.begin() as session:
         article = make_article(session, state="published")
         identifier = article.id
+        article.published_at = datetime(2026, 10, 20, tzinfo=UTC)
+    baseline = admin_client.get(f"/v1/admin/articles/{identifier}/pipeline").json()
+    assert "images" in baseline["retry_targets"]
+    body = retry_body(admin_client, identifier, "images")
+    with database.begin() as session:
+        article = session.get(Article, identifier)
         if unsafe == "cutoff":
             article.published_at = datetime(2020, 1, 1, tzinfo=UTC)
         elif unsafe == "source":
@@ -319,14 +423,16 @@ def test_published_unsafe_image_retry_conflicts_before_unpublishing(
             ).prompt_version = "old-prompt"
     detail = admin_client.get(f"/v1/admin/articles/{identifier}/pipeline").json()
     assert "images" not in detail["retry_targets"]
-    body = retry_body(admin_client, identifier, "images")
-    assert (
-        admin_client.post(f"/v1/admin/articles/{identifier}/pipeline/retry", json=body).status_code
-        == 409
+    response = admin_client.post(f"/v1/admin/articles/{identifier}/maintenance/retry", json=body)
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "This maintenance task cannot be retried from its current state"
     )
     with database() as session:
         assert session.get(Article, identifier).publication_status == "published"
         assert session.scalar(select(func.count()).select_from(ArticleImageJob)) == 0
+        assert session.scalar(select(func.count()).select_from(ArticleRefresh)) == 0
+        assert session.scalar(select(func.count()).select_from(ArticleReview)) == 0
 
 
 @pytest.mark.integration

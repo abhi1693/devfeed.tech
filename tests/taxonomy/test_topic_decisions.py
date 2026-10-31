@@ -437,14 +437,10 @@ def test_worker_finishes_or_defers_once(database, pending, monkeypatch, ambiguou
         assert run.status == ("deferred" if ambiguous else "decided")
         assert len(run.state["calls"]) == (5 if ambiguous else 3)
         assert job.usage["inputTokens"] == 100 * len(calls)
-        from sqlalchemy import text
-
-        measured = session.execute(
-            text("SELECT count(*), sum(tokens) FROM topic_decision_calls WHERE proposal_id=:id"),
-            {"id": proposal.id},
-        ).one()
-        assert measured[0] == len(calls)
-        assert measured[1] == len(calls) * 120
+        # The decision checkpoint is retained after the historical PostgreSQL
+        # analytics table is retired; accounting must not depend on that table.
+        assert len(run.state["calls"]) == len(calls)
+        assert sum(total_tokens(call["tokens"]) for call in run.state["calls"]) == len(calls) * 120
     assert schedule_topic_corrections(database) == 0
     assert schedule_verification(database) == 0
     topic_analysis_tasks._analyze(job_id)

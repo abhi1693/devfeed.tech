@@ -61,6 +61,12 @@ initialize ClickHouse facts and serving generations; pytest does not require a
 separately running exporter or report worker. Creating ORM tables alone does not
 install the database triggers and runtime contracts. Use a fresh disposable
 database for historical migration tests so another runner's schema is unchanged.
+Historical analytics retirement also drops PostgreSQL tables, so its integration
+tests must own both a private PostgreSQL database and a private ClickHouse database.
+The shared row-truncating `database` fixture cannot isolate DDL. The resumable
+import runner test verifies retirement in its owned database and unchanged caller
+relation identities; decision accounting assertions use durable run checkpoints
+rather than retired PostgreSQL analytics tables.
 Migration `0040` adds private article maintenance ownership, and `0041` validates
 its foreign keys and builds sparse job-link indexes concurrently. Schema rollback
 is refused after maintenance history exists; tests of an unused schema can round
