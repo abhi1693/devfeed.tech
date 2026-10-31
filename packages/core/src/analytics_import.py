@@ -6,26 +6,32 @@ writers use distinct live event identities. The historical importer is temporary
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import logging
 import math
 from collections.abc import Sequence
+from contextlib import nullcontext
 from datetime import UTC, date, datetime
 from functools import partial
 
 from psycopg import AsyncConnection
 
-from devfeed_core.analytics import AnalyticsClient, SqlRecord
+from devfeed_core.analysis import _PreparedCatalog, reuse_candidates
+from devfeed_core.analytics import AnalyticsClient, ReconciliationBusy, SqlRecord
 from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
 from devfeed_core.analytics_backfill import AnalyticsBackfill, BackfillSource
 from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.analytics_inference_store import InferenceStore
 from devfeed_core.analytics_overview_direct import DirectOverviewAnalytics
 from devfeed_core.analytics_schema import JOB_TABLES, TABLES
+from devfeed_core.catalog_cache import SnapshotCache, reuse_snapshots
 from devfeed_core.config import Settings
 from devfeed_core.partner_claim_backfill import backfill_partner_claims
 
 IMPORT_ID = "direct-v1"
+logger = logging.getLogger(__name__)
 OVERVIEW_SOURCES = (
     "articles",
     "sources",
@@ -51,6 +57,13 @@ def _time(value: datetime | str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _finished_card_builder(task: asyncio.Task[list[SqlRecord]]) -> None:
+    if not task.cancelled() and (error := task.exception()) is not None:
+        logger.warning(
+            "analytics_import_card_builder_failed", extra={"error_type": type(error).__name__}
+        )
+
+
 class HistoricalAnalyticsImport:
     """Configure the bounded source pages and their direct ClickHouse writers."""
 
@@ -73,6 +86,10 @@ class HistoricalAnalyticsImport:
         self.client = client
         self.settings = settings or get_settings()
         self._connection: AsyncConnection[SqlRecord] | None = None
+        self._card_catalogs: SnapshotCache = {}
+        self._card_ranking: list[_PreparedCatalog] = []
+        self._card_builder: asyncio.Task[list[SqlRecord]] | None = None
+        self._card_active = False
         self.cutover = cutover.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
         self.opens = ArticleOpenAnalytics(client)
         self.engagement = DirectEngagementAnalytics(client)
@@ -258,6 +275,8 @@ class HistoricalAnalyticsImport:
 
     async def once(self, connection: AsyncConnection[SqlRecord]) -> bool:
         """Import at most one page; a single coordinator owns each invocation."""
+        if self._card_active or (self._card_builder is not None and not self._card_builder.done()):
+            raise ReconciliationBusy("builder_busy")
         order = (
             "partner_delivery_events",
             "article_engagement",
@@ -282,12 +301,52 @@ class HistoricalAnalyticsImport:
             if not await self.cards_importer.complete([name]):
                 await self.cards_importer.scan_one(connection, name)
                 return True
+        self._card_catalogs.clear()
+        self._card_ranking.clear()
+        self._card_builder = None
         return False
 
     async def import_cards(self, kind: str, rows: list[SqlRecord]) -> None:
-        from devfeed_core.analytics_direct_cards import publish_card_ids
+        from devfeed_core.analytics_card_builders import bounded_ids
+        from devfeed_core.analytics_direct_cards import build_cards, identity
 
-        await publish_card_ids(self.client, self.settings, kind, [row["id"] for row in rows], 1)
+        if self._card_active or (self._card_builder is not None and not self._card_builder.done()):
+            raise ReconciliationBusy("builder_busy")
+        identifiers = bounded_ids(sorted({identity(row["id"]) for row in rows}))
+        if not identifiers:
+            return
+
+        def build() -> list[SqlRecord]:
+            # Each page still checks transactional revisions. Retain only immutable
+            # catalog/ranking inputs, never publication decisions or source sessions.
+            with (
+                reuse_snapshots(
+                    retained=self._card_catalogs, on_invalidate=self._card_ranking.clear
+                )
+                if self.settings.cache_enabled
+                else nullcontext(),
+                reuse_candidates(
+                    retained=self._card_ranking if self.settings.cache_enabled else None
+                ),
+            ):
+                return build_cards(self.settings, kind, identifiers, 1)
+
+        self._card_active = True
+        task = self._card_builder = asyncio.create_task(asyncio.to_thread(build))
+        try:
+            observations = await asyncio.shield(task)
+            await self.client.insert("analytics_card_canonical", observations)
+        except asyncio.CancelledError:
+            # A native thread cannot be cancelled. Refuse reentry until it exits;
+            # a cancelled build's result is never inserted. An interrupted insert
+            # can have reached the sink, but its source checkpoint still cannot
+            # advance and the unchanged baseline identity makes replay safe.
+            task.add_done_callback(_finished_card_builder)
+            raise
+        finally:
+            self._card_active = False
+            if task.done():
+                self._card_builder = None
 
     async def import_source(self, name: str, rows: list[SqlRecord]) -> None:
         from devfeed_core.analytics_producer import hydrate_changes

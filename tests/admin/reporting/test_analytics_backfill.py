@@ -338,10 +338,14 @@ def test_completed_history_waits_for_policy_card_pages_without_rescanning_source
     importer.cards_importer.sources = {"articles": importer.cards_importer.sources["articles"]}
     importer.cards_importer.complete = AsyncMock(return_value=cards_complete)
     importer.cards_importer.scan_one = AsyncMock(return_value=True)
+    importer._card_catalogs["fixture"] = object()
+    importer._card_ranking.append(object())
     assert asyncio.run(importer.once(connection)) is not cards_complete
     importer.scan_one.assert_not_called()
     assert importer.cards_importer.scan_one.await_count == int(not cards_complete)
     importer.opens.mark_ready.assert_awaited_once_with(importer.cutover, importer.importer)
+    assert bool(importer._card_catalogs) is not cards_complete
+    assert bool(importer._card_ranking) is not cards_complete
 
 
 def test_partner_claims_preserve_cold_history_only_after_receipt_backfill(
@@ -376,22 +380,157 @@ def test_partner_claims_preserve_cold_history_only_after_receipt_backfill(
     importer.client.insert.assert_not_called()
 
 
-def test_policy_card_page_publishes_baseline_revision(historical_import, monkeypatch):
-    from unittest.mock import AsyncMock
+@pytest.mark.parametrize("cache_enabled", [False, True])
+def test_policy_card_page_publishes_baseline_revision(
+    historical_import, monkeypatch, cache_enabled
+):
+    import threading
 
     from devfeed_core import analytics_direct_cards
 
-    publish = AsyncMock()
-    monkeypatch.setattr(analytics_direct_cards, "publish_card_ids", publish)
+    monkeypatch.setattr(historical_import.settings, "cache_enabled", cache_enabled)
+    calls, observations = [], [{"entity_id": "selected"}]
+    owner = threading.get_ident()
+
+    def build(settings, kind, identifiers, revision):
+        assert threading.get_ident() != owner
+        calls.append((settings, kind, identifiers, revision))
+        return observations
+
+    monkeypatch.setattr(analytics_direct_cards, "build_cards", build)
     rows = [{"id": uuid.uuid4()}, {"id": uuid.uuid4()}]
     asyncio.run(historical_import.import_cards("article", rows))
-    publish.assert_awaited_once_with(
-        historical_import.client,
-        historical_import.settings,
-        "article",
-        [row["id"] for row in rows],
-        1,
+    assert calls == [(historical_import.settings, "article", sorted(row["id"] for row in rows), 1)]
+    historical_import.client.insert.assert_awaited_once_with(
+        "analytics_card_canonical", observations
     )
+    assert historical_import._card_builder is None and not historical_import._card_active
+
+
+def test_card_import_rejects_oversized_pages_and_skips_empty_pages(historical_import):
+    async def run():
+        await historical_import.import_cards("article", [])
+        with pytest.raises(ValueError, match="at most 200"):
+            await historical_import.import_cards(
+                "article", [{"id": uuid.uuid4()} for _ in range(201)]
+            )
+        historical_import.client.insert.assert_not_called()
+        assert historical_import._card_builder is None
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_card_import_cancellation_owns_thread_until_exit_without_publishing(
+    historical_import, monkeypatch, failure, caplog
+):
+    import threading
+
+    from devfeed_core import analytics_direct_cards
+    from devfeed_core.analytics import ReconciliationBusy
+
+    entered, finish = threading.Event(), threading.Event()
+
+    def build(*args):
+        entered.set()
+        assert finish.wait(5)
+        if failure:
+            raise ValueError("private source text must not reach logs")
+        return [{"entity_id": "selected"}]
+
+    monkeypatch.setattr(analytics_direct_cards, "build_cards", build)
+    rows = [{"id": uuid.uuid4()}]
+    historical_import.client.query.return_value = []
+
+    async def run():
+        pending = asyncio.create_task(
+            historical_import.cards_importer.scan_one(Postgres(rows), "articles")
+        )
+        try:
+            assert await asyncio.to_thread(entered.wait, 5)
+            with pytest.raises(ReconciliationBusy, match="builder is still running"):
+                await historical_import.import_cards("article", rows)
+            pending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await pending
+            with pytest.raises(ReconciliationBusy, match="builder is still running"):
+                await historical_import.once(None)
+            with pytest.raises(ReconciliationBusy, match="builder is still running"):
+                await historical_import.import_cards("article", rows)
+        finally:
+            finish.set()
+        # Observe completion without publishing the abandoned thread's return value.
+        await asyncio.gather(historical_import._card_builder, return_exceptions=True)
+        await asyncio.sleep(0)
+        historical_import.client.insert.assert_not_called()
+        if failure:
+            assert "analytics_import_card_builder_failed" in caplog.text
+            assert "private source text" not in caplog.text
+            monkeypatch.setattr(analytics_direct_cards, "build_cards", lambda *args: [])
+        await historical_import.import_cards("article", rows)
+        historical_import.client.insert.assert_awaited_once()
+
+    asyncio.run(run())
+
+
+def test_card_import_insert_failure_can_replay_and_does_not_overlap_publication(
+    historical_import, monkeypatch
+):
+    from devfeed_core import analytics_direct_cards
+    from devfeed_core.analytics import ReconciliationBusy
+
+    monkeypatch.setattr(
+        analytics_direct_cards, "build_cards", lambda *args: [{"entity_id": "selected"}]
+    )
+    rows = [{"id": uuid.uuid4()}]
+
+    async def insert(table, observations):
+        assert table == "analytics_card_canonical" and observations
+        with pytest.raises(ReconciliationBusy, match="builder is still running"):
+            await historical_import.import_cards("article", rows)
+        with pytest.raises(ReconciliationBusy, match="builder is still running"):
+            await historical_import.once(None)
+        raise RuntimeError("sink unavailable")
+
+    historical_import.client.insert.side_effect = insert
+
+    async def run():
+        with pytest.raises(RuntimeError, match="sink unavailable"):
+            await historical_import.import_cards("article", rows)
+        assert historical_import._card_builder is None and not historical_import._card_active
+        historical_import.client.insert.side_effect = None
+        await historical_import.import_cards("article", rows)
+        assert historical_import.client.insert.await_count == 2
+
+    asyncio.run(run())
+
+
+def test_card_import_builder_failure_never_checkpoints_and_can_replay(
+    historical_import, monkeypatch
+):
+    from unittest.mock import Mock
+
+    from devfeed_core import analytics_direct_cards
+
+    build = Mock(side_effect=RuntimeError("catalog load unavailable"))
+    monkeypatch.setattr(analytics_direct_cards, "build_cards", build)
+    historical_import.client.query.return_value = []
+    rows = [{"id": str(uuid.uuid4())}]
+
+    async def run():
+        with pytest.raises(RuntimeError, match="catalog load unavailable"):
+            await historical_import.cards_importer.scan_one(Postgres(rows), "articles")
+        historical_import.client.insert.assert_not_called()
+        assert historical_import._card_builder is None and not historical_import._card_active
+        build.side_effect = None
+        build.return_value = [{"entity_id": str(rows[0]["id"])}]
+        await historical_import.cards_importer.scan_one(Postgres(rows), "articles")
+        assert [call.args[0] for call in historical_import.client.insert.await_args_list] == [
+            "analytics_card_canonical",
+            "analytics_backfill_progress",
+        ]
+
+    asyncio.run(run())
 
 
 def test_closed_audience_history_exports_only_valid_aggregate_fields(historical_import):

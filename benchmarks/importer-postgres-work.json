@@ -1,0 +1,341 @@
+{
+  "metadata": {
+    "architecture": "x86_64",
+    "data_checksums": true,
+    "measured_on": "2026-10-31",
+    "notes": [
+      "Stats are pg_stat_statements with planning and I/O timing enabled; fixture autovacuum disabled.",
+      "Server totals retain one constant reset-observer call in each before/after sample.",
+      "Cache outage is injected at the cache transport boundary; PostgreSQL queries and worker/card execution are real.",
+      "Disabled caching bypasses the additional long-lived scope, preserving existing revision-query budgets.",
+      "Each pair runs baseline then candidate; SQL time and physical buffers/WAL are observations, not significance or production CPU claims.",
+      "Physical WAL is not assumed zero for reads. Checksums/hint-bit logging and checkpoints affect the bytes; raw values are retained.",
+      "The analysis fixture server logged a timed checkpoint at2026-10-31 14:02:35UTC between the warm baseline/candidate executions, and another at14:07:35UTC."
+    ],
+    "postgres": "18-alpine",
+    "postgres_cpu_limit": 2,
+    "postgres_memory_limit_bytes": 2147483648,
+    "repetitions": 1,
+    "scope": "55,000 tags,4,450 active topics and600active article cards in three200-row pages; cold direct builder versus retained historical importer"
+  },
+  "scenarios": [
+    {
+      "articles": 600,
+      "mode": "disabled",
+      "page_size": 200,
+      "runs": [
+        {
+          "active_connections": 0,
+          "client_sql_seconds": 0.7117303359991638,
+          "max_transaction_seconds": 1.3028888789995108,
+          "peak_connections": 1,
+          "server": {
+            "calls": 58.0,
+            "notification_update_calls": 0.0,
+            "notification_update_rows": 0.0,
+            "rows": 181954.0,
+            "shared_blks_dirtied": 0.0,
+            "shared_blks_hit": 54525.0,
+            "shared_blks_read": 29.0,
+            "shared_blks_written": 0.0,
+            "total_exec_time": 479.2379059999999,
+            "total_plan_time": 96.358882,
+            "wal_bytes": 8048.0
+          },
+          "sql_calls": 48,
+          "sql_rows": 181953,
+          "transactions": 3
+        },
+        {
+          "active_connections": 0,
+          "client_sql_seconds": 0.7148541330097942,
+          "max_transaction_seconds": 1.3552592840023863,
+          "peak_connections": 1,
+          "server": {
+            "calls": 58.0,
+            "notification_update_calls": 0.0,
+            "notification_update_rows": 0.0,
+            "rows": 181954.0,
+            "shared_blks_dirtied": 0.0,
+            "shared_blks_hit": 54520.0,
+            "shared_blks_read": 0.0,
+            "shared_blks_written": 0.0,
+            "total_exec_time": 480.2707659999999,
+            "total_plan_time": 97.79889200000001,
+            "wal_bytes": 58.0
+          },
+          "sql_calls": 48,
+          "sql_rows": 181953,
+          "transactions": 3
+        }
+      ],
+      "tags": 55000,
+      "topics": 4450
+    },
+    {
+      "articles": 600,
+      "mode": "cold",
+      "page_size": 200,
+      "runs": [
+        {
+          "active_connections": 0,
+          "client_sql_seconds": 0.6081292909984768,
+          "max_transaction_seconds": 1.4712968799976807,
+          "peak_connections": 1,
+          "server": {
+            "calls": 58.0,
+            "notification_update_calls": 0.0,
+            "notification_update_rows": 0.0,
+            "rows": 63062.0,
+            "shared_blks_dirtied": 0.0,
+            "shared_blks_hit": 53386.0,
+            "shared_blks_read": 27.0,
+            "shared_blks_written": 0.0,
+            "total_exec_time": 330.37674900000013,
+            "total_plan_time": 116.014263,
+            "wal_bytes": 146744.0
+          },
+          "sql_calls": 48,
+          "sql_rows": 63061,
+          "transactions": 3
+        },
+        {
+          "active_connections": 0,
+          "client_sql_seconds": 0.5437530399867683,
+          "max_transaction_seconds": 1.4420250189978105,
+          "peak_connections": 1,
+          "server": {
+            "calls": 58.0,
+            "notification_update_calls": 0.0,
+            "notification_update_rows": 0.0,
+            "rows": 63062.0,
+            "shared_blks_dirtied": 0.0,
+            "shared_blks_hit": 53362.0,
+            "shared_blks_read": 0.0,
+            "shared_blks_written": 0.0,
+            "total_exec_time": 302.72606800000005,
+            "total_plan_time": 98.71958199999999,
+            "wal_bytes": 58.0
+          },
+          "sql_calls": 48,
+          "sql_rows": 63061,
+          "transactions": 3
+        }
+      ],
+      "tags": 55000,
+      "topics": 4450
+    },
+    {
+      "articles": 600,
+      "mode": "warm",
+      "page_size": 200,
+      "runs": [
+        {
+          "active_connections": 0,
+          "client_sql_seconds": 0.41528214701247634,
+          "max_transaction_seconds": 0.6814117190006073,
+          "peak_connections": 1,
+          "server": {
+            "calls": 55.0,
+            "notification_update_calls": 0.0,
+            "notification_update_rows": 0.0,
+            "rows": 3610.0,
+            "shared_blks_dirtied": 0.0,
+            "shared_blks_hit": 51683.0,
+            "shared_blks_read": 27.0,
+            "shared_blks_written": 0.0,
+            "total_exec_time": 197.06534399999995,
+            "total_plan_time": 94.04290900000001,
+            "wal_bytes": 7848.0
+          },
+          "sql_calls": 45,
+          "sql_rows": 3609,
+          "transactions": 3
+        },
+        {
+          "active_connections": 0,
+          "client_sql_seconds": 0.41895700500390376,
+          "max_transaction_seconds": 0.661496837001323,
+          "peak_connections": 1,
+          "server": {
+            "calls": 55.0,
+            "notification_update_calls": 0.0,
+            "notification_update_rows": 0.0,
+            "rows": 3610.0,
+            "shared_blks_dirtied": 0.0,
+            "shared_blks_hit": 51664.0,
+            "shared_blks_read": 0.0,
+            "shared_blks_written": 0.0,
+            "total_exec_time": 193.27740699999998,
+            "total_plan_time": 94.096224,
+            "wal_bytes": 0.0
+          },
+          "sql_calls": 45,
+          "sql_rows": 3609,
+          "transactions": 3
+        }
+      ],
+      "tags": 55000,
+      "topics": 4450
+    },
+    {
+      "articles": 600,
+      "mode": "outage",
+      "page_size": 200,
+      "runs": [
+        {
+          "active_connections": 0,
+          "client_sql_seconds": 0.7168072149979707,
+          "max_transaction_seconds": 1.3953966570006742,
+          "peak_connections": 1,
+          "server": {
+            "calls": 64.0,
+            "notification_update_calls": 0.0,
+            "notification_update_rows": 0.0,
+            "rows": 181966.0,
+            "shared_blks_dirtied": 0.0,
+            "shared_blks_hit": 56777.0,
+            "shared_blks_read": 27.0,
+            "shared_blks_written": 0.0,
+            "total_exec_time": 476.2965160000001,
+            "total_plan_time": 97.54723200000001,
+            "wal_bytes": 146744.0
+          },
+          "sql_calls": 54,
+          "sql_rows": 181965,
+          "transactions": 3
+        },
+        {
+          "active_connections": 0,
+          "client_sql_seconds": 0.5302638829998614,
+          "max_transaction_seconds": 1.3372252940025646,
+          "peak_connections": 1,
+          "server": {
+            "calls": 58.0,
+            "notification_update_calls": 0.0,
+            "notification_update_rows": 0.0,
+            "rows": 63062.0,
+            "shared_blks_dirtied": 0.0,
+            "shared_blks_hit": 53362.0,
+            "shared_blks_read": 0.0,
+            "shared_blks_written": 0.0,
+            "total_exec_time": 299.39287400000006,
+            "total_plan_time": 100.151837,
+            "wal_bytes": 58.0
+          },
+          "sql_calls": 48,
+          "sql_rows": 63061,
+          "transactions": 3
+        }
+      ],
+      "tags": 55000,
+      "topics": 4450
+    },
+    {
+      "articles": 600,
+      "mode": "churn",
+      "page_size": 200,
+      "runs": [
+        {
+          "active_connections": 0,
+          "client_sql_seconds": 0.7495119320046797,
+          "max_transaction_seconds": 1.714665960000275,
+          "peak_connections": 1,
+          "server": {
+            "calls": 72.0,
+            "notification_update_calls": 0.0,
+            "notification_update_rows": 0.0,
+            "rows": 181968.0,
+            "shared_blks_dirtied": 0.0,
+            "shared_blks_hit": 58937.0,
+            "shared_blks_read": 27.0,
+            "shared_blks_written": 0.0,
+            "total_exec_time": 505.152869,
+            "total_plan_time": 99.530836,
+            "wal_bytes": 148046.0
+          },
+          "sql_calls": 56,
+          "sql_rows": 181967,
+          "transactions": 5
+        },
+        {
+          "active_connections": 0,
+          "client_sql_seconds": 0.750886457026354,
+          "max_transaction_seconds": 1.7990011449983285,
+          "peak_connections": 1,
+          "server": {
+            "calls": 72.0,
+            "notification_update_calls": 0.0,
+            "notification_update_rows": 0.0,
+            "rows": 181968.0,
+            "shared_blks_dirtied": 0.0,
+            "shared_blks_hit": 58834.0,
+            "shared_blks_read": 0.0,
+            "shared_blks_written": 0.0,
+            "total_exec_time": 508.2245479999999,
+            "total_plan_time": 99.54156,
+            "wal_bytes": 1611.0
+          },
+          "sql_calls": 56,
+          "sql_rows": 181967,
+          "transactions": 5
+        }
+      ],
+      "tags": 55000,
+      "topics": 4450
+    },
+    {
+      "articles": 600,
+      "mode": "disabled_churn",
+      "page_size": 200,
+      "runs": [
+        {
+          "active_connections": 0,
+          "client_sql_seconds": 0.7403123329931987,
+          "max_transaction_seconds": 1.3695874380027817,
+          "peak_connections": 1,
+          "server": {
+            "calls": 66.0,
+            "notification_update_calls": 0.0,
+            "notification_update_rows": 0.0,
+            "rows": 181956.0,
+            "shared_blks_dirtied": 5.0,
+            "shared_blks_hit": 56712.0,
+            "shared_blks_read": 27.0,
+            "shared_blks_written": 0.0,
+            "total_exec_time": 503.04705099999984,
+            "total_plan_time": 98.080158,
+            "wal_bytes": 157460.0
+          },
+          "sql_calls": 50,
+          "sql_rows": 181955,
+          "transactions": 5
+        },
+        {
+          "active_connections": 0,
+          "client_sql_seconds": 0.7337212770071346,
+          "max_transaction_seconds": 1.3397026219972759,
+          "peak_connections": 1,
+          "server": {
+            "calls": 66.0,
+            "notification_update_calls": 0.0,
+            "notification_update_rows": 0.0,
+            "rows": 181956.0,
+            "shared_blks_dirtied": 1.0,
+            "shared_blks_hit": 56670.0,
+            "shared_blks_read": 0.0,
+            "shared_blks_written": 1.0,
+            "total_exec_time": 492.4372850000001,
+            "total_plan_time": 98.767538,
+            "wal_bytes": 1512.0
+          },
+          "sql_calls": 50,
+          "sql_rows": 181955,
+          "transactions": 5
+        }
+      ],
+      "tags": 55000,
+      "topics": 4450
+    }
+  ]
+}
