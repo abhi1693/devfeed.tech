@@ -1,7 +1,6 @@
 import logging
 import time
 import uuid
-from dataclasses import replace
 from datetime import datetime
 from typing import TypedDict
 
@@ -50,6 +49,7 @@ class PollingMetrics(TypedDict):
 
 
 logger = logging.getLogger(__name__)
+_ORIGIN_BATCH_MIN_ENTRIES = 2
 
 
 def store_entries(
@@ -198,10 +198,6 @@ def store_entries(
     return created
 
 
-class _OriginSnapshotChanged(Exception):
-    """A retained origin vanished while inference ran outside the transaction."""
-
-
 def _entry_origins(
     session: Session, source_id: uuid.UUID, parsed: ParsedFeed
 ) -> dict[str, uuid.UUID]:
@@ -214,19 +210,6 @@ def _entry_origins(
                 ArticleOrigin.source_id == source_id, ArticleOrigin.entry_key.in_(keys)
             )
         ).all()
-    )
-
-
-def _detect_new_feed_languages(parsed: ParsedFeed, retained: set[str]) -> ParsedFeed:
-    pending = [entry for entry in parsed.entries if entry.entry_key not in retained]
-    if not pending:
-        return parsed
-    detected = iter(detect_feed_languages(replace(parsed, entries=pending)).entries)
-    return replace(
-        parsed,
-        entries=[
-            entry if entry.entry_key in retained else next(detected) for entry in parsed.entries
-        ],
     )
 
 
@@ -280,124 +263,104 @@ def _ingest_claimed(
             raise TypeError("Source has no feed URL")
         result = fetch_feed(url, etag, modified)
         parsed = (
-            parse_feed(result.body, result.final_url, utcnow(), source_type=source_type)
+            detect_feed_languages(
+                parse_feed(result.body, result.final_url, utcnow(), source_type=source_type)
+            )
             if result.status == 200
             else None
         )
-        retained: set[str] = set()
-        if parsed is not None:
-            with factory.begin() as session:
-                preflight = owned_job(session, IngestionJob, identifier, lease_token)
-                if preflight is None:
-                    logger.warning("ingestion_lease_lost")
-                    return
-                retained = set(_entry_origins(session, preflight.source_id, parsed))
-            parsed = _detect_new_feed_languages(parsed, retained)
-        # At most one replay: if an origin disappears during inference, detect
-        # the full bounded feed outside the transaction before applying again.
-        for _attempt in range(2):
-            try:
-                with factory.begin() as session:
-                    job = owned_job(session, IngestionJob, identifier, lease_token)
-                    if job is None:
-                        logger.warning("ingestion_lease_lost")
-                        return  # A recovered job has a newer owner; this worker cannot commit.
-                    source = session.scalar(
-                        select(Source).where(Source.id == job.source_id).with_for_update()
-                    )
-                    if source is None:
-                        raise RuntimeError(
-                            "Ingestion source disappeared before applying feed results"
-                        )
-                    if source.approval_status != "approved":
-                        cancel_unapproved_job(job)
-                        logger.info("ingestion_source_unapproved")
-                        return
-                    if not source.enabled:
-                        from devfeed_core.jobs import cancel_disabled_job
+        with factory.begin() as session:
+            job = owned_job(session, IngestionJob, identifier, lease_token)
+            if job is None:
+                logger.warning("ingestion_lease_lost")
+                return  # A recovered job has a newer owner; this worker cannot commit.
+            source = session.scalar(
+                select(Source).where(Source.id == job.source_id).with_for_update()
+            )
+            if source is None:
+                raise RuntimeError("Ingestion source disappeared before applying feed results")
+            if source.approval_status != "approved":
+                cancel_unapproved_job(job)
+                logger.info("ingestion_source_unapproved")
+                return
+            if not source.enabled:
+                from devfeed_core.jobs import cancel_disabled_job
 
-                        cancel_disabled_job(job)
-                        logger.info("ingestion_source_disabled")
-                        return
-                    # A response for a replaced feed must never repopulate its learning state.
-                    if source.feed_url != url:
-                        job.status = "failed"
-                        job.error = "Feed changed during ingestion"
-                        job.finished_at = utcnow()
-                        job.lease_token = None
-                        job.lease_until = None
-                        return
-                    activity: list[datetime | None] = []
-                    if parsed:
-                        origins = _entry_origins(session, source.id, parsed)
-                        if retained.difference(origins):
-                            raise _OriginSnapshotChanged
-                        job.articles_created = store_entries(
-                            session, source.id, parsed, activity=activity, known_origins=origins
-                        )
-                        job.entries_seen = parsed.seen
-                        job.entries_skipped = parsed.skipped
-                    job.status = "succeeded"
-                    job.http_status = result.status
-                    job.finished_at = utcnow()
-                    job.lease_token = None
-                    job.lease_until = None
-                    job.error = None
-                    source.last_success_at = job.finished_at
-                    source.last_error = None
-                    source.consecutive_failures = 0
-                    job.new_source_entries = len(activity)
-                    previous_observation = (source.polling_state or {}).get("observed_at")
-                    # Old backfills count as newly seen origins, but not current velocity.
-                    arrivals = sum(
-                        1
-                        for published in activity
-                        if published is None
-                        or (
-                            published > job.finished_at
-                            or (
-                                not previous_observation
-                                or published >= datetime.fromisoformat(previous_observation)
-                            )
-                        )
+                cancel_disabled_job(job)
+                logger.info("ingestion_source_disabled")
+                return
+            # A response for a replaced feed must never repopulate its learning state.
+            if source.feed_url != url:
+                job.status = "failed"
+                job.error = "Feed changed during ingestion"
+                job.finished_at = utcnow()
+                job.lease_token = None
+                job.lease_until = None
+                return
+            activity: list[datetime | None] = []
+            if parsed:
+                origins = (
+                    _entry_origins(session, source.id, parsed)
+                    if len(parsed.entries) >= _ORIGIN_BATCH_MIN_ENTRIES
+                    else None
+                )
+                job.articles_created = store_entries(
+                    session, source.id, parsed, activity=activity, known_origins=origins
+                )
+                job.entries_seen = parsed.seen
+                job.entries_skipped = parsed.skipped
+            job.status = "succeeded"
+            job.http_status = result.status
+            job.finished_at = utcnow()
+            job.lease_token = None
+            job.lease_until = None
+            job.error = None
+            source.last_success_at = job.finished_at
+            source.last_error = None
+            source.consecutive_failures = 0
+            job.new_source_entries = len(activity)
+            previous_observation = (source.polling_state or {}).get("observed_at")
+            # Old backfills count as newly seen origins, but not current velocity.
+            arrivals = sum(
+                1
+                for published in activity
+                if published is None
+                or (
+                    published > job.finished_at
+                    or (
+                        not previous_observation
+                        or published >= datetime.fromisoformat(previous_observation)
                     )
-                    observe(source, job.finished_at, arrivals, automatic=job.automatic)
-                    source.next_fetch_at = schedule(source, job.finished_at)
-                    # A 200 without validators must clear old validators. A 304 may omit them.
-                    source.etag = (
-                        result.etag if result.status == 200 else result.etag or source.etag
-                    )
-                    source.last_modified = (
-                        result.last_modified
-                        if result.status == 200
-                        else result.last_modified or source.last_modified
-                    )
-                    attempted_at = source.last_attempt_at
-                    if attempted_at is None:
-                        raise RuntimeError("Ingestion claim is missing its attempt timestamp")
-                    metrics: PollingMetrics = {
-                        "new_source_entries": job.new_source_entries,
-                        "interval_seconds": source.effective_interval_seconds,
-                        "polling_mode": source.effective_polling_mode,
-                        "queue_delay_seconds": max(
-                            0, (attempted_at - job.available_at).total_seconds()
-                        ),
-                        "articles_created": job.articles_created,
-                        "entries_seen": job.entries_seen,
-                        "entries_skipped": job.entries_skipped,
-                        "upstream_status": result.status,
-                    }
-                    discovery_delays = [
-                        (job.finished_at - published).total_seconds()
-                        for published in activity
-                        if published is not None
-                        and 0 <= (job.finished_at - published).total_seconds() <= 604800
-                    ]
-                break
-            except _OriginSnapshotChanged:
-                assert parsed is not None
-                parsed = detect_feed_languages(parsed)
-                retained.clear()
+                )
+            )
+            observe(source, job.finished_at, arrivals, automatic=job.automatic)
+            source.next_fetch_at = schedule(source, job.finished_at)
+            # A 200 without validators must clear old validators. A 304 may omit them.
+            source.etag = result.etag if result.status == 200 else result.etag or source.etag
+            source.last_modified = (
+                result.last_modified
+                if result.status == 200
+                else result.last_modified or source.last_modified
+            )
+            attempted_at = source.last_attempt_at
+            if attempted_at is None:
+                raise RuntimeError("Ingestion claim is missing its attempt timestamp")
+            metrics: PollingMetrics = {
+                "new_source_entries": job.new_source_entries,
+                "interval_seconds": source.effective_interval_seconds,
+                "polling_mode": source.effective_polling_mode,
+                "queue_delay_seconds": max(0, (attempted_at - job.available_at).total_seconds()),
+                "articles_created": job.articles_created,
+                "entries_seen": job.entries_seen,
+                "entries_skipped": job.entries_skipped,
+                "upstream_status": result.status,
+            }
+            discovery_delays = [
+                (job.finished_at - published).total_seconds()
+                for published in activity
+                if published is not None
+                and 0 <= (job.finished_at - published).total_seconds() <= 604800
+            ]
         if runtime := current():
             attributes = {"mode": metrics["polling_mode"]}
             runtime.instruments["polling_interval"].record(metrics["interval_seconds"], attributes)

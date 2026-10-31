@@ -426,31 +426,3 @@ def test_language_logs_are_human_readable(event, preview, ending):
         }
     )
     assert text.startswith("Article languages: 5 detected, 2 unknown") and text.endswith(ending)
-
-
-def test_selective_feed_detection_preserves_retained_entries_and_feed_evidence(monkeypatch):
-    from dataclasses import replace
-
-    parsed = parse_feed(
-        japanese_feed(), "https://publisher.example/feed", utcnow(), source_type="publisher"
-    )
-    first = parsed.entries[0]
-    other = replace(first, entry_key="new-entry", canonical_url="https://publisher.example/new")
-    parsed = replace(parsed, entries=[first, other], seen=2)
-    calls = []
-
-    def detect(pending):
-        calls.append(pending.entries)
-        return replace(
-            pending, entries=[replace(entry, language="ja") for entry in pending.entries]
-        )
-
-    monkeypatch.setattr(tasks, "detect_feed_languages", detect)
-    enriched = tasks._detect_new_feed_languages(parsed, {first.entry_key})
-    assert calls == [[other]]
-    assert enriched.entries[0] is first
-    assert enriched.entries[1].language == "ja"
-    assert enriched.profile == parsed.profile and enriched.seen == 2
-    calls.clear()
-    assert tasks._detect_new_feed_languages(parsed, {first.entry_key, other.entry_key}) is parsed
-    assert calls == []
