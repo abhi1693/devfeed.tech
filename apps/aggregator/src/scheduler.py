@@ -37,6 +37,7 @@ from devfeed_core.recommendations import (
 from devfeed_core.research_verification import fail_verification, schedule_verification
 from devfeed_core.telemetry import background_cycle, start_runtime, stop_runtime
 from devfeed_core.version import __version__
+from rq import Queue
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -47,9 +48,17 @@ from devfeed_aggregator.partner_tasks import dispatch_partner_evaluations
 from devfeed_aggregator.queue import get_queue
 from devfeed_aggregator.recommendation_dispatcher import recommendation_dispatcher
 from devfeed_aggregator.scheduler_health import scheduler_health
+from devfeed_aggregator.scheduler_resources import SchedulerResources
 from devfeed_aggregator.sitemap_refresher import sitemap_refresher
 
 logger = logging.getLogger(__name__)
+
+
+def _release_queue(queue: Queue, resources: SchedulerResources | None) -> None:
+    if resources is None:
+        queue.connection.close()
+    else:
+        resources.release(queue)
 
 
 def dispatch_article_lanes(
@@ -57,25 +66,27 @@ def dispatch_article_lanes(
     kind: Literal["analysis", "article-enrichment", "images", "source-enrichment"],
     batch: int,
     now: datetime,
+    resources: SchedulerResources | None = None,
 ) -> int:
     """Reserve dispatch capacity for both fresh content and older eligible articles."""
     count = 0
+    queue_factory = resources.queue if resources else get_queue
     name = JOB_DEFINITIONS[kind].queue
     for fresh in (True, False):
-        queue = get_queue(f"{name}-fresh" if fresh else name)
+        queue = queue_factory(f"{name}-fresh" if fresh else name)
         try:
             count += dispatch_jobs(factory, queue, max(1, batch // 2), now, kind=kind, fresh=fresh)
         finally:
-            queue.connection.close()
+            _release_queue(queue, resources)
     return count
 
 
-def tick() -> dict[str, int]:
+def tick(resources: SchedulerResources | None = None) -> dict[str, int]:
     with log_context(service="scheduler", tick_id=str(uuid.uuid4())):
         started = time.perf_counter()
         try:
             with background_cycle("scheduler.tick"):
-                result = _tick()
+                result = _tick(resources) if resources else _tick()
         except Exception:
             logger.exception("scheduler_tick_failed", extra={"duration_ms": elapsed_ms(started)})
             raise
@@ -95,11 +106,12 @@ def tick() -> dict[str, int]:
         return result
 
 
-def _tick() -> dict[str, int]:
+def _tick(resources: SchedulerResources | None = None) -> dict[str, int]:
     from devfeed_aggregator.quota_monitor import refresh_quota
 
     refresh_quota()
-    factory = session_factory()
+    factory = resources.factory if resources else session_factory()
+    queue_factory = resources.queue if resources else get_queue
     # The exporter preserves expired opens before their transactional rows
     # are removed. Historical aggregation belongs to ClickHouse.
     from devfeed_core.job_retention import prune_job_payloads
@@ -206,16 +218,16 @@ def _tick() -> dict[str, int]:
         expand_feed_notifications(factory)
 
         notifications_recovered = recover_notifications(factory, batch, now)
-        notification_queue = get_queue("notifications")
+        notification_queue = queue_factory("notifications")
         try:
             notifications_dispatched = dispatch_jobs(
                 factory, notification_queue, batch, utcnow(), kind="notifications"
             )
         finally:
-            notification_queue.connection.close()
+            _release_queue(notification_queue, resources)
     # The PostgreSQL job row is a durable outbox. Publish before stamping dispatch;
     # if we crash between them, re-delivery is safe because claims are exclusive.
-    queue = get_queue()
+    queue = queue_factory()
     now = utcnow()  # Include jobs created during the scheduling transaction above.
     try:
         dispatch_discovery(factory, min(batch, 10))
@@ -232,32 +244,34 @@ def _tick() -> dict[str, int]:
                     backfill_logos(session, PartnerProduct, limit=10)
         except Exception as exc:
             logger.warning("partner_match_refresh_failed", extra={"error_type": type(exc).__name__})
-        recommendation_queue = get_queue("recommendations")
+        recommendation_queue = queue_factory("recommendations")
         try:
             recommendations_dispatched = dispatch_recommendations(
                 factory, recommendation_queue, batch
             )
         finally:
             if recommendation_queue is not queue:
-                recommendation_queue.connection.close()
+                _release_queue(recommendation_queue, resources)
         dispatched = dispatch_jobs(factory, queue, batch, now)
         background_counts = {}
         for kind in ("images", "source-enrichment", "article-enrichment"):
             if kind == "article-enrichment":
-                background_counts[kind] = dispatch_article_lanes(factory, kind, batch, now)
+                background_counts[kind] = dispatch_article_lanes(
+                    factory, kind, batch, now, resources
+                )
                 continue
-            background_queue = get_queue(JOB_DEFINITIONS[kind].queue)
+            background_queue = queue_factory(JOB_DEFINITIONS[kind].queue)
             try:
                 background_counts[kind] = dispatch_jobs(
                     factory, background_queue, batch, now, kind=kind
                 )
             finally:
-                background_queue.connection.close()
+                _release_queue(background_queue, resources)
         images_dispatched = background_counts["images"]
         profiles_dispatched = background_counts["source-enrichment"]
         articles_dispatched = background_counts["article-enrichment"]
         if get_settings().solver_queue_enabled:
-            solver_queue = get_queue("solver")
+            solver_queue = queue_factory("solver")
             try:
                 profiles_dispatched += dispatch_jobs(
                     factory, solver_queue, batch, now, kind="source-enrichment", solver=True
@@ -269,7 +283,7 @@ def _tick() -> dict[str, int]:
                     factory, solver_queue, batch, now, kind="images", solver=True
                 )
             finally:
-                solver_queue.connection.close()
+                _release_queue(solver_queue, resources)
         analyses_dispatched = topic_analyses_dispatched = 0
         verifications_dispatched = 0
         if get_settings().ai_enabled:
@@ -288,10 +302,10 @@ def _tick() -> dict[str, int]:
             if verification_lanes:
                 lanes.append(("research-verification", verification_lanes))
             counts: dict[str, int] = {
-                "analysis": dispatch_article_lanes(factory, "analysis", batch, now)
+                "analysis": dispatch_article_lanes(factory, "analysis", batch, now, resources)
             }
             for name, queue_lanes in lanes:
-                analysis_queue = get_queue(name)
+                analysis_queue = queue_factory(name)
                 try:
                     # Each physical queue gets its own budget: article backlog cannot
                     # consume the slots needed to dispatch research or source analysis.
@@ -300,14 +314,14 @@ def _tick() -> dict[str, int]:
                     ).items():
                         counts[kind] = counts.get(kind, 0) + count
                 finally:
-                    analysis_queue.connection.close()
+                    _release_queue(analysis_queue, resources)
             profiles_dispatched += counts.get("source-enrichment", 0)
             analyses_dispatched = counts.get("analysis", 0)
             topic_analyses_dispatched = counts.get("topic-analysis", 0)
             verifications_dispatched = counts.get("research-verification", 0)
         queue.connection.set("devfeed:scheduler:heartbeat", now.isoformat(), ex=120)
     finally:
-        queue.connection.close()
+        _release_queue(queue, resources)
     return {
         **automation,
         "recommendation_users_queued": recommendation_users_queued,
@@ -430,18 +444,19 @@ def run() -> None:
         logger.info("scheduler_started")
         try:
             with (
+                SchedulerResources(settings) as resources,
                 scheduler_health() as health,
                 recommendation_dispatcher(
-                    session_factory(),
+                    resources.factory,
                     lambda: get_queue("recommendations"),
                 ),
-                partner_dispatcher(session_factory()),
+                partner_dispatcher(resources.factory),
                 sitemap_refresher(),
             ):
                 while not stop.is_set():
                     # Failed cycles do not reset the bounded heartbeat deadline.
                     with suppress(Exception):
-                        tick()
+                        tick(resources)
                         health.completed()
                     stop.wait(15)
         finally:
