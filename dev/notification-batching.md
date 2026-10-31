@@ -18,6 +18,12 @@ Batches use a stable ID derived from the selected rows' existing attempt identit
 Dispatch still publishes to Redis before stamping PostgreSQL rows; a rollback or
 missing Redis queue membership remains safe to redispatch. Per-row locking and
 Chimely's unchanged idempotency keys prevent duplicate delivery during replay.
+On redispatch, an atomic Redis operation refreshes the envelope and restores missing
+queue membership only while the carrier is queued and absent from RQ's intermediate
+list. Existing waiters keep their position. If a worker already claimed the carrier,
+its original envelope remains unchanged. PostgreSQL always stamps the publication
+time from the actual returned carrier, so both restored and claimed batches keep
+their release fence. A failed database commit can replay the same stable carrier ID.
 
 A batch stops admitting rows after 20 seconds and has a 30-second RQ timeout.
 Untouched queued rows are made immediately dispatchable only when their publication
@@ -25,8 +31,8 @@ timestamp still matches that batch. A newer dispatcher, a running claim or a
 finished delivery cannot be reset by an old batch. Release uses a one-second SQL
 statement budget; if PostgreSQL is unavailable, the ordinary durable redispatch
 and expired-lease recovery paths remain the fallback. RQ deadlines are propagated,
-not swallowed by per-item error handling. A slow destination cannot monopolize the
-shared low queue indefinitely. Singletons retain their legacy timeout.
+not swallowed by per-item error handling or best-effort database cleanup. A slow
+destination cannot monopolize the shared low queue indefinitely. Singletons retain their legacy timeout.
 
 Partial HTTP failures update only their own delivery row. An unexpected per-item
 runtime failure does not stop independent rows; the carrier reports failure after
@@ -43,6 +49,11 @@ individual HTTP attempts, unchanged per-row idempotency, independent audience ke
 and per-row retry state. This demonstrates 90% fewer work-horse startups for a full
 backlog, not 90% lower total CPU. Tests also cover deadline release fencing and
 repairing a lost Redis list entry using the same grouped delivery identity.
+Native regressions interleave LMOVE before the refresh action, change running/terminal
+status or routing during refresh, and replay a publication whose database commit
+failed. A restored batch's soft stop releases untouched work immediately while a
+genuinely newer carrier keeps its own freshness. Unit cases inject RQ hard deadlines
+at session-factory, transaction-entry, timeout-setting and release-update boundaries.
 
 Keep this PR in draft for native ARM64 CPU/latency profiling with real tracing and
 profiling enabled. Compare total worker CPU, notification age, throughput, low-queue

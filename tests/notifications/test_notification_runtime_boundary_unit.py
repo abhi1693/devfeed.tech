@@ -275,6 +275,15 @@ def test_batch_soft_budget_releases_unstarted_rows_for_fast_redispatch(monkeypat
         batch_payload([uuid.uuid4()], NOW.replace(tzinfo=None)),
         "{" + "x" * 4096,
     ],
+    ids=[
+        "empty",
+        "missing-publication",
+        "no-deliveries",
+        "duplicate",
+        "too-many",
+        "naive",
+        "oversized",
+    ],
 )
 def test_malformed_batches_are_rejected_before_any_delivery(monkeypatch, payload):
     sent = Mock()
@@ -290,3 +299,30 @@ def test_batch_release_failure_keeps_durable_redispatch_as_fallback(monkeypatch,
     )
     delivery._release_batch([uuid.uuid4()], NOW)
     assert "notification_batch_release_failed" in caplog.messages
+
+
+@pytest.mark.parametrize("stage", ["factory", "begin", "timeout_sql", "release_sql"])
+def test_batch_cleanup_propagates_rq_hard_deadline_at_every_database_boundary(
+    monkeypatch, caplog, stage
+):
+    expired = delivery.JobTimeoutException("hard deadline during cleanup")
+    execute = Mock(side_effect=[expired] if stage == "timeout_sql" else [None, expired])
+
+    @contextmanager
+    def begin():
+        if stage == "begin":
+            raise expired
+        yield NS(execute=execute)
+
+    provider = Mock(return_value=NS(begin=begin))
+    if stage == "factory":
+        provider.side_effect = expired
+    monkeypatch.setattr(delivery, "session_factory", provider)
+    monkeypatch.setattr(delivery, "time", NS(monotonic=Mock(side_effect=[0, 21])))
+    sent = Mock()
+    monkeypatch.setattr(delivery, "_deliver", sent)
+    with pytest.raises(delivery.JobTimeoutException) as caught:
+        delivery.deliver_notification(batch_payload([uuid.uuid4(), uuid.uuid4()]))
+    assert caught.value is expired
+    sent.assert_not_called()
+    assert "notification_batch_release_failed" not in caplog.messages

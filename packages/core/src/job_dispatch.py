@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import batched, groupby
@@ -35,9 +35,28 @@ class QueuedJob(Protocol):
     @property
     def id(self) -> str: ...
 
+    @property
+    def args(self) -> Sequence[object]: ...
+
 
 class JobQueue(Protocol):
     def enqueue(self, f: str, *args: str, **kwargs: str | int | bool | None) -> QueuedJob: ...
+
+
+def _batch_publication(carrier: QueuedJob, identifiers: list[str]) -> datetime:
+    if len(carrier.args) != 1 or not isinstance(carrier.args[0], str):
+        raise ValueError("Invalid notification carrier arguments")
+    body = json.loads(carrier.args[0])
+    if (
+        set(body) != {"deliveries", "published_at"}
+        or not isinstance(body["deliveries"], list)
+        or sorted(body["deliveries"]) != sorted(identifiers)
+    ):
+        raise ValueError("Notification carrier identities changed")
+    published = datetime.fromisoformat(body["published_at"])
+    if published.tzinfo is None:
+        raise ValueError("Notification carrier requires an aware publication time")
+    return published
 
 
 def _lane_condition(
@@ -127,7 +146,7 @@ class JobDispatcher:
                     delivery_id(kind, row[1].id, row[1].available_at, row[1].attempts)
                     for row in page
                 )
-                self.queue.enqueue(
+                carrier = self.queue.enqueue(
                     JOB_DEFINITIONS[kind].handler,
                     json.dumps({"deliveries": identifiers, "published_at": self.now.isoformat()}),
                     job_timeout=30,
@@ -137,9 +156,13 @@ class JobDispatcher:
                     job_id="devfeed-notifications-batch-"
                     + str(uuid.uuid5(uuid.NAMESPACE_URL, "/".join(identities))),
                     unique=True,
+                    refresh_queued_payload=True,
                 )
+                # A worker can already own the original payload. Stamp exactly
+                # the queued/claimed carrier's fence, including refused refresh.
+                published = _batch_publication(carrier, identifiers)
                 for _, job, _, _ in page:
-                    job.dispatched_at = self.now
+                    job.dispatched_at = published
                     logs.append(
                         (JOB_DEFINITIONS[kind].event, JOB_DEFINITIONS[kind].log_fields(job))
                     )

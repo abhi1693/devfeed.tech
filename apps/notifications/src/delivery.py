@@ -72,6 +72,8 @@ def _release_batch(identifiers: list[uuid.UUID], published_at: datetime) -> None
                 )
                 .values(dispatched_at=None)
             )
+    except JobTimeoutException:
+        raise  # Cleanup remains inside RQ's hard deadline.
     except Exception:
         # PostgreSQL remains the outbox even if best-effort release fails.
         logger.warning("notification_batch_release_failed")

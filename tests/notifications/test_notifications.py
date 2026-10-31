@@ -370,7 +370,12 @@ def test_batched_dispatch_keeps_individual_rows_and_stable_attempt_identities(mo
         for _ in range(25)
     ]
     calls = []
-    queue = SimpleNamespace(enqueue=lambda *args, **kwargs: calls.append((args, kwargs)))
+
+    def enqueue(*args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(id=kwargs["job_id"], args=args[1:])
+
+    queue = SimpleNamespace(enqueue=enqueue)
     dispatcher = JobDispatcher(None, queue, now)
     rows = [("notifications", job, False, False) for job in jobs]
     assert len(dispatcher._publish(rows)) == 25
@@ -386,3 +391,37 @@ def test_batched_dispatch_keeps_individual_rows_and_stable_attempt_identities(mo
     calls.clear()
     dispatcher._publish(rows)
     assert calls[0][1]["job_id"] != before[0]
+
+
+def test_batch_publication_stamps_retained_carrier_fence_and_rejects_changed_identity(monkeypatch):
+    from devfeed_core.job_dispatch import JobDispatcher
+
+    monkeypatch.setattr(get_settings(), "notification_delivery_batch_size", 3)
+    now, published = utcnow(), utcnow() - timedelta(seconds=301)
+    jobs = [NotificationDelivery(id=uuid.uuid4(), attempts=0, available_at=now) for _ in range(3)]
+    payload = json.dumps(
+        {"deliveries": [str(job.id) for job in jobs], "published_at": published.isoformat()}
+    )
+    enqueue = SimpleNamespace(
+        enqueue=lambda *args, **kwargs: SimpleNamespace(id=kwargs["job_id"], args=[payload])
+    )
+    dispatcher = JobDispatcher(None, enqueue, now)
+    rows = [("notifications", job, False, False) for job in jobs]
+    dispatcher._publish(rows)
+    assert all(job.dispatched_at == published for job in jobs)
+    payload = json.dumps({"deliveries": [], "published_at": now.isoformat()})
+    with pytest.raises(ValueError, match="identities changed"):
+        dispatcher._publish(rows)
+    assert all(job.dispatched_at == published for job in jobs)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [[], [123], [json.dumps({"deliveries": [], "published_at": "2026-10-31T00:00:00"})]],
+    ids=["missing", "not-json-string", "naive-publication"],
+)
+def test_batch_publication_requires_a_valid_queued_envelope(args):
+    from devfeed_core.job_dispatch import _batch_publication
+
+    with pytest.raises(ValueError):
+        _batch_publication(SimpleNamespace(args=args), [])
