@@ -48,24 +48,34 @@ def test_once_returns_failure_without_claiming_success(monkeypatch):
 
 @pytest.mark.parametrize("once", [False, True])
 @pytest.mark.parametrize("fails", [False, True])
+@pytest.mark.parametrize("configured_pool", [False, True])
 def test_runtime_stops_telemetry_and_registers_shutdown_signals(
-    monkeypatch, once, fails, queued_runtime_log
+    monkeypatch, once, fails, queued_runtime_log, configured_pool
 ):
     engine, telemetry, stop = Mock(), object(), Mock()
     monkeypatch.setattr(
-        runtime, "get_settings", lambda: SimpleNamespace(log_level="INFO", log_format="json")
+        runtime,
+        "get_settings",
+        lambda: SimpleNamespace(
+            log_level="INFO",
+            log_format="json",
+            search_indexer_connection_reuse_enabled=True,
+            database_pool_enabled=configured_pool,
+        ),
     )
     monkeypatch.setattr(runtime, "configure_logging", Mock())
     monkeypatch.setattr(runtime, "threading", SimpleNamespace(Event=lambda: stop))
     handlers = Mock()
     monkeypatch.setattr(runtime.signal, "signal", handlers)
     monkeypatch.setattr(runtime, "Typesense", lambda **_: engine)
-    monkeypatch.setattr(runtime, "indexer_database", lambda _: nullcontext(object()))
+    factory = SimpleNamespace(kw={"bind": Mock()})
+    monkeypatch.setattr(runtime, "indexer_database", lambda _: nullcontext(factory))
     start, finish = Mock(return_value=telemetry), Mock()
     monkeypatch.setattr(runtime, "start_runtime", start)
     monkeypatch.setattr(runtime, "stop_runtime", finish)
 
-    def consume(*_):
+    def consume(*args):
+        assert args[-1] is (None if configured_pool else factory.kw["bind"].dispose)
         queued_runtime_log()
         if fails:
             raise RuntimeError("sync")
@@ -125,14 +135,60 @@ def test_sync_failure_backs_off_without_writing_a_heartbeat(monkeypatch, tmp_pat
     assert not heartbeat.exists()
 
 
+def test_active_bursts_release_the_pool_before_idle_waits(monkeypatch, tmp_path):
+    from threading import Event
+
+    stop = Event()
+    processed, releases = [], []
+    counts = iter([10] * 25 + [0])
+
+    def sync(*_):
+        value = next(counts)
+        processed.append(value)
+        return value
+
+    def release():
+        releases.append(len(processed))
+
+    def wait(seconds):
+        assert seconds == 1 and releases == [20, 26]
+        stop.set()
+
+    monkeypatch.setattr(runtime, "current", lambda: None)
+    monkeypatch.setattr(runtime, "sync_batch", sync)
+    monkeypatch.setattr(runtime, "runtime_marker", lambda _: tmp_path / "heartbeat")
+    monkeypatch.setattr(stop, "wait", wait)
+    assert runtime._consume_index(stop, object(), False, Mock(), object(), release) == 0
+    assert releases == [20, 26]
+
+
+def test_dependency_failure_releases_the_pool_before_backoff(monkeypatch):
+    from threading import Event
+
+    stop, released = Event(), Mock()
+    monkeypatch.setattr(runtime, "current", lambda: None)
+    monkeypatch.setattr(runtime, "sync_batch", Mock(side_effect=RuntimeError("dependency")))
+
+    def wait(seconds):
+        assert seconds == 5
+        released.assert_called_once()
+        stop.set()
+
+    monkeypatch.setattr(stop, "wait", wait)
+    assert runtime._consume_index(stop, object(), False, Mock(), object(), released) == 0
+
+
 @pytest.mark.parametrize("reuse", [False, True])
 @pytest.mark.parametrize("failed", [False, True])
-def test_indexer_pool_is_owned_bounded_and_disposed_after_failure(monkeypatch, reuse, failed):
+@pytest.mark.parametrize("configured_pool", [False, True])
+def test_indexer_pool_is_owned_bounded_and_disposed_after_failure(
+    monkeypatch, reuse, failed, configured_pool
+):
     from devfeed_core.config import get_settings
 
     settings = get_settings().model_copy(
         update={
-            "database_pool_enabled": False,
+            "database_pool_enabled": configured_pool,
             "search_indexer_connection_reuse_enabled": reuse,
         }
     )
@@ -145,10 +201,12 @@ def test_indexer_pool_is_owned_bounded_and_disposed_after_failure(monkeypatch, r
     with result, runtime.indexer_database(settings) as factory:
         assert factory is maker.return_value
         effective = build.call_args.args[0]
-        assert effective.database_pool_enabled is reuse
-        if reuse:
+        assert effective.database_pool_enabled is (reuse or configured_pool)
+        if reuse and not configured_pool:
             assert effective.database_pool_size == 1 and effective.database_max_overflow == 0
-        assert settings.database_pool_enabled is False
+        else:
+            assert effective is settings
+        assert settings.database_pool_enabled is configured_pool
         if failed:
             raise RuntimeError("index failed")
     database.dispose.assert_called_once_with()

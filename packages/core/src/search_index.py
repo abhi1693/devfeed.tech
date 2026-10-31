@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, insert, literal, select, text
@@ -127,12 +128,18 @@ def _update_outbox_metrics(session: Session) -> None:
     metrics["search_oldest"].set(age)
 
 
-def reconcile(factory: sessionmaker[Session], engine: Typesense | None = None) -> dict[str, int]:
+def reconcile(
+    factory: sessionmaker[Session],
+    engine: Typesense | None = None,
+    release: Callable[[], None] | None = None,
+) -> dict[str, int]:
     """Refresh durable outbox and projection counts without holding DB connections remotely."""
     engine = engine or Typesense(admin=True)
     with factory() as session:
         _update_outbox_metrics(session)
         visible = _visible_counts(session)
+    if release is not None:
+        release()
     for kind in KINDS:
         remote = engine.count(kind)
         logger.info(

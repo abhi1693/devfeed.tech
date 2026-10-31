@@ -212,7 +212,7 @@ class Settings(BaseSettings):
     search_http_max_connections: int = Field(default=32, ge=1, le=256)
     search_http_pool_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
     search_index_batch_size: int = Field(default=200, ge=10, le=500)
-    search_indexer_connection_reuse_enabled: bool = True
+    search_indexer_connection_reuse_enabled: bool = False
     search_index_retry_attempts: int = Field(default=3, ge=0, le=10)
     search_index_retry_base_seconds: float = Field(default=1.0, gt=0, le=30)
     search_index_retry_max_seconds: float = Field(default=30.0, gt=0, le=300)

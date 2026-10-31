@@ -19,6 +19,7 @@ from devfeed_core.telemetry import background_cycle, current, start_runtime, sto
 from sqlalchemy.orm import Session, sessionmaker
 
 logger = logging.getLogger(__name__)
+MAX_REUSE_BATCHES = 20
 
 
 @contextmanager
@@ -32,7 +33,7 @@ def indexer_database(settings: Settings) -> Iterator[sessionmaker[Session]]:
                 "database_max_overflow": 0,
             }
         )
-        if settings.search_indexer_connection_reuse_enabled
+        if settings.search_indexer_connection_reuse_enabled and not settings.database_pool_enabled
         else settings
     )
     database = create_database_engine(effective)
@@ -53,7 +54,13 @@ def run_indexer(*, once: bool = False, output: Callable[[str], None] = print) ->
     telemetry = start_runtime("search-indexer") if not once else None
     try:
         with indexer_database(settings) as factory:
-            return _consume_index(stop, engine, once, output, factory)
+            release = (
+                factory.kw["bind"].dispose
+                if settings.search_indexer_connection_reuse_enabled
+                and not settings.database_pool_enabled
+                else None
+            )
+            return _consume_index(stop, engine, once, output, factory, release)
     finally:
         stop_runtime(telemetry)
 
@@ -64,31 +71,45 @@ def _consume_index(
     once: bool,
     output: Callable[[str], None],
     factory: sessionmaker[Session] | None = None,
+    release: Callable[[], None] | None = None,
 ) -> int:
     settings = get_settings()
     factory = factory or session_factory()
+    release = release or (lambda: None)
     last_reconcile = 0.0
+    retained_batches = 0
     while not stop.is_set():
         if current() and time.monotonic() >= last_reconcile:
+            release()
+            retained_batches = 0
             try:
                 with background_cycle("search.reconcile"):
-                    reconcile(factory, engine)
+                    reconcile(factory, engine, release)
             except Exception as exc:
                 logger.error(
                     "search_index_reconciliation_failed",
                     extra={"error_type": type(exc).__name__},
                 )
             finally:
+                release()
                 last_reconcile = time.monotonic() + settings.search_reconcile_interval_seconds
         try:
             with background_cycle("search.sync"):
                 count = sync_batch(factory, engine)
         except Exception as exc:
+            release()
+            retained_batches = 0
             logger.error("search_index_sync_failed", extra={"error_type": type(exc).__name__})
             if once:
                 return 1
             stop.wait(5)
         else:
+            retained_batches += 1
+            if not count or retained_batches >= MAX_REUSE_BATCHES:
+                # Session PgBouncer assigns a backend until the client closes.
+                # Release before idle waits and bound consecutive active reuse.
+                release()
+                retained_batches = 0
             last_heartbeat = time.time()
             write_runtime_marker(runtime_marker("search-heartbeat"), str(last_heartbeat))
             if once:
