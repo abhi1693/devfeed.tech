@@ -119,6 +119,9 @@ A continuation beyond the available results returns HTTP 404. Empty first-page s
 letter filters remain available with `noindex,follow`; populated directory pages retain their
 normalized canonical URLs. Next and previous links preserve the directory filters.
 
+The search indexer owns a bounded SQL connection; see
+[indexer resource measurements and rollback](dev/search-indexer-resources.md).
+
 The scheduler generates cached sitemaps in the background. Crawler requests serve
 the last completed snapshot while refreshes run; see
 [sitemap refresh and retention](apps/aggregator/README.md#cached-sitemaps).

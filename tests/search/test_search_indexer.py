@@ -60,6 +60,7 @@ def test_runtime_stops_telemetry_and_registers_shutdown_signals(
     handlers = Mock()
     monkeypatch.setattr(runtime.signal, "signal", handlers)
     monkeypatch.setattr(runtime, "Typesense", lambda **_: engine)
+    monkeypatch.setattr(runtime, "indexer_database", lambda _: nullcontext(object()))
     start, finish = Mock(return_value=telemetry), Mock()
     monkeypatch.setattr(runtime, "start_runtime", start)
     monkeypatch.setattr(runtime, "stop_runtime", finish)
@@ -122,3 +123,32 @@ def test_sync_failure_backs_off_without_writing_a_heartbeat(monkeypatch, tmp_pat
     assert runtime._consume_index(stop, object(), False, Mock()) == 0
     stop.wait.assert_called_once_with(5)
     assert not heartbeat.exists()
+
+
+@pytest.mark.parametrize("reuse", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+def test_indexer_pool_is_owned_bounded_and_disposed_after_failure(monkeypatch, reuse, failed):
+    from devfeed_core.config import get_settings
+
+    settings = get_settings().model_copy(
+        update={
+            "database_pool_enabled": False,
+            "search_indexer_connection_reuse_enabled": reuse,
+        }
+    )
+    database = Mock()
+    build = Mock(return_value=database)
+    maker = Mock(return_value=object())
+    monkeypatch.setattr(runtime, "create_database_engine", build)
+    monkeypatch.setattr(runtime, "sessionmaker", maker)
+    result = pytest.raises(RuntimeError) if failed else nullcontext()
+    with result, runtime.indexer_database(settings) as factory:
+        assert factory is maker.return_value
+        effective = build.call_args.args[0]
+        assert effective.database_pool_enabled is reuse
+        if reuse:
+            assert effective.database_pool_size == 1 and effective.database_max_overflow == 0
+        assert settings.database_pool_enabled is False
+        if failed:
+            raise RuntimeError("index failed")
+    database.dispose.assert_called_once_with()
