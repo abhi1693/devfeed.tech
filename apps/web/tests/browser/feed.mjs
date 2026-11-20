@@ -1176,7 +1176,9 @@ async function createReaderFixture(
     await checkLanguagePreferences(page, origin);
     assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
     await checkFeedSort(page, origin);
-    await checkSourceFilter(page, `${origin}/latest`, source, `${output}/web-filter`);
+    await checkSourceFilter(page, `${origin}/latest`, source, `${output}/web-filter`, async () => {
+      await page.getByRole("button", { name: /^User menu:/ }).waitFor();
+    });
     await checkFeedSort(page, origin, true);
     // Layout assertions use a settled feed; the refreshing fixture deliberately polls.
     mode = "ready";

@@ -102,12 +102,29 @@ def check_ch_ui_runtime(management: dict) -> None:
         )
 
 
+def check_product_catalogs(base: dict[str, str]) -> None:
+    for product in ("devfeed", "hardwaredaily"):
+        values = {"COMPOSE_PROFILES": "search", **base}
+        if product == "hardwaredaily":
+            values["DEVFEED_PRODUCT"] = product
+        config = render(values)
+        assert config["name"] == product
+        for volume in ("postgres-data", "redis-data", "search-data"):
+            assert config["volumes"][volume]["name"] == f"{product}_{volume}"
+        for service in ("api", "search-indexer", "search-setup"):
+            environment = config["services"][service]["environment"]
+            assert environment["DEVFEED_SEARCH_COLLECTION_PREFIX"] == product
+        assert config["services"]["default-worker"]["environment"]["DEVFEED_PRODUCT"] == product
+
+
 def check() -> None:
     base = {"POSTGRES_PASSWORD": "a" * 64}
     registry_fixtures = {
         **base,
         "COMPOSE_PROFILES": "ai,notifications,search,mcp",
     }
+    check_product_catalogs(base)
+
     mcp = render({**base, "COMPOSE_PROFILES": "mcp"})["services"]["mcp"]
     assert mcp["ports"][0]["host_ip"] == "127.0.0.1"
     assert mcp["environment"] == {

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from devfeed_aggregator import source_relevance
+from devfeed_core.config import get_settings
 from devfeed_core.feeds.parser import ParsedFeed
 from devfeed_core.source_relevance import SOURCE_SCOPE_POLICY, VERSION
 
@@ -52,3 +53,36 @@ def test_broader_scope_reaches_inference_and_accepts_valid_evidence(monkeypatch,
     assert result["version"] == VERSION == "source-relevance-v5"
     assert result["approval_supported"] is True
     assert result["rejection_supported"] is False
+
+
+def test_hardware_daily_source_assessment_uses_embedded_scope(monkeypatch, request):
+    monkeypatch.setenv("DEVFEED_PRODUCT", "hardwaredaily")
+    get_settings.cache_clear()
+    request.addfinalizer(get_settings.cache_clear)
+    titles = [
+        "Tracing interrupt latency on an embedded Linux board",
+        "Debugging power integrity on a four-layer PCB",
+        "Measuring boot time on a RISC-V microcontroller",
+    ]
+    sample = [{"index": i, "title": title, "summary": ""} for i, title in enumerate(titles)]
+
+    def complete(prompt, schema):
+        assert "Hardware Daily" in prompt and "firmware" in prompt
+        assert SOURCE_SCOPE_POLICY not in prompt
+        assert "untrusted evidence" in prompt
+        return {
+            "relevance": "relevant",
+            "confidence": 0.95,
+            "reason": "Practical embedded engineering.",
+            "entries": [
+                {"index": i, "relevance": "relevant", "evidence": f"e{i}_0"}
+                for i in range(len(sample))
+            ],
+        }
+
+    monkeypatch.setattr(
+        source_relevance, "CodexClient", lambda _: SimpleNamespace(complete=complete)
+    )
+    result = source_relevance.assess_source("https://example.com/feed", "publisher", sample=sample)
+    assert result["product"] == "hardwaredaily"
+    assert result["approval_supported"] is True
