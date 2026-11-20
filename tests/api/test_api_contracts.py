@@ -214,6 +214,7 @@ def test_validation_contract_never_echoes_rejected_values():
             ("/v1/feed/options", "topic"),
             ("/v1/feed/options", "tag"),
             ("/v1/topics", "q"),
+            ("/v1/tags", "q"),
             ("/v1/sources", "q"),
         )
     ]
