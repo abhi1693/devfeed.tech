@@ -29,7 +29,8 @@ def run_migration_context():
                 # installation needs a verified warehouse import for its active quota.
                 context.config.attributes["fresh_database"] = connection.exec_driver_sql(
                     "SELECT NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n "
-                    "ON n.oid=c.relnamespace WHERE n.nspname=current_schema() "
+                    "ON n.oid=c.relnamespace WHERE left(n.nspname, 3) <> 'pg_' "
+                    "AND n.nspname <> 'information_schema' "
                     "AND c.relkind IN ('r','p','f','v','m','S'))"
                 ).scalar_one()
                 context.run_migrations()

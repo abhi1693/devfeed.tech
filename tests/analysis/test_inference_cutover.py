@@ -105,3 +105,28 @@ def test_only_fresh_migration_opens_budget_without_import(
                 session.scalar(text("SELECT count(*) FROM inference_quota_cutover"))
                 == expected_markers
             )
+
+
+@pytest.mark.integration
+def test_empty_first_search_schema_cannot_reset_existing_quota(
+    integration_environment, monkeypatch
+):
+    from alembic import command
+    from alembic.config import Config
+    from devfeed_core.db import get_engine
+    from sqlalchemy import text
+
+    from tests.support.legacy_migrations import database_at_revision
+    from tests.support.paths import REPO_ROOT
+
+    with database_at_revision(monkeypatch, "0041") as factory:
+        engine = get_engine()
+        with engine.begin() as conn:
+            conn.exec_driver_sql("CREATE SCHEMA workspace")
+            database = conn.exec_driver_sql("SELECT current_database()").scalar_one()
+            conn.exec_driver_sql(f'ALTER DATABASE "{database}" SET search_path = workspace,public')
+        engine.dispose()
+        command.upgrade(Config(str(REPO_ROOT / "alembic.ini")), "head")
+        with factory.begin() as session:
+            assert session.scalar(text("SELECT current_schema()")) == "workspace"
+            assert session.scalar(text("SELECT count(*) FROM inference_quota_cutover")) == 0
