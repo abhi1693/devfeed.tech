@@ -7,8 +7,6 @@ response privacy and forwarding, without claiming SQL selection or atomic writes
 import hashlib
 import json
 import uuid
-from datetime import timedelta
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -220,44 +218,16 @@ def suggestion(**changes):
     )
 
 
-class SearchAnalyticsFake:
-    def __init__(self, _client):
-        pass
-
-    async def rank(self, _session, **_kwargs):
-        value = suggestion()
-        return [
-            {
-                "query_hash": value.query_hash,
-                "query": value.query,
-                "status": value.status,
-                "reviewed_at": value.reviewed_at,
-                "review_note": value.review_note,
-                "successful_count": 14,
-                "first_seen_at": NOW - timedelta(days=3),
-                "last_seen_at": NOW - timedelta(minutes=1),
-            }
-        ]
-
-    async def get(self, _digest):
-        return {
-            "successful_count": 14,
-            "first_seen_at": NOW - timedelta(days=3),
-            "last_seen_at": NOW - timedelta(minutes=1),
-        }
-
-
-def test_search_moderation_list_exposes_aggregate_facts_without_reader_identity(monkeypatch):
+def test_search_moderation_list_exposes_postgres_metadata_without_reader_identity():
     current = suggestion()
-    monkeypatch.setattr(search_suggestions, "SearchSuggestionAnalytics", SearchAnalyticsFake)
     with operator_api(search_suggestions) as api:
-        api.app.state.analytics = SimpleNamespace(client=object())
+        api.session.scalars.return_value = [current]
         response = api.client.get(
-            "/v1/admin/search-suggestions", params={"status": "pending", "minimum": 5, "limit": 1}
+            "/v1/admin/search-suggestions", params={"status": "pending", "limit": 1}
         )
         assert response.status_code == 200
         (item,) = response.json()
-        assert item["query_hash"] == current.query_hash and item["successful_count"] == 14
+        assert item["query_hash"] == current.query_hash
         assert item["status"] == "pending" and item["reviewed_at"] is None
         assert set(item) == set(search_suggestions.SearchSuggestionOut.model_fields)
         assert not ({"user_id", "account_id", "session", "ip_address"} & item.keys())
@@ -275,9 +245,7 @@ def test_suggestion_review_uses_authenticated_reviewer_and_saved_response(monkey
 
     apply = Mock(side_effect=review)
     monkeypatch.setattr(search_suggestions, "review_query", apply)
-    monkeypatch.setattr(search_suggestions, "SearchSuggestionAnalytics", SearchAnalyticsFake)
     with operator_api(search_suggestions) as api:
-        api.app.state.analytics = SimpleNamespace(client=object())
         api.session.get.return_value = current
         response = api.client.post(
             f"/v1/admin/search-suggestions/{current.query_hash}/review",
@@ -306,9 +274,7 @@ def test_suggestion_review_boundary_errors_are_safe_and_do_not_commit(
     monkeypatch, error, code, detail
 ):
     monkeypatch.setattr(search_suggestions, "review_query", Mock(side_effect=error))
-    monkeypatch.setattr(search_suggestions, "SearchSuggestionAnalytics", SearchAnalyticsFake)
     with operator_api(search_suggestions) as api:
-        api.app.state.analytics = SimpleNamespace(client=object())
         api.session.get.return_value = suggestion()
         response = api.client.post(
             f"/v1/admin/search-suggestions/{'a' * 64}/review", json={"status": "rejected"}
@@ -375,45 +341,14 @@ def test_empty_ingestion_compatibility_page_is_a_valid_bounded_read_without_fabr
         api.session.commit.assert_not_called()
 
 
-@pytest.mark.parametrize("kind", ["list", "review"])
-def test_moderation_native_outage_returns_safe_retryable_error_without_writing(monkeypatch, kind):
-    from devfeed_core.analytics import AnalyticsUnavailable
-
-    class Unavailable(SearchAnalyticsFake):
-        async def rank(self, *_args, **_kwargs):
-            raise AnalyticsUnavailable("private details")
-
-        async def get(self, *_args, **_kwargs):
-            raise AnalyticsUnavailable("private details")
-
-    monkeypatch.setattr(search_suggestions, "SearchSuggestionAnalytics", Unavailable)
-    with operator_api(search_suggestions) as api:
-        api.app.state.analytics = SimpleNamespace(client=object())
-        api.session.get.return_value = suggestion()
-        if kind == "list":
-            response = api.client.get("/v1/admin/search-suggestions")
-        else:
-            response = api.client.post(
-                f"/v1/admin/search-suggestions/{'a' * 64}/review", json={"status": "approved"}
-            )
-        assert response.status_code == 503 and "private" not in response.text
-        api.session.commit.assert_not_called()
-
-
 @pytest.mark.parametrize("digest,exists,expected", [("bad", True, 422), ("a" * 64, False, 404)])
 def test_suggestion_validation_and_missing_rows_finish_before_native_lookup(
     monkeypatch, digest, exists, expected
 ):
-    from unittest.mock import AsyncMock
-
-    analytics = SimpleNamespace(get=AsyncMock(side_effect=AssertionError("No native read")))
-    monkeypatch.setattr(search_suggestions, "SearchSuggestionAnalytics", lambda _client: analytics)
     with operator_api(search_suggestions) as api:
-        api.app.state.analytics = SimpleNamespace(client=object())
         api.session.get.return_value = suggestion() if exists else None
         response = api.client.post(
             f"/v1/admin/search-suggestions/{digest}/review", json={"status": "approved"}
         )
         assert response.status_code == expected
-        analytics.get.assert_not_called()
         api.session.commit.assert_not_called()
