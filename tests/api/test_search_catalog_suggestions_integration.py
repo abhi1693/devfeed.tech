@@ -39,12 +39,19 @@ def test_search_results_and_public_tag_suggestions_survive_analytics_retirement(
                 original_url=article.canonical_url,
             )
         )
-        tag = Tag(name="C++ SQL", slug="cpp-sql")
-        session.add(tag)
-        session.flush()
-        session.add(ArticleTag(article_id=article.id, tag_id=tag.id))
-        for term in ["c++ sql", "c++ private"]:
-            session.add(SearchQueryStat(query_hash=query_hash(term), query=term, status="approved"))
+        for name, status, public in [
+            ("C++ SQL", "approved", True),
+            ("C++ pending", "pending", True),
+            ("C++ rejected", "rejected", True),
+            ("C++ private", "approved", False),
+        ]:
+            term = name.lower()
+            tag = Tag(name=name, slug=term.replace("c++ ", "cpp-"))
+            session.add(tag)
+            session.flush()
+            if public:
+                session.add(ArticleTag(article_id=article.id, tag_id=tag.id))
+            session.add(SearchQueryStat(query_hash=query_hash(term), query=term, status=status))
         article_id = article.id
 
     def index(*args, **kwargs):

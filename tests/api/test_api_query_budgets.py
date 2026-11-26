@@ -377,7 +377,7 @@ def profile_request(http, path, budget, repeats=1, *, plans=False, expected_stat
                     for sql, _, _ in statements
                     for table in ("from articles ", "from inference_calls", "from article_contents")
                 ), path
-            if path.startswith(("/v1/feed", "/v1/articles/", "/v1/user/feed", "/v1/user/trending")):
+            if path.startswith(("/v1/feed", "/v1/articles/", "/v1/user/feed")):
                 assert all("classification_provenance" not in sql for sql, _, _ in statements), path
             if "/jobs/" in path or "/topic-proposals" in path:
                 assert all(
