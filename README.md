@@ -77,10 +77,10 @@ choose the kind of reading you’re in the mood for.
 DevFeed combines **Next.js and React** with **FastAPI**, **PostgreSQL**, and
 **Redis/RQ**. [Run your own instance with Docker Compose](compose.yaml).
 
-ClickHouse serves historical reports and operator boards. The analytics process
-repairs missed current job/card observations in bounded background pages, and
-boards show the source state verified by its latest completed coverage pass.
-See [analytics delivery and recovery](apps/admin-api/ANALYTICS.md).
+PostgreSQL stores partner reporting history, reader progress and AI usage. Existing
+installations upgrading from ClickHouse must drain old writers and import the
+partner history and active AI budget window before resuming service. See the
+[warehouse cutover instructions](apps/partner-api/HISTORY_CUTOVER.md).
 
 Published article retries preserve the current approval while a private replacement
 is prepared. See [maintenance rollout and recovery review](dev/published-article-maintenance.md)
