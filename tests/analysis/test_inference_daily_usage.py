@@ -71,7 +71,6 @@ def native(read):
 
 
 def test_ambiguous_ack_replay_and_late_running_row_preserve_native_report_totals():
-    from devfeed_core.inference_usage import record_call
 
     async def read(client, store):
         completed = invocation(NOW)
@@ -96,23 +95,6 @@ def test_ambiguous_ack_replay_and_late_running_row_preserve_native_report_totals
             await uncertain.write([completed])  # The real server already ACKed.
         await uncertain.write([completed])
         await store.write([running])  # An older revision may arrive after replay.
-        retrying = LostAck()
-        stopped, ticks = asyncio.Event(), []
-
-        async def heartbeat():
-            while not stopped.is_set():
-                ticks.append(True)
-                await asyncio.sleep(0.005)
-
-        beating = asyncio.create_task(heartbeat())
-        try:
-            await record_call(completed, client=retrying)
-        finally:
-            stopped.set()
-            await beating
-        assert len(ticks) >= 10
-        assert len(retrying.observations) == 2
-        assert retrying.observations[0] == retrying.observations[1]
         rows = await client.query("SELECT * FROM analytics_inference_events FINAL")
         assert len(rows) == 1 and rows[0]["revision"] == 1
         assert rows[0]["status"] == "returned"

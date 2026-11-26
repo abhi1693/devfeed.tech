@@ -421,7 +421,7 @@ Coordinate the switch on every publisher and consumer: stop dispatch during the
 routing change rather than updating only a subset of publishers. Deploy the
 high/default/low consumers with the same configuration and independent replica
 counts; keep Images and solver consumers separate. Carry over PostgreSQL,
-Valkey, ClickHouse, Codex, Chimely and public-fetch network access as required, plus
+Valkey, Codex, Chimely and public-fetch network access as required, plus
 the native worker-health probes and 1,560-second drain grace. This application PR
 does not change live Kubernetes deployments.
 
@@ -473,3 +473,17 @@ queue types. A rollback must drain the new physical queues before restoring an
 older release that cannot consume them; reversing configuration alone can strand
 deliveries. Autoscaling remains a separate change requiring burst and scale-down
 validation.
+
+### Inference accounting cutover
+
+Migration 0042 stores content-free inference observations and relationship-call
+reservations in PostgreSQL. Drain old inference workers, then run
+`python -m devfeed_core.inference_history_import` with the former ClickHouse
+connection and the target application database. The command verifies the legacy
+import checkpoint, copies the active 24-hour window, compares every copied
+observation, and opens count-based admission in one PostgreSQL transaction.
+It can be rerun after interruption. Start the replacement workers after the
+command succeeds. Provider-paced workers continue to follow provider limits and
+must commit each relationship reservation before dispatch. For an entirely new
+installation with no previous inference, initialize the empty window with
+`INSERT INTO inference_quota_cutover VALUES (true,now()) ON CONFLICT DO NOTHING`.
