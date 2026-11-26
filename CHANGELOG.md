@@ -2,6 +2,12 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.2.1 — 2026-11-26
+
+### Enhancements
+
+- Reduce idle CPU for self-hosted Codex by serving health checks from the running bridge. Each check verifies that the upstream server is ready and the private socket accepts connections.
+
 ## 0.2.0 — 2026-11-26
 
 ### Enhancements
