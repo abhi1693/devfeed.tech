@@ -10,7 +10,6 @@ import pytest
 from devfeed_api import partner_tracking as api
 from devfeed_api.dependencies import get_session_factory
 from devfeed_api.main import create_app
-from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.config import Settings, get_settings
 from devfeed_core.models import PartnerPlacementDelivery
 from devfeed_core.partner_claim_backfill import LEGACY_CLAIM_AT
@@ -104,20 +103,6 @@ def tracking_client(monkeypatch):
     app = create_app()
     app.dependency_overrides[get_session_factory] = lambda: lambda: nullcontext(session)
 
-    class Analytics:
-        available = True
-        ready = True
-        rows = []
-
-        async def query(self, _statement, _params):
-            return [{"source": "partner_delivery_events", "complete": int(self.ready)}]
-
-        async def insert(self, _table, rows):
-            self.rows.extend(rows)
-            if not self.available:
-                raise AnalyticsUnavailable("offline")
-
-    app.state.analytics_client = Analytics()
     yield TestClient(app), session
 
 
@@ -223,40 +208,28 @@ def test_retry_after_shared_redis_failure_preserves_the_quota_reservation_identi
     session.commit.assert_called_once_with()
 
 
-def test_retry_after_clickhouse_failure_reuses_the_committed_claim(tracking_client, monkeypatch):
+def test_measurement_failure_rolls_back_claim_and_allows_retry(tracking_client, monkeypatch):
     client, session = tracking_client
-    observed = datetime.now(UTC)
-    record = Mock(side_effect=[DeliveryClaim(observed, True), DeliveryClaim(observed, False)])
-    monkeypatch.setattr(api, "record_delivery_event", record)
-    analytics = client.app.state.analytics_client
-    analytics.available = False
+    stamp = datetime.now(UTC)
+    monkeypatch.setattr(api, "record_delivery_event", Mock(return_value=DeliveryClaim(stamp, True)))
+    session.execute.side_effect = [SQLAlchemyError("offline"), None]
     event = {"kind": "click", "receipt": PartnerTrackingTokens(KEY).issue(uuid.uuid4())}
     assert client.post("/v1/partner-tracking/events", json=event).status_code == 503
-    analytics.available = True
+    session.rollback.assert_called_once()
+    session.commit.assert_not_called()
     assert client.post("/v1/partner-tracking/events", json=event).status_code == 204
-    assert analytics.rows[0] == analytics.rows[1]
-    assert session.commit.call_count == 2
+    session.commit.assert_called_once()
+    assert session.execute.call_args_list[0].args[1] == session.execute.call_args_list[1].args[1]
 
 
 def test_historical_claims_do_not_duplicate_imported_baseline(tracking_client, monkeypatch):
-    client, _ = tracking_client
+    client, session = tracking_client
     monkeypatch.setattr(
         api, "record_delivery_event", Mock(return_value=DeliveryClaim(LEGACY_CLAIM_AT, False))
     )
     event = {"kind": "click", "receipt": PartnerTrackingTokens(KEY).issue(uuid.uuid4())}
     assert client.post("/v1/partner-tracking/events", json=event).status_code == 204
-    assert client.app.state.analytics_client.rows == []
-
-
-def test_claim_import_readiness_is_required_before_writing(tracking_client, monkeypatch):
-    client, session = tracking_client
-    client.app.state.analytics_client.ready = False
-    record = Mock()
-    monkeypatch.setattr(api, "record_delivery_event", record)
-    event = {"kind": "click", "receipt": PartnerTrackingTokens(KEY).issue(uuid.uuid4())}
-    assert client.post("/v1/partner-tracking/events", json=event).status_code == 503
-    record.assert_not_called()
-    session.commit.assert_not_called()
+    session.execute.assert_not_called()
 
 
 def test_unproven_events_and_oversized_bodies_never_reach_storage(tracking_client, monkeypatch):

@@ -5,7 +5,7 @@ from datetime import date, timedelta
 
 from psycopg import Connection
 
-from devfeed_core.analytics import AnalyticsClient
+from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
 from devfeed_core.config import get_settings
 
 COLUMNS = "asset_id,kind,identity,day,revision,impressions,clicks,updated_at"
@@ -17,10 +17,22 @@ ORDER BY owner,kind,identity
 """
 
 
+async def require_partner_history(source: AnalyticsClient) -> None:
+    expected = {"partner_daily_metrics", "partner_tracked_daily_metrics", "partner_delivery_events"}
+    rows = await source.query(
+        "SELECT source,complete FROM analytics_backfill_progress FINAL "
+        "WHERE import_id='direct-v1' AND source IN {sources:Array(String)}",
+        {"sources": sorted(expected)},
+    )
+    if len(rows) != len(expected) or {r["source"] for r in rows if r["complete"] == 1} != expected:
+        raise AnalyticsUnavailable("Partner source history is incomplete")
+
+
 async def import_snapshot(source: AnalyticsClient, destination: Connection) -> int:
     """Verify every source identity and amount before committing the copy."""
     # A single FINAL query gives one source snapshot including concurrent receipt writers.
     # The final pass must start after the last old-version writer has drained.
+    await require_partner_history(source)
     rows = await source.query(SOURCE)
     with destination.transaction(), destination.cursor() as cursor:
         cursor.execute("SET LOCAL TIME ZONE 'UTC'")

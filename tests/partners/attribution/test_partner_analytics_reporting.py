@@ -276,6 +276,7 @@ def test_direct_report_matches_canonical_products_and_format_totals(database, pa
 
 def test_reporting_requires_completed_history_and_claim_import():
     from devfeed_core.analytics import AnalyticsUnavailable
+    from devfeed_core.partner_history_import import require_partner_history
 
     class Checkpoints:
         def __init__(self, names):
@@ -290,14 +291,11 @@ def test_reporting_requires_completed_history_and_claim_import():
             "partner_tracked_daily_metrics",
             "partner_delivery_events",
         }
-        await report.require_partner_history(Checkpoints(complete))
-        await report.require_partner_claims(Checkpoints({"partner_delivery_events"}))
+        await require_partner_history(Checkpoints(complete))
         with pytest.raises(AnalyticsUnavailable):
-            await report.require_partner_history(
-                Checkpoints(complete - {"partner_delivery_events"})
-            )
+            await require_partner_history(Checkpoints(complete - {"partner_delivery_events"}))
         with pytest.raises(AnalyticsUnavailable):
-            await report.require_partner_claims(Checkpoints(set()))
+            await require_partner_history(Checkpoints(set()))
 
     asyncio.run(run())
 
@@ -387,3 +385,42 @@ def test_identical_native_names_and_metrics_use_stable_asset_identity(sort):
         assert [row["id"] for row in result["assets"]] == [uuid.UUID(int=1), uuid.UUID(int=2)]
 
     asyncio.run(run())
+
+
+@pytest.mark.integration
+def test_partner_history_copy_is_replayable_and_rejects_a_conflicting_snapshot(database):
+    from devfeed_core.partner_history_import import import_snapshot
+    from sqlalchemy import text
+
+    identity = str(uuid.uuid4())
+    observation = dict(
+        owner=identity,
+        kind="partner_baseline",
+        identity="42",
+        day=42,
+        revision=9,
+        impressions=23,
+        clicks=2,
+        updated_at="2026-01-01 00:00:00",
+    )
+
+    class Source:
+        async def query(self, _statement, parameters=None):
+            if parameters is not None:
+                return [{"source": name, "complete": 1} for name in parameters["sources"]]
+            return [observation]
+
+    with database() as session:
+        conn = session.connection().connection.driver_connection
+        for _ in range(2):
+            assert asyncio.run(import_snapshot(Source(), conn)) == 1
+        observation["impressions"] = 24
+        with pytest.raises(ValueError, match="differs"):
+            asyncio.run(import_snapshot(Source(), conn))
+        assert session.execute(
+            text(
+                "SELECT count(*),sum(impressions),sum(clicks) FROM partner_observations "
+                "WHERE asset_id=:asset"
+            ),
+            {"asset": identity},
+        ).one() == (1, 23, 2)
