@@ -1,4 +1,4 @@
-"""Direct ClickHouse metrics preserve partner reporting scope and ordering."""
+"""Partner measurements preserve partner reporting scope and ordering."""
 
 import asyncio
 import uuid
@@ -444,3 +444,59 @@ def test_partner_history_copy_is_replayable_and_rejects_a_conflicting_snapshot(d
             ),
             {"asset": identity},
         ).one() == (2, 24, 2)
+
+
+def test_partner_snapshot_copies_original_identity_and_aborts_on_verification_failure():
+    from unittest.mock import AsyncMock, MagicMock
+
+    from devfeed_core.partner_history_import import import_snapshot
+
+    asset_id = str(uuid.uuid4())
+    stamp = "2026-01-01 10:00:00.000001"
+    row = dict(
+        owner=asset_id,
+        kind="partner_baseline",
+        identity="1",
+        day=1,
+        revision=2**64 - 1,
+        impressions=12,
+        clicks=1,
+        updated_at=stamp,
+    )
+    source = AsyncMock()
+    source.query.side_effect = [
+        [
+            {"source": name, "complete": 1}
+            for name in (
+                "partner_daily_metrics",
+                "partner_tracked_daily_metrics",
+                "partner_delivery_events",
+            )
+        ],
+        [row],
+    ]
+    destination = MagicMock()
+    cursor = destination.cursor.return_value.__enter__.return_value
+    cursor.fetchone.return_value = (True,)
+    with pytest.raises(ValueError, match="differs from the destination"):
+        asyncio.run(import_snapshot(source, destination))
+    copy = cursor.copy.return_value.__enter__.return_value
+    copy.write_row.assert_called_once_with(
+        (asset_id, "partner_baseline", "1", datetime(1970, 1, 2).date(), 2**64 - 1, 12, 1, stamp)
+    )
+    assert destination.transaction.return_value.__exit__.call_args.args[0] is ValueError
+
+
+def test_partner_checkpoint_failure_leaves_destination_untouched():
+    from unittest.mock import AsyncMock, MagicMock
+
+    from devfeed_core.analytics import AnalyticsUnavailable
+    from devfeed_core.partner_history_import import import_snapshot
+
+    source = AsyncMock()
+    source.query.return_value = []
+    destination = MagicMock()
+    with pytest.raises(AnalyticsUnavailable, match="incomplete"):
+        asyncio.run(import_snapshot(source, destination))
+    destination.transaction.assert_not_called()
+    assert source.query.await_count == 1
