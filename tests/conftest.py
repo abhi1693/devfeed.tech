@@ -181,16 +181,17 @@ def database(integration_environment, monkeypatch, rss_bytes):
     get_redis.cache_clear()
     # Only the explicitly configured, name-checked test database is modified.
     with get_engine().begin() as connection:
-        # Direct analytics are stored in ClickHouse; source fixtures have no
-        # PostgreSQL capture queues, leases, cursors or reporting snapshots.
         present = set(
             connection.execute(
                 text("SELECT tablename FROM pg_tables WHERE schemaname='public'")
             ).scalars()
         )
-        names = ", ".join(
-            f'"{table.name}"' for table in Base.metadata.sorted_tables if table.name in present
+        managed = {table.name for table in Base.metadata.sorted_tables}
+        # These Alembic-managed tables use SQL directly, without ORM models.
+        managed.update(
+            {"partner_observations", "inference_usage_ledger", "inference_quota_cutover"}
         )
+        names = ", ".join(f'"{name}"' for name in sorted(present & managed))
         connection.execute(text(f"TRUNCATE TABLE {names} CASCADE"))
         # Migration 0037 creates durable cadence rows. Restore their initial
         # state after truncation, as a newly provisioned database would have.
