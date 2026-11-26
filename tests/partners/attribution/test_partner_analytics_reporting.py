@@ -389,10 +389,30 @@ def test_identical_native_names_and_metrics_use_stable_asset_identity(sort):
 
 @pytest.mark.integration
 def test_partner_history_copy_is_replayable_and_rejects_a_conflicting_snapshot(database):
+    from devfeed_core.models import PartnerAccount, PartnerAsset, PartnerPlacementDelivery
+    from devfeed_core.partner_claim_backfill import LEGACY_CLAIM_AT
     from devfeed_core.partner_history_import import import_snapshot
     from sqlalchemy import text
 
-    identity = str(uuid.uuid4())
+    delivery_id = uuid.uuid4()
+    with database.begin() as session:
+        account = PartnerAccount(name="Cutover partner", tier="gold", status="active")
+        session.add(account)
+        session.flush()
+        asset = PartnerAsset(account_id=account.id, name="Asset", kind="ad", status="active")
+        session.add(asset)
+        session.flush()
+        identity = str(asset.id)
+        stamp = datetime(2026, 1, 2, tzinfo=UTC)
+        session.add(
+            PartnerPlacementDelivery(
+                delivery_id=delivery_id,
+                asset_id=asset.id,
+                issued_at=stamp,
+                impression_recorded_at=stamp,
+                click_recorded_at=LEGACY_CLAIM_AT,
+            )
+        )
     observation = dict(
         owner=identity,
         kind="partner_baseline",
@@ -423,4 +443,4 @@ def test_partner_history_copy_is_replayable_and_rejects_a_conflicting_snapshot(d
                 "WHERE asset_id=:asset"
             ),
             {"asset": identity},
-        ).one() == (1, 23, 2)
+        ).one() == (2, 24, 2)

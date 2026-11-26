@@ -7,6 +7,7 @@ from psycopg import Connection
 
 from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
 from devfeed_core.config import get_settings
+from devfeed_core.partner_claim_backfill import LEGACY_CLAIM_AT
 
 COLUMNS = "asset_id,kind,identity,day,revision,impressions,clicks,updated_at"
 SOURCE = """
@@ -68,6 +69,22 @@ async def import_snapshot(source: AnalyticsClient, destination: Connection) -> i
         """)
         if cursor.fetchone() != (False,):
             raise ValueError("Partner snapshot differs from the destination")
+        # The old collector committed the claim before publishing its warehouse event.
+        cursor.execute(
+            """
+            INSERT INTO partner_observations
+                (asset_id,kind,identity,day,revision,impressions,clicks,updated_at)
+            SELECT d.asset_id, 'partner_event', d.delivery_id::text || ':' || claim.kind,
+                   (d.issued_at AT TIME ZONE 'UTC')::date, 0,
+                   (claim.kind='impression')::int, (claim.kind='click')::int, claim.stamp
+            FROM partner_placement_deliveries d
+            CROSS JOIN LATERAL (VALUES ('impression',d.impression_recorded_at),
+                                       ('click',d.click_recorded_at)) claim(kind,stamp)
+            WHERE claim.stamp IS NOT NULL AND claim.stamp <> %s
+            ON CONFLICT (asset_id,kind,identity) DO NOTHING
+            """,
+            (LEGACY_CLAIM_AT,),
+        )
     return len(rows)
 
 
