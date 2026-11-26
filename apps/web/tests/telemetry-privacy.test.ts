@@ -7,7 +7,6 @@ it.each([
   "/register",
   "/search",
   "/articles",
-  "/trending",
   "/read-later",
   "/latest",
   "/sources",

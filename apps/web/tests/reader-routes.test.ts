@@ -74,7 +74,6 @@ describe("privacy-safe reader route labels", () => {
     ["/latest", "/latest", "/latest"],
     ["/search", "/search", "/search"],
     ["/read-later", "/read-later", "/read-later"],
-    ["/trending", "/trending", "/trending"],
     ["/topics", "/topics", "/topics"],
     ["/sources", "/sources", "/sources"],
     ["/sources/suggest", "/sources/suggest", "/sources/suggest"],

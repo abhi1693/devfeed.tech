@@ -69,7 +69,6 @@ it("tracks every supported semantic screen without retaining route identities or
       .map(([, init]) => JSON.parse(String(init?.body)));
   await vi.waitFor(() => expect(sent()).toHaveLength(1));
   for (const [route, screen] of [
-    ["/trending", "/trending"],
     ["/dev-card", "/dev-card"],
     ["/mcp", "/mcp"],
     ["/mcp/authorize?client_id=private-client&state=private-state", "/mcp/authorize"],

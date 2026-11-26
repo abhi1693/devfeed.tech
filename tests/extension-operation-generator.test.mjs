@@ -464,9 +464,9 @@ test("repository registry exposes exactly the declared private and public adapte
     ),
   );
   const plan = await extensionOperationPlan(input, declaration);
-  assert.equal(plan.privateOperations.length, 68);
-  assert.equal(plan.publicOperations.length, 16);
-  assert.equal(plan.privateOperations.length + plan.publicOperations.length, 84);
+  assert.equal(plan.privateOperations.length, 65);
+  assert.equal(plan.publicOperations.length, 14);
+  assert.equal(plan.privateOperations.length + plan.publicOperations.length, 79);
   const settingsPaths = new Set([
     "/api/v1/user/settings/columns",
     "/api/v1/user/settings/columns/starters",

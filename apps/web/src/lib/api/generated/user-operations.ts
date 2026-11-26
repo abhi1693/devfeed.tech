@@ -450,25 +450,6 @@ export const userGatewayOperations = {
       },
     },
   },
-  ["trending_v1_user_trending_get"]: {
-    operationId: "trending_v1_user_trending_get",
-    method: "GET",
-    path: "/v1/user/trending",
-    parameters: [],
-    policy: {
-      bodyLimit: 1000000,
-      bodyTimeoutMs: 2000,
-      upstreamTimeoutMs: 45000,
-      cookiePolicy: "reader",
-      handler: "forward",
-      extension: {
-        credentials: "include",
-        cacheControl: null,
-        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
-        timeoutMs: 15000,
-      },
-    },
-  },
   ["bookmark_v1_user_articles__article_id__bookmark_put"]: {
     operationId: "bookmark_v1_user_articles__article_id__bookmark_put",
     method: "PUT",

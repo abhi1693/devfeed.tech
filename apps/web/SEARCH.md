@@ -23,7 +23,6 @@ result, indexing, or a particular search snippet.
 | `/mcp` | `WebPage`, `BreadcrumbList` | Breadcrumb. Setup instructions do not make this a software listing or educational course. |
 | `/users/{username}` | Site identity only; existing social metadata and `noindex, follow` | ProfilePage deferred. Keep profiles out of search and the sitemap. Visibility-filtered public sharing does not imply consent to search indexing. |
 | `/dev-card` | Site identity only | Card creation is a utility, not a creator profile or gallery feature. |
-| `/trending` | Site identity only; existing noindex policy | No ranking, review, or rating feature. Reading statistics are not product reviews. |
 | Search, settings, read-later, personal feeds, login, consent, source suggestion, extension completion | No new feature graph; existing authentication/noindex controls | Not search-feature targets. An account endpoint is never a source of public profile markup. |
 | API, Markdown, images, sitemap XML, browser extension documents | No HTML feature graph added | Representations and application surfaces, not separate indexable rich-result pages. Chrome and Edge keep the shared reader behavior. |
 

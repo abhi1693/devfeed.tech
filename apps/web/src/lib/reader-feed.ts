@@ -1,7 +1,7 @@
 import { parseFilters, type ContentType, type FeedFilters, type SearchParams } from "./feed-query";
 import type { PlacementQuery } from "./partner-placements";
 
-export type FeedMode = "latest" | "personal" | "bookmarks" | "search" | "trending";
+export type FeedMode = "latest" | "personal" | "bookmarks" | "search";
 export type FeedDescriptor = {
   readonly mode: FeedMode;
   readonly guestMode?: "latest";
@@ -18,7 +18,6 @@ export const readerFeeds = {
   contextual: { mode: "latest", capabilities: contextualCapabilities },
   search: { mode: "search", capabilities: contextualCapabilities },
   bookmarks: { mode: "bookmarks", capabilities: noPlacements },
-  trending: { mode: "trending", capabilities: noPlacements },
 } as const satisfies Record<string, FeedDescriptor>;
 
 /** Contextual links must show the selected articles even on a main feed route. */

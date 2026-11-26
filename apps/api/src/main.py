@@ -6,7 +6,6 @@ from devfeed_core.db import database_revision
 from devfeed_core.feeds.validation import FeedValidationError
 from devfeed_core.logging import configure_logging
 from devfeed_core.version import SCHEMA_REVISION, __version__
-from devfeed_http.analytics import analytics_resources
 from devfeed_http.route_policies import RouteRuntimePolicy, install_runtime_policies
 from devfeed_http.schemas import (
     ERROR_RESPONSES,
@@ -39,7 +38,7 @@ def close_clients() -> None:
     close_shared_clients(get_redis, get_rate_limit_redis)
 
 
-service = HTTPService("api", logger, lambda: close_clients(), resources=analytics_resources)
+service = HTTPService("api", logger, lambda: close_clients())
 lifespan = service.lifespan
 
 

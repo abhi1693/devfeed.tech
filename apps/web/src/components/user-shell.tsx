@@ -25,7 +25,6 @@ type ReaderSection =
   | "account"
   | "personal"
   | "bookmarks"
-  | "trending"
   | "search"
   | "legal"
   | "mcp";
@@ -38,7 +37,6 @@ const promptPolicies: Record<ReaderSection, ReaderPromptEligibility> = {
   account: readerPromptPolicies.quiet,
   personal: readerPromptPolicies.browsing,
   bookmarks: readerPromptPolicies.browsing,
-  trending: readerPromptPolicies.browsing,
   search: readerPromptPolicies.browsing,
   legal: readerPromptPolicies.quiet,
   mcp: readerPromptPolicies.quiet,

@@ -74,7 +74,6 @@ export const extensionGatewayOperations = [
     ...userGatewayOperations["opened_v1_user_articles__article_id__open_post"],
     path: "/api/v1/user/articles/{article_id}/open",
   },
-  { ...userGatewayOperations["trending_v1_user_trending_get"], path: "/api/v1/user/trending" },
   {
     ...userGatewayOperations["bookmark_v1_user_articles__article_id__bookmark_put"],
     path: "/api/v1/user/articles/{article_id}/bookmark",
@@ -453,23 +452,6 @@ export const extensionGatewayOperations = [
         credentials: "omit",
         cacheControl: "no-store",
         requestHeaders: [],
-        timeoutMs: 15000,
-      },
-    },
-  },
-  {
-    operationId: "readerSearchClick",
-    method: "POST",
-    path: "/api/v1/search/analytics/click",
-    parameters: [],
-    policy: {
-      bodyLimit: 4096,
-      bodyTimeoutMs: 2000,
-      upstreamTimeoutMs: 1500,
-      extension: {
-        credentials: "include",
-        cacheControl: "no-store",
-        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
         timeoutMs: 15000,
       },
     },

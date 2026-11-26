@@ -111,7 +111,6 @@ function fixtureServer(fixture, origin) {
   const feed = { items, next_cursor: null };
   const bodies = new Map([
     ["/v1/feed", feed],
-    ["/v1/user/trending", feed],
     ...items.map((item) => [`/v1/articles/${item.slug}`, item]),
     ["/v1/feed/options", { sources, content_types: ["tutorial"], languages: ["en"] }],
     ["/v1/topics", topics],

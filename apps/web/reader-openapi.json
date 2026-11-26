@@ -1972,17 +1972,6 @@
       },
       "SearchHit": {
         "properties": {
-          "click_token": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Click Token"
-          },
           "description": {
             "title": "Description",
             "type": "string"
@@ -8465,83 +8454,6 @@
         "summary": "Preview",
         "tags": [
           "source-suggestions"
-        ]
-      }
-    },
-    "/api/v1/user/trending": {
-      "get": {
-        "operationId": "trending_v1_user_trending_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 24,
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "maximum": 1000000,
-              "minimum": 0,
-              "title": "Cursor",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FeedPage"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed"
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Invalid or unauthorized request"
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service or dependency unavailable"
-          }
-        },
-        "summary": "Trending",
-        "tags": [
-          "article-engagement"
         ]
       }
     }

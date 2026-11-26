@@ -470,8 +470,6 @@ async function withAuthenticatedReader(t, check, { hasTouch = false } = {}) {
           bookmarked: !!authenticated && state.bookmarked,
         },
       ]);
-    if (url.pathname === "/api/v1/user/trending")
-      return send({ items: [article], next_cursor: null });
     if (!authenticated) return send({}, 401);
     if (url.pathname.startsWith("/api/v1/user/must-reads"))
       return send(await mustReadsFixture.response(url.pathname.endsWith("/presentation")));
@@ -1066,7 +1064,7 @@ test("article layouts save in Appearance for guests and members", { timeout: 180
         {
           signedIn,
           routes: [
-            readerRouteUrl(target, "/trending"),
+            readerRouteUrl(target, "/news"),
             ...(signedIn ? [readerRouteUrl(target, "/read-later")] : []),
           ],
         },

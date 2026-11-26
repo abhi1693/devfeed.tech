@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Annotated, TypedDict
 
-from devfeed_core.analytics import AnalyticsClient
-from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
 from devfeed_core.models import (
     Article,
     ArticleBookmark,
@@ -17,9 +15,7 @@ from devfeed_core.models import (
 )
 from devfeed_core.publication import visible_article
 from devfeed_core.reading_streaks import record_reading_day
-from devfeed_core.schemas import FeedPage
 from devfeed_http.agent_permissions import AgentAccessPolicy
-from devfeed_http.analytics import analytics_client
 from devfeed_http.dependencies import run_database
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
@@ -30,9 +26,8 @@ from sqlalchemy.orm import Session
 from devfeed_user_api import oidc
 from devfeed_user_api.auth import TOKEN, User, UserIdentity, require_user
 from devfeed_user_api.config import get_settings
-from devfeed_user_api.dependencies import DBFactory, ReadDBFactory
+from devfeed_user_api.dependencies import DBFactory
 from devfeed_user_api.open_limits import limit_open_requests
-from devfeed_user_api.trending import trending_page
 
 router = APIRouter(prefix="/v1/user", tags=["article-engagement"])
 
@@ -54,7 +49,6 @@ def optional_user(request: Request) -> UserIdentity | None:
 
 
 Viewer = Annotated[UserIdentity | None, Depends(optional_user)]
-ClickHouse = Annotated[AnalyticsClient, Depends(analytics_client)]
 
 
 class EngagementRow(TypedDict):
@@ -198,17 +192,3 @@ async def opened(
     await run_database(factory, _record_reading_day, viewer, article_id, utcnow())
     rows = await run_database(factory, engagement_rows, [article_id], viewer)
     return EngagementOut(**rows[0])
-
-
-@router.get("/trending", response_model=FeedPage)
-async def trending(
-    factory: ReadDBFactory,
-    client: ClickHouse,
-    limit: int = Query(24, ge=1, le=100),
-    cursor: int = Query(0, ge=0, le=1_000_000),
-) -> FeedPage:
-    analytics = ArticleOpenAnalytics(client)
-    await analytics.cutover()
-    return await trending_page(
-        factory, analytics, since=utcnow() - timedelta(days=7), limit=limit, cursor=cursor
-    )

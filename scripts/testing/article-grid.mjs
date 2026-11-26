@@ -22,8 +22,6 @@ export async function checkArticleGrid(page, output) {
       clone.querySelectorAll(".article-engagement .heart-button").forEach((button) => {
         if (button.lastChild?.nodeType === Node.TEXT_NODE) button.lastChild.textContent = "999.9K";
       });
-      const opens = clone.querySelector(".open-count");
-      if (opens?.lastChild?.nodeType === Node.TEXT_NODE) opens.lastChild.textContent = "999.9K";
       grid.append(clone);
     }
     window.__gridOriginal = {

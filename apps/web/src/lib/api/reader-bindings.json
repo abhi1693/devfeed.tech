@@ -234,24 +234,6 @@
       }
     },
     {
-      "operationId": "readerSearchClick",
-      "routeFile": "v1/search/analytics/click/route.ts",
-      "method": "POST",
-      "parameters": [],
-      "backendOperations": ["successful_click_v1_search_analytics_click_post"],
-      "policy": {
-        "bodyLimit": 4096,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 1500,
-        "extension": {
-          "credentials": "include",
-          "cacheControl": "no-store",
-          "requestHeaders": ["Content-Type", "X-CSRF-Token", "If-None-Match"],
-          "timeoutMs": 15000
-        }
-      }
-    },
-    {
       "operationId": "readerPartnerPlacements",
       "routeFile": "v1/partner-placements/query/route.ts",
       "method": "POST",

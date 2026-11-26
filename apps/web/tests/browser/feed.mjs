@@ -143,7 +143,6 @@ import {
   checkSearchInfiniteScroll,
   checkSearchSecurity,
   searchSecurityQuery,
-  searchSecurityEvent,
 } from "../../../../scripts/testing/search-filters.mjs";
 import {
   withManagedImage,
@@ -774,7 +773,6 @@ async function createReaderFixture(
       }
       body = { topic_ids: savedTopicIds };
     } else if (path === "/v1/user/source-preferences") body = { source_ids: [] };
-    else if (path === "/v1/user/trending") body = { items: [article], next_cursor: null };
     else if (path === "/v1/user/bookmarks") body = { items: [], next_cursor: null };
     else if (path === "/v1/user/feed") {
       body = mode.startsWith("onboarding")
@@ -842,7 +840,7 @@ async function createReaderFixture(
     if (
       compactArticles &&
       Array.isArray(body?.items) &&
-      ["/v1/feed", "/v1/user/feed", "/v1/user/trending"].includes(path)
+      ["/v1/feed", "/v1/user/feed"].includes(path)
     )
       body = { ...body, items: body.items.map(compactListArticle) };
     if (stackedFeed && path === "/v1/feed")
@@ -1001,7 +999,7 @@ async function createReaderFixture(
       page,
       `${origin}/latest`,
       `${root}/reports/reader-feed/article-view`,
-      [`${origin}/topics/${topic.slug}`, `${origin}/sources/${source.slug}`, `${origin}/trending`],
+      [`${origin}/topics/${topic.slug}`, `${origin}/sources/${source.slug}`, `${origin}/news`],
       {
         fixture: (active) => {
           compactArticles = active;
@@ -1285,7 +1283,7 @@ async function createReaderFixture(
       `${origin}/search?${new URLSearchParams({ q: searchSecurityQuery })}`,
       { relayClick: true },
     );
-    assert.deepEqual(searchClicks.slice(clicksBeforeSecurity), [searchSecurityEvent]);
+    assert.deepEqual(searchClicks.slice(clicksBeforeSecurity), []);
     const edgeContext = await browser.newContext({
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
@@ -2328,7 +2326,7 @@ test(
             routes: [
               `${origin}/topics/typescript`,
               `${origin}/sources/example-source`,
-              `${origin}/trending`,
+              `${origin}/news`,
             ],
           },
         );

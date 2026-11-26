@@ -112,7 +112,7 @@ and the toggle remains usable when local storage is blocked.
 Choose **Grid**, **List**, **Stacked**, or **Columns** in **Settings → Appearance → Article feed layout**.
 Signed-in readers open **Appearance** from their avatar menu.
 Saved changes are confirmed with a toast.
-My feed, Latest, Trending, Read later, and individual topic, tag, and source feeds
+My feed, Latest, Read later, and individual topic, tag, and source feeds
 each save their own layout. Columns is available only on My feed for signed-in readers.
 Guests retain layouts in the browser; signed-in readers reuse their account's saved choices.
 Feed settings manage content types
@@ -189,7 +189,7 @@ Reader pages must not exhaust a catalog or feed to render the first screen. The 
 | Latest and filtered feeds           | One feed page, bounded topic suggestions, and filter options                                       | Feed cursor requests on scroll                                                        |
 | Topic/source detail feeds           | Direct item lookup, then one feed page and bounded supporting reads                                | Feed cursor requests on scroll; extensions never scan directories to resolve a slug   |
 | Article preview                     | One article lookup and its featured topic lookup                                                   | No catalog pagination; extension cached-article fallback uses one direct topic lookup |
-| My feed / Read later / Trending     | One feed page                                                                                      | Cursor requests on scroll; My feed refreshes its first page when active               |
+| My feed / Read later     | One feed page                                                                                      | Cursor requests on scroll; My feed refreshes its first page when active               |
 | Search                              | One search response                                                                                | Independent section cursors on scroll                                                 |
 | Public Markdown catalog/feed routes | One bounded page                                                                                   | Next-page links, without draining catalogs                                            |
 
@@ -458,7 +458,7 @@ OAuth ingress routes and user-service/Redis configuration.
 ### Article views
 
 Choose Grid, List, Stacked, or Columns in **Settings → Appearance → Article feed layout**.
-The same choice applies to My feed, Latest, topic/source/tag feeds, Trending, and
+The same choice applies to My feed, Latest, topic/source/tag feeds, and
 Read later. Grid is the default. Guests keep their choice in this browser, and
 signed-in readers save it to the existing feed preference for their account.
 Content and language selections stay unchanged. Failed saves restore the previous
@@ -481,7 +481,7 @@ accent on hover/focus; the cue moves beneath the copy on narrow feeds.
 
 Each article feed saves its own layout. Use the layout menu on a feed, or choose a feed
 in Appearance before selecting Grid, List, Stacked, or the eligible My feed Columns layout.
-My feed, Latest, Trending, Read later, content-type feeds, and each topic, source, and tag
+My feed, Latest, Read later, content-type feeds, and each topic, source, and tag
 retain separate choices. Catalog feeds use stable IDs, so aliases and content tabs share
 that catalog feed's layout; pagination and sorting do not create more preferences.
 The unified discovery search results retain their own presentation.
@@ -1055,3 +1055,5 @@ regenerate `reader-openapi.json` along with the existing gateway contracts. Regr
 tests check freshness, concrete route existence, response wrappers, and account security.
 After deployment, verify the catalog and both linked resources over public HTTPS and
 run the agent-readiness scan; local validation does not confirm CDN behavior.
+
+Public search suggestions show approved terms that match a tag on a visible article. The reader uses Typesense for search and PostgreSQL to verify catalog visibility.

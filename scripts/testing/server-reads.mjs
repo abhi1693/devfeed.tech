@@ -89,16 +89,6 @@ export async function checkServerReads(page, destination, fixture, output, optio
   await page.locator(".article-card").first().waitFor();
   assertPublic(matching(fixture, "/v1/feed"), options.publicOrigin);
 
-  fixture.requests.length = 0;
-  await page.goto(destination("/trending"));
-  await page.locator(".article-card").first().waitFor();
-  assertPrivate(
-    matching(fixture, "/v1/user/trending"),
-    options.userOrigin,
-    undefined,
-    options.extension,
-  );
-  await page.screenshot({ path: `${output}/trending.png`, animations: "disabled" });
   if (options.extension) {
     await page.context().addCookies([
       {

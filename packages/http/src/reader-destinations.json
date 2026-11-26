@@ -211,21 +211,6 @@
       }
     },
     {
-      "id": "trending",
-      "segments": ["trending"],
-      "query": "cursor",
-      "login": true,
-      "embedded": true,
-      "navigation": {
-        "type": "reader",
-        "feed": "trending"
-      },
-      "labels": {
-        "telemetry": "/trending",
-        "screen": "/trending"
-      }
-    },
-    {
       "id": "tags",
       "segments": ["tags"],
       "sitemap": {

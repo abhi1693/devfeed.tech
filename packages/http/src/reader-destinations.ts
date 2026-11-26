@@ -25,7 +25,7 @@ export type ReaderNavigationDefinition =
     }
   | ({
       type: "reader";
-      feed: "home" | "latest" | "search" | "bookmarks" | "trending" | "contextual";
+      feed: "home" | "latest" | "search" | "bookmarks" | "contextual";
       contentTypeParameter?: string;
     } & (
       | { collection?: undefined }

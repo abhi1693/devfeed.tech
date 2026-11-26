@@ -34,8 +34,9 @@ const { resolveReaderRoute } = await bundled("../../web/src/lib/reader-routes.ts
 const { articleDestination, pageDestination } = await bundled(
   "../../web/src/lib/reader-destination.ts",
 );
-const { parseFilters, searchParamsFromUrl, feedParams, feedHref, trendingFeedParams } =
-  await bundled("../../web/src/lib/feed-query.ts");
+const { parseFilters, searchParamsFromUrl, feedParams, feedHref } = await bundled(
+  "../../web/src/lib/feed-query.ts",
+);
 const { readerFeeds, resolveFeed } = await bundled("../../web/src/lib/reader-feed.ts");
 
 test("extension guest home and Latest default to All without an implicit API content type", () => {
@@ -65,7 +66,6 @@ test("extension feed dispatch follows descriptor modes across session changes", 
     ["/sources/devfeed", "latest", "latest"],
     ["/search", "search", "search"],
     ["/read-later", "bookmarks", "bookmarks"],
-    ["/trending", "trending", "trending"],
   ]) {
     const route = resolveReaderRoute(path);
     assert.equal(route.type, "reader");
@@ -76,25 +76,6 @@ test("extension feed dispatch follows descriptor modes across session changes", 
       const result = resolveFeed(route.feed, {}, authenticated, route.contentType);
       assert.equal(result.mode, expected, `${path}: authenticated=${authenticated}`);
     }
-  }
-});
-
-test("Trending route filters omit the first-page cursor and preserve later offsets", () => {
-  for (const [query, expectedQuery] of [
-    ["", "limit=24"],
-    ["cursor=", "limit=24"],
-    ["cursor=0", "limit=24&cursor=0"],
-    ["cursor=24", "limit=24&cursor=24"],
-    ["cursor=24%26limit%3D1000", "limit=24&cursor=24%26limit%3D1000"],
-  ]) {
-    const result = resolveFeed(
-      readerFeeds.trending,
-      searchParamsFromUrl(new URLSearchParams(query)),
-      false,
-    );
-    assert.equal(result.mode, "trending");
-    const params = trendingFeedParams(result.filters.cursor);
-    assert.equal(params.toString(), expectedQuery);
   }
 });
 
@@ -141,7 +122,6 @@ test("extension Articles remains explicit and All clears the type without losing
 
 test("one route registry classifies every extension-owned page", () => {
   const route = (pathname) => JSON.stringify(resolveReaderRoute(pathname));
-  assert.equal(route("/trending"), JSON.stringify({ type: "reader", feed: readerFeeds.trending }));
   assert.equal(route("/mcp/authorize"), JSON.stringify({ type: "local", page: "mcp-authorize" }));
   assert.equal(route("/mcp"), JSON.stringify({ type: "local", page: "mcp" }));
   assert.equal(route("/dev-card"), JSON.stringify({ type: "local", page: "dev-card" }));
@@ -259,7 +239,6 @@ test("article previews retain reader background identity and query filters", () 
     ["/latest?cursor=next&content_type=news", "latest"],
     ["/search?q=rust", "search"],
     ["/read-later?cursor=next", "bookmarks"],
-    ["/trending", "trending"],
   ]) {
     const background = pageDestination(route);
     assert.equal(background.href, route);
@@ -399,7 +378,7 @@ test("network failures and HTTP errors remain visible to the reader retry contro
   await assert.rejects(offline("/api/v1/feed"), /Offline/);
 });
 
-test("search click analytics remains an allowed public write", async () => {
+test("retired search analytics never reaches the network", async () => {
   const calls = [];
   const request = new ExtensionReaderTransport(async (...args) => {
     calls.push(args);
@@ -410,12 +389,8 @@ test("search click analytics remains an allowed public write", async () => {
     headers: { "Content-Type": "application/json", Authorization: "secret" },
     body: JSON.stringify({ query: "python", result_id: "article-1" }),
   });
-  assert.equal(response.status, 204);
-  const [url, init] = calls[0];
-  assert.equal(url, "https://devfeed.tech/api/v1/search/analytics/click");
-  assert.equal(init.method, "POST");
-  assert.equal(init.headers.get("content-type"), "application/json");
-  assert.equal(init.headers.has("authorization"), false);
+  assert.equal(response.status, 403);
+  assert.equal(calls.length, 0);
   assert.equal((await request("/api/v1/search/analytics/click", { method: "PUT" })).status, 403);
   assert.equal(
     (await request("/api/v1/search/analytics/impression", { method: "POST" })).status,

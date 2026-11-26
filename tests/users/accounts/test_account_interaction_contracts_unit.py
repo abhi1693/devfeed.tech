@@ -9,7 +9,7 @@ import uuid
 from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock
 
 import pytest
 from devfeed_user_api import bookmarks, dependencies, engagement, oidc, open_limits
@@ -44,7 +44,7 @@ class FakeAnalyticsClient:
                 }
             ]
         if "analytics_article_open_baseline" in statement:
-            return [{"article_id": str(identity), "opens": 4} for identity in parameters["ids"]]
+            return [{"article_id": str(identity)} for identity in parameters["ids"]]
         return []
 
     async def insert(self, table, rows):
@@ -328,49 +328,24 @@ def test_engagement_projection_returns_counts_and_owned_flags_without_personal_i
         api.session.execute.return_value.mappings.return_value = [selected]
         response = api.client.get("/v1/user/engagement", params={"article_id": str(identifier)})
         assert response.status_code == 200
-        assert response.json() == [{**selected, "article_id": str(identifier), "opens": 4}]
+        assert response.json() == [{**selected, "article_id": str(identifier)}]
         assert set(response.json()[0]) == set(engagement.EngagementOut.model_fields)
         api.session.execute.assert_called_once()
         api.session.commit.assert_not_called()
         api.session.add.assert_not_called()
 
 
-@pytest.mark.parametrize(
-    "offset,empty,next_cursor",
-    [(0, False, "1"), (999999, False, "1000000"), (1000000, False, None), (0, True, None)],
-)
-def test_trending_lookahead_returns_only_the_requested_page_and_stops_at_the_supported_cursor_bound(
-    stories, offset, empty, next_cursor
-):
-    from devfeed_core.schemas import ArticleOut, FeedPage
-
-    page = FeedPage(
-        items=[] if empty else ArticleOut.from_articles([stories[0]]),
-        next_cursor=str(offset + 1) if not empty and offset < 1_000_000 else None,
-    )
-    with (
-        read_api() as api,
-        patch.object(engagement, "trending_page", AsyncMock(return_value=page)) as ranked,
-    ):
-        response = api.client.get("/v1/user/trending", params={"cursor": offset, "limit": 1})
-        assert response.status_code == 200, response.text
-        output = response.json()
-        assert [item["id"] for item in output["items"]] == ([] if empty else [str(stories[0].id)])
-        assert output["next_cursor"] == next_cursor
-        if not empty:
-            assert "classification_provenance" not in output["items"][0]
-        ranked.assert_awaited_once()
-        api.session.commit.assert_not_called()
+def test_trending_route_is_retired():
+    with read_api() as api:
+        assert api.client.get("/v1/user/trending").status_code == 404
 
 
-def test_concurrent_analytics_routes_close_each_worker_session_before_clickhouse(monkeypatch):
+def test_concurrent_engagement_routes_release_postgres_sessions(monkeypatch):
     import asyncio
     import threading
-    from contextlib import asynccontextmanager
     from contextvars import ContextVar
 
     import httpx
-    from devfeed_user_api import trending
 
     scope = ContextVar("analytics_request")
     started, release = threading.Event(), threading.Event()
@@ -418,32 +393,6 @@ def test_concurrent_analytics_routes_close_each_worker_session_before_clickhouse
             def commit(self):
                 self.phase("commit")
 
-        class Client(FakeAnalyticsClient):
-            def __init__(self):
-                super().__init__()
-                self.slot = asyncio.Semaphore(1)
-
-            def assert_closed(self):
-                with state_lock:
-                    assert active.get(scope.get(), 0) == 0
-
-            async def query(self, statement, parameters=None, **_kwargs):
-                self.assert_closed()
-                await asyncio.sleep(0.001)
-                if "visible_articles AS v" in statement:
-                    return [{"article_id": str(article.id)}]
-                return await super().query(statement, parameters)
-
-            async def insert(self, table, rows):
-                self.assert_closed()
-                await asyncio.sleep(0.001)
-                await super().insert(table, rows)
-
-            @asynccontextmanager
-            async def external_query_slot(self):
-                async with self.slot:
-                    yield
-
         def rows(session, identities, _viewer):
             session.phase("engagement")
             return [{"article_id": identities[0], "likes": 0, "liked": False, "bookmarked": False}]
@@ -451,20 +400,13 @@ def test_concurrent_analytics_routes_close_each_worker_session_before_clickhouse
         def authorize(session, *_args):
             session.phase("authorize")
 
-        def metadata(session, _since):
-            session.phase("ranking")
-            return b"x" * 32
-
-        def articles(session, _identities):
-            session.phase("articles")
-            return [article]
+        def record_day(session, *_args):
+            session.phase("reading_day")
 
         monkeypatch.setattr(engagement, "engagement_rows", rows)
         monkeypatch.setattr(engagement, "_authorize_open", authorize)
-        monkeypatch.setattr(trending, "_ranking_metadata", metadata)
-        monkeypatch.setattr(trending, "_articles", articles)
+        monkeypatch.setattr(engagement, "_record_reading_day", record_day)
         app = FastAPI()
-        app.state.analytics_client = Client()
         app.include_router(engagement.router)
         app.dependency_overrides[dependencies.get_session_factory] = lambda: WorkerSession
         app.dependency_overrides[dependencies.get_read_session_factory] = lambda: WorkerSession
@@ -483,17 +425,13 @@ def test_concurrent_analytics_routes_close_each_worker_session_before_clickhouse
                 token = scope.set(index)
                 try:
                     path = f"/v1/user/articles/{article.id}"
-                    if index % 4 == 0:
+                    if index % 3 == 0:
                         return await client.get(
                             "/v1/user/engagement", params={"article_id": str(article.id)}
                         )
-                    if index % 4 == 1:
+                    if index % 3 == 1:
                         return await client.put(path + "/like", json={"liked": True})
-                    if index % 4 == 2:
-                        return await client.post(
-                            path + "/open", headers={"Origin": settings.base_url}
-                        )
-                    return await client.get("/v1/user/trending")
+                    return await client.post(path + "/open", headers={"Origin": settings.base_url})
                 finally:
                     scope.reset(token)
 
@@ -514,8 +452,7 @@ def test_concurrent_analytics_routes_close_each_worker_session_before_clickhouse
             "commit",
             "engagement",
             "authorize",
-            "ranking",
-            "articles",
+            "reading_day",
         }
 
     asyncio.run(scenario())

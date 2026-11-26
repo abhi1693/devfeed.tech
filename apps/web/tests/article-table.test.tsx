@@ -138,11 +138,13 @@ it("removes metadata and engagement clutter from list mode while retaining them 
   };
   preferences.view = "cards";
   const view = render(<ArticleGrid {...props} />);
-  await screen.findByRole("img", { name: "9 clicks to the original article" });
+  expect(screen.queryByRole("img", { name: /clicks to the original article/ })).toBeNull();
   expect(screen.getByText(article.content_type)).toBeTruthy();
   expect(screen.getByRole("link", { name: `#${topic.name}` })).toBeTruthy();
   expect(screen.getByText("From a source you follow")).toBeTruthy();
-  expect(screen.getByRole("link", { name: "Sign in to like this article, 5 likes" })).toBeTruthy();
+  expect(
+    await screen.findByRole("link", { name: "Sign in to like this article, 5 likes" }),
+  ).toBeTruthy();
 
   preferences.view = "compact";
   view.rerender(<ArticleGrid {...props} />);
@@ -156,7 +158,7 @@ it("removes metadata and engagement clutter from list mode while retaining them 
 
   preferences.view = "cards";
   view.rerender(<ArticleGrid {...props} />);
-  expect(screen.getByRole("img", { name: "9 clicks to the original article" })).toBeTruthy();
+  expect(screen.queryByRole("img", { name: /clicks to the original article/ })).toBeNull();
   expect(screen.getByRole("link", { name: `#${topic.name}` })).toBeTruthy();
   expect(screen.getByText("From a source you follow")).toBeTruthy();
 });
