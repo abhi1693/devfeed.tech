@@ -184,56 +184,16 @@ def test_saved_article_pages_anchor_the_cursor_at_the_last_returned_saved_date(a
     api.session.commit.assert_not_called()
 
 
-@pytest.mark.parametrize("signed_in", [False, True])
-@pytest.mark.parametrize("recorded", [False, True])
-def test_original_article_click_hashes_identity_and_forwards_only_new_open_intent(
-    api, signed_in, recorded
-):
-    visitor = "v" * 43
-    api.client.cookies.set(oidc.cookie_name(api.settings, "visitor"), visitor)
-    if signed_in:
-        api.app.dependency_overrides[engagement.optional_user] = lambda: api.user
-    api.session.scalar.side_effect = [
-        api.article_id,
-        *([api.owner] if signed_in else []),
-        api.article_id if recorded else None,
-    ]
-
+def test_signed_in_open_records_progress_without_warehouse_or_visitor_cookie(api):
+    del api.app.state.analytics_client
+    api.session.scalar.side_effect = [api.article_id, api.owner]
     response = api.client.post(
         f"/v1/user/articles/{api.article_id}/open", headers={"Origin": api.settings.base_url}
     )
-
-    assert response.status_code == 200, response.text
-    identity = "user:" + str(api.owner) if signed_in else "visitor:" + visitor
-    digest = hashlib.sha256(identity.encode()).hexdigest()
-    api.limits.assert_called_once_with(api.article_id, digest, anonymous=not signed_in)
-    assert api.session.execute.call_count == 0
-    assert len(api.analytics.inserts) == 1
-    table, rows = api.analytics.inserts[0]
-    assert table == "analytics_article_opens"
-    assert rows[0]["article_id"] == str(api.article_id)
-    assert rows[0]["viewer_key"] == digest
-    if signed_in:
-        api.reading_day.assert_called_once_with(api.session, api.owner, api.article_id, NOW)
-    else:
-        api.reading_day.assert_not_called()
-    assert "set-cookie" not in response.headers
-    assert visitor not in response.text and str(api.owner) not in response.text
-    assert api.session.commit.call_count == int(signed_in)
-
-
-def test_new_anonymous_click_receives_only_an_opaque_secure_visitor_cookie(api):
-    response = api.client.post(
-        f"/v1/user/articles/{api.article_id}/open", headers={"Origin": api.settings.base_url}
-    )
-
     assert response.status_code == 200
-    token = api.client.cookies.get(oidc.cookie_name(api.settings, "visitor"))
-    assert engagement.TOKEN.fullmatch(token)
-    header = response.headers["set-cookie"]
-    assert "HttpOnly" in header and "Secure" in header and "SameSite=lax" in header
-    assert "Max-Age=2592000" in header
-    assert token not in response.text
+    api.reading_day.assert_called_once_with(api.session, api.owner, api.article_id, NOW)
+    assert "opens" not in response.json()
+    assert "set-cookie" not in response.headers
 
 
 @pytest.mark.parametrize("failure", ["origin", "budget", "unavailable"])

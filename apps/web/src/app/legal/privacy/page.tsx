@@ -129,12 +129,6 @@ const sections: LegalSection[] = [
           visit.
         </p>
         <p>
-          When an anonymous reader opens an original article, DevFeed can set a random visitor
-          cookie lasting up to 30 days. It helps deduplicate clicks and limit abuse.
-          Original-article clicks are counted independently of Google Analytics; opening a preview
-          is not counted as reading the original article.
-        </p>
-        <p>
           You can clear cookies and site storage in your browser. Blocking session cookies can
           prevent sign-in, and clearing preference storage resets the affected settings. Clearing
           cookies does not delete account information held by DevFeed.

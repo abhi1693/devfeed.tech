@@ -32,7 +32,6 @@ type MutationContract<Result> = {
 export type Engagement = {
   article_id: string;
   likes: number;
-  opens: number;
   liked: boolean;
   bookmarked?: boolean;
 };
@@ -69,9 +68,6 @@ function engagement(value: unknown): boolean {
     typeof value.likes === "number" &&
     Number.isFinite(value.likes) &&
     value.likes >= 0 &&
-    typeof value.opens === "number" &&
-    Number.isFinite(value.opens) &&
-    value.opens >= 0 &&
     (value.bookmarked === undefined || typeof value.bookmarked === "boolean")
   );
 }
