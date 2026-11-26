@@ -512,3 +512,57 @@ def test_failed_partner_import_exits_without_disclosing_connection_details(monke
     with pytest.raises(SystemExit) as failure:
         asyncio.run(partner_history_import.main())
     assert failure.value.code == "Partner history verification failed (ValueError)"
+
+
+def test_both_measurement_reads_bind_only_the_authorized_assets_and_daily_range():
+    from unittest.mock import MagicMock
+
+    from devfeed_http.partner_measurements import PartnerMeasurements
+
+    factory = MagicMock()
+    session = factory.return_value.__enter__.return_value
+    asset_id = uuid.uuid4()
+    row = {"owner": str(asset_id), "impressions": 42, "clicks": 1}
+    session.execute.return_value.mappings.return_value = [row]
+    measurements = PartnerMeasurements(factory)
+    first, last = datetime(2026, 1, 1).date(), datetime(2026, 1, 31).date()
+    assert asyncio.run(measurements.partner_daily([asset_id], start=first, end=last)) == [row]
+    assert asyncio.run(measurements.partner_summary([asset_id])) == [row]
+    daily, summary = session.execute.call_args_list
+    for call in (daily, summary):
+        assert "asset_id = ANY(CAST(:ids AS uuid[]))" in str(call.args[0])
+    assert daily.args[1] == {"ids": [str(asset_id)], "start": first, "end": last}
+    assert summary.args[1] == {"ids": [str(asset_id)]}
+
+
+def test_partner_import_cli_reports_verified_count_only_after_commit(monkeypatch, capsys):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    from devfeed_core import partner_history_import as importer
+
+    settings = SimpleNamespace(database_url="postgresql+psycopg://localhost/disposable_test")
+    monkeypatch.setattr(importer, "get_settings", lambda: settings)
+    source = AsyncMock()
+    source.query.side_effect = [
+        [
+            {"source": name, "complete": 1}
+            for name in (
+                "partner_daily_metrics",
+                "partner_tracked_daily_metrics",
+                "partner_delivery_events",
+            )
+        ],
+        [],
+    ]
+    client = MagicMock()
+    client.return_value.__aenter__.return_value = source
+    monkeypatch.setattr(importer, "AnalyticsClient", client)
+    connection = MagicMock()
+    monkeypatch.setattr(importer, "Connection", connection)
+    db = connection.connect.return_value.__enter__.return_value
+    db.cursor.return_value.__enter__.return_value.fetchone.return_value = (False,)
+    asyncio.run(importer.main())
+    connection.connect.assert_called_once_with("postgresql://localhost/disposable_test")
+    db.transaction.return_value.__exit__.assert_called_once_with(None, None, None)
+    assert capsys.readouterr().out == "Verified 0 partner observations\n"
