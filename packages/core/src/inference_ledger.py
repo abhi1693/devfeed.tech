@@ -6,6 +6,8 @@ from datetime import datetime
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
+from sqlalchemy import text
+from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_core.config import Settings
 from devfeed_core.inference_observation import observation
@@ -31,6 +33,22 @@ def ledger_values(row: JsonRecord) -> tuple[datetime, str, str, int, Jsonb]:
         if key not in {"id", "started_at", "task", "revision"}
     }
     return row["started_at"], row["id"], row["task"], row["revision"], Jsonb(usage)
+
+
+def prune_inference_history(factory: sessionmaker[Session]) -> None:
+    """Keep a month of audit data; the rolling budget uses only the last 24 hours."""
+    with factory.begin() as session:
+        session.execute(
+            text("""
+            WITH expired AS (
+                SELECT started_at,id FROM inference_usage_ledger
+                WHERE started_at < statement_timestamp() - interval '30 days'
+                ORDER BY started_at,id LIMIT 1000 FOR UPDATE SKIP LOCKED
+            )
+            DELETE FROM inference_usage_ledger l USING expired e
+            WHERE (l.started_at,l.id) = (e.started_at,e.id)
+        """)
+        )
 
 
 class InferenceLedger:

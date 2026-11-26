@@ -99,14 +99,17 @@ def _tick() -> dict[str, int]:
 
     refresh_quota()
     factory = session_factory()
-    # The exporter preserves expired opens before their transactional rows
-    # are removed. Historical aggregation belongs to ClickHouse.
+    from devfeed_core.inference_ledger import prune_inference_history
     from devfeed_core.job_retention import prune_job_payloads
 
     try:
         prune_job_payloads(factory)
     except Exception:
         logger.exception("job_payload_retention_failed")
+    try:
+        prune_inference_history(factory)
+    except Exception:
+        logger.exception("inference_usage_retention_failed")
     try:
         prune_partner_delivery_history(factory)
     except Exception as exc:

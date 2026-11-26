@@ -484,6 +484,6 @@ import checkpoint, copies the active 24-hour window, compares every copied
 observation, and opens count-based admission in one PostgreSQL transaction.
 It can be rerun after interruption. Start the replacement workers after the
 command succeeds. Provider-paced workers continue to follow provider limits and
-must commit each relationship reservation before dispatch. For an entirely new
-installation with no previous inference, initialize the empty window with
-`INSERT INTO inference_quota_cutover VALUES (true,now()) ON CONFLICT DO NOTHING`.
+must commit each relationship reservation before dispatch. An upgrade starting with a completely empty PostgreSQL schema initializes
+the empty window automatically. Existing installations require the verified import.
+The scheduler prunes at most 1,000 observations older than 30 days per tick.
