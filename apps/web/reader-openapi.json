@@ -724,16 +724,11 @@
           "likes": {
             "title": "Likes",
             "type": "integer"
-          },
-          "opens": {
-            "title": "Opens",
-            "type": "integer"
           }
         },
         "required": [
           "article_id",
           "likes",
-          "opens",
           "liked"
         ],
         "title": "EngagementOut",
@@ -1063,61 +1058,6 @@
           }
         ]
       },
-      "LeaderboardEntry": {
-        "properties": {
-          "avatar_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Avatar Url"
-          },
-          "days": {
-            "exclusiveMinimum": 0.0,
-            "title": "Days",
-            "type": "integer"
-          },
-          "display_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Display Name"
-          },
-          "position": {
-            "minimum": 1.0,
-            "title": "Position",
-            "type": "integer"
-          },
-          "rank": {
-            "minimum": 1.0,
-            "title": "Rank",
-            "type": "integer"
-          },
-          "username": {
-            "title": "Username",
-            "type": "string"
-          }
-        },
-        "required": [
-          "rank",
-          "position",
-          "username",
-          "display_name",
-          "avatar_url",
-          "days"
-        ],
-        "title": "LeaderboardEntry",
-        "type": "object"
-      },
       "LikeInput": {
         "additionalProperties": false,
         "properties": {
@@ -1130,36 +1070,6 @@
           "liked"
         ],
         "title": "LikeInput",
-        "type": "object"
-      },
-      "MyReadingRanks": {
-        "properties": {
-          "longest_streak": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LeaderboardEntry"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "reading_days": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LeaderboardEntry"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "longest_streak",
-          "reading_days"
-        ],
-        "title": "MyReadingRanks",
         "type": "object"
       },
       "NotificationConfig": {
@@ -1867,30 +1777,6 @@
         "title": "ReaderColumnsUpdate",
         "type": "object"
       },
-      "ReadingLeaderboard": {
-        "properties": {
-          "longest_streak": {
-            "items": {
-              "$ref": "#/components/schemas/LeaderboardEntry"
-            },
-            "title": "Longest Streak",
-            "type": "array"
-          },
-          "reading_days": {
-            "items": {
-              "$ref": "#/components/schemas/LeaderboardEntry"
-            },
-            "title": "Reading Days",
-            "type": "array"
-          }
-        },
-        "required": [
-          "longest_streak",
-          "reading_days"
-        ],
-        "title": "ReadingLeaderboard",
-        "type": "object"
-      },
       "RecommendationPage": {
         "properties": {
           "feed_kind": {
@@ -2086,17 +1972,6 @@
       },
       "SearchHit": {
         "properties": {
-          "click_token": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Click Token"
-          },
           "description": {
             "title": "Description",
             "type": "string"
@@ -3516,7 +3391,7 @@
   "info": {
     "description": "Public discovery reads and optional account operations through the reader gateway. Account operations require an OIDC session; writes also require CSRF protection. See /api/docs.",
     "title": "DevFeed Reader API",
-    "version": "0.1.8"
+    "version": "0.2.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5297,6 +5172,11 @@
             "description": "Service or dependency unavailable"
           }
         },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "summary": "Opened",
         "tags": [
           "article-engagement"
@@ -6129,113 +6009,6 @@
         "summary": "Feed",
         "tags": [
           "personalization"
-        ]
-      }
-    },
-    "/api/v1/user/leaderboard": {
-      "get": {
-        "operationId": "leaderboard_v1_user_leaderboard_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ReadingLeaderboard"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed"
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Invalid or unauthorized request"
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service or dependency unavailable"
-          }
-        },
-        "summary": "Leaderboard",
-        "tags": [
-          "user-leaderboard"
-        ]
-      }
-    },
-    "/api/v1/user/leaderboard/me": {
-      "get": {
-        "operationId": "my_ranks_v1_user_leaderboard_me_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MyReadingRanks"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed"
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Invalid or unauthorized request"
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service or dependency unavailable"
-          }
-        },
-        "security": [
-          {
-            "APIKeyCookie": []
-          }
-        ],
-        "summary": "My Ranks",
-        "tags": [
-          "user-leaderboard"
         ]
       }
     },
@@ -8681,83 +8454,6 @@
         "summary": "Preview",
         "tags": [
           "source-suggestions"
-        ]
-      }
-    },
-    "/api/v1/user/trending": {
-      "get": {
-        "operationId": "trending_v1_user_trending_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 24,
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "maximum": 1000000,
-              "minimum": 0,
-              "title": "Cursor",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FeedPage"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed"
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Invalid or unauthorized request"
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service or dependency unavailable"
-          }
-        },
-        "summary": "Trending",
-        "tags": [
-          "article-engagement"
         ]
       }
     }

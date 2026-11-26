@@ -25,7 +25,6 @@ APPLICATIONS = {
 }
 EXPECTED = {
     "public": {
-        "successful_click_v1_search_analytics_click_post": (4096, 2000, "json"),
         "track_event_v1_partner_tracking_events_post": (2048, 2000, "json"),
         "placements_v1_partner_placements_query_post": (16384, 2000, "json"),
     },

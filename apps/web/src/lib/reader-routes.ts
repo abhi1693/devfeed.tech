@@ -18,7 +18,7 @@ export type ReaderRoute =
   | { type: "local"; page: "settings"; settings: SettingsPage }
   | {
       type: "local";
-      page: "source-suggestion" | "mcp" | "leaderboard" | "dev-card" | "mcp-authorize";
+      page: "source-suggestion" | "mcp" | "dev-card" | "mcp-authorize";
     }
   | { type: "article"; slug: string }
   | { type: "profile"; username: string }

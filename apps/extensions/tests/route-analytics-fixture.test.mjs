@@ -44,5 +44,5 @@ test("route telemetry waits for startup and distinguishes preview headings from 
     (path) => `https://extension.test/#${path}`,
     events,
   );
-  assert.equal(events.length, 12);
+  assert.equal(events.length, 10);
 });

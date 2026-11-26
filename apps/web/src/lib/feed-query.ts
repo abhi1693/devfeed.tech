@@ -7,6 +7,10 @@ import {
 
 export type ContentType = ReaderContentType;
 export const contentTypeRoutes = readerContentTypeRoutes;
+export function contentFeedTitle(type: ContentType): string {
+  const name = contentTypeRoutes[type];
+  return name[0].toUpperCase() + name.slice(1);
+}
 export const contentTypes = Object.keys(contentTypeRoutes) as ContentType[];
 export function contentTypeFromRoute(route: string) {
   return contentTypes.find((type) => contentTypeRoutes[type] === route);
@@ -62,11 +66,6 @@ export function latestFeedParams(filters: FeedFilters): URLSearchParams {
   if (params.get("sort") === "recommended") params.delete("sort");
   if (!filters.sort && !filters.q && !filters.source_id && !filters.topic && !filters.tag)
     params.set("diverse", "true");
-  return params;
-}
-export function trendingFeedParams(cursor: string): URLSearchParams {
-  const params = new URLSearchParams({ limit: "24" });
-  if (cursor) params.set("cursor", cursor);
   return params;
 }
 export function personalFeedHref(filters: FeedFilters, changes: Partial<FeedFilters> = {}) {

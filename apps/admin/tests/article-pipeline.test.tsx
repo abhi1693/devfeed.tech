@@ -995,22 +995,16 @@ it("retains hidden and collapsed columns through polling, query changes, and rem
   expect(screen.queryByRole("heading", { name: "Rejected", level: 2 })).toBeNull();
 });
 
-it("uses Pipeline/List views without loading the ordinary article table for the board", async () => {
-  navigation.query = "view=pipeline&group_by=source&stage=images&needs_attention=true";
-  vi.mocked(getArticlePipeline).mockResolvedValue(groupedBoard());
+it("opens the article list from a retired board bookmark", async () => {
+  navigation.query = "view=pipeline&group_by=source&stage=images&needs_attention=true&q=Python";
   renderAdmin(<ResourceList resource="articles" />);
-  await screen.findByRole("button", { name: "Expand Engineering Journal articles" });
-  expect(listRecords).not.toHaveBeenCalled();
-  const views = screen.getByRole("navigation", { name: "Article views" });
-  expect(within(views).getByRole("link", { name: "Pipeline" }).getAttribute("aria-current")).toBe(
-    "page",
-  );
-  expect(within(views).getByRole("link", { name: "List" }).getAttribute("href")).toContain(
-    "view=list",
-  );
-  expect(within(views).getByRole("link", { name: "List" }).getAttribute("href")).not.toContain(
-    "group_by",
-  );
+  await screen.findByRole("table");
+  const [, query] = vi.mocked(listRecords).mock.calls[0];
+  expect(query?.q).toBe("Python");
+  expect(query).not.toHaveProperty("stage");
+  expect(query).not.toHaveProperty("needs_attention");
+  expect(query).not.toHaveProperty("group_by");
+  expect(getArticlePipeline).not.toHaveBeenCalled();
 });
 
 it("keeps cards to a linked title and source with an accessible status icon", async () => {

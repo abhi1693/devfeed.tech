@@ -199,7 +199,7 @@ export async function checkSavedReaderLifecycle(page, target, output, { session,
   };
   const home = readerRouteUrl(target, "/");
   const latest = readerRouteUrl(target, "/latest");
-  const trending = readerRouteUrl(target, "/trending");
+  const news = readerRouteUrl(target, "/news");
   const switchOwner = async (next, { hold = false } = {}) => {
     owner = next;
     fixture.setMember(!!next);
@@ -229,7 +229,7 @@ export async function checkSavedReaderLifecycle(page, target, output, { session,
     );
     await page.reload();
     await chooseInlineArticleView(page, "stacked", { keyboard: true });
-    await page.goto(trending);
+    await page.goto(news);
     await chooseInlineArticleView(page, "compact", { keyboard: true });
     const guestViews = await page.evaluate((key) => localStorage.getItem(key), viewsKey);
     assert.equal(
@@ -237,7 +237,7 @@ export async function checkSavedReaderLifecycle(page, target, output, { session,
       0,
       "Guest layouts make no private settings or feed calls",
     );
-    stages.push({ stage: "guest", latest: "stacked", trending: "compact" });
+    stages.push({ stage: "guest", latest: "stacked", "content:news": "compact" });
 
     await switchOwner(accountA);
     await page.goto(home);
@@ -336,7 +336,7 @@ export async function checkSavedReaderLifecycle(page, target, output, { session,
     assert.equal(await columns.count(), 0);
     await page.goto(latest);
     await layout("stacked");
-    await page.goto(trending);
+    await page.goto(news);
     await layout("compact");
     await page.goto(home);
     await layout("stacked");
@@ -351,7 +351,7 @@ export async function checkSavedReaderLifecycle(page, target, output, { session,
       0,
       "Sign-out stops new private workspace reads",
     );
-    stages.push({ stage: "guest-restored", latest: "stacked", trending: "compact" });
+    stages.push({ stage: "guest-restored", latest: "stacked", "content:news": "compact" });
     await writeReaderViewReport(output, { status: "passed", ...proof });
   } catch (error) {
     await page

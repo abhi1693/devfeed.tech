@@ -7,7 +7,6 @@ import { TagsContent } from "../../web/src/components/tags-content";
 import { TopicsContent } from "../../web/src/components/topics-content";
 import { SourcesContent } from "../../web/src/components/sources-content";
 import { ProfileSettings } from "../../web/src/components/profile-settings";
-import { Leaderboard } from "../../web/src/components/leaderboard";
 import { DevCardCreator } from "../../web/src/components/dev-card-creator";
 import { AppearanceSettings } from "../../web/src/components/appearance-settings";
 import { FeedSettings } from "../../web/src/components/feed-settings";
@@ -89,12 +88,6 @@ export function LocalPage({
       return (
         <UserShell>
           <DevCardCreator />
-        </UserShell>
-      );
-    case "leaderboard":
-      return (
-        <UserShell section="leaderboard">
-          <Leaderboard />
         </UserShell>
       );
     case "mcp-authorize":

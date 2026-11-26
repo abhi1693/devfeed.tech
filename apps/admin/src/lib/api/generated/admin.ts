@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.1.8
+ * OpenAPI spec version: 0.2.0
  */
 import type {
   AccountInput,
@@ -3025,7 +3025,6 @@ export const getSearchAnalyticsV1AdminSearchAnalyticsGetUrl = (params?: SearchAn
 }
 
 /**
- * Return aggregated Typesense queries for the authenticated admin UI.
  * @summary Search Analytics
  */
 export const searchAnalyticsV1AdminSearchAnalyticsGet = async (params?: SearchAnalyticsV1AdminSearchAnalyticsGetParams, options?: Parameters<typeof adminFetch>[1]): Promise<SearchAnalytics> => {

@@ -195,7 +195,7 @@ allows attribution cookies when the X pixel is enabled. Ordinary writes have a 1
 body limit and a two-second total reading deadline; avatar uploads allow 5 MiB plus
 64 KiB of multipart overhead and ten seconds. Both use a 45-second upstream deadline.
 Placement queries use an 8 KiB body limit and two-second reading deadline, with body
-validation in their dedicated handler before forwarding. Public profile and leaderboard
+validation in their dedicated handler before forwarding. Public profile
 handlers remain separate and omit credentials. Configured Chrome and Edge origins use
 the same reader write-origin policy as the website.
 Extensions compile the same parameter constraints and method declarations through

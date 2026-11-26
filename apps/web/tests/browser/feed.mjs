@@ -89,7 +89,7 @@ import {
 import { checkSourceFilter, longFilterSource } from "../../../../scripts/testing/select-menus.mjs";
 import { checkAccessibility } from "./accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../../scripts/testing/must-reads.mjs";
-import { checkLeaderboard, leaderboardProfile } from "./leaderboard.mjs";
+import { readerProfile } from "./reader-profile-fixture.mjs";
 import { checkMcp, testMcpEndpoint } from "../../../../scripts/testing/mcp.mjs";
 import {
   checkReadingStreak,
@@ -143,7 +143,6 @@ import {
   checkSearchInfiniteScroll,
   checkSearchSecurity,
   searchSecurityQuery,
-  searchSecurityEvent,
 } from "../../../../scripts/testing/search-filters.mjs";
 import {
   withManagedImage,
@@ -616,7 +615,7 @@ async function createReaderFixture(
             expires_at: sessionExpiresAt,
           }
         : null;
-    else if (path === "/v1/user/profiles/leader-reader") body = leaderboardProfile;
+    else if (path === "/v1/user/profiles/leader-reader") body = readerProfile;
     else if (path === "/v1/user/profiles/leader-reader/reading-heatmap") body = null;
     else if (path === "/v1/user/auth/config") body = { enabled: true, providers: [] };
     else if (path === "/v1/user/settings/profile")
@@ -774,7 +773,6 @@ async function createReaderFixture(
       }
       body = { topic_ids: savedTopicIds };
     } else if (path === "/v1/user/source-preferences") body = { source_ids: [] };
-    else if (path === "/v1/user/trending") body = { items: [article], next_cursor: null };
     else if (path === "/v1/user/bookmarks") body = { items: [], next_cursor: null };
     else if (path === "/v1/user/feed") {
       body = mode.startsWith("onboarding")
@@ -842,7 +840,7 @@ async function createReaderFixture(
     if (
       compactArticles &&
       Array.isArray(body?.items) &&
-      ["/v1/feed", "/v1/user/feed", "/v1/user/trending"].includes(path)
+      ["/v1/feed", "/v1/user/feed"].includes(path)
     )
       body = { ...body, items: body.items.map(compactListArticle) };
     if (stackedFeed && path === "/v1/feed")
@@ -1001,7 +999,7 @@ async function createReaderFixture(
       page,
       `${origin}/latest`,
       `${root}/reports/reader-feed/article-view`,
-      [`${origin}/topics/${topic.slug}`, `${origin}/sources/${source.slug}`, `${origin}/trending`],
+      [`${origin}/topics/${topic.slug}`, `${origin}/sources/${source.slug}`, `${origin}/news`],
       {
         fixture: (active) => {
           compactArticles = active;
@@ -1033,7 +1031,6 @@ async function createReaderFixture(
     await checkReaderNavigation(page, `${root}/reports/mobile-navigation/web`);
     assert.equal(await page.locator(".mobile-nav").getByRole("link", { name: "Legal" }).count(), 0);
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await checkLeaderboard(page, `${root}/reports/reader-feed/leaderboard-guest`);
     await checkDevCardPromo(page, `${root}/reports/reader-feed/dev-card-promo`);
     await checkSignupPrompts(context, origin, `${root}/reports/reader-feed/signup`);
     await page.bringToFront();
@@ -1278,9 +1275,6 @@ async function createReaderFixture(
       `${root}/reports/reader-feed/mobile-interactions.png`,
       { recover: true },
     );
-    await checkLeaderboard(scrollPage, `${root}/reports/reader-feed/leaderboard-signed-in`, {
-      signedIn: true,
-    });
     await scrollPage.close();
     await checkSearchFilters(page, `${origin}/search?q=microservice`);
     const clicksBeforeSecurity = searchClicks.length;
@@ -1289,7 +1283,7 @@ async function createReaderFixture(
       `${origin}/search?${new URLSearchParams({ q: searchSecurityQuery })}`,
       { relayClick: true },
     );
-    assert.deepEqual(searchClicks.slice(clicksBeforeSecurity), [searchSecurityEvent]);
+    assert.deepEqual(searchClicks.slice(clicksBeforeSecurity), []);
     const edgeContext = await browser.newContext({
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
@@ -2332,7 +2326,7 @@ test(
             routes: [
               `${origin}/topics/typescript`,
               `${origin}/sources/example-source`,
-              `${origin}/trending`,
+              `${origin}/news`,
             ],
           },
         );
@@ -2579,20 +2573,6 @@ test("reader sidebar persists and adapts to the viewport", { timeout: 180000 }, 
     { viewport: { width: 1440, height: 900 } },
   );
 });
-
-test(
-  "leaderboard shows named readers without filling anonymous ranks",
-  { timeout: 180000 },
-  async (t) => {
-    const { browser, origin } = await createReaderFixture(t);
-    await withReaderPage(browser, async (page) => {
-      await page.goto(`${origin}/latest`);
-      await page.locator(".article-card").first().waitFor();
-      await mkdir(`${root}/reports/reader-feed`, { recursive: true });
-      await checkLeaderboard(page, `${root}/reports/reader-feed/leaderboard-unclaimed`);
-    });
-  },
-);
 
 test("search security checks use visible article results", { timeout: 180000 }, async (t) => {
   const { browser, origin } = await createReaderFixture(t);

@@ -94,7 +94,7 @@ test("Lighthouse dependency upgrades preserve CLI options and YAML parsing", () 
   assert.deepEqual(JSON.parse(converted), expected);
 });
 
-test("all six requested reader pages are measured and admin stays outside the suite", () => {
+test("the active reader pages are measured and admin stays outside the suite", () => {
   const paths = readerPaths("example-article");
   assert.deepEqual(paths, [
     "/latest",
@@ -102,7 +102,6 @@ test("all six requested reader pages are measured and admin stays outside the su
     "/topics",
     "/sources",
     "/users/budget-reader",
-    "/leaderboard",
   ]);
   const urls = paths.map((path) => `http://127.0.0.1:3000${path}`);
   const measurements = urls.flatMap((requestedUrl) =>
@@ -126,16 +125,9 @@ test("all six requested reader pages are measured and admin stays outside the su
     measurements,
   );
   const summary = measurementSummary(measurements, urls, assertions);
-  for (const name of [
-    "Latest",
-    "Article preview",
-    "Topics",
-    "Sources",
-    "Public profile",
-    "Leaderboard",
-  ])
+  for (const name of ["Latest", "Article preview", "Topics", "Sources", "Public profile"])
     assert.ok(summary.includes(`| ${name} (`), name);
-  assert.equal(assertions.length, 60);
+  assert.equal(assertions.length, 50);
   assert.ok(assertions.every((assertion) => assertion.passed));
 });
 
