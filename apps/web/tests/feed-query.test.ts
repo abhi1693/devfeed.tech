@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   displayDate,
   contentTypeFromRoute,
+  contentFeedTitle,
   feedHref,
   feedParams,
   latestFeedParams,
@@ -14,6 +15,12 @@ import {
 } from "@/lib/feed-query";
 
 describe("user filters", () => {
+  it("uses the same pluralized catalog headings on web and browser extension feeds", () => {
+    expect(contentFeedTitle("news")).toBe("News");
+    expect(contentFeedTitle("article")).toBe("Articles");
+    expect(contentFeedTitle("comparison")).toBe("Comparisons");
+  });
+
   it.each([
     ["article", "articles"],
     ["news", "news"],
