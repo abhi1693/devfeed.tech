@@ -18,7 +18,7 @@ COPY --from=builder /usr/local/bin/node /usr/local/bin/node
 RUN node --version && node -e 'require("node:crypto"); require("node:tls")'
 COPY --from=builder /opt/codex/node_modules/@openai /usr/local/lib/node_modules/@openai
 ENV CODEX_HOME=/var/lib/codex
-COPY infra/codex/config.toml infra/codex/entrypoint.sh infra/codex/server.cjs infra/codex/health.cjs infra/codex/transport.cjs /opt/devfeed/
+COPY infra/codex/config.toml infra/codex/entrypoint.sh infra/codex/server.cjs infra/codex/health.cjs infra/codex/health-server.cjs infra/codex/transport.cjs /opt/devfeed/
 WORKDIR /workspace
 USER 10001:10001
 ENTRYPOINT ["sh", "/opt/devfeed/entrypoint.sh"]

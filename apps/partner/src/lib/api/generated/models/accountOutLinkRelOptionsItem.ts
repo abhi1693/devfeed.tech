@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Partner API
  * Partner analytics API with role-gated sessions and live memberships.
- * OpenAPI spec version: 0.2.0
+ * OpenAPI spec version: 0.2.1
  */
 
 export type AccountOutLinkRelOptionsItem = typeof AccountOutLinkRelOptionsItem[keyof typeof AccountOutLinkRelOptionsItem];

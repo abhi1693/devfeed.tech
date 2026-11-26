@@ -351,6 +351,35 @@ async function main() {
       assert.equal(fs.statSync("/run/codex/app-server.sock").mode & 0o777, 0o600);
       assert.equal(fs.statSync(path.join(home, "config.toml")).mode & 0o777, 0o600);
       execFileSync(process.execPath, ["/opt/devfeed/health.cjs"], { timeout: 5000 });
+      assert.equal((await fetch("http://127.0.0.1:4502/readyz")).status, 200);
+      execFileSync("wget", ["-q", "-O", "/dev/null", "http://127.0.0.1:4502/readyz"], {
+        timeout: 5000,
+      });
+      const cpuMicros = () =>
+        Number(
+          fs.readFileSync("/sys/fs/cgroup/cpu.stat", "utf8").match(/^usage_usec (\d+)$/m)?.[1],
+        );
+      for (const probe of ["legacy-node", "existing-process-http"]) {
+        const cpuStart = cpuMicros();
+        const wallStart = performance.now();
+        for (let check = 0; check < 20; check++) {
+          if (probe === "legacy-node")
+            execFileSync(process.execPath, ["/opt/devfeed/health.cjs"], { timeout: 5000 });
+          else
+            execFileSync("wget", ["-q", "-O", "/dev/null", "http://127.0.0.1:4502/readyz"], {
+              timeout: 5000,
+            });
+        }
+        console.log(
+          JSON.stringify({
+            event: "codex_health_cost",
+            probe,
+            checks: 20,
+            cgroup_cpu_microseconds: cpuMicros() - cpuStart,
+            wall_ms: performance.now() - wallStart,
+          }),
+        );
+      }
       const configuration = await client.request("config/read", { includeLayers: false });
       assert.equal(
         configuration.config.thread_unload_delay_secs,
