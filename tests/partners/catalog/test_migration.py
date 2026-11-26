@@ -305,7 +305,8 @@ def expected_metadata():
         Index(f"ix_{table.name}_matching_tokens", table.c.matching_tokens, postgresql_using="gin")
     Base.metadata.tables["topic_relations"].to_metadata(metadata)
     for name, table in Base.metadata.tables.items():
-        if name.startswith("partner_"):
+        # Revision 0041 adds observations after this historical 0024 snapshot.
+        if name.startswith("partner_") and name != "partner_observations":
             table.to_metadata(metadata)
     return metadata
 
