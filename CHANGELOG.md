@@ -2,6 +2,12 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.2.2 — 2026-11-27
+
+### Enhancements
+
+- Reduce Valkey writes by enabling lossless compression for large cached responses after upgrading all cache readers.
+
 ## 0.2.1 — 2026-11-26
 
 ### Enhancements
