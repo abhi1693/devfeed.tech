@@ -7,3 +7,7 @@ A copy taken while the old application is serving is a rehearsal. Drain all old 
 ## AI usage and admission
 
 Drain inference workers and wait for in-flight provider calls and accounting writes to finish. After upgrading PostgreSQL to revision 0042, run `python -m devfeed_core.inference_history_import` with the same source and destination settings. The importer compares the trailing 24 hours of AI usage with PostgreSQL and opens count-based admission in the same transaction. Keep writers stopped through both final imports. Record both verified counts before starting the new workloads.
+
+## Recovery
+
+If either import fails, keep the application writers stopped, keep the warehouse available, and rerun the failed import after correcting its error. Before new PostgreSQL writers start, the old application can resume against its existing warehouse. After new receipts, manual totals or inference reservations commit in PostgreSQL, keep the new ledgers authoritative. Reverting the image alone at that point would omit those writes from old reports and budget decisions.
