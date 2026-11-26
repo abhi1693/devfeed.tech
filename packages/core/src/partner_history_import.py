@@ -1,0 +1,71 @@
+"""Copy a finalized ClickHouse partner snapshot into PostgreSQL without duplicate credit."""
+
+import asyncio
+from datetime import date, timedelta
+
+from psycopg import Connection
+
+from devfeed_core.analytics import AnalyticsClient
+from devfeed_core.config import get_settings
+
+COLUMNS = "asset_id,kind,identity,day,revision,impressions,clicks,updated_at"
+SOURCE = """
+SELECT owner, kind, identity, day, revision, impressions, clicks,
+       toString(last_seen, 'UTC') AS updated_at
+FROM analytics_partner_events FINAL
+ORDER BY owner,kind,identity
+"""
+
+
+async def import_snapshot(source: AnalyticsClient, destination: Connection) -> int:
+    """Verify every source identity and amount before committing the copy."""
+    # A single FINAL query gives one source snapshot including concurrent receipt writers.
+    # The final pass must start after the last old-version writer has drained.
+    rows = await source.query(SOURCE)
+    with destination.transaction(), destination.cursor() as cursor:
+        cursor.execute("SET LOCAL TIME ZONE 'UTC'")
+        cursor.execute(
+            "CREATE TEMP TABLE incoming_partner_observations "
+            "(LIKE partner_observations INCLUDING CONSTRAINTS INCLUDING INDEXES) ON COMMIT DROP"
+        )
+        with cursor.copy(f"COPY incoming_partner_observations ({COLUMNS}) FROM STDIN") as copy:
+            for row in rows:
+                copy.write_row(
+                    (
+                        row["owner"],
+                        row["kind"],
+                        row["identity"],
+                        date(1970, 1, 1) + timedelta(days=int(row["day"])),
+                        row["revision"],
+                        row["impressions"],
+                        row["clicks"],
+                        row["updated_at"],
+                    )
+                )
+        cursor.execute(f"""
+            INSERT INTO partner_observations ({COLUMNS}) SELECT {COLUMNS}
+            FROM incoming_partner_observations
+            ON CONFLICT (asset_id,kind,identity) DO UPDATE
+            SET (day,revision,impressions,clicks,updated_at) =
+                (excluded.day,excluded.revision,excluded.impressions,excluded.clicks,excluded.updated_at)
+            WHERE excluded.revision > partner_observations.revision
+        """)
+        cursor.execute(f"""
+            SELECT EXISTS (SELECT {COLUMNS} FROM incoming_partner_observations
+                           EXCEPT SELECT {COLUMNS} FROM partner_observations)
+        """)
+        if cursor.fetchone() != (False,):
+            raise ValueError("Partner snapshot differs from the destination")
+    return len(rows)
+
+
+async def main() -> None:
+    settings = get_settings()
+    dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+    async with AnalyticsClient(settings) as source:
+        with Connection.connect(dsn) as destination:
+            print(f"Verified {await import_snapshot(source, destination)} partner observations")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
