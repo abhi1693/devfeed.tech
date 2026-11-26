@@ -234,6 +234,7 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = Field(default=300, ge=1, le=3600)
     cache_metadata_ttl_seconds: int = Field(default=600, ge=1, le=3600)
     cache_public_profile_ttl_seconds: int = Field(default=21600, ge=1, le=86400)
+    cache_compress_writes: bool = False
     cache_max_bytes: int = Field(default=1_000_000, ge=1024, le=5_000_000)
     ai_enabled: bool = False
     # Enable only after schema upgrade and draining every worker from the older release.

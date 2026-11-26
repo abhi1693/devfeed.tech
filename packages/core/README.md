@@ -386,3 +386,16 @@ No schema migration or API contract change is required. Enable the setting only
 after the scheduler, topic-analysis and research-verification workers all run the
 new code. Roll back by disabling admission first and draining branding jobs before
 reverting workers: older bounded workers do not recognize branding-only requests.
+
+### Response cache compression
+
+Deploy dual-format readers everywhere before enabling
+`DEVFEED_CACHE_COMPRESS_WRITES=true` on public API writers. The default is false.
+Writers try level-1 zlib compression for response bodies of at least 4096 bytes
+and store the compressed format only when it saves space. Both formats use the
+existing cache keys, expiry, generation checks and response size limit.
+
+To stop compressed writes, disable the flag. Keep dual-format readers in place
+until the last compressed entry has expired before rolling back the reader code.
+Compare cache-hit latency, request latency, CPU, hit rate and Valkey write
+throughput under comparable traffic before expanding the rollout.
