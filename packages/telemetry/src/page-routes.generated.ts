@@ -1338,7 +1338,6 @@ export const pageRouteCatalogs = {
     { path: "/partner-tools", label: "/partner-tools" },
     { path: "/partnerships", label: "/partnerships" },
     { path: "/queues", label: "/queues" },
-    { path: "/search-analytics", label: "/search-analytics" },
     { path: "/settings", label: "/settings" },
     { path: "/start", label: "/start" },
     { path: "/taxonomy", label: "/taxonomy" },
