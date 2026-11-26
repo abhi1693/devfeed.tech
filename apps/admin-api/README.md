@@ -3,7 +3,7 @@
 Independent FastAPI administration/OIDC service, importing only the shared core
 package. Source files live directly under `src`, mapped to `devfeed_admin_api`.
 
-See [configuration, authentication, service boundaries and commands](../../docs/admin.md).
+See the [admin UI guide](../admin/README.md) for supported operator workflows.
 
 The admin home opens the article list. Historical Overview, search analytics, and
 warehouse-backed article and source boards have been retired. Their former API

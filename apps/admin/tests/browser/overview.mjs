@@ -182,6 +182,13 @@ try {
   await page.waitForURL(`${origin}/content/articles`);
   await page.getByRole("heading", { name: "Articles", exact: true }).waitFor();
   await checkAppIcons(page);
+  const sidebar = page.getByRole("navigation", { name: "Administration" });
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  assert.equal(
+    await sidebar.getByRole("link", { name: "Articles", exact: true }).getAttribute("aria-current"),
+    "page",
+  );
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
   assert.equal(await page.getByRole("link", { name: "Search analytics" }).count(), 0);
   await page.waitForFunction(() =>
     window.__inboxStreams.some(
