@@ -186,12 +186,9 @@ def database(integration_environment, monkeypatch, rss_bytes):
                 text("SELECT tablename FROM pg_tables WHERE schemaname='public'")
             ).scalars()
         )
-        managed = {table.name for table in Base.metadata.sorted_tables}
-        # These Alembic-managed tables use SQL directly, without ORM models.
-        managed.update(
-            {"partner_observations", "inference_usage_ledger", "inference_quota_cutover"}
+        names = ", ".join(
+            f'"{table.name}"' for table in Base.metadata.sorted_tables if table.name in present
         )
-        names = ", ".join(f'"{name}"' for name in sorted(present & managed))
         connection.execute(text(f"TRUNCATE TABLE {names} CASCADE"))
         # Migration 0037 creates durable cadence rows. Restore their initial
         # state after truncation, as a newly provisioned database would have.

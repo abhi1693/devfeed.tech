@@ -30,5 +30,11 @@ def upgrade():
 
 
 def downgrade():
+    op.execute("LOCK TABLE inference_usage_ledger IN ACCESS EXCLUSIVE MODE")
+    op.execute("""DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM inference_usage_ledger) THEN
+            RAISE EXCEPTION 'Cannot discard populated inference_usage_ledger';
+        END IF;
+    END $$""")
     op.drop_table("inference_quota_cutover")
     op.drop_table("inference_usage_ledger")

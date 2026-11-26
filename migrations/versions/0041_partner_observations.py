@@ -26,4 +26,10 @@ def upgrade():
 
 
 def downgrade():
+    op.execute("LOCK TABLE partner_observations IN ACCESS EXCLUSIVE MODE")
+    op.execute("""DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM partner_observations) THEN
+            RAISE EXCEPTION 'Cannot discard populated partner_observations';
+        END IF;
+    END $$""")
     op.drop_table("partner_observations")
