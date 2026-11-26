@@ -6,7 +6,7 @@ import runpy
 import subprocess
 import tempfile
 from decimal import Decimal
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -75,23 +75,6 @@ def check_private_mcp_routing(
         assert ("DEVFEED_MCP_INTERNAL_URL" in service.get("environment", {})) == (name == "web")
 
 
-def check_ch_ui_runtime(management: dict) -> None:
-    """Require an ephemeral PID directory writable only by the pinned image user."""
-    directory = PurePosixPath("/run/ch-ui")
-    assert management["user"] == "100:101"
-    assert management["read_only"]
-    assert management["command"] == ["--pid-file", str(directory / "ch-ui-server.pid")]
-    mounts = [mount for mount in management["tmpfs"] if mount.partition(":")[0] == str(directory)]
-    assert mounts == [f"{directory}:size=1m,mode=0700,uid=100,gid=101"]
-    for volume in management.get("volumes", []):
-        target = PurePosixPath(volume["target"])
-        assert (
-            target != directory
-            and target not in directory.parents
-            and directory not in target.parents
-        )
-
-
 def check() -> None:
     base = {"POSTGRES_PASSWORD": "a" * 64}
     registry_fixtures = {
@@ -153,7 +136,7 @@ def check() -> None:
                 expected = image  # Local build tags never become remote pull targets.
             elif registry == "ghcr.io":
                 expected = "registry.home/" + image
-            elif registry in {"typesense", "clickhouse"}:
+            elif registry == "typesense":
                 expected = "registry.home/docker.io/" + image
             else:
                 expected = "registry.home/docker.io/library/" + image
@@ -271,12 +254,10 @@ def check() -> None:
         assert services[name]["environment"]["DEVFEED_ADMIN_BASE_URL"] == "http://localhost:3001"
     for name in ("postgres", "redis", "admin-api"):
         assert not services[name].get("ports")
-    assert {"clickhouse", "analytics-importer", "ch-ui"}.isdisjoint(services)
+    assert not {"clickhouse", "analytics-importer", "ch-ui"} & services.keys()
     assert services["migrate"]["command"] == ["devfeed", "db", "upgrade"]
     for service in services.values():
-        assert not any(
-            key.startswith("DEVFEED_CLICKHOUSE_") for key in service.get("environment", {})
-        )
+        assert not any("CLICKHOUSE" in key for key in service.get("environment", {}))
     assert default["networks"]["data"]["internal"]
     assert services["admin-api"]["environment"].get("DEVFEED_OIDC_ISSUER_URL") is None
     assert services["api"]["environment"].get("DEVFEED_CORS_ORIGINS") is None
