@@ -21,7 +21,7 @@ export type ReaderNavigationDefinition =
   | { type: "local"; page: "settings"; settingsParameter: string }
   | {
       type: "local";
-      page: "source-suggestion" | "mcp" | "mcp-authorize" | "leaderboard" | "dev-card";
+      page: "source-suggestion" | "mcp" | "mcp-authorize" | "dev-card";
     }
   | ({
       type: "reader";

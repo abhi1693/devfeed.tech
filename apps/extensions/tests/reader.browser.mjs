@@ -357,8 +357,6 @@ async function readerFixture(t, imageProfile) {
         json: { url: testMcpEndpoint },
       });
     }
-    if (url.pathname === "/api/v1/leaderboard")
-      return route.fulfill({ json: { longest_streak: [], reading_days: [] } });
     if (url.pathname === "/api/v1/extension/analytics") {
       if (route.request().method() === "POST") {
         analytics.push(route.request().postDataJSON());
@@ -1029,7 +1027,6 @@ test(
         ["Explore tags", "#/tags"],
         ["Sources", "#/sources"],
         ["Connect your agent", "#/mcp"],
-        ["Leaderboard", "#/leaderboard"],
         ["What’s new (opens in a new tab)", "https://changelog.devfeed.tech/"],
         ["Star us on GitHub (opens in a new tab)", "https://github.com/abhi1693/devfeed.tech"],
       ],

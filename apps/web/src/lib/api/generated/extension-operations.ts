@@ -228,14 +228,6 @@ export const extensionGatewayOperations = [
     ...userGatewayOperations["remove_avatar_v1_user_settings_profile_avatar_delete"],
     path: "/api/v1/user/settings/profile/avatar",
   },
-  {
-    ...userGatewayOperations["leaderboard_v1_user_leaderboard_get"],
-    path: "/api/v1/user/leaderboard",
-  },
-  {
-    ...userGatewayOperations["my_ranks_v1_user_leaderboard_me_get"],
-    path: "/api/v1/user/leaderboard/me",
-  },
   { ...userGatewayOperations["feed_v1_user_feed_get"], path: "/api/v1/user/feed" },
   {
     ...userGatewayOperations["placements_v1_user_partner_placements_query_post"],
@@ -431,23 +423,6 @@ export const extensionGatewayOperations = [
       upstreamTimeoutMs: 45000,
       extension: {
         credentials: "include",
-        cacheControl: "no-store",
-        requestHeaders: [],
-        timeoutMs: 15000,
-      },
-    },
-  },
-  {
-    operationId: "readerLeaderboard",
-    method: "GET",
-    path: "/api/v1/leaderboard",
-    parameters: [],
-    policy: {
-      bodyLimit: 1000000,
-      bodyTimeoutMs: 2000,
-      upstreamTimeoutMs: 45000,
-      extension: {
-        credentials: "omit",
         cacheControl: "no-store",
         requestHeaders: [],
         timeoutMs: 15000,

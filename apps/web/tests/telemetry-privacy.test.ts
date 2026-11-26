@@ -27,7 +27,6 @@ it.each([
   "/releases",
   "/comparisons",
   "/opinions",
-  "/leaderboard",
   "/dev-card",
   "/mcp",
   "/mcp/authorize",

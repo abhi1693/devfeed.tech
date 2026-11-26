@@ -80,7 +80,6 @@ describe("privacy-safe reader route labels", () => {
     ["/sources/suggest", "/sources/suggest", "/sources/suggest"],
     ["/mcp", "/mcp", "/mcp"],
     ["/mcp/authorize", "/mcp/authorize", "/mcp/authorize"],
-    ["/leaderboard", "/leaderboard", "/leaderboard"],
     ["/dev-card", "/dev-card", "/dev-card"],
     ["/settings", "/settings/profile", "/settings/profile"],
     ["/settings/profile", "/settings/profile", "/settings/profile"],

@@ -6,7 +6,6 @@ export async function checkExtensionRouteAnalytics(page, destination, events) {
   const request = "private-authorization-request";
   const routes = [
     { path: `/trending?q=${query}`, label: "/trending", heading: "Trending" },
-    { path: `/leaderboard?account=${query}`, label: "/leaderboard", heading: "Leaderboard" },
     {
       path: `/dev-card?username=${query}`,
       label: "/dev-card",

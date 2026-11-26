@@ -202,24 +202,6 @@
       }
     },
     {
-      "operationId": "readerLeaderboard",
-      "routeFile": "v1/leaderboard/route.ts",
-      "method": "GET",
-      "parameters": [],
-      "backendOperations": ["leaderboard_v1_user_leaderboard_get"],
-      "policy": {
-        "bodyLimit": 1000000,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000,
-        "extension": {
-          "credentials": "omit",
-          "cacheControl": "no-store",
-          "requestHeaders": [],
-          "timeoutMs": 15000
-        }
-      }
-    },
-    {
       "operationId": "readerPublicProfile",
       "routeFile": "v1/users/[username]/route.ts",
       "method": "GET",

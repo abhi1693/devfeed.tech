@@ -44,7 +44,6 @@ import { checkSelectMenus } from "../../../scripts/testing/select-menus.mjs";
 import { checkAccessibility } from "../../web/tests/browser/accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../scripts/testing/must-reads.mjs";
 import { checkAvatarUploads } from "../../../scripts/testing/avatar-uploads.mjs";
-import { checkLeaderboard } from "../../web/tests/browser/leaderboard.mjs";
 import {
   checkReadingStreak,
   readingStreakFixture,
@@ -1149,7 +1148,6 @@ test(
     withAuthenticatedReader(
       t,
       async ({ page, context, state, errors, analytics, article, user }) => {
-        await checkLeaderboard(page, path.resolve(extension, `../leaderboard-guest-${browser}`));
         await checkDevCardPromo(page, path.resolve(extension, "../dev-card-promo-" + browser), {
           extension: true,
         });
@@ -1199,11 +1197,6 @@ test(
         await returningTab
           .getByRole("button", { name: "User menu: RP Reader Profile", exact: true })
           .waitFor();
-        await checkLeaderboard(
-          returningTab,
-          path.resolve(extension, `../leaderboard-signed-in-${browser}`),
-          { signedIn: true },
-        );
         await checkUnclaimedDevCardPromo(
           returningTab,
           path.resolve(extension, "../dev-card-promo-" + browser),

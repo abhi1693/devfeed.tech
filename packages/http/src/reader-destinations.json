@@ -163,7 +163,10 @@
         "kind": "page",
         "changefreq": "hourly",
         "priority": 1,
-        "publication": { "source": "inventory", "key": "articles" }
+        "publication": {
+          "source": "inventory",
+          "key": "articles"
+        }
       },
       "query": "feed",
       "login": true,
@@ -229,7 +232,10 @@
         "kind": "page",
         "changefreq": "daily",
         "priority": 0.7,
-        "publication": { "source": "inventory", "key": "tags" }
+        "publication": {
+          "source": "inventory",
+          "key": "tags"
+        }
       },
       "query": "tagCatalog",
       "login": true,
@@ -251,7 +257,10 @@
         "kind": "page",
         "changefreq": "daily",
         "priority": 0.7,
-        "publication": { "source": "inventory", "key": "topics" }
+        "publication": {
+          "source": "inventory",
+          "key": "topics"
+        }
       },
       "query": "catalog",
       "login": true,
@@ -273,7 +282,10 @@
         "kind": "page",
         "changefreq": "daily",
         "priority": 0.7,
-        "publication": { "source": "inventory", "key": "sources" }
+        "publication": {
+          "source": "inventory",
+          "key": "sources"
+        }
       },
       "query": "catalog",
       "login": true,
@@ -331,21 +343,6 @@
       "labels": {
         "telemetry": "/mcp/authorize",
         "screen": "/mcp/authorize"
-      }
-    },
-    {
-      "id": "leaderboard",
-      "segments": ["leaderboard"],
-      "query": "none",
-      "login": true,
-      "embedded": true,
-      "navigation": {
-        "type": "local",
-        "page": "leaderboard"
-      },
-      "labels": {
-        "telemetry": "/leaderboard",
-        "screen": "/leaderboard"
       }
     },
     {
@@ -658,7 +655,9 @@
         "kind": "page",
         "changefreq": "monthly",
         "priority": 0.2,
-        "publication": { "source": "page" }
+        "publication": {
+          "source": "page"
+        }
       },
       "query": "none",
       "login": true,
@@ -678,7 +677,9 @@
         "kind": "page",
         "changefreq": "monthly",
         "priority": 0.2,
-        "publication": { "source": "page" }
+        "publication": {
+          "source": "page"
+        }
       },
       "query": "none",
       "login": true,

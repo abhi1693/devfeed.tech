@@ -822,7 +822,7 @@ node scripts/ci/browser-performance.mjs --route-styles=after
 ```
 
 Each command builds the reader, collects CSS coverage and screenshots on six reader routes, and
-runs Lighthouse 12.6.1 three times per route/profile on `/latest`, `/topics`, and `/leaderboard`.
+runs Lighthouse 12.6.1 three times per route/profile on routes configured in `scripts/ci/browser-performance-config.mjs`.
 Mobile uses 412×823 at DPR 1.75 with default simulated mobile throttling; desktop uses 1350×940 at
 DPR 1 with the default desktop profile. Reports, raw audits, and screenshots stay under ignored
 `reports/route-styles/{before,after}`. `--skip-build` reuses an already matching production build.

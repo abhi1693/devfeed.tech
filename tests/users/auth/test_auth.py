@@ -681,7 +681,6 @@ def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination)
         "/read-later",
         "/read-later?cursor=next%2Bpage",
         "/trending?cursor=next%2Bpage",
-        "/leaderboard",
         "/dev-card",
         "/mcp",
         "/users/reader_123",

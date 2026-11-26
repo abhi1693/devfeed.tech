@@ -144,10 +144,8 @@ test("one route registry classifies every extension-owned page", () => {
   assert.equal(route("/trending"), JSON.stringify({ type: "reader", feed: readerFeeds.trending }));
   assert.equal(route("/mcp/authorize"), JSON.stringify({ type: "local", page: "mcp-authorize" }));
   assert.equal(route("/mcp"), JSON.stringify({ type: "local", page: "mcp" }));
-  assert.equal(route("/leaderboard"), JSON.stringify({ type: "local", page: "leaderboard" }));
   assert.equal(route("/dev-card"), JSON.stringify({ type: "local", page: "dev-card" }));
   assert.equal(linkDestination("/dev-card"), "#/dev-card");
-  assert.equal(linkDestination("/leaderboard"), "#/leaderboard");
   assert.equal(
     route("/settings/topics"),
     JSON.stringify({
@@ -488,20 +486,9 @@ test("MCP configuration reads bypass feed caching and reject mutations", async (
   assert.equal(calls.length, 1);
 });
 
-test("public leaderboard reads bypass caching and reject mutations", async () => {
-  const calls = [];
-  const request = new ExtensionReaderTransport(async (...args) => {
-    calls.push(args);
-    return Response.json({ longest_streak: [], reading_days: [] });
-  }).request;
-  assert.equal((await request("/api/v1/leaderboard")).status, 200);
-  assert.equal(calls[0][0], "https://devfeed.tech/api/v1/leaderboard");
-  assert.equal(calls[0][1].credentials, "omit");
-  assert.equal(calls[0][1].headers.get("Cache-Control"), "no-store");
-  assert.equal(calls[0][1].cache, "no-store");
-  assert.equal((await request("/api/v1/leaderboard", { method: "POST" })).status, 403);
-  assert.equal((await request("/api/v1/leaderboard/private")).status, 403);
-  assert.equal(calls.length, 1);
+test("retired leaderboard reads are rejected before transport", async () => {
+  const reader = new ExtensionReaderTransport(() => assert.fail("unexpected upstream request"));
+  assert.equal((await reader.request("/api/v1/leaderboard")).status, 403);
 });
 
 test("partner impression and click events omit credentials and cannot proxy partner administration", async () => {

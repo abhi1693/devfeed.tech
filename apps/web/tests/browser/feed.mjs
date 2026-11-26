@@ -89,7 +89,7 @@ import {
 import { checkSourceFilter, longFilterSource } from "../../../../scripts/testing/select-menus.mjs";
 import { checkAccessibility } from "./accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../../scripts/testing/must-reads.mjs";
-import { checkLeaderboard, leaderboardProfile } from "./leaderboard.mjs";
+import { readerProfile } from "./reader-profile-fixture.mjs";
 import { checkMcp, testMcpEndpoint } from "../../../../scripts/testing/mcp.mjs";
 import {
   checkReadingStreak,
@@ -616,7 +616,7 @@ async function createReaderFixture(
             expires_at: sessionExpiresAt,
           }
         : null;
-    else if (path === "/v1/user/profiles/leader-reader") body = leaderboardProfile;
+    else if (path === "/v1/user/profiles/leader-reader") body = readerProfile;
     else if (path === "/v1/user/profiles/leader-reader/reading-heatmap") body = null;
     else if (path === "/v1/user/auth/config") body = { enabled: true, providers: [] };
     else if (path === "/v1/user/settings/profile")
@@ -1033,7 +1033,6 @@ async function createReaderFixture(
     await checkReaderNavigation(page, `${root}/reports/mobile-navigation/web`);
     assert.equal(await page.locator(".mobile-nav").getByRole("link", { name: "Legal" }).count(), 0);
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await checkLeaderboard(page, `${root}/reports/reader-feed/leaderboard-guest`);
     await checkDevCardPromo(page, `${root}/reports/reader-feed/dev-card-promo`);
     await checkSignupPrompts(context, origin, `${root}/reports/reader-feed/signup`);
     await page.bringToFront();
@@ -1278,9 +1277,6 @@ async function createReaderFixture(
       `${root}/reports/reader-feed/mobile-interactions.png`,
       { recover: true },
     );
-    await checkLeaderboard(scrollPage, `${root}/reports/reader-feed/leaderboard-signed-in`, {
-      signedIn: true,
-    });
     await scrollPage.close();
     await checkSearchFilters(page, `${origin}/search?q=microservice`);
     const clicksBeforeSecurity = searchClicks.length;
@@ -2579,20 +2575,6 @@ test("reader sidebar persists and adapts to the viewport", { timeout: 180000 }, 
     { viewport: { width: 1440, height: 900 } },
   );
 });
-
-test(
-  "leaderboard shows named readers without filling anonymous ranks",
-  { timeout: 180000 },
-  async (t) => {
-    const { browser, origin } = await createReaderFixture(t);
-    await withReaderPage(browser, async (page) => {
-      await page.goto(`${origin}/latest`);
-      await page.locator(".article-card").first().waitFor();
-      await mkdir(`${root}/reports/reader-feed`, { recursive: true });
-      await checkLeaderboard(page, `${root}/reports/reader-feed/leaderboard-unclaimed`);
-    });
-  },
-);
 
 test("search security checks use visible article results", { timeout: 180000 }, async (t) => {
   const { browser, origin } = await createReaderFixture(t);
