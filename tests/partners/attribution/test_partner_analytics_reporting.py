@@ -500,3 +500,15 @@ def test_partner_checkpoint_failure_leaves_destination_untouched():
         asyncio.run(import_snapshot(source, destination))
     destination.transaction.assert_not_called()
     assert source.query.await_count == 1
+
+
+def test_failed_partner_import_exits_without_disclosing_connection_details(monkeypatch):
+    from devfeed_core import partner_history_import
+
+    def invalid_settings():
+        raise ValueError("disposable-credential-in-validation-detail")
+
+    monkeypatch.setattr(partner_history_import, "get_settings", invalid_settings)
+    with pytest.raises(SystemExit) as failure:
+        asyncio.run(partner_history_import.main())
+    assert failure.value.code == "Partner history verification failed (ValueError)"

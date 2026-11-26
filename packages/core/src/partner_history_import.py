@@ -89,11 +89,15 @@ async def import_snapshot(source: AnalyticsClient, destination: Connection) -> i
 
 
 async def main() -> None:
-    settings = get_settings()
-    dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://", 1)
-    async with AnalyticsClient(settings) as source:
-        with Connection.connect(dsn) as destination:
-            print(f"Verified {await import_snapshot(source, destination)} partner observations")
+    try:
+        settings = get_settings()
+        dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+        async with AnalyticsClient(settings) as source:
+            with Connection.connect(dsn) as destination:
+                count = await import_snapshot(source, destination)
+    except Exception as error:
+        raise SystemExit(f"Partner history verification failed ({type(error).__name__})") from None
+    print(f"Verified {count} partner observations")
 
 
 if __name__ == "__main__":
