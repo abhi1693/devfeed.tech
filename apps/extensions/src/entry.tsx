@@ -20,7 +20,12 @@ import {
 import { SearchFilters } from "../../web/src/components/search-filters";
 import { LoadingSkeleton } from "../../web/src/components/loading-skeleton";
 import { configureReaderRuntime, readerRequest } from "../../web/src/lib/reader-runtime";
-import { feedParams, searchParamsFromUrl, latestFeedParams } from "../../web/src/lib/feed-query";
+import {
+  contentFeedTitle,
+  feedParams,
+  searchParamsFromUrl,
+  latestFeedParams,
+} from "../../web/src/lib/feed-query";
 import { readerFeeds, resolveFeed } from "../../web/src/lib/reader-feed";
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
 import type { FeedPage, FeedOptions, Topic, Source, Tag } from "../../web/src/lib/types";
@@ -169,7 +174,8 @@ function Reader({
             feed,
             options,
             filters: resolvedFilters,
-            title: item?.name,
+            title:
+              item?.name ?? (match.contentType ? contentFeedTitle(match.contentType) : undefined),
             topicId: detail?.kind === "topics" ? item?.id : undefined,
             tagId: detail?.kind === "tags" ? item?.id : undefined,
             description: item && "description" in item ? item.description : undefined,

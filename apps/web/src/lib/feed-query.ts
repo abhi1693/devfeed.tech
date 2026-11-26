@@ -7,6 +7,10 @@ import {
 
 export type ContentType = ReaderContentType;
 export const contentTypeRoutes = readerContentTypeRoutes;
+export function contentFeedTitle(type: ContentType): string {
+  const name = contentTypeRoutes[type];
+  return name[0].toUpperCase() + name.slice(1);
+}
 export const contentTypes = Object.keys(contentTypeRoutes) as ContentType[];
 export function contentTypeFromRoute(route: string) {
   return contentTypes.find((type) => contentTypeRoutes[type] === route);
