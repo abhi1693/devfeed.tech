@@ -27,6 +27,17 @@ export function ResourceList({
   analysisType?: AnalysisType;
 }) {
   const search = useTableQuery(resource);
+  if ((resource === "articles" || resource === "sources") && search.get("view") === "pipeline") {
+    for (const key of [
+      "view",
+      "stage",
+      "source_type",
+      "needs_attention",
+      "terminal_since",
+      "group_by",
+    ])
+      search.delete(key);
+  }
   if (resource === "topics" && search.get("status") === "proposed") {
     search.set("view", "proposals");
     search.set("status", "pending");

@@ -137,11 +137,11 @@ def test_compose_render_preserves_exact_fractional_cpu_budget(monkeypatch, limit
         check_compose.subprocess,
         "run",
         lambda *args, **kwargs: SimpleNamespace(
-            returncode=0, stdout='{"services":{"analytics-importer":{"cpus":' + limit + "}}}"
+            returncode=0, stdout='{"services":{"high-worker":{"cpus":' + limit + "}}}"
         ),
     )
     services = check_compose.render({"POSTGRES_PASSWORD": "fixture-only-password"})["services"]
-    assert (services["analytics-importer"]["cpus"] == Decimal("0.5")) is compliant
+    assert (services["high-worker"]["cpus"] == Decimal("0.5")) is compliant
 
 
 @pytest.mark.parametrize("limited", [False, True])
@@ -153,7 +153,6 @@ def test_all_worker_pools_share_lightweight_parent_probe_and_sufficient_shutdown
         options.update(
             DEVFEED_WORKER_CPUS="1.5",
             DEVFEED_WORKER_MEMORY_LIMIT="1g",
-            DEVFEED_ANALYTICS_WORKER_DRAIN_SECONDS="17",
         )
     services = check_compose.render(options)["services"]
     workers = {name: value for name, value in services.items() if name.endswith("-worker")}
@@ -165,9 +164,6 @@ def test_all_worker_pools_share_lightweight_parent_probe_and_sufficient_shutdown
         ], name
         assert worker["environment"]["DEVFEED_WORKER_HEALTH_PATH"] == (
             "/tmp/devfeed-worker-health"
-        ), name
-        assert worker["environment"]["DEVFEED_ANALYTICS_WORKER_DRAIN_SECONDS"] == (
-            "17" if limited else "45"
         ), name
         grace_seconds = sum(
             int(value) * {"h": 3600, "m": 60, "s": 1}[unit]

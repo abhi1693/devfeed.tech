@@ -156,31 +156,21 @@ it("preserves the source list default and its existing filters", async () => {
     expect.any(AbortSignal),
   );
   expect(getSourcePipeline).not.toHaveBeenCalled();
-  const views = screen.getByRole("navigation", { name: "Source views" });
-  expect(within(views).getByRole("link", { name: "List" }).getAttribute("aria-current")).toBe(
-    "page",
-  );
-  const href = within(views).getByRole("link", { name: "Pipeline" }).getAttribute("href")!;
-  expect(href).toContain("view=pipeline");
-  expect(href).not.toContain("approval_status");
   expect(screen.getByRole("link", { name: "Import" }).getAttribute("href")).toBe(
     "/content/sources/import",
   );
 });
 
-it("shows Pipeline without loading the source table and clears board-only filters for List", async () => {
+it("opens the source list from an old board bookmark", async () => {
   navigation.query =
-    "view=pipeline&stage=profile&source_type=publisher&needs_attention=true&terminal_since=2026-10-12T00:00:00Z&q=Python";
+    "view=pipeline&stage=profile&source_type=publisher&needs_attention=true&q=Python";
   renderAdmin(<ResourceList resource="sources" />);
-  await screen.findByRole("link", { name: item.name });
-  expect(listRecords).not.toHaveBeenCalled();
-  const href = within(screen.getByRole("navigation", { name: "Source views" }))
-    .getByRole("link", { name: "List" })
-    .getAttribute("href")!;
-  expect(href).toContain("view=list");
-  expect(href).toContain("q=Python");
-  for (const key of ["stage", "source_type", "needs_attention", "terminal_since"])
-    expect(new URL(href, "https://admin.example").searchParams.has(key)).toBe(false);
+  await screen.findByRole("table");
+  const [, query] = vi.mocked(listRecords).mock.calls[0];
+  expect(query?.q).toBe("Python");
+  expect(query).not.toHaveProperty("stage");
+  expect(query).not.toHaveProperty("source_type");
+  expect(getSourcePipeline).not.toHaveBeenCalled();
 });
 
 it.each([
