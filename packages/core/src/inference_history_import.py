@@ -60,9 +60,14 @@ async def import_history(source: AnalyticsClient, ledger: InferenceLedger) -> in
 
 
 async def main() -> None:
-    async with AnalyticsClient() as source:
-        count = await import_history(source, InferenceLedger(get_settings()))
-        print(f"Verified {count} inference records")
+    try:
+        async with AnalyticsClient() as source:
+            count = await import_history(source, InferenceLedger(get_settings()))
+    except Exception as error:
+        raise SystemExit(
+            f"Inference history verification failed ({type(error).__name__})"
+        ) from None
+    print(f"Verified {count} inference records")
 
 
 if __name__ == "__main__":
