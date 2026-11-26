@@ -10,7 +10,6 @@ from datetime import datetime
 from typing import Literal, cast
 
 from devfeed_core.analysis import fail_analysis
-from devfeed_core.analytics_producer import shutdown as drain_analytics
 from devfeed_core.automation_scheduler import schedule_automation
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
@@ -445,7 +444,6 @@ def run() -> None:
                         health.completed()
                     stop.wait(15)
         finally:
-            drain_analytics()
             stop_runtime(telemetry)
             logger.info("scheduler_stopped")
 

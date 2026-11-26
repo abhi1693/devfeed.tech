@@ -81,6 +81,9 @@ PostgreSQL stores partner reporting history, reader progress and AI usage. Exist
 installations upgrading from ClickHouse must drain old writers and import the
 partner history and active AI budget window before resuming service. See the
 [warehouse cutover instructions](apps/partner-api/HISTORY_CUTOVER.md).
+Admins manage articles and
+sources in their resource lists. The historical Overview, pipeline boards, and search
+analytics dashboard have been retired.
 
 Published article retries preserve the current approval while a private replacement
 is prepared. See [maintenance rollout and recovery review](dev/published-article-maintenance.md)

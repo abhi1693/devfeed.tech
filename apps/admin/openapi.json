@@ -13527,16 +13527,6 @@
       },
       "SearchSuggestionOut": {
         "properties": {
-          "first_seen_at": {
-            "format": "date-time",
-            "title": "First Seen At",
-            "type": "string"
-          },
-          "last_seen_at": {
-            "format": "date-time",
-            "title": "Last Seen At",
-            "type": "string"
-          },
           "query": {
             "title": "Query",
             "type": "string"
@@ -13571,19 +13561,12 @@
           "status": {
             "title": "Status",
             "type": "string"
-          },
-          "successful_count": {
-            "title": "Successful Count",
-            "type": "integer"
           }
         },
         "required": [
           "query_hash",
           "query",
-          "successful_count",
           "status",
-          "first_seen_at",
-          "last_seen_at",
           "reviewed_at",
           "review_note"
         ],
@@ -26499,7 +26482,6 @@
     },
     "/v1/admin/search-analytics": {
       "get": {
-        "description": "Return aggregated Typesense queries for the authenticated admin UI.",
         "operationId": "search_analytics_v1_admin_search_analytics_get",
         "parameters": [
           {
@@ -26600,21 +26582,24 @@
           },
           {
             "in": "query",
-            "name": "minimum",
+            "name": "limit",
             "required": false,
             "schema": {
-              "default": 0,
-              "title": "Minimum",
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
               "type": "integer"
             }
           },
           {
             "in": "query",
-            "name": "limit",
+            "name": "offset",
             "required": false,
             "schema": {
-              "default": 100,
-              "title": "Limit",
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
               "type": "integer"
             }
           }
