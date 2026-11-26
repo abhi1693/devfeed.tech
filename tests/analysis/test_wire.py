@@ -278,10 +278,10 @@ def test_reanalysis_skips_only_irrelevant_fallback_churn(database, change):
 def test_per_call_ledger_is_idempotent_and_content_free(integration_environment):
     import asyncio
 
+    from devfeed_core.config import get_settings
+    from devfeed_core.inference_ledger import InferenceLedger
     from devfeed_core.inference_usage import record_call
     from devfeed_core.models import utcnow
-
-    from tests.support.inference_analytics import inference_client
 
     row = dict(
         id=uuid.uuid4(),
@@ -302,14 +302,19 @@ def test_per_call_ledger_is_idempotent_and_content_free(integration_environment)
     )
 
     async def run():
-        async with inference_client() as client:
-            await record_call(row, client=client)
-            await record_call(row, client=client)
-            records = await client.query("SELECT * FROM analytics_inference_events FINAL")
-            assert len(records) == 1
-            assert records[0]["input_tokens"] == 50 and records[0]["web_searches"] == 2
-            assert records[0]["reason"] == "source_review"
-            assert "secret" not in str(records[0]) and "request_hash" not in records[0]
+        settings = get_settings()
+        await record_call(row, settings=settings)
+        await record_call(row, settings=settings)
+        async with await InferenceLedger(settings).connect() as conn:
+            records = await (
+                await conn.execute(
+                    "SELECT usage FROM inference_usage_ledger WHERE id=%s", (row["id"],)
+                )
+            ).fetchall()
+        [record] = [item["usage"] for item in records]
+        assert record["input_tokens"] == 50 and record["web_searches"] == 2
+        assert record["reason"] == "source_review"
+        assert "secret" not in str(record) and "request_hash" not in record
 
     asyncio.run(run())
 
@@ -431,7 +436,7 @@ def test_primary_topic_admission_does_not_reclassify_an_unrelated_or_non_article
     assert preserved.model_dump() == before
 
 
-def test_usage_report_reads_clickhouse_and_normalizes_large_numeric_fields():
+def test_usage_report_reads_postgresql_and_normalizes_large_numeric_fields():
     import asyncio
     import importlib.util
     from datetime import UTC, datetime
@@ -443,10 +448,13 @@ def test_usage_report_reads_clickhouse_and_normalizes_large_numeric_fields():
     spec.loader.exec_module(module)
 
     class Client:
-        async def query(self, statement, parameters):
-            assert "analytics_inference_events FINAL" in statement
+        async def execute(self, statement, parameters):
+            assert "inference_usage_ledger" in statement
             assert "inference_calls" not in statement
             assert parameters["since"] < parameters["until"]
+            return self
+
+        async def fetchall(self):
             return [
                 {
                     "operation": "analysis",

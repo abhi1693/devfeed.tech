@@ -6,6 +6,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Column,
     Date,
     DateTime,
     FetchedValue,
@@ -14,7 +15,9 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    Numeric,
     Sequence,
+    SmallInteger,
     String,
     Table,
     Text,
@@ -44,6 +47,49 @@ def utcnow() -> datetime:
 
 class Base(DeclarativeBase):
     pass
+
+
+# These ledgers are accessed through transactional SQL by both importers and live writers.
+Table(
+    "partner_observations",
+    Base.metadata,
+    Column("asset_id", Uuid, primary_key=True),
+    Column("kind", Text, primary_key=True),
+    Column("identity", Text, primary_key=True),
+    Column("day", Date, nullable=False),
+    Column("revision", Numeric(20, 0), nullable=False),
+    Column("impressions", Numeric(20, 0), nullable=False),
+    Column("clicks", Numeric(20, 0), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("kind IN ('partner_import','partner_baseline','partner_event')"),
+    CheckConstraint("revision >= 0"),
+    CheckConstraint("impressions >= 0"),
+    CheckConstraint("clicks >= 0"),
+    Index("ix_partner_observations_asset_day", "asset_id", "day"),
+)
+Table(
+    "inference_usage_ledger",
+    Base.metadata,
+    Column("started_at", DateTime(timezone=True), primary_key=True),
+    Column("id", Uuid, primary_key=True),
+    Column("task", Text, nullable=False),
+    Column("revision", SmallInteger, nullable=False),
+    Column("usage", JSONB, nullable=False),
+    CheckConstraint("revision IN (0, 1)"),
+    CheckConstraint("jsonb_typeof(usage) = 'object'"),
+    Index(
+        "ix_inference_relationship_window",
+        "started_at",
+        postgresql_where=text("task IN ('relationship_research','relationship_verification')"),
+    ),
+)
+Table(
+    "inference_quota_cutover",
+    Base.metadata,
+    Column("singleton", Boolean, primary_key=True),
+    Column("verified_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("singleton"),
+)
 
 
 class LeasedJobMixin:

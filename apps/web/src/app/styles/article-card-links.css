@@ -84,10 +84,6 @@
   font-size: 11px;
   max-width: 100px;
 }
-.trending-description {
-  color: var(--muted-foreground);
-  font-size: 13px;
-}
 
 .login-error {
   max-width: 560px;

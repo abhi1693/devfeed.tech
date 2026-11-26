@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { build } from "esbuild";
 import { chromium } from "playwright";
-import { leaderboardProfile } from "../../apps/web/tests/browser/leaderboard.mjs";
+import { readerProfile } from "../../apps/web/tests/browser/reader-profile-fixture.mjs";
 function usedBytes(entry) {
   const ranges = entry.functions.flatMap((f) => f.ranges);
   const events = ranges
@@ -55,7 +55,7 @@ const fixture = createServer((req, res) => {
   else if (p.includes("reading-heatmap")) body = null;
   else if (p.startsWith("/v1/user/profiles/"))
     body = {
-      ...leaderboardProfile,
+      ...readerProfile,
       links: [{ url: "https://github.com/example", label: "GitHub" }],
       avatar_url: null,
     };

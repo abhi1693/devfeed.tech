@@ -7,7 +7,7 @@ import { NotificationInbox } from "./notification-inbox";
 import { ReadingTools } from "./reading-tools";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav, ReadLaterNav } from "./user-account";
-import { Bot, Compass, House, Hash, Rss, Sparkles, Trophy } from "lucide-react";
+import { Bot, Compass, House, Hash, Rss, Sparkles } from "lucide-react";
 import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import { SkipToContent } from "./skip-to-content";
@@ -25,11 +25,9 @@ type ReaderSection =
   | "account"
   | "personal"
   | "bookmarks"
-  | "trending"
   | "search"
   | "legal"
-  | "mcp"
-  | "leaderboard";
+  | "mcp";
 const promptPolicies: Record<ReaderSection, ReaderPromptEligibility> = {
   feed: readerPromptPolicies.browsing,
   topics: readerPromptPolicies.browsing,
@@ -39,11 +37,9 @@ const promptPolicies: Record<ReaderSection, ReaderPromptEligibility> = {
   account: readerPromptPolicies.quiet,
   personal: readerPromptPolicies.browsing,
   bookmarks: readerPromptPolicies.browsing,
-  trending: readerPromptPolicies.browsing,
   search: readerPromptPolicies.browsing,
   legal: readerPromptPolicies.quiet,
   mcp: readerPromptPolicies.quiet,
-  leaderboard: readerPromptPolicies.browsing,
 };
 
 export function UserShell({
@@ -145,16 +141,6 @@ export function UserShell({
           >
             <Bot size={20} aria-hidden="true" />
             <span>Connect your agent</span>
-          </Link>
-          <Link
-            href="/leaderboard"
-            className={`nav-item ${section === "leaderboard" ? "active" : ""}`}
-            aria-current={section === "leaderboard" ? "page" : undefined}
-            aria-label="Leaderboard"
-            title="Leaderboard"
-          >
-            <Trophy size={20} aria-hidden="true" />
-            <span>Leaderboard</span>
           </Link>
           <a
             href="https://changelog.devfeed.tech/"

@@ -1,7 +1,6 @@
 """One public response cannot mix an approved projection across atomic swaps."""
 
 import uuid
-from contextlib import asynccontextmanager
 
 import pytest
 from devfeed_core import cache
@@ -20,7 +19,7 @@ from devfeed_core.models import (
     UserMustRead,
     utcnow,
 )
-from devfeed_user_api import bookmarks, engagement, must_reads
+from devfeed_user_api import bookmarks, must_reads
 from devfeed_user_api.auth import UserIdentity, require_user
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -59,7 +58,6 @@ def test_public_read_factory_keeps_write_sessions_and_the_existing_pool_independ
         ("most_liked", False, 4),
         ("diverse", False, 6),
         ("bookmarks", False, 4),
-        ("trending", False, 5),
         ("must_reads", False, 9),
     ],
 )
@@ -138,29 +136,8 @@ def test_atomic_replacement_keeps_article_fields_and_associations_on_one_snapsho
         expires_at=4_102_444_800,
         csrf_token="snapshot-csrf",
     )
-    checked_out = set()
-
-    class Opens:
-        def __init__(self, _client):
-            self.client = self
-
-        @asynccontextmanager
-        async def external_query_slot(self):
-            yield
-
-        async def cutover(self):
-            return None
-
-        async def trending(self, _since, _metadata, *, limit, cursor):
-            # No request-owned PostgreSQL connection crosses the external query.
-            assert not checked_out
-            return [{"article_id": str(identifier)}]
-
-    monkeypatch.setattr(engagement, "ArticleOpenAnalytics", Opens)
     app = FastAPI()
-    app.state.analytics_client = object()
     app.include_router(bookmarks.router)
-    app.include_router(engagement.router)
     app.include_router(must_reads.router)
     app.dependency_overrides[require_user] = lambda: identity
     paths = {
@@ -170,7 +147,6 @@ def test_atomic_replacement_keeps_article_fields_and_associations_on_one_snapsho
         "most_liked": "/v1/feed?sort=most_liked&limit=100",
         "diverse": "/v1/feed?diverse=true&limit=100",
         "bookmarks": "/v1/user/bookmarks?limit=100",
-        "trending": "/v1/user/trending?limit=100",
         "must_reads": "/v1/user/must-reads?timezone=UTC",
     }
     statements = []
@@ -238,20 +214,12 @@ def test_atomic_replacement_keeps_article_fields_and_associations_on_one_snapsho
         if not context.execution_options.get("snapshot_writer"):
             statements.append(statement)
 
-    def checkout(_connection, record, _proxy):
-        checked_out.add(id(record))
-
-    def checkin(_connection, record):
-        checked_out.discard(id(record))
-
     engine = get_engine()
     event.listen(Session, "do_orm_execute", replace_before_relationships)
     event.listen(engine, "before_cursor_execute", count)
-    event.listen(engine, "checkout", checkout)
-    event.listen(engine, "checkin", checkin)
     try:
         with TestClient(app) as user_client:
-            http = user_client if surface in {"bookmarks", "trending", "must_reads"} else client
+            http = user_client if surface in {"bookmarks", "must_reads"} else client
             response = http.get(paths[surface])
             assert response.status_code == 200, response.text
             before = response.json() if surface == "detail" else response.json()["items"][0]
@@ -281,6 +249,4 @@ def test_atomic_replacement_keeps_article_fields_and_associations_on_one_snapsho
     finally:
         event.remove(Session, "do_orm_execute", replace_before_relationships)
         event.remove(engine, "before_cursor_execute", count)
-        event.remove(engine, "checkout", checkout)
-        event.remove(engine, "checkin", checkin)
         cache.close_cache()

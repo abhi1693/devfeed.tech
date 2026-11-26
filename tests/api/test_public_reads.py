@@ -497,7 +497,6 @@ def test_index_consuming_the_search_deadline_never_starts_database_hydration(
 
     engine.search.side_effect = index_search
     monkeypatch.setattr(search, "Typesense", Mock(return_value=engine))
-    monkeypatch.setattr(search, "click_tokens", Mock(return_value=None))
     hydrate = Mock()
     monkeypatch.setattr(search, "public_records", hydrate)
     response = public_reads.client.get("/v1/search", params={"q": "Angular", "section": "articles"})

@@ -89,16 +89,6 @@ export async function checkServerReads(page, destination, fixture, output, optio
   await page.locator(".article-card").first().waitFor();
   assertPublic(matching(fixture, "/v1/feed"), options.publicOrigin);
 
-  fixture.requests.length = 0;
-  await page.goto(destination("/trending"));
-  await page.locator(".article-card").first().waitFor();
-  assertPrivate(
-    matching(fixture, "/v1/user/trending"),
-    options.userOrigin,
-    undefined,
-    options.extension,
-  );
-  await page.screenshot({ path: `${output}/trending.png`, animations: "disabled" });
   if (options.extension) {
     await page.context().addCookies([
       {
@@ -116,6 +106,8 @@ export async function checkServerReads(page, destination, fixture, output, optio
     return;
   }
 
+  // Stop the hydrated reader from making client refreshes during the SSR-only assertions.
+  await page.goto("about:blank");
   await page.context().addCookies([
     { name: "devfeed_user_session", value: "valid", url: destination("/") },
     { name: "devfeed_admin_session", value: "must-not-forward", url: destination("/") },

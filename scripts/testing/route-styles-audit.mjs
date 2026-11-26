@@ -45,7 +45,7 @@ export async function auditRouteStyles({ origin, articleSlug, output, phase }) {
     } finally {
       await browser.close();
     }
-    for (const path of ["/latest", "/topics", "/leaderboard"]) {
+    for (const path of ["/latest", "/topics"]) {
       for (let run = 0; run < 3; run++) {
         const chrome = await launch({
           chromePath: chromium.executablePath(),
@@ -92,7 +92,7 @@ export async function auditRouteStyles({ origin, articleSlug, output, phase }) {
   const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
   const summary = [];
   for (const profile of ["mobile", "desktop"]) {
-    for (const path of ["/latest", "/topics", "/leaderboard"]) {
+    for (const path of ["/latest", "/topics"]) {
       const rows = reports.filter(({ name }) => name.startsWith(`${profile}-${path.slice(1)}-`));
       assert.equal(rows.length, 3);
       const sheets = measurements.find(

@@ -108,17 +108,9 @@ function fixtureServer(fixture, origin) {
     })),
     reading_streak: { current_days: 3, longest_days: 19, total_days: 42 },
   };
-  const ranks = Array.from({ length: 10 }, (_, index) => ({
-    rank: index + 1,
-    username: index ? `budget-reader-${index}` : profile.username,
-    display_name: index ? `Reader ${index}` : profile.display_name,
-    avatar_url: `${origin}/_browser-budgets/icon.webp?avatar=${index}`,
-    days: 100 - index,
-  }));
   const feed = { items, next_cursor: null };
   const bodies = new Map([
     ["/v1/feed", feed],
-    ["/v1/user/trending", feed],
     ...items.map((item) => [`/v1/articles/${item.slug}`, item]),
     ["/v1/feed/options", { sources, content_types: ["tutorial"], languages: ["en"] }],
     ["/v1/topics", topics],
@@ -142,13 +134,6 @@ function fixtureServer(fixture, origin) {
           date: new Date(Date.UTC(2026, 0, 1) + index * 86400000).toISOString().slice(0, 10),
           article_count: index % 7 === 0 ? 4 : index % 5 === 0 ? 2 : 0,
         })),
-      },
-    ],
-    [
-      "/v1/user/leaderboard",
-      {
-        longest_streak: ranks,
-        reading_days: ranks.map((rank) => ({ ...rank, days: rank.days + 50 })),
       },
     ],
   ]);
@@ -202,12 +187,6 @@ async function checkPageContent(urls) {
         const cards = page.locator(".catalog-card:visible");
         await cards.first().waitFor();
         assert.equal(await cards.count(), 60);
-      } else if (pathname === "/leaderboard") {
-        for (const name of ["Longest streak", "Most reading days"]) {
-          const board = page.getByRole("region", { name, exact: true });
-          await board.getByRole("listitem").first().waitFor();
-          assert.equal(await board.getByRole("listitem").count(), 10);
-        }
       } else if (pathname.startsWith("/users/")) {
         assert.equal((await profileRefresh).status(), 200, "Public profile visibility revalidated");
         await page.getByRole("heading", { name: "Budget fixture reader", exact: true }).waitFor();

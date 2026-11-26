@@ -6,7 +6,6 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.models import (
     Article,
     ArticleTopic,
@@ -29,6 +28,7 @@ from sqlalchemy import func, select
 from sqlalchemy.engine import Row
 from sqlalchemy.orm import Session
 
+from devfeed_http.partner_measurements import PartnerMeasurements
 from devfeed_http.partner_portal import CampaignInput, CampaignOut
 
 
@@ -196,7 +196,7 @@ class CampaignMetadata:
     owners: dict[str, uuid.UUID]
     total: int = 0
 
-    async def reports(self, analytics: DirectEngagementAnalytics) -> list[CampaignOut]:
+    async def reports(self, analytics: PartnerMeasurements) -> list[CampaignOut]:
         if not self.rows:
             return []
         measured = {row.id: [0, 0] for row in self.rows}

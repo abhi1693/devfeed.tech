@@ -1,4 +1,4 @@
-"""Daily picks and public leaderboard projections retain explicit account/day context.
+"""Daily picks retain explicit account/day context.
 
 Ranking, visibility filters, locks, and atomic presentation claims are delegated
 to repository/integration contracts; supplied rows are already eligible and ranked.
@@ -23,9 +23,9 @@ from devfeed_core.models import (
 )
 from devfeed_core.schemas import ArticleOut
 from devfeed_core.user_settings import FeedSettings
-from devfeed_user_api import leaderboard, must_reads
+from devfeed_user_api import must_reads
 from devfeed_user_api.auth import UserIdentity
-from fastapi import HTTPException, Response
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from tests.api.test_feed_snapshot_contracts_unit import published_article
@@ -266,83 +266,6 @@ def test_midnight_rollover_rejects_presentation_of_the_previous_days_selection(
 
     assert error.value.status_code == 409
     selection.session.commit.assert_not_called()
-
-
-@pytest.mark.parametrize("private", [False, True])
-@pytest.mark.parametrize("username", ["reader", ""])
-def test_own_reading_rank_projection_omits_identity_and_represents_unlisted_accounts_as_null(
-    selection, private, username
-):
-    selection.account.profile = {"visibility": {"public": not private}}
-    selection.session.execute.side_effect = [
-        SimpleNamespace(
-            mappings=lambda days=days: SimpleNamespace(
-                first=lambda: (
-                    None
-                    if private
-                    else {
-                        "user_id": selection.account.id,
-                        "rank": 3,
-                        "position": 4,
-                        "username": username,
-                        "display_name": "Reader",
-                        "avatar_url": None,
-                        "days": days,
-                        "email": "private@example.test",
-                    }
-                )
-            )
-        )
-        for days in [7, 12]
-    ]
-    response = Response()
-
-    result = leaderboard.my_ranks(selection.user, selection.session, response)
-
-    assert response.headers["Cache-Control"] == "no-store"
-    if private:
-        assert result.longest_streak is result.reading_days is None
-    else:
-        assert result.longest_streak.days == 7 and result.reading_days.days == 12
-        assert result.longest_streak.rank == result.reading_days.rank == 3
-        assert result.longest_streak.position == result.reading_days.position == 4
-        assert result.longest_streak.username == result.reading_days.username == username
-    assert "private@example.test" not in result.model_dump_json()
-    selection.session.commit.assert_not_called()
-
-
-def test_public_leaderboards_preserve_supplied_competition_ranks_and_drop_private_columns(
-    selection,
-):
-    rows = [
-        {
-            "rank": rank,
-            "position": position,
-            "username": name,
-            "display_name": None,
-            "avatar_url": None,
-            "days": days,
-            "user_id": uuid.uuid4(),
-            "subject": "private-subject",
-        }
-        for position, (rank, name, days) in enumerate(
-            [(1, "reader-a", 10), (1, "", 10), (3, "", 7)], start=1
-        )
-    ]
-    selection.session.execute.return_value = SimpleNamespace(mappings=lambda: rows)
-    response = Response()
-
-    result = leaderboard.leaderboard(selection.session, response)
-
-    assert [row.rank for row in result.longest_streak] == [1, 1, 3]
-    assert [row.username for row in result.reading_days] == ["reader-a", "", ""]
-    for board in (result.longest_streak, result.reading_days):
-        assert [row.position for row in board] == [1, 2, 3]
-    assert (
-        "user_id" not in result.model_dump_json()
-        and "private-subject" not in result.model_dump_json()
-    )
-    assert response.headers["Cache-Control"] == "no-store"
 
 
 def test_metadata_only_daily_snapshot_read_preserves_saved_picks_and_never_claims_presentation(

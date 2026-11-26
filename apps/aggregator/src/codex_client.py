@@ -12,7 +12,6 @@ from typing import Protocol, cast
 from urllib.parse import urlsplit
 
 from devfeed_core.ai_capacity import CAPACITY_ERRORS
-from devfeed_core.analytics import AnalyticsClient
 from devfeed_core.config import Settings
 from devfeed_core.inference_errors import AnalysisError as AnalysisError
 from devfeed_core.inference_usage import call_id, context, record_call, request_hash
@@ -242,43 +241,40 @@ class CodexClient:
             "web_searches": 0,
             "duration_ms": 0,
         }
-        async with AnalyticsClient(self.settings) as analytics:
-            if self.settings.ai_bounded_topics_enabled and self.operation in {
-                "relationship_research",
-                "relationship_verification",
-            }:
-                from devfeed_core.topic_decision_budget import admit_relationship_call
+        if self.settings.ai_bounded_topics_enabled and self.operation in {
+            "relationship_research",
+            "relationship_verification",
+        }:
+            from devfeed_core.topic_decision_budget import admit_relationship_call
 
-                admitted: bool = await _invoke(
-                    admit_relationship_call, dict(values), settings=self.settings, client=analytics
-                )
-                if not admitted:
-                    raise AnalysisError("relationship_budget_deferred")
-            else:
-                await self._record_usage(dict(values), analytics)
-            status = "failed"
-            try:
-                result = await self._complete_async(
-                    prompt, schema, allow_web_search=allow_web_search
-                )
-                status = "returned"
-                return result
-            finally:
-                values.update(
-                    finished_at=utcnow(),
-                    reasoning_effort=self.reasoning_effort
-                    if isinstance(self.reasoning_effort, str)
-                    else None,
-                    status=status,
-                    tokens=dict(self.usage),
-                    web_searches=self.web_search_count,
-                    duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
-                )
-                await self._record_usage(values, analytics)
+            admitted: bool = await _invoke(
+                admit_relationship_call, dict(values), settings=self.settings
+            )
+            if not admitted:
+                raise AnalysisError("relationship_budget_deferred")
+        else:
+            await self._record_usage(dict(values))
+        status = "failed"
+        try:
+            result = await self._complete_async(prompt, schema, allow_web_search=allow_web_search)
+            status = "returned"
+            return result
+        finally:
+            values.update(
+                finished_at=utcnow(),
+                reasoning_effort=self.reasoning_effort
+                if isinstance(self.reasoning_effort, str)
+                else None,
+                status=status,
+                tokens=dict(self.usage),
+                web_searches=self.web_search_count,
+                duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
+            )
+            await self._record_usage(values)
 
-    async def _record_usage(self, values: JsonRecord, client: AnalyticsClient) -> None:
+    async def _record_usage(self, values: JsonRecord) -> None:
         if self.usage_recorder is None:
-            await record_call(values, client=client)
+            await record_call(values, settings=self.settings)
         else:
             await _invoke(self.usage_recorder, values)
 
