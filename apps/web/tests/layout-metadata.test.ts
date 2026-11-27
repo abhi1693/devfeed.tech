@@ -1,7 +1,9 @@
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
 import { connection } from "next/server";
-import { generateMetadata } from "@/app/layout";
+import RootLayout, { generateMetadata } from "@/app/layout";
 
+vi.mock("@devfeed/theme/assets/devfeed-mark.png", () => ({ default: { src: "/assets/mark.png" } }));
 vi.mock("next/server", () => ({ connection: vi.fn() }));
 vi.mock("@devfeed/theme/assets/devfeed-icon-32.png", () => ({
   default: { src: "/assets/favicon-32.png" },
@@ -42,3 +44,28 @@ it("uses the Hardware Daily icons and social artwork for that deployment", async
     ],
   });
 });
+
+vi.mock("next/headers", () => ({
+  headers: async () => new Headers({ "content-security-policy": "script-src 'nonce-request123'" }),
+}));
+
+it.each([
+  ["hardwaredaily", "https://hardwaretoday.app", "GTM-PTZFLDVG", true],
+  ["devfeed", "https://devfeed.tech", "GTM-PTZFLDVG", false],
+  ["hardwaredaily", "https://preview.example", "GTM-PTZFLDVG", false],
+  ["hardwaredaily", "https://hardwaretoday.app", "G-INVALID", false],
+])(
+  "scopes the GTM loader to the Hardware Today site (%s, %s, %s)",
+  async (product, origin, id, expected) => {
+    vi.stubEnv("DEVFEED_PRODUCT", String(product));
+    vi.stubEnv("DEVFEED_USER_BASE_URL", String(origin));
+    vi.stubEnv("GOOGLE_TAG_MANAGER_ID", String(id));
+    const layout = await RootLayout({ children: null, modal: null });
+    const markup = renderToStaticMarkup(layout.props.children[0]);
+    expect(markup.includes("googletagmanager.com/gtm.js?id=GTM-PTZFLDVG")).toBe(expected);
+    if (expected) {
+      expect(markup).toContain("gtm.start");
+      expect(markup).toContain('nonce="request123"');
+    }
+  },
+);
