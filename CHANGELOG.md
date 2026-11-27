@@ -2,6 +2,16 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.3.0 — 2026-11-27
+
+### Enhancements
+
+- Run Hardware Daily alongside DevFeed with a separate source catalog and hardware-focused source assessments. Its reader, sign-in screen, and shared links use Hardware Daily branding.
+
+### Fixes
+
+- Tag search rejects invalid search text before querying the database.
+
 ## 0.2.2 — 2026-11-27
 
 ### Enhancements

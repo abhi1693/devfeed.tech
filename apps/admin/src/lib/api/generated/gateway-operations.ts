@@ -1,7 +1,7 @@
 /**
  * Generated from the backend OpenAPI gateway contract.
  * Do not edit manually.
- * OpenAPI spec version: 0.2.3
+ * OpenAPI spec version: 0.3.0
  */
 import type { GatewayOperation } from "@devfeed/http/gateway";
 
