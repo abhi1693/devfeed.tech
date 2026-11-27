@@ -14,7 +14,8 @@ flowchart LR
   BI --> V[Validation gate]
   FI --> V
   X --> V
-  C[Coverage-producing jobs] --> S[Sonar quality gate]
+  BU --> S[Sonar quality gate]
+  FU --> S
   S --> V
   V --> I[Image builds, scans and smoke tests]
   I --> R[CI required]
@@ -27,8 +28,8 @@ tests run separately after frontend units, alongside the reader and admin browse
 suites. Property and mutation checks also follow frontend units.
 
 Backend integration includes database tests, migration upgrades, API contracts,
-fuzzing, and recovery. Coverage-producing jobs feed
-Sonar as their reports become available. The validation gate requires both
+fuzzing, and recovery. Sonar starts when both unit gates pass. It imports the combined Python unit
+and loadtest coverage and the reader, admin, and partner unit LCOV reports. The validation gate requires both
 integration lanes, cross-stack checks, security, and the applicable Sonar result.
 Only then can image builds begin. Tag builds use the same validation gate before
 publishing release images; other events verify images without publishing.

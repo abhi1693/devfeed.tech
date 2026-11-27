@@ -751,8 +751,8 @@ def test_real_loadtest_contracts_use_an_isolated_environment_and_feed_sonar_cove
         for step in jobs["sonarqube"]["steps"]
         if step.get("name") == "Download Python coverage from this run"
     )
-    assert download["with"]["pattern"] == "python-*-arm64-${{ github.run_attempt }}"
-    assert "needs.python-loadtest.result == 'success'" in jobs["sonarqube"]["if"]
+    assert download["with"]["pattern"] == "python-{unit,loadtest}-arm64-${{ github.run_attempt }}"
+    assert job_needs(jobs["sonarqube"]) == {"backend-unit", "frontend-unit"}
 
 
 def test_unit_shards_merge_into_the_single_canonical_coverage_artifact():
