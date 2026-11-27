@@ -2,10 +2,9 @@
 
 import { signInFailure } from "@devfeed/ui/sign-in-feedback";
 
-import Image from "next/image";
 import Link from "@/components/reader-link";
 import { useEffect, useState } from "react";
-import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
+import { ReaderBrandLink, useReaderBrand } from "./reader-brand";
 import { SignIn, type SignInConfig, type SignInProvider } from "@devfeed/ui/sign-in";
 import { readerReturnDestination, type ReaderDestination } from "@/lib/reader-destination";
 import type { ReaderDestinationRecord } from "@devfeed/http/reader-destinations";
@@ -29,6 +28,7 @@ export function UserLogin({
   error?: boolean | string;
   retry?: string;
 }) {
+  const brand = useReaderBrand();
   const [config, setConfig] = useState<SignInConfig | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   useEffect(() => {
@@ -58,17 +58,12 @@ export function UserLogin({
         return `/api/v1/user/auth/login?${params}`;
       }}
       unavailableMessage="Sign-in is temporarily unavailable. You can keep reading without an account."
-      brand={
-        <Link href="/latest" aria-label="DevFeed home">
-          <Image src={brandMark} alt="" width={34} height={34} priority />
-          <span>
-            devfeed<span>.</span>
-          </span>
-        </Link>
-      }
+      brand={<ReaderBrandLink login />}
       footer={
         <>
-          <span>© {new Date().getFullYear()} DevFeed</span>
+          <span>
+            © {new Date().getFullYear()} {brand.name}
+          </span>
           <nav aria-label="Legal">
             <Link href="/legal/privacy">Privacy</Link>
             <Link href="/legal/terms">Terms</Link>

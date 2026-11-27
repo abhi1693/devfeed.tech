@@ -1,3 +1,4 @@
+import { isHardwareDaily, HARDWARE_DESCRIPTION } from "@/lib/reader-brand";
 import { cache } from "react";
 import type { SearchParams } from "@/lib/feed-query";
 import { readerFeeds, resolveFeed } from "@/lib/reader-feed";
@@ -18,6 +19,12 @@ export async function generateMetadata({
   searchParams: Promise<SearchParams>;
 }): Promise<Metadata> {
   if (await homeSession()) return { title: "My feed", robots: { index: false, follow: false } };
+  if (isHardwareDaily())
+    return feedMetadata(
+      "Electronics and embedded engineering news",
+      HARDWARE_DESCRIPTION,
+      await searchParams,
+    );
   return feedMetadata("Developer news, tutorials & releases", SITE_DESCRIPTION, await searchParams);
 }
 

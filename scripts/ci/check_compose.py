@@ -88,6 +88,7 @@ def check_product_catalogs(base: dict[str, str]) -> None:
             environment = config["services"][service]["environment"]
             assert environment["DEVFEED_SEARCH_COLLECTION_PREFIX"] == product
         assert config["services"]["default-worker"]["environment"]["DEVFEED_PRODUCT"] == product
+        assert config["services"]["web"]["environment"]["DEVFEED_PRODUCT"] == product
 
 
 def check() -> None:
@@ -497,6 +498,7 @@ def check() -> None:
             == (chimely["DEVFEED_CHIMELY_ADMIN_HMAC_SECRET"])
         )
         assert services["web"]["environment"] == {
+            "DEVFEED_PRODUCT": "devfeed",
             "DEVFEED_PUBLIC_API_URL": "http://api:8000",
             "DEVFEED_PARTNER_CALLER_KEY": "",
             "DEVFEED_PARTNER_CALLER_IP_HEADER": "",
