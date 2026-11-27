@@ -63,7 +63,7 @@ devfeed-images-worker = { workspace = true }
 devfeed-source-discovery-worker = { workspace = true }
 
 [dependency-groups]
-coverage = ["coverage[toml]>=7.17.0,<8"]
+coverage = ["coverage[toml]>=7.17.5,<8"]
 dev = [
   { include-group = "coverage" },
   "devfeed-api",
@@ -79,15 +79,15 @@ dev = [
   "devfeed-source-discovery-worker",
   "pytest>=9.1.1,<10",
   "httpx>=0.28.1,<1",
-  "ruff>=0.17.2,<1",
-  "mypy>=2.4.0,<3",
+  "ruff>=0.17.6,<1",
+  "mypy>=2.4.1,<3",
   "pre-commit>=4.7.0,<5",
   "jsonschema>=4.26.0,<5",
   "testcontainers>=4.15.0,<5",
   "pytest-cov>=7.1.0,<8",
 ]
 fuzz = [
-    "schemathesis==4.32.4",
+    "schemathesis==4.32.7",
 ]
 loadtest = [
     "locust==2.47.0",
