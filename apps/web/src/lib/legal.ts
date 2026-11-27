@@ -15,7 +15,14 @@ export const legalPages = readerDestinationContract.routes
       query: {},
     });
     if (!path) throw new Error("Invalid legal page definition");
-    return [{ ...definition.page, routeId: definition.id, path }];
+    return [
+      {
+        ...definition.page,
+        description: definition.page.description.replace("DevFeed", productName()),
+        routeId: definition.id,
+        path,
+      },
+    ];
   })
   .sort((left, right) => left.order - right.order);
 
@@ -24,5 +31,5 @@ export type LegalDocument = (typeof legalPages)[number];
 export function legalDocument(routeId: string): LegalDocument {
   const document = legalPages.find((page) => page.routeId === routeId);
   if (!document) throw new Error("Unknown legal document");
-  return { ...document, description: document.description.replace("DevFeed", productName()) };
+  return document;
 }
