@@ -335,6 +335,8 @@ def test_discovery_progress_does_not_imply_a_usable_feed(status, delayed, state)
         now=NOW,
     )
     assert (result.stage, result.state, result.next_action) == ("discovery", state, None)
+    if status == "succeeded":
+        assert result.checks["discovery"].status == "unresolved"
     assert result.blockers == (["feed_discovery_unresolved"] if state == "blocked" else [])
     assert result.retry_targets == (["discovery"] if state == "blocked" else [])
     assert not result.can_approve and not result.can_ingest
