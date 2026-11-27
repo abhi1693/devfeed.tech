@@ -1,4 +1,4 @@
-import { productName } from "@devfeed/theme/product";
+import { productName, productWordmark } from "@devfeed/theme/product";
 import { DevCardThemeArt } from "@/components/dev-card-theme-art";
 import { cardThemeTokens } from "@devfeed/theme/dev-card";
 import { ImageResponse } from "next/og";
@@ -154,7 +154,7 @@ export async function GET(
             color: card.theme === "minimal" ? foreground : accent,
           }}
         >
-          <span>devfeed.</span>
+          <span>{productWordmark()}</span>
           <span>My stack, on one card. Create yours.</span>
         </div>
       </div>
