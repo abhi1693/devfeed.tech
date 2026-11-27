@@ -450,3 +450,39 @@ def test_automatic_budget_recovery_only_reuses_current_evidence(runtime, changed
     assert runtime.run.status == "active"
     assert runtime.run.state.get("evidence") == (None if changed else evidence)
     assert runtime.run.state["calls"][0]["charged_tokens"] == original_charge
+
+
+def test_scheduler_recovers_deferred_work_after_another_case_changes(monkeypatch):
+    settings = configuration(ai_enabled=True, full_automation=True, ai_bounded_topics_enabled=True)
+    monkeypatch.setattr(budget, "get_settings", lambda: settings)
+    monkeypatch.setattr(budget, "topic_admission_limit", lambda _: 2)
+    session, factory = MagicMock(), MagicMock()
+    factory.begin.return_value.__enter__.return_value = session
+    session.scalar.side_effect = [True, 0]
+    identifiers = [uuid.uuid4(), uuid.uuid4()]
+    session.scalars.return_value.all.side_effect = [[], [], identifiers]
+    recover = Mock(side_effect=[OperationConflict("Already resumed"), {}])
+    monkeypatch.setattr(budget, "grant_budget", recover)
+
+    assert budget.schedule_decisions(factory, capacity={}) == 1
+    assert [call.args for call in recover.call_args_list] == [(session, key) for key in identifiers]
+    assert all(call.kwargs["automatic"] for call in recover.call_args_list)
+
+
+def test_automatic_grant_rediscover_from_article_links_when_checkpoint_is_invalid(runtime):
+    runtime.run.status, runtime.run.reason = "deferred", "token_budget_exhausted"
+    runtime.run.state["evidence"]["pages"][0]["fetched_at"] = "invalid"
+    linked = {"article_id": str(uuid.uuid4()), "url": "https://example.org/new"}
+    runtime.proposal.evidence = [linked, linked, {"url": "https://example.org/unlinked"}]
+
+    grant(runtime, automatic=True)
+
+    assert "evidence" not in runtime.run.state
+    assert runtime.run.state["discovery"]["sources"] == [{"url": linked["url"]}]
+
+
+def test_automation_cannot_grant_budget_for_manual_review(runtime):
+    with pytest.raises(OperationConflict, match="automatic recovery"):
+        grant(runtime, automatic=True)
+    assert runtime.run.status == "review"
+    assert runtime.inserted == []
