@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Partner API
  * Partner analytics API with role-gated sessions and live memberships.
- * OpenAPI spec version: 0.2.2
+ * OpenAPI spec version: 0.2.3
  */
 
 export type ManualProductUpdatePricing = typeof ManualProductUpdatePricing[keyof typeof ManualProductUpdatePricing] | null;

@@ -59,13 +59,10 @@ export async function checkEngagementPagination(page, target) {
   try {
     await page.goto(target);
     await setArticleView(page, "cards");
-    await page.locator(".article-card:visible").first().waitFor();
-    await page
-      .locator(".article-card:visible .heart-button")
-      .first()
-      .waitFor({ state: "attached" });
+    // Finish the settings navigation before counting requests from the measured feed.
+    await page.goto("about:blank");
     page.on("request", capture);
-    await page.reload();
+    await page.goto(target);
     await loadAll(".article-card .heart-button");
     assert.equal(await page.locator(".article-card:visible .heart-button").count(), 120);
     assert.ok(batches.every((batch) => batch.length > 0 && batch.length <= 100));
