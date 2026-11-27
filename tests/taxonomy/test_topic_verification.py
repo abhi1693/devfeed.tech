@@ -548,3 +548,16 @@ def test_audit_repair_dry_run_atomic_rollback_and_idempotence(database):
     assert script["repair"](apply=True)["changes"] == []
     with database() as session:
         assert session.scalar(select(func.count()).select_from(TopicProposal)) == 12
+
+
+def test_hardware_topic_research_and_verification_share_editorial_scope(monkeypatch, request):
+    from devfeed_core.topic_analysis import research_prompt
+    from devfeed_core.topic_verification import verification_prompt
+
+    monkeypatch.setenv("DEVFEED_PRODUCT", "hardwaredaily")
+    get_settings.cache_clear()
+    request.addfinalizer(get_settings.cache_clear)
+    for prompt in (research_prompt({"topic": {}}), verification_prompt({})):
+        assert "semiconductor manufacturing" in prompt
+        assert "A subject can qualify through hardware" in prompt
+        assert "DevFeed is a feed for software developers" not in prompt

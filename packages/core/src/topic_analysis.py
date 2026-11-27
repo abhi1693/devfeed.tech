@@ -22,7 +22,7 @@ from devfeed_core.topic_relationships import (
     request_relationship_analysis,
     research_current,
 )
-from devfeed_core.topic_scope import SCOPE_POLICY
+from devfeed_core.topic_scope import topic_scope_policy
 from devfeed_core.topics import TopicFact, TopicWrite, lock_topics
 from devfeed_core.urls import validate_public_url
 
@@ -254,13 +254,13 @@ def resume_relationships_after_superseded(session: Session, job: TopicAnalysisJo
 
 def research_prompt(snapshot: JsonRecord) -> str:
     return (
-        SCOPE_POLICY
-        + """Research the requested metadata for ONE proposed developer topic. The requested
+        topic_scope_policy()
+        + """Research the requested metadata for ONE proposed topic. The requested
 fields are listed below. Refresh fields must be independently rechecked even
 when the draft already contains a value, and the result should replace that
 value only when the new value meets the source and quality rules below. Other
 already populated fields must be returned as null or empty and remain unchanged.
-Check developer relevance before enriching. If the exact topic is out of scope or
+Check audience relevance before enriching. If the exact topic is out of scope or
 its relevance is uncertain, return insufficient_evidence, explain why in reasons,
 and leave metadata null/empty. Do not enrich an unrelated subject for approval.
 Use live web search when needed, preferring official project sites, documentation,
