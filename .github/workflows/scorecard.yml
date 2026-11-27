@@ -5,11 +5,6 @@ on:
   schedule:
     - cron: "19 18 * * 1"
   workflow_dispatch: null
-  # Evaluate completed checks instead of racing CI immediately after a merge.
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [master]
 
 permissions:
   contents: read
@@ -24,12 +19,7 @@ jobs:
     if: >-
       github.event.repository.fork == false &&
       (github.ref_name == github.event.repository.default_branch ||
-      github.event_name == 'branch_protection_rule') &&
-      (github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.head_repository.full_name == github.repository &&
-      github.event.workflow_run.head_branch == github.event.repository.default_branch &&
-      github.event.workflow_run.head_sha == github.sha &&
-      contains(fromJSON('["push", "schedule", "workflow_dispatch"]'), github.event.workflow_run.event)))
+      github.event_name == 'branch_protection_rule')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
