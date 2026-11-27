@@ -148,7 +148,7 @@ class Runtime:
                 self.metric_server.listen(self.settings.metrics_host, self.settings.metrics_port)
             except OSError:
                 logger.warning("metrics_listener_initialization_failed")
-        if tracing and self.settings.otlp_endpoint:
+        if tracing and self.settings.traces_enabled and self.settings.otlp_endpoint:
             try:
                 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
@@ -173,7 +173,7 @@ class Runtime:
             except Exception:
                 logger.warning("tracing_initialization_failed")
         self.start_metrics(serve_metrics=serve_metrics, export_otlp=tracing)
-        if profiling and self.settings.pyroscope_server:
+        if profiling and self.settings.profiles_enabled and self.settings.pyroscope_server:
             try:
                 import pyroscope
 

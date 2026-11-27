@@ -145,6 +145,8 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("DEVFEED_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_ENDPOINT"),
     )
+    traces_enabled: bool = True
+    profiles_enabled: bool = True
     trace_sample_ratio: float = Field(default=0.1, ge=0, le=1)
     pyroscope_server: str | None = None
     profiling_sample_rate: int = Field(default=19, ge=1, le=100)
