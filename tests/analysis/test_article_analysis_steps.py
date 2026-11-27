@@ -359,3 +359,14 @@ def test_retry_feedback_cannot_reintroduce_other_tasks_or_untrusted_error_text()
     assert "private" not in feedback and "secret" not in feedback
     assert "topic_id" not in feedback and "ai_description" not in feedback
     assert article_step_feedback("overview", {"code": ["malformed"]}) == ""
+
+
+def test_hardware_relevance_has_separate_audience_and_checkpoint():
+    args = ("developer_relevance", SOURCE, TAXONOMY, {})
+    software, _, software_hash = prepare_article_step(*args)
+    hardware, _, hardware_hash = prepare_article_step(*args, product="hardwaredaily")
+    assert "building software products" in software
+    assert "building software products" not in hardware
+    assert "power electronics" in hardware
+    assert "Earnings, forecasts, and promotions alone are unrelated" in hardware
+    assert software_hash != hardware_hash

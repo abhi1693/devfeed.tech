@@ -33,6 +33,7 @@ from devfeed_core.analysis import (
 from devfeed_core.article_analysis_steps import (
     STEP_SPECS,
     article_step_feedback,
+    article_step_spec,
     assemble_article_analysis,
     next_article_step,
     prepare_article_step,
@@ -371,7 +372,7 @@ class ArticleAnalysisService:
         outputs: dict[str, JsonRecord] = {}
         while name := next_article_step(context.snapshot, outputs):
             prompt, schema, digest = prepare_article_step(
-                name, context.snapshot, prepared.taxonomy, outputs
+                name, context.snapshot, prepared.taxonomy, outputs, product=self.settings.product
             )
             with self.factory.begin() as session:
                 job = self.owned_job(session, context)
@@ -381,7 +382,8 @@ class ArticleAnalysisService:
             if (
                 cached.get("status") == "succeeded"
                 and cached.get("input_hash") == digest
-                and cached.get("prompt_version") == STEP_SPECS[name].prompt_version
+                and cached.get("prompt_version")
+                == article_step_spec(name, self.settings.product).prompt_version
                 and cached.get("model") == self.settings.codex_model
                 and cached.get("routing_binding") == self.routing_binding()
             ):
@@ -485,7 +487,8 @@ class ArticleAnalysisService:
         prior = dict(steps.get(name, {}))
         same_input = (
             prior.get("input_hash") == digest
-            and prior.get("prompt_version") == STEP_SPECS[name].prompt_version
+            and prior.get("prompt_version")
+            == article_step_spec(name, self.settings.product).prompt_version
             and prior.get("model") == self.settings.codex_model
             and prior.get("routing_binding") == self.routing_binding()
         )
@@ -505,7 +508,7 @@ class ArticleAnalysisService:
         step = {
             **(prior if same_input else {}),
             "status": "running",
-            "prompt_version": STEP_SPECS[name].prompt_version,
+            "prompt_version": article_step_spec(name, self.settings.product).prompt_version,
             "input_hash": digest,
             "model": self.settings.codex_model,
             "routing_binding": self.routing_binding(),
