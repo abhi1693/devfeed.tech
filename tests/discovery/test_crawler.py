@@ -576,6 +576,10 @@ def test_robots_dependency_failure_is_retryable_without_spending_page_transport(
         client.before_request("https://publisher.example/blog")
     assert refused.value.reason == "robots_unavailable" and refused.value.retryable
     assert refused.value.retry_after == 23 and refused.value.__cause__ is unavailable
+    with pytest.raises(FeedError) as repeated:
+        client.before_request("https://publisher.example/rss.xml")
+    assert repeated.value is refused.value
+    client.get.assert_called_once_with("https://publisher.example/robots.txt", robots=True)
     assert client.requests == 0 and client.robots == {}
 
 
