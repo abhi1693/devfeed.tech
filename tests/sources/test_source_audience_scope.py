@@ -62,12 +62,13 @@ def test_hardware_daily_source_assessment_uses_embedded_scope(monkeypatch, reque
     titles = [
         "Tracing interrupt latency on an embedded Linux board",
         "Debugging power integrity on a four-layer PCB",
-        "Measuring boot time on a RISC-V microcontroller",
+        "Robot swarms trained in simulation keep working on real robots",
     ]
     sample = [{"index": i, "title": title, "summary": ""} for i, title in enumerate(titles)]
 
     def complete(prompt, schema):
         assert "Hardware Today" in prompt and "firmware" in prompt
+        assert "sim-to-real robot control" in prompt
         assert SOURCE_SCOPE_POLICY not in prompt
         assert "untrusted evidence" in prompt
         return {

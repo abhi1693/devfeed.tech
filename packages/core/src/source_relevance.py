@@ -54,7 +54,13 @@ mix of relevant and unrelated entries; assess each entry on its own evidence.
 HARDWARE_SCOPE_POLICY = """Hardware Today serves engineers and makers who design, build,
 program, and debug electronics and embedded systems. In scope: microcontrollers, firmware,
 RTOS and embedded Linux, circuit and PCB design, instrumentation, silicon architecture,
-and manufacturing or testing electronic assemblies. A vendor announcement is relevant
+and manufacturing or testing electronic assemblies. Hardware systems also include robotics,
+mechatronics, medical devices, wireless sensors, and industrial automation. Research,
+field testing and deployment of physical systems can establish audience relevance without
+component specifications. Examples include sim-to-real robot control, wearable exosuits,
+and sensor integration. Distinguish these from funding, executive news, event listings,
+or generic AI commentary. Judge the substance even when the item is an interview.
+A vendor announcement is relevant
 when it provides substantive engineering details. Discounts, gadget promotions, and
 general software or business advice alone do not establish hardware relevance.
 Assess each entry using its own title or summary. Do not infer relevance from a brand.

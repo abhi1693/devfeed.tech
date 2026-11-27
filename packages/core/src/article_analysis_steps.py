@@ -231,11 +231,13 @@ def article_step_spec(name: str, product: Product) -> ArticleStepSpec:
     if name == "developer_relevance" and product == "hardwaredaily":
         return ArticleStepSpec(
             RelevanceResult,
-            "article-hardware-relevance-v1",
+            "article-hardware-relevance-v2",
             "Assess relevance to Hardware Today readers who design, build, test, or debug "
             "electronic hardware and embedded systems. Substantive engineering evidence about "
             "components, power electronics, sensors, chip fabrication, or embedded software "
-            "is relevant, including in vendor releases. Earnings, forecasts, and promotions "
+            "is relevant, including in vendor releases. Robotics research, robot control, and "
+            "field deployment of physical systems also qualify without component specifications. "
+            "Earnings, forecasts, and promotions "
             "alone are unrelated. Judge the document on its evidence, independently of the "
             "publisher. Use uncertain when evidence is inadequate.",
         )
