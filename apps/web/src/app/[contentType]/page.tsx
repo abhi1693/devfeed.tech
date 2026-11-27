@@ -1,7 +1,13 @@
 import { cache } from "react";
 import { notFound, permanentRedirect } from "next/navigation";
 import { FeedView } from "@/components/feed-view";
-import { contentTypeRoutes, feedHref, parseFilters, type SearchParams } from "@/lib/feed-query";
+import {
+  contentFeedTitle,
+  contentTypeRoutes,
+  feedHref,
+  parseFilters,
+  type SearchParams,
+} from "@/lib/feed-query";
 import { feedMetadata } from "@/lib/metadata";
 import { resolveReaderRoute } from "@/lib/reader-routes";
 
@@ -23,7 +29,7 @@ const resolve = cache((contentType: string) => {
   return {
     type: route.contentType,
     name,
-    title: name[0].toUpperCase() + name.slice(1),
+    title: contentFeedTitle(route.contentType),
     feedDescriptor: route.feed,
   };
 });

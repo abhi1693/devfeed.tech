@@ -1,19 +1,12 @@
 """Independent chart contracts over bounded ClickHouse analytical reads."""
 
-from typing import Annotated
-
-from devfeed_core.models import utcnow
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
-from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
 from devfeed_admin_api.auth import Admin
 from devfeed_admin_api.overview_charts import (
-    CHART_SECTIONS,
     ChartName,
     OverviewChartReport,
-    chart_report,
 )
-from devfeed_admin_api.overview_windows import parse_report_window
 
 router = APIRouter(prefix="/v1/admin/overview", tags=["admin-overview"])
 
@@ -36,7 +29,6 @@ async def overview_chart(
     chart: ChartName,
     response: Response,
     admin: Admin,
-    analytics: Annotated[AnalyticsRuntime, Depends(get_analytics)],
     from_value: str | None = Query(
         default=None,
         alias="from",
@@ -52,12 +44,4 @@ async def overview_chart(
         description="Inclusive UTC end: ISO date or Grafana date math",
     ),
 ) -> OverviewChartReport:
-    try:
-        window = parse_report_window(from_value, to_value, utcnow())
-    except ValueError as error:
-        raise HTTPException(422, detail=str(error)) from error
-    result = await analytics.section(CHART_SECTIONS[chart], window)
-    if result.snapshot is not None and result.snapshot.status != "fresh":
-        response.headers["X-Overview-Stale"] = "true"
-        response.headers["X-Overview-Age-Seconds"] = str(int(result.snapshot.lag_seconds or 0))
-    return chart_report(chart, result)
+    raise HTTPException(410, "This analytics report has been retired.")

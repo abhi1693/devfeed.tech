@@ -2,7 +2,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
   FileText,
   Rss,
   Shapes,
@@ -16,7 +15,6 @@ import {
   ClipboardCheck,
   Cpu,
   ListOrdered,
-  ChartNoAxesCombined,
   Download,
   FileSearch,
   Image,
@@ -52,17 +50,6 @@ export function Sidebar() {
       variant="workspace"
     >
       <nav aria-label="Administration">
-        <Link
-          href="/"
-          prefetch={false}
-          aria-current={pathname === "/" ? "page" : undefined}
-          className={linkClass(pathname === "/")}
-          title="Overview"
-          aria-label="Overview"
-        >
-          <LayoutDashboard size={20} aria-hidden />
-          <span>Overview</span>
-        </Link>
         {["Content", "Taxonomy", "Audience", "Partnerships", "Operations"].map((group) => (
           <section key={group} className="sidebar-group" aria-label={group}>
             <h2 className="sidebar-section-title">{group}</h2>
@@ -103,11 +90,6 @@ export function Sidebar() {
                 [
                   { label: "Workers", href: "/workers", icon: Cpu },
                   { label: "Queues", href: "/queues", icon: ListOrdered },
-                  {
-                    label: "Search analytics",
-                    href: "/search-analytics",
-                    icon: ChartNoAxesCombined,
-                  },
                 ].map((item) => (
                   <li key={item.href}>
                     <Link

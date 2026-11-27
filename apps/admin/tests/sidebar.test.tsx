@@ -56,7 +56,7 @@ it("uses distinct icons for every collapsed navigation destination", () => {
 });
 
 it.each([
-  ["/", "Overview"],
+  ["/content/articles", "Articles"],
   ["/content/articles/article-id/edit", "Articles"],
   ["/partnerships/products/product-id/related", "Products"],
   ["/workers/ingestion", "Workers"],

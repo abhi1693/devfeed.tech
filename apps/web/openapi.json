@@ -724,16 +724,11 @@
           "likes": {
             "title": "Likes",
             "type": "integer"
-          },
-          "opens": {
-            "title": "Opens",
-            "type": "integer"
           }
         },
         "required": [
           "article_id",
           "likes",
-          "opens",
           "liked"
         ],
         "title": "EngagementOut",
@@ -1023,61 +1018,6 @@
           }
         ]
       },
-      "LeaderboardEntry": {
-        "properties": {
-          "avatar_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Avatar Url"
-          },
-          "days": {
-            "exclusiveMinimum": 0.0,
-            "title": "Days",
-            "type": "integer"
-          },
-          "display_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Display Name"
-          },
-          "position": {
-            "minimum": 1.0,
-            "title": "Position",
-            "type": "integer"
-          },
-          "rank": {
-            "minimum": 1.0,
-            "title": "Rank",
-            "type": "integer"
-          },
-          "username": {
-            "title": "Username",
-            "type": "string"
-          }
-        },
-        "required": [
-          "rank",
-          "position",
-          "username",
-          "display_name",
-          "avatar_url",
-          "days"
-        ],
-        "title": "LeaderboardEntry",
-        "type": "object"
-      },
       "LikeInput": {
         "additionalProperties": false,
         "properties": {
@@ -1090,36 +1030,6 @@
           "liked"
         ],
         "title": "LikeInput",
-        "type": "object"
-      },
-      "MyReadingRanks": {
-        "properties": {
-          "longest_streak": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LeaderboardEntry"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "reading_days": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LeaderboardEntry"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "longest_streak",
-          "reading_days"
-        ],
-        "title": "MyReadingRanks",
         "type": "object"
       },
       "NotificationConfig": {
@@ -1992,30 +1902,6 @@
           "columns"
         ],
         "title": "ReaderColumnsUpdate",
-        "type": "object"
-      },
-      "ReadingLeaderboard": {
-        "properties": {
-          "longest_streak": {
-            "items": {
-              "$ref": "#/components/schemas/LeaderboardEntry"
-            },
-            "title": "Longest Streak",
-            "type": "array"
-          },
-          "reading_days": {
-            "items": {
-              "$ref": "#/components/schemas/LeaderboardEntry"
-            },
-            "title": "Reading Days",
-            "type": "array"
-          }
-        },
-        "required": [
-          "longest_streak",
-          "reading_days"
-        ],
-        "title": "ReadingLeaderboard",
         "type": "object"
       },
       "RecommendationPage": {
@@ -3203,7 +3089,7 @@
   "info": {
     "description": "Optional personalization API. OIDC sessions and CSRF protection required.",
     "title": "DevFeed User API",
-    "version": "0.1.8"
+    "version": "0.2.3"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3684,6 +3570,11 @@
             "description": "Service or dependency unavailable"
           }
         },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
         "summary": "Opened",
         "tags": [
           "article-engagement"
@@ -4680,147 +4571,6 @@
         "x-devfeed-agent": {
           "scope": "devfeed:read"
         },
-        "x-devfeed-gateway": {
-          "bodyLimit": 1000000,
-          "bodyTimeoutMs": 2000,
-          "cookiePolicy": "reader",
-          "extension": {
-            "cacheControl": null,
-            "credentials": "include",
-            "requestHeaders": [
-              "Content-Type",
-              "X-CSRF-Token",
-              "If-None-Match"
-            ],
-            "timeoutMs": 15000
-          },
-          "handler": "forward",
-          "upstreamTimeoutMs": 45000
-        }
-      }
-    },
-    "/v1/user/leaderboard": {
-      "get": {
-        "operationId": "leaderboard_v1_user_leaderboard_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ReadingLeaderboard"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed"
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Invalid or unauthorized request"
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service or dependency unavailable"
-          }
-        },
-        "summary": "Leaderboard",
-        "tags": [
-          "user-leaderboard"
-        ],
-        "x-devfeed-gateway": {
-          "bodyLimit": 1000000,
-          "bodyTimeoutMs": 2000,
-          "cookiePolicy": "reader",
-          "extension": {
-            "cacheControl": null,
-            "credentials": "include",
-            "requestHeaders": [
-              "Content-Type",
-              "X-CSRF-Token",
-              "If-None-Match"
-            ],
-            "timeoutMs": 15000
-          },
-          "handler": "forward",
-          "upstreamTimeoutMs": 45000
-        }
-      }
-    },
-    "/v1/user/leaderboard/me": {
-      "get": {
-        "operationId": "my_ranks_v1_user_leaderboard_me_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MyReadingRanks"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed"
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Invalid or unauthorized request"
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service or dependency unavailable"
-          }
-        },
-        "security": [
-          {
-            "APIKeyCookie": []
-          }
-        ],
-        "summary": "My Ranks",
-        "tags": [
-          "user-leaderboard"
-        ],
         "x-devfeed-gateway": {
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
@@ -7961,100 +7711,6 @@
           "upstreamTimeoutMs": 45000
         }
       }
-    },
-    "/v1/user/trending": {
-      "get": {
-        "operationId": "trending_v1_user_trending_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 24,
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "maximum": 1000000,
-              "minimum": 0,
-              "title": "Cursor",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FeedPage"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed"
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Invalid or unauthorized request"
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service or dependency unavailable"
-          }
-        },
-        "summary": "Trending",
-        "tags": [
-          "article-engagement"
-        ],
-        "x-devfeed-gateway": {
-          "bodyLimit": 1000000,
-          "bodyTimeoutMs": 2000,
-          "cookiePolicy": "reader",
-          "extension": {
-            "cacheControl": null,
-            "credentials": "include",
-            "requestHeaders": [
-              "Content-Type",
-              "X-CSRF-Token",
-              "If-None-Match"
-            ],
-            "timeoutMs": 15000
-          },
-          "handler": "forward",
-          "upstreamTimeoutMs": 45000
-        }
-      }
     }
   },
   "x-devfeed-gateway-routes": [
@@ -8634,29 +8290,6 @@
         }
       ],
       "path": "/v1/user/articles/{article_id}/open",
-      "policy": {
-        "bodyLimit": 1000000,
-        "bodyTimeoutMs": 2000,
-        "cookiePolicy": "reader",
-        "extension": {
-          "cacheControl": null,
-          "credentials": "include",
-          "requestHeaders": [
-            "Content-Type",
-            "X-CSRF-Token",
-            "If-None-Match"
-          ],
-          "timeoutMs": 15000
-        },
-        "handler": "forward",
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "GET",
-      "operationId": "trending_v1_user_trending_get",
-      "parameters": [],
-      "path": "/v1/user/trending",
       "policy": {
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
@@ -9690,52 +9323,6 @@
     },
     {
       "method": "GET",
-      "operationId": "leaderboard_v1_user_leaderboard_get",
-      "parameters": [],
-      "path": "/v1/user/leaderboard",
-      "policy": {
-        "bodyLimit": 1000000,
-        "bodyTimeoutMs": 2000,
-        "cookiePolicy": "reader",
-        "extension": {
-          "cacheControl": null,
-          "credentials": "include",
-          "requestHeaders": [
-            "Content-Type",
-            "X-CSRF-Token",
-            "If-None-Match"
-          ],
-          "timeoutMs": 15000
-        },
-        "handler": "forward",
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "GET",
-      "operationId": "my_ranks_v1_user_leaderboard_me_get",
-      "parameters": [],
-      "path": "/v1/user/leaderboard/me",
-      "policy": {
-        "bodyLimit": 1000000,
-        "bodyTimeoutMs": 2000,
-        "cookiePolicy": "reader",
-        "extension": {
-          "cacheControl": null,
-          "credentials": "include",
-          "requestHeaders": [
-            "Content-Type",
-            "X-CSRF-Token",
-            "If-None-Match"
-          ],
-          "timeoutMs": 15000
-        },
-        "handler": "forward",
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "GET",
       "operationId": "feed_v1_user_feed_get",
       "parameters": [],
       "path": "/v1/user/feed",
@@ -9913,11 +9500,6 @@
       "method": "GET",
       "operationId": "search_v1_search_get",
       "path": "/v1/search"
-    },
-    {
-      "method": "POST",
-      "operationId": "successful_click_v1_search_analytics_click_post",
-      "path": "/v1/search/analytics/click"
     },
     {
       "method": "GET",

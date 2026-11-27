@@ -9,14 +9,9 @@ establish ARM64 release-image readiness.
 `commands.json` records the supported DevFeed Fleet commands and probes, based on the
 home-lab checkout at revision `76bd4d280e00031e31b05f7c2b3e7fa15b1135c2`.
 The recorded per-file SHA-256 values identify the prepared baseline inputs. The
-schema preparation and finite import commands adapt that baseline to the current
-ClickHouse architecture. The migration hook runs `devfeed db upgrade` followed by
-`devfeed analytics upgrade` with schema-owner ClickHouse credentials before new
-application processes start. The finite importer uses `DEVFEED_DATABASE_URL` for
-independent short-lived source connections; application processes publish live
-observations directly. Coordinate
-these adapted commands with the final Fleet manifests before deployment; the
-provenance hashes do not claim byte identity for subsequently adapted commands.
+migration hook runs the PostgreSQL schema upgrade with a longer statement
+timeout for migration connections. Runtime fixtures have no warehouse service
+or credentials. Coordinate adapted commands with deployed Fleet manifests.
 The consumer wrapper is the byte-identical `infra/chimely/consumer.py` from this
 repository. CI never fetches the private infrastructure repository. Before final
 deployment, compare each invoked command/probe and consumer payload with the
@@ -54,10 +49,7 @@ user, partner and dedicated worker images deliberately use packaged
 `Base.metadata.create_all()` for their separate runtime fixtures. Their output
 labels that setup as metadata-only: it is not evidence that Alembic ran there.
 
-The backend image executes native preparation, checks historical readiness and
-current card policy coverage in ClickHouse, validates retained source records,
-and starts the finite analytics importer. Its real health probe must accept a fresh
-heartbeat and reject a stale one. The backend starts the three priority workers
+The backend starts the three priority workers
 plus isolated solver and override scenarios, verifies each worker registers only
 its expected physical queue and has a fresh heartbeat, runs the scheduler
 and its successful-cycle probe, and runs search setup plus the indexer against

@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   displayDate,
   contentTypeFromRoute,
+  contentFeedTitle,
   feedHref,
   feedParams,
   latestFeedParams,
-  trendingFeedParams,
   personalFeedHref,
   outboundArticleUrl,
   displayHost,
@@ -15,6 +15,12 @@ import {
 } from "@/lib/feed-query";
 
 describe("user filters", () => {
+  it("uses the same pluralized catalog headings on web and browser extension feeds", () => {
+    expect(contentFeedTitle("news")).toBe("News");
+    expect(contentFeedTitle("article")).toBe("Articles");
+    expect(contentFeedTitle("comparison")).toBe("Comparisons");
+  });
+
   it.each([
     ["article", "articles"],
     ["news", "news"],
@@ -130,16 +136,6 @@ it("requests diverse Latest pages without changing source, topic, tag or search 
     { source_id: "11111111-1111-4111-8111-111111111111" },
   ])
     expect(latestFeedParams(parseFilters(filters)).has("diverse")).toBe(false);
-});
-
-it.each([
-  ["", "limit=24"],
-  ["0", "limit=24&cursor=0"],
-  ["24", "limit=24&cursor=24"],
-  ["1000000", "limit=24&cursor=1000000"],
-  ["24&limit=1000&cursor=0", "limit=24&cursor=24%26limit%3D1000%26cursor%3D0"],
-])("keeps the Trending page size and encodes cursor %j as a single parameter", (cursor, query) => {
-  expect(trendingFeedParams(cursor).toString()).toBe(query);
 });
 
 it.each(["newest", "oldest", "most_liked"])(

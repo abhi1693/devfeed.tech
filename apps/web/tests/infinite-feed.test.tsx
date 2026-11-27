@@ -70,21 +70,17 @@ it("freezes placement context to at most 24 initially visible articles while pag
   expect(grid.getAttribute("data-placement-count")).toBe("24");
 });
 
-it.each(["bookmarks", "trending", "cursor"])(
-  "does not add product placements to %s browsing",
-  (kind) => {
-    render(
-      <InfiniteFeed
-        initialPage={initialPage}
-        filters={kind === "cursor" ? { ...filters, cursor: "next" } : filters}
-        bookmarks={kind === "bookmarks"}
-        trending={kind === "trending"}
-        placements={{ surface: "feed" }}
-      />,
-    );
-    expect(screen.getByTestId("article-grid").getAttribute("data-placements")).toBeNull();
-  },
-);
+it.each(["bookmarks", "cursor"])("does not add product placements to %s browsing", (kind) => {
+  render(
+    <InfiniteFeed
+      initialPage={initialPage}
+      filters={kind === "cursor" ? { ...filters, cursor: "next" } : filters}
+      bookmarks={kind === "bookmarks"}
+      placements={{ surface: "feed" }}
+    />,
+  );
+  expect(screen.getByTestId("article-grid").getAttribute("data-placements")).toBeNull();
+});
 const fetcher = vi.fn();
 beforeEach(() => {
   fetcher.mockReset();
@@ -273,16 +269,6 @@ it.each([409, 200])(
     expect(screen.queryByText("You’re all caught up.")).toBeNull();
   },
 );
-
-it("continues Trending through its own endpoint without a More articles control", async () => {
-  fetcher.mockResolvedValue(Response.json({ items: [nextArticle], next_cursor: null }));
-  render(<InfiniteFeed initialPage={{ ...initialPage, next_cursor: "24" }} trending />);
-  expect(screen.queryByRole("link", { name: "More articles" })).toBeNull();
-  await act(async () => intersect());
-  expect(fetcher.mock.calls[0][0]).toBe("/api/v1/user/trending?limit=24&cursor=24");
-  expect(screen.getByText(nextArticle.title)).toBeTruthy();
-  expect(screen.getByText("You’re all caught up.")).toBeTruthy();
-});
 
 it("retains Latest results and offers a filtered restart when its snapshot expires", async () => {
   fetcher.mockResolvedValue(Response.json({}, { status: 409 }));

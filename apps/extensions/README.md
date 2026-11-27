@@ -4,7 +4,7 @@ A Chrome and Microsoft Edge Manifest V3 extension that renders DevFeed directly 
 without redirecting to the website or embedding it in an iframe.
 
 The extension bundles the web reader's React components and styles. Feed, search,
-article previews, personalized feed, read later, trending, topics, tags, sources, source suggestions,
+article previews, personalized feed, read later, topics, tags, sources, source suggestions,
 and all six settings sections use local hash routes. Publisher links and website
 sign-in open a separate tab. Chrome's own new-tab footer is browser UI and is not
 part of the extension's layout.
@@ -174,12 +174,12 @@ backend services.
 Choose Grid, List, Stacked, or Columns in **Settings → Appearance → Article feed layout**.
 Grid is the default. List uses compact rows, while Stacked places thumbnails,
 metadata, headlines, descriptions, and article actions in one vertical stream.
-Each feed saves its own choice across My feed, Latest, topic/source/tag feeds, Trending,
+Each feed saves its own choice across My feed, Latest, topic/source/tag feeds,
 and Read later. Columns is available only on My feed for signed-in readers.
 Guest choices stay in the extension's browser storage; signed-in choices
 use account feed settings without changing content or language selections. Grid,
 List, and Stacked reuse the existing feed loading, bookmarks, engagement, and preview
-navigation. `/trending` is a local reader route in both extensions.
+navigation.
 
 Stacked uses wider 16:9 thumbnails and displays the complete artwork. Sponsored
 articles retain the article row layout and disclosure badge. Product placements
@@ -188,7 +188,7 @@ Sponsored badge, and an outward-link cue that stays beside the content.
 
 Every article feed remembers its own Grid, List, or Stacked layout. Use its layout menu,
 or the Feed selector in Appearance. My feed also supports Columns for signed-in readers;
-Latest, Trending, Read later, content-type feeds, and individual topic/source/tag feeds
+Latest, Read later, content-type feeds, and individual topic/source/tag feeds
 keep their choices independently. Stable catalog IDs make canonical links, older aliases,
 and a catalog feed's content tabs share one preference. Account layouts sync across the
 readers; guest layouts stay in their own browser storage. Old layouts provide the initial

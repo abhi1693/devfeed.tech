@@ -35,9 +35,7 @@ from devfeed_core.urls import fingerprint
 from redis import Redis
 from sqlalchemy import func, select
 
-from tests.support.analytics_cards import card_publication as card_publication
 from tests.support.article_step_helpers import article_step_client
-from tests.support.overview import publish_section
 from tests.taxonomy.test_topic_analysis import pending as pending
 from tests.taxonomy.test_topic_analysis import run_metadata_research
 from tests.taxonomy.test_topic_relationships import catalog as catalog
@@ -275,7 +273,7 @@ def test_topic_removed_during_inference_supersedes_and_requeues(database, monkey
 )
 @pytest.mark.parametrize("reasons", [[], ["The source directly supports this developer tutorial."]])
 def test_source_policy_preview_and_publication_share_checks_and_keep_audit(
-    database, mode, status, publication, reasons
+    database, admin_client, mode, status, publication, reasons
 ):
     with database.begin() as session:
         _, article, topic = seed(session, mode=mode)
@@ -294,6 +292,11 @@ def test_source_policy_preview_and_publication_share_checks_and_keep_audit(
         assert len(reviews) == (2 if mode == "auto" else 0)
         assert all(row.automation["policy_version"] == POLICY_VERSION for row in reviews)
         assert session.scalar(select(func.count()).select_from(ArticlePublicationDecision)) == 1
+    response = admin_client.get(f"/v1/admin/automation/articles/{article_id}/decisions")
+    assert response.status_code == 200
+    history = response.json()
+    assert history["total"] == 1
+    assert history["items"][0]["decision"]["status"] == status
 
 
 @pytest.mark.parametrize(
@@ -363,12 +366,11 @@ def test_policy_api_requires_preview_and_checks_revision(admin_client, database)
     assert history["total"] == 2 and history["items"][0]["actor"] == "integration-admin"
 
 
-def test_unverified_topic_remains_pending_and_visible_on_dashboard(
+def test_unverified_topic_remains_pending_after_research(
     admin_client,
     database,
     pending,
     monkeypatch,
-    card_publication,
 ):
     enable(monkeypatch, AUTO_APPROVE_TOPICS=True)
     monkeypatch.setattr(
@@ -389,11 +391,8 @@ def test_unverified_topic_remains_pending_and_visible_on_dashboard(
         job = session.get(TopicAnalysisJob, job_id)
         assert proposal.status == "pending" and job.status == "succeeded"
         assert "auto_approval" not in job.result  # Full identity review has not run yet.
-    publish_section(card_publication)
-    response = admin_client.get("/v1/admin/overview/charts/attention")
-    assert response.status_code == 200, response.text
-    blockers = {group["code"]: group for group in response.json()["data"]["blockers"]}
-    assert blockers["evidence_unverified"]["count"] == 1
+        checks = job.result["evidence_verification"]["checks"]
+        assert checks and all(check["status"] == "unverified" for check in checks.values())
 
 
 def test_capacity_pause_is_shared_and_cannot_be_shortened(database):
@@ -404,12 +403,11 @@ def test_capacity_pause_is_shared_and_cannot_be_shortened(database):
         assert 590 <= cooldown_remaining(connection) <= 600
 
 
-def test_relationship_blockers_match_each_proposals_own_citation(
+def test_relationship_research_records_each_proposals_own_citation(
     admin_client,
     database,
     catalog,
     monkeypatch,
-    card_publication,
 ):
     job = queue(admin_client, catalog[0])
     monkeypatch.setattr(
@@ -427,35 +425,16 @@ def test_relationship_blockers_match_each_proposals_own_citation(
             },
         },
     )
-    execute(
-        monkeypatch,
-        job,
-        [
-            suggestion(catalog),
-            suggestion(catalog, related_topic_id=str(catalog[2]), evidence_quote="Another quote"),
-        ],
-    )
-    publish_section(card_publication)
-    response = admin_client.get("/v1/admin/overview/charts/attention")
-    assert response.status_code == 200, response.text
-    blockers = {item["code"]: item for item in response.json()["data"]["blockers"]}
-    assert blockers["relationship_evidence_unverified"]["count"] == 1
-    assert blockers["relationship_evidence_unverified"]["targets"][0]["title"] == "React → Vue"
-
-
-def test_overview_counts_actual_autonomous_publications(admin_client, database, card_publication):
-    with database.begin() as session:
-        _, article, topic = seed(session, mode="auto")
-        job = ready(session, article, topic)
-        apply_publication_policy(session, article, job)
-    publish_section(card_publication, "publishing", 30)
-    response = admin_client.get("/v1/admin/overview/charts/publication-rate")
-    assert response.status_code == 200, response.text
-    metrics = response.json()["data"]["summary"]
-    assert metrics["published"] == 1
-    assert metrics["automatic_percent"] == 100
-    latency = admin_client.get("/v1/admin/overview/charts/publication-latency").json()
-    assert 590 <= latency["data"]["summary"]["p50_seconds"] <= 620
+    values = [
+        suggestion(catalog),
+        suggestion(catalog, related_topic_id=str(catalog[2]), evidence_quote="Another quote"),
+    ]
+    execute(monkeypatch, job, values)
+    with database() as session:
+        checks = session.get(TopicAnalysisJob, job).result["evidence_verification"]["checks"]
+        for value, expected_status in zip(values, ("verified", "unverified"), strict=True):
+            key = citation_key(value["evidence_url"], value["evidence_quote"])
+            assert checks[key]["status"] == expected_status
 
 
 def test_recovery_rejects_stale_revision_and_coalesces_active_work(

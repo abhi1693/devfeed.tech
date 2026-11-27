@@ -6,7 +6,8 @@ import json
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from devfeed_core.analytics import AnalyticsClient
+from devfeed_core.config import get_settings
+from devfeed_core.inference_ledger import InferenceLedger
 
 # USD / million tokens, verified 2026-09-24. This is not Codex subscription billing.
 # input, cached input, cache write, output (reasoning is already included in output).
@@ -46,27 +47,31 @@ def timestamp(value: str) -> datetime:
 
 
 async def usage_rows(client, since, until):
-    """Group durable invocation facts from ClickHouse without reading PostgreSQL."""
-    rows = await client.query(
-        "SELECT task AS operation,if(model_is_null=1,NULL,if(model_is_empty=1,'',model)) AS model,"
-        "if(effort_is_null=1,NULL,if(effort_is_empty=1,'',effort)) AS reasoning_effort,reason,"
-        "count() AS calls,countIf(status='running') AS unfinished,"
-        "countIf(has_input_tokens=0) AS unmetered,"
-        "sum(toUInt128(web_searches)) AS web_searches,"
-        "sum(toUInt128(input_tokens)) AS `inputTokens`,"
-        "sum(toUInt128(reported_cached_input_tokens)) AS `cachedInputTokens`,"
-        "sum(toUInt128(cache_write_input_tokens)) AS `cacheWriteInputTokens`,"
-        "sum(toUInt128(output_tokens)) AS `outputTokens`,"
-        "sum(toUInt128(reasoning_tokens)) AS `reasoningOutputTokens` "
-        "FROM analytics_inference_events FINAL "
-        "WHERE started_at >= {since:DateTime64(6,'UTC')} "
-        "AND started_at < {until:DateTime64(6,'UTC')} "
-        "GROUP BY task,model,model_is_null,model_is_empty,effort,"
-        "effort_is_null,effort_is_empty,reason "
-        "ORDER BY operation,model,reasoning_effort,reason "
-        "SETTINGS optimize_move_to_prewhere_if_final=0,prefer_column_name_to_alias=1",
+    """Group durable invocation facts over a half-open UTC time range."""
+    cursor = await client.execute(
+        """
+        SELECT task AS operation,
+            CASE WHEN usage->>'model_is_null'='1' THEN NULL
+                WHEN usage->>'model_is_empty'='1' THEN ''
+                ELSE usage->>'model' END AS model,
+            CASE WHEN usage->>'effort_is_null'='1' THEN NULL
+                WHEN usage->>'effort_is_empty'='1' THEN ''
+                ELSE usage->>'effort' END AS reasoning_effort,
+            usage->>'reason' AS reason, count(*) AS calls,
+            count(*) FILTER (WHERE usage->>'status'='running') AS unfinished,
+            count(*) FILTER (WHERE usage->>'has_input_tokens'='0') AS unmetered,
+            sum((usage->>'web_searches')::numeric) AS web_searches,
+            sum((usage->>'input_tokens')::numeric) AS "inputTokens",
+            sum((usage->>'reported_cached_input_tokens')::numeric) AS "cachedInputTokens",
+            sum((usage->>'cache_write_input_tokens')::numeric) AS "cacheWriteInputTokens",
+            sum((usage->>'output_tokens')::numeric) AS "outputTokens",
+            sum((usage->>'reasoning_tokens')::numeric) AS "reasoningOutputTokens"
+        FROM inference_usage_ledger WHERE started_at >= %(since)s AND started_at < %(until)s
+        GROUP BY 1,2,3,4 ORDER BY 1,2,3,4
+        """,
         {"since": since, "until": until},
     )
+    rows = await cursor.fetchall()
     for row in rows:
         for field in (
             "calls",
@@ -84,7 +89,7 @@ async def usage_rows(client, since, until):
 
 
 async def read_usage(since, until):
-    async with AnalyticsClient() as client:
+    async with await InferenceLedger(get_settings()).connect() as client:
         return await usage_rows(client, since, until)
 
 

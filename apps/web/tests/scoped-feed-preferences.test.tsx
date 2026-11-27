@@ -113,7 +113,7 @@ it("saves guest layouts separately per feed and freezes the untouched legacy def
   await act(async () => expect(await preferences.setView("compact")).toBe(true));
   expect(preferences.view).toBe("compact");
   expect(localStorage.getItem(guestReaderPreferencesKey)).toBe(legacy);
-  app.rerender(<Harness scope="trending" />);
+  app.rerender(<Harness scope="content:news" />);
   await ready();
   expect(preferences.view).toBe("stacked");
   await act(async () => expect(await preferences.setView("cards")).toBe(true));
@@ -123,7 +123,7 @@ it("saves guest layouts separately per feed and freezes the untouched legacy def
   expect(JSON.parse(localStorage.getItem(guestFeedViewsKey)!)).toEqual({
     version: 1,
     default_view: "stacked",
-    views: { latest: "compact", trending: "cards" },
+    views: { latest: "compact", "content:news": "cards" },
   });
   expect(shared.setView).not.toHaveBeenCalled();
   expect(shared.save).not.toHaveBeenCalled();
@@ -229,11 +229,11 @@ it("ignores late reads from a replaced scope even if the transport ignores cance
   const app = render(<Harness />);
   await waitFor(() => expect(userRequest).toHaveBeenCalledOnce());
   const signal = vi.mocked(userRequest).mock.calls[0][1]!.signal!;
-  app.rerender(<Harness scope="trending" />);
+  app.rerender(<Harness scope="content:news" />);
   await ready();
   expect(signal.aborted).toBe(true);
   await act(async () => old.resolve({ view: "stacked" }));
-  expect(scopeSeen).toBe("trending");
+  expect(scopeSeen).toBe("content:news");
   expect(preferences.view).toBe("compact");
 });
 
@@ -323,7 +323,7 @@ it("ignores a replaced scope's late save without clearing the new scope's busy w
   act(() => {
     first = preferences.setView("stacked");
   });
-  app.rerender(<Harness scope="trending" />);
+  app.rerender(<Harness scope="content:news" />);
   await ready();
   const newSave = deferred<{ view: FeedViewPreference }>();
   vi.mocked(userRequest).mockReturnValueOnce(newSave.promise);

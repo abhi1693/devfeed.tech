@@ -2,6 +2,35 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.2.2 — 2026-11-27
+
+### Enhancements
+
+- Reduce Valkey writes by enabling lossless compression for large cached responses after upgrading all cache readers.
+
+## 0.2.1 — 2026-11-26
+
+### Enhancements
+
+- Reduce idle CPU for self-hosted Codex by serving health checks from the running bridge. Each check verifies that the upstream server is ready and the private socket accepts connections.
+
+## 0.2.0 — 2026-11-26
+
+### Enhancements
+
+- Store partner reporting history and AI usage in PostgreSQL. Partner accounts keep their historical totals, and relationship research and verification share a rolling 24-hour call budget.
+- Follow pagination links through public feeds and directories. Empty source views are excluded from search indexes, and missing continuation pages return HTTP 404.
+
+### Fixes
+
+- Record a partner receipt and its measurement together so retrying a request credits it once.
+- Keep published articles visible while a replacement is being prepared, and restore article actions after an engagement request fails.
+
+### Upgrade Notes
+
+- The reader leaderboard, article-open counts, trending views, search analytics and warehouse-only admin reports are retired. Reader progress, article search and partner reports remain available.
+- Existing installations must drain old writers and import partner history and the active AI budget window before restarting on PostgreSQL. Keep the ClickHouse data available through verification.
+
 ## 0.1.8 — 2026-10-30
 
 ### Enhancements

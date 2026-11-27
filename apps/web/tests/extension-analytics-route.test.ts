@@ -119,8 +119,6 @@ it("preserves browser attribution and supports installed clients without the new
 });
 
 it.each([
-  ["/trending", "/trending"],
-  ["/leaderboard", "/leaderboard"],
   ["/dev-card", "/dev-card"],
   ["/mcp", "/mcp"],
   ["/mcp/authorize?client_id=private-client&state=private-state#private-token", "/mcp/authorize"],

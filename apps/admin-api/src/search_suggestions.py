@@ -3,20 +3,17 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, TypedDict
+from typing import Literal
 
-from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.models import SearchQueryStat
-from devfeed_core.schemas import DatabaseText
-from devfeed_core.search_suggestions import SearchSuggestionAnalytics, review_query
-from devfeed_http.dependencies import run_database
-from fastapi import APIRouter, Depends, HTTPException, Request
+from devfeed_core.schemas import DatabaseText, ORMModel
+from devfeed_core.search_suggestions import review_query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from devfeed_admin_api.auth import Admin, require_admin
-from devfeed_admin_api.dependencies import DBFactory
+from devfeed_admin_api.dependencies import DB
 
 router = APIRouter(
     prefix="/v1/admin/search-suggestions",
@@ -25,18 +22,7 @@ router = APIRouter(
 )
 
 
-class SearchSuggestionOut(BaseModel):
-    query_hash: str
-    query: str
-    successful_count: int
-    status: str
-    first_seen_at: datetime
-    last_seen_at: datetime
-    reviewed_at: datetime | None
-    review_note: str | None
-
-
-class SearchReviewData(TypedDict):
+class SearchSuggestionOut(ORMModel):
     query_hash: str
     query: str
     status: str
@@ -50,59 +36,31 @@ class SearchSuggestionReview(BaseModel):
 
 
 @router.get("", response_model=list[SearchSuggestionOut])
-async def list_suggestions(
-    factory: DBFactory,
-    request: Request,
+def list_suggestions(
+    session: DB,
     status: Literal["pending", "approved", "rejected"] | None = None,
-    minimum: int = 0,
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ) -> list[SearchSuggestionOut]:
-    try:
-        rows = await SearchSuggestionAnalytics(request.app.state.analytics.client).rank(
-            factory, status=status, minimum=minimum, limit=limit
-        )
-        return [SearchSuggestionOut.model_validate(row) for row in rows]
-    except (AnalyticsUnavailable, SQLAlchemyError):
-        raise HTTPException(503, "Search analytics are temporarily unavailable") from None
+    statement = select(SearchQueryStat)
+    if status is not None:
+        statement = statement.where(SearchQueryStat.status == status)
+    rows = session.scalars(statement.order_by(SearchQueryStat.query).offset(offset).limit(limit))
+    return [SearchSuggestionOut.model_validate(row) for row in rows]
 
 
 @router.post("/{query_hash}/review", response_model=SearchSuggestionOut)
-async def review_suggestion(
-    query_hash: str,
-    body: SearchSuggestionReview,
-    factory: DBFactory,
-    admin: Admin,
-    request: Request,
+def review_suggestion(
+    query_hash: str, body: SearchSuggestionReview, session: DB, admin: Admin
 ) -> SearchSuggestionOut:
-    def review(session: Session) -> SearchReviewData:
-        value = review_query(
+    try:
+        row = review_query(
             session, query_hash, status=body.status, reviewer=admin.subject, note=body.note
         )
-        session.commit()
-        return {
-            "query_hash": value.query_hash,
-            "query": value.query,
-            "status": value.status,
-            "reviewed_at": value.reviewed_at,
-            "review_note": value.review_note,
-        }
-
-    try:
-        if len(query_hash) != 64 or any(char not in "0123456789abcdef" for char in query_hash):
-            raise ValueError("Invalid query hash")
-        exists = await run_database(
-            factory, lambda session: session.get(SearchQueryStat, query_hash) is not None
-        )
-        if not exists:
-            raise LookupError("Search query not found")
-        metrics = await SearchSuggestionAnalytics(request.app.state.analytics.client).get(
-            query_hash
-        )
-        metadata = await run_database(factory, review)
-        return SearchSuggestionOut.model_validate(metadata | metrics)
-    except ValueError:
-        raise HTTPException(422, "Invalid search suggestion hash") from None
-    except LookupError:
-        raise HTTPException(404, "Search suggestion not found") from None
-    except (AnalyticsUnavailable, SQLAlchemyError):
-        raise HTTPException(503, "Search analytics are temporarily unavailable") from None
+    except ValueError as exc:
+        raise HTTPException(422, "Invalid search suggestion hash") from exc
+    except LookupError as exc:
+        raise HTTPException(404, "Search suggestion not found") from exc
+    result = SearchSuggestionOut.model_validate(row)
+    session.commit()
+    return result

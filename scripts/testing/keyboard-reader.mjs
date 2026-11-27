@@ -65,14 +65,10 @@ export async function checkKeyboardReader(page, destination, output) {
   });
   await original.waitFor();
   const publisherUrl = await original.getAttribute("href");
-  let opens = 0;
+  const readingDayWrites = [];
   await page.route("**/api/v1/user/articles/*/open", (route) => {
-    opens++;
-    assert.equal(route.request().method(), "POST");
-    const id = new URL(route.request().url()).pathname.split("/").at(-2);
-    return route.fulfill({
-      json: { article_id: id, opens, likes: 0, liked: false, bookmarked: false },
-    });
+    readingDayWrites.push(route.request().url());
+    return route.fulfill({ status: 401 });
   });
   await page.context().route(publisherUrl, (route) =>
     route.fulfill({
@@ -82,19 +78,12 @@ export async function checkKeyboardReader(page, destination, output) {
   );
   await preview.getByRole("button", { name: "Close preview", exact: true }).focus();
   await tabTo(page, original);
-  const openRecorded = page.waitForResponse(
-    (response) =>
-      /\/api\/v1\/user\/articles\/[^/]+\/open$/.test(new URL(response.url()).pathname) &&
-      response.request().method() === "POST" &&
-      response.ok(),
-  );
   const popupReady = page.context().waitForEvent("page");
   await page.keyboard.press("Enter");
   const popup = await popupReady;
   await popup.getByRole("heading", { name: "Original publisher" }).waitFor();
-  await openRecorded;
   await popup.close();
-  assert.equal(opens, 1, "Native keyboard link activation records one original open");
+  assert.deepEqual(readingDayWrites, [], "Guest original links do not write account progress");
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(destination("/users/keyboard-reader"));

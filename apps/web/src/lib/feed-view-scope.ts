@@ -6,7 +6,6 @@ import { readerColumnFeedKey } from "./reader-preferences";
 export type FeedViewScope =
   | "my_feed"
   | "latest"
-  | "trending"
   | "read_later"
   | "search"
   | `content:${ContentType}`
@@ -16,7 +15,7 @@ export type FeedViewScope =
 
 export const guestFeedViewsKey = "devfeed:feed-views:guest";
 export const maxFeedViewOverrides = 256;
-const scopes = new Set(["my_feed", "latest", "trending", "read_later", "search"]);
+const scopes = new Set(["my_feed", "latest", "read_later", "search"]);
 const views = new Set<unknown>(["cards", "compact", "stacked", "columns"]);
 type GuestStorage = Pick<Storage, "getItem" | "setItem">;
 type GuestViews = { version: 1; default_view: FeedViewPreference; views: Record<string, unknown> };
@@ -49,7 +48,6 @@ export function deriveFeedViewScope({
   authenticated?: boolean;
 }): FeedViewScope {
   if (descriptor.mode === "bookmarks") return "read_later";
-  if (descriptor.mode === "trending") return "trending";
   if (descriptor.mode === "search" || filters.q) return "search";
   const entity =
     (topicId && parseFeedViewScope(`topic:${topicId}`)) ||
