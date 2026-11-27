@@ -30,7 +30,7 @@ FRONTEND_INTEGRATION_JOBS = {
     "property",
     "mutation",
 }
-SHARED_INTEGRATION_JOBS = {"live-browser", "dast", "security"}
+SHARED_INTEGRATION_JOBS = {"live-browser", "security"}
 
 
 def load_script(name):
@@ -212,7 +212,6 @@ def test_image_stages_run_after_successful_validation_despite_expected_ancestor_
     optional = {
         "api-fuzz": event in {"pull_request", "merge_group"},
         "recovery": event in {"pull_request", "merge_group", "push"},
-        "dast": event in {"pull_request", "merge_group", "push"},
         "sonarqube": sonar_expected,
         **dict.fromkeys(
             ("property", "mutation"),
@@ -907,7 +906,6 @@ def test_stage_gates_reject_failed_cancelled_missing_and_unexpectedly_skipped_de
     applicable = {
         "api-fuzz": event in {"pull_request", "merge_group"},
         "recovery": event in {"pull_request", "merge_group", "push"},
-        "dast": event in {"pull_request", "merge_group", "push"},
         "sonarqube": sonar_expected,
         **dict.fromkeys(
             ("property", "mutation"),
@@ -989,9 +987,6 @@ def test_ci_required_accepts_only_the_expected_successes(
         "partner-browser": {"result": "success"},
         "live-browser": {"result": "success"},
         "security": {"result": "success"},
-        "dast": {
-            "result": "success" if event in {"pull_request", "merge_group", "push"} else "skipped"
-        },
         "containers": {"result": "success"},
         "recovery": {
             "result": "success" if event in {"pull_request", "merge_group", "push"} else "skipped"

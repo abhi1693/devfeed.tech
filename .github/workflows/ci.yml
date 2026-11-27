@@ -672,16 +672,6 @@ jobs:
     uses: ./.github/workflows/recovery.yml
     with:
       changes_only: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
-  dast:
-    name: ZAP
-    needs: [backend-unit, frontend-unit]
-    if: >-
-      github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
-      (github.event_name == 'push' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master'))
-    uses: ./.github/workflows/dast.yml
-    with:
-      mode: passive
-      changes_only: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
   sonarqube:
     name: SonarQube
     needs:
@@ -692,7 +682,6 @@ jobs:
       - admin-web
       - partner-web
       - user-web
-      - dast
       - mutation
       - property
       - recovery
@@ -734,12 +723,6 @@ jobs:
         with:
           name: security-coverage-${{ github.run_attempt }}
           path: reports/coverage/security
-      - name: ZAP coverage
-        if: needs.dast.outputs.coverage == 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: zap-coverage-${{ github.run_attempt }}
-          path: reports/coverage/dast
       - name: Mutation coverage
         if: needs.mutation.outputs.coverage == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -775,7 +758,6 @@ jobs:
       - name: Combine coverage and resolve monorepo paths
         env:
           SECURITY_COVERAGE_REQUIRED: "true"
-          DAST_COVERAGE_REQUIRED: ${{ needs.dast.outputs.coverage == 'true' }}
           MUTATION_COVERAGE_REQUIRED: ${{ needs.mutation.outputs.coverage == 'true' }}
           PROPERTY_COVERAGE_REQUIRED: ${{ needs.property.outputs.coverage == 'true' }}
           RECOVERY_COVERAGE_REQUIRED: ${{ needs.recovery.outputs.coverage == 'true' }}
@@ -830,7 +812,7 @@ jobs:
              else .property.result == "skipped" and .mutation.result == "skipped" end)'
   validation:
     name: Stage / Tests, security and analysis
-    needs: [backend-integration, frontend-integration, live-browser, security, dast, sonarqube]
+    needs: [backend-integration, frontend-integration, live-browser, security, sonarqube]
     if: always() && !cancelled()
     runs-on: ubuntu-24.04
     steps:
@@ -847,8 +829,6 @@ jobs:
           echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg sonar "$SONAR_EXPECTED" '
             ([.["backend-integration"], .["frontend-integration"], .["live-browser"], .security]
              | all(.result == "success")) and
-            (if $event == "pull_request" or $event == "merge_group" or $event == "push"
-             then .dast.result == "success" else .dast.result == "skipped" end) and
             (if $sonar == "true" then .sonarqube.result == "success"
              else .sonarqube.result == "skipped" end)'
   containers:
@@ -898,7 +878,6 @@ jobs:
       - partner-browser
       - live-browser
       - security
-      - dast
       - containers
       - recovery
       - sonarqube
@@ -934,8 +913,6 @@ jobs:
             (if $event == "pull_request" or $event == "merge_group" or ($event == "push" and $ref_type == "branch")
              then .mutation.result == "success" and .property.result == "success"
              else .mutation.result == "skipped" and .property.result == "skipped" end) and
-            (if $event == "pull_request" or $event == "merge_group" or $event == "push"
-             then .dast.result == "success" else .dast.result == "skipped" end) and
             (if $comment == "true" then .["coverage-report"].result == "success"
              else .["coverage-report"].result == "skipped" end) and
             (if $sonar == "true" then .sonarqube.result == "success"

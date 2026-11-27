@@ -3,7 +3,7 @@
 Backend and frontend run as independent lanes. Each lane finishes its unit checks
 before starting its integration checks. A fast frontend lane can start browser
 tests while backend units are still running, and vice versa. Live API browser
-tests, ZAP, and security checks wait for both unit gates.
+tests and security checks wait for both unit gates.
 
 ```mermaid
 flowchart LR
