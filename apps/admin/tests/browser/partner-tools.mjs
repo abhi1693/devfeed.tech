@@ -1448,7 +1448,7 @@ try {
 
   credentialsAvailable = false;
   await page.getByRole("link", { name: "Edit", exact: true }).click();
-  await page.getByText(/Authenticated imports are not configured on this DevFeed server/).waitFor();
+  await page.getByText(/Authenticated imports are not configured on this server/).waitFor();
   assert.equal(
     await page.getByRole("checkbox", { name: "Replace credential", exact: true }).isDisabled(),
     true,
