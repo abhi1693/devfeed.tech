@@ -34,7 +34,7 @@ export async function generateMetadata(): Promise<Metadata> {
   await connection();
   const hardware = isHardwareDaily();
   const title = hardware
-    ? "Hardware Daily — Electronics and embedded engineering"
+    ? "Hardware Today — Electronics and embedded engineering"
     : "DevFeed — Developer news";
   const description = hardware ? HARDWARE_DESCRIPTION : SITE_DESCRIPTION;
   return {

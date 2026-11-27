@@ -10,9 +10,9 @@ export function isHardwareDaily() {
 }
 
 export function productName() {
-  return isHardwareDaily() ? "Hardware Daily" : "DevFeed";
+  return isHardwareDaily() ? "Hardware Today" : "DevFeed";
 }
 
 export function productWordmark() {
-  return isHardwareDaily() ? "Hardware Daily" : "devfeed.";
+  return isHardwareDaily() ? "Hardware Today" : "devfeed.";
 }

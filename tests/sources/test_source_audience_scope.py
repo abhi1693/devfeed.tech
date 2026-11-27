@@ -67,7 +67,7 @@ def test_hardware_daily_source_assessment_uses_embedded_scope(monkeypatch, reque
     sample = [{"index": i, "title": title, "summary": ""} for i, title in enumerate(titles)]
 
     def complete(prompt, schema):
-        assert "Hardware Daily" in prompt and "firmware" in prompt
+        assert "Hardware Today" in prompt and "firmware" in prompt
         assert SOURCE_SCOPE_POLICY not in prompt
         assert "untrusted evidence" in prompt
         return {

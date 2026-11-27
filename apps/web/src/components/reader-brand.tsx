@@ -10,7 +10,7 @@ const HardwareDailyContext = createContext(false);
 
 export function useReaderBrand() {
   return useContext(HardwareDailyContext)
-    ? { name: "Hardware Daily", label: "Hardware Daily", mark: "/hardware-daily/mark.svg" }
+    ? { name: "Hardware Today", label: "Hardware Today", mark: "/hardware-daily/mark.svg" }
     : { name: "DevFeed", label: "devfeed.", mark: brandMark };
 }
 

@@ -52,7 +52,7 @@ export function socialImage() {
       width: 1200,
       height: 630,
       type: "image/jpeg",
-      alt: "Hardware Daily — copper circuit board and integrated circuit",
+      alt: "Hardware Today — copper circuit board and integrated circuit",
     };
   return {
     url: canonicalUrl("/opengraph.png"),

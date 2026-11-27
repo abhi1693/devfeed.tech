@@ -51,7 +51,7 @@ mix of relevant and unrelated entries; assess each entry on its own evidence.
 """
 
 
-HARDWARE_SCOPE_POLICY = """Hardware Daily serves engineers and makers who design, build,
+HARDWARE_SCOPE_POLICY = """Hardware Today serves engineers and makers who design, build,
 program, and debug electronics and embedded systems. In scope: microcontrollers, firmware,
 RTOS and embedded Linux, circuit and PCB design, instrumentation, silicon architecture,
 and manufacturing or testing electronic assemblies. A vendor announcement is relevant

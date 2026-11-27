@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { expect, it, vi } from "vitest";
 import { generateMetadata } from "@/app/layout";
 
@@ -22,14 +23,27 @@ it("uses compact icons while keeping admin pages out of search results", async (
   });
 });
 
-it("brands Hardware Daily admin metadata independently", async () => {
+it("brands Hardware Today admin metadata independently", async () => {
   vi.stubEnv("DEVFEED_PRODUCT", "hardwaredaily");
   try {
     expect((await generateMetadata()).title).toEqual({
-      default: "Hardware Daily Admin",
-      template: "%s · Hardware Daily Admin",
+      default: "Hardware Today Admin",
+      template: "%s · Hardware Today Admin",
     });
   } finally {
     vi.unstubAllEnvs();
   }
+});
+
+it("keeps client-side record titles aligned with the rendered deployment", async () => {
+  const { pageTitle } = await import("@/lib/page-titles");
+  const { productWordmark } = await import("@devfeed/theme/product");
+  document.documentElement.dataset.product = "hardwaredaily";
+  try {
+    expect(productWordmark()).toBe("Hardware Today");
+    expect(pageTitle("  Sources  ")).toBe("Sources · Hardware Today Admin");
+  } finally {
+    delete document.documentElement.dataset.product;
+  }
+  expect(productWordmark()).toBe("devfeed.");
 });

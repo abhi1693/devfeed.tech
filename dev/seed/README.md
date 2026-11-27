@@ -58,7 +58,7 @@ For a separately curated snapshot with the same schema:
 python3 scripts/seed_dev.py --file path/to/published.json
 ```
 
-## Verify Hardware Daily alongside DevFeed
+## Verify Hardware Today alongside DevFeed
 
 From the repository root, run the two-catalog browser check against disposable local
 PostgreSQL, Redis, and Typesense instances. It uses the built reader and Chromium:
