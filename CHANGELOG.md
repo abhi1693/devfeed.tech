@@ -2,6 +2,12 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.3.1 — 2026-11-28
+
+### Enhancements
+
+- Hardware Today can measure reader activity through its own Google Tag Manager container.
+
 ## 0.3.0 — 2026-11-27
 
 ### Enhancements

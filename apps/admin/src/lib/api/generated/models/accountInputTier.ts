@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.3.0
+ * OpenAPI spec version: 0.3.1
  */
 
 export type AccountInputTier = typeof AccountInputTier[keyof typeof AccountInputTier];
