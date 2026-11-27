@@ -1109,3 +1109,22 @@ def test_image_index_accepts_arm64_with_buildkit_attestation():
         }
     )
     images.check_index(document)
+
+
+def test_weekly_audits_run_without_full_ci_or_mutation():
+    def workflow(name):
+        path = ROOT / ".github" / "workflows" / f"{name}.yml"
+        return yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+
+    assert set(workflow("ci")["on"]) == {"pull_request", "merge_group", "push", "workflow_dispatch"}
+    assert set(workflow("mutation")["on"]) == {"workflow_call", "workflow_dispatch"}
+    weekly = workflow("weekly-audits")
+    assert weekly["on"]["schedule"] == [{"cron": "23 4 * * 1"}]
+    jobs = weekly["jobs"]
+    assert set(jobs) == {"dependencies", "codex", "release", "images"}
+    assert jobs["dependencies"]["with"]["python-audit"] == "true"
+    assert jobs["dependencies"]["with"]["npm-audit"] == "true"
+    assert jobs["images"]["needs"] == "release"
+    scan = jobs["images"]["steps"][0]["with"]
+    assert scan["image-ref"] == "${{ matrix.image }}"
+    assert scan["exit-code"] == "1"

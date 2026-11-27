@@ -83,9 +83,17 @@ require an uncancelled workflow and successful direct prerequisites. This lets
 them follow a successful validation gate when an inapplicable ancestor was
 intentionally skipped, while still blocking failed, cancelled, skipped, or missing
 prerequisites. Existing event rules determine which API, quality, and
-release jobs apply to PRs, merge groups, master pushes, tags, schedules, and manual
+release jobs apply to PRs, merge groups, master pushes, tags, and manual
 runs.
 
 `CI required` checks both stage gates and their individual required jobs, as well
 as the applicable image workflow. Local validation and an older successful run do
 not replace a complete hosted run for the pushed commit.
+
+## Weekly audits
+
+Every Monday, Weekly audits checks the Python workspace, the root npm lockfile
+and the Codex npm lockfile against current advisories. It also reads the image
+manifest at the latest published release tag and scans each published ARM64
+image for HIGH and CRITICAL vulnerabilities and secrets. Manual dispatch runs
+the same audits. Mutation testing runs on affected changes or manual dispatch.

@@ -6,8 +6,6 @@ on:
   pull_request: null
   merge_group: null
   workflow_dispatch: null
-  schedule:
-    - cron: 23 4 * * 1
 permissions:
   contents: read
 concurrency:

@@ -6,8 +6,6 @@ on:
       coverage:
         value: ${{ jobs.test.outputs.coverage }}
   workflow_dispatch:
-  schedule:
-    - cron: "41 2 * * *"
 
 permissions:
   contents: read
