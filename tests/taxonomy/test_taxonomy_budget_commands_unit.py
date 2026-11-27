@@ -435,3 +435,18 @@ def test_postgres_failure_never_authorizes_a_paid_call(monkeypatch):
     monkeypatch.setattr(budget, "_relationship_policy_allowed", lambda: True)
     monkeypatch.setattr(InferenceLedger, "admit", AsyncMock(side_effect=psycopg.OperationalError()))
     assert not asyncio.run(budget.admit_relationship_call({}, settings=configuration()))
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_automatic_budget_recovery_only_reuses_current_evidence(runtime, changed):
+    runtime.run.status = "deferred"
+    runtime.run.reason = "token_budget_exhausted"
+    runtime.proposal.evidence = []
+    if changed:
+        runtime.proposal.proposed = {**runtime.proposal.proposed, "description": "Updated"}
+    evidence = copy.deepcopy(runtime.run.state["evidence"])
+    original_charge = runtime.run.state["calls"][0]["charged_tokens"]
+    grant(runtime, automatic=True)
+    assert runtime.run.status == "active"
+    assert runtime.run.state.get("evidence") == (None if changed else evidence)
+    assert runtime.run.state["calls"][0]["charged_tokens"] == original_charge
