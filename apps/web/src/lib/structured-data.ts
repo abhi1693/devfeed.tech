@@ -1,3 +1,4 @@
+import { isHardwareDaily, readerName, HARDWARE_DESCRIPTION } from "./reader-brand";
 import {
   canonicalUrl,
   articleDescription,
@@ -23,9 +24,9 @@ export function siteStructuredData(logo: {
       {
         "@type": "Organization",
         "@id": `${url}#organization`,
-        name: "DevFeed",
+        name: readerName(),
         url,
-        description: SITE_DESCRIPTION,
+        description: isHardwareDaily() ? HARDWARE_DESCRIPTION : SITE_DESCRIPTION,
         logo: {
           "@type": "ImageObject",
           "@id": `${url}#logo`,
@@ -37,9 +38,9 @@ export function siteStructuredData(logo: {
       {
         "@type": "WebSite",
         "@id": `${url}#website`,
-        name: "DevFeed",
+        name: readerName(),
         url,
-        description: SITE_DESCRIPTION,
+        description: isHardwareDaily() ? HARDWARE_DESCRIPTION : SITE_DESCRIPTION,
         inLanguage: "en",
         publisher: { "@id": `${url}#organization` },
       },

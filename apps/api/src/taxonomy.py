@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from typing import Annotated
 
 from devfeed_core.models import Article, ArticleTag, Tag
 from devfeed_core.publication import visible_article
@@ -28,7 +29,7 @@ def tags(
     session: DB,
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0, le=MAX_OFFSET),
-    q: str = Query("", max_length=200),
+    q: Annotated[TextInput, Query(max_length=200)] = "",
     letter: str = Query("", pattern=r"^[A-Z#]?$"),
 ) -> Sequence[Tag]:
     statement = select(Tag).where(

@@ -1,6 +1,5 @@
 import Link from "@/components/reader-link";
-import Image from "next/image";
-import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
+import { ReaderBrandLink } from "./reader-brand";
 import { CollapsibleSidebar } from "@devfeed/ui/sidebar";
 import { FeaturedOn } from "./featured-on";
 import { NotificationInbox } from "./notification-inbox";
@@ -58,17 +57,7 @@ export function UserShell({
       <ReaderSurface promptEligibility={promptPolicies[section]} />
       <SkipToContent />
       <header className="topbar">
-        <Link href="/" className="brand devfeed-brand" aria-label="DevFeed home">
-          <Image
-            className="devfeed-brand-mark"
-            src={brandMark}
-            alt=""
-            width={40}
-            height={40}
-            priority
-          />
-          <span>devfeed.</span>
-        </Link>
+        <ReaderBrandLink />
         <UserSearch filters={filters} query={searchQuery} />
         <HeaderSponsorshipSlot />
         <div className="header-actions">

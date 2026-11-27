@@ -278,3 +278,7 @@ def test_routing_overrides_reach_every_publisher_and_worker_without_frontend_exp
         )
     for name in ("web", "admin", "partner"):
         assert "DEVFEED_JOB_QUEUE_OVERRIDES" not in services[name]["environment"]
+
+
+def test_compose_isolates_default_and_hardware_daily_catalogs():
+    check_compose.check_product_catalogs({"POSTGRES_PASSWORD": "fixture-only-password"})

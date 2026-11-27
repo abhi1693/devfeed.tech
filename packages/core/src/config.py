@@ -52,10 +52,15 @@ class SolverService(BaseModel):
         return value.rstrip("/")
 
 
+Product = Literal["devfeed", "hardwaredaily"]
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="DEVFEED_", env_file=".env", extra="ignore", hide_input_in_errors=True
     )
+
+    product: Product = "devfeed"
 
     adaptive_source_polling_enabled: bool = False
     adaptive_source_polling_min_seconds: int = Field(default=300, ge=300, le=604800)
