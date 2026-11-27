@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.2.3
+ * OpenAPI spec version: 0.3.0
  */
 
 export type AdminRelationshipsListStatus = typeof AdminRelationshipsListStatus[keyof typeof AdminRelationshipsListStatus] | null;
