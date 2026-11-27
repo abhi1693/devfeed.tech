@@ -215,7 +215,7 @@ def test_image_stages_run_after_successful_validation_despite_expected_ancestor_
         "sonarqube": sonar_expected,
         **dict.fromkeys(
             ("property", "mutation"),
-            event in {"pull_request", "merge_group"} or (event == "push" and ref_type == "branch"),
+            event in {"pull_request", "merge_group"},
         ),
     }
     results = {
@@ -909,7 +909,7 @@ def test_stage_gates_reject_failed_cancelled_missing_and_unexpectedly_skipped_de
         "sonarqube": sonar_expected,
         **dict.fromkeys(
             ("property", "mutation"),
-            event in {"pull_request", "merge_group"} or (event == "push" and ref_type == "branch"),
+            event in {"pull_request", "merge_group"},
         ),
     }
     results = {
@@ -955,10 +955,7 @@ def test_stage_gates_reject_failed_cancelled_missing_and_unexpectedly_skipped_de
         ("schedule", "branch", False),
     ],
 )
-@pytest.mark.parametrize("comment_required", [False, True])
-def test_ci_required_accepts_only_the_expected_successes(
-    event, ref_type, sonar_expected, comment_required
-):
+def test_ci_required_accepts_only_the_expected_successes(event, ref_type, sonar_expected):
     # Execute the actual master/PR gate without a tag-publishing bypass.
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
     gate = textwrap.dedent(workflow.split("  required:\n", 1)[1].split("        run: |\n", 1)[1])
@@ -972,7 +969,6 @@ def test_ci_required_accepts_only_the_expected_successes(
         "backend-integration": {"result": "success"},
         "frontend-integration": {"result": "success"},
         "validation": {"result": "success"},
-        "coverage-report": {"result": "success" if comment_required else "skipped"},
         "admin-web": {"result": "success"},
         "partner-web": {"result": "success"},
         "user-web": {"result": "success"},
@@ -992,16 +988,10 @@ def test_ci_required_accepts_only_the_expected_successes(
             "result": "success" if event in {"pull_request", "merge_group", "push"} else "skipped"
         },
         "mutation": {
-            "result": "success"
-            if event in {"pull_request", "merge_group"}
-            or (event == "push" and ref_type == "branch")
-            else "skipped"
+            "result": "success" if event in {"pull_request", "merge_group"} else "skipped"
         },
         "property": {
-            "result": "success"
-            if event in {"pull_request", "merge_group"}
-            or (event == "push" and ref_type == "branch")
-            else "skipped"
+            "result": "success" if event in {"pull_request", "merge_group"} else "skipped"
         },
         "sonarqube": {"result": "success" if sonar_expected else "skipped"},
     }
@@ -1020,7 +1010,6 @@ def test_ci_required_accepts_only_the_expected_successes(
                 **os.environ,
                 "EVENT_NAME": event,
                 "REF_TYPE": ref_type,
-                "COVERAGE_COMMENT_REQUIRED": str(comment_required).lower(),
                 "SONAR_EXPECTED": str(sonar_expected).lower(),
                 "RESULTS": json.dumps(results),
             },
@@ -1128,3 +1117,13 @@ def test_weekly_audits_run_without_full_ci_or_mutation():
     scan = jobs["images"]["steps"][0]["with"]
     assert scan["image-ref"] == "${{ matrix.image }}"
     assert scan["exit-code"] == "1"
+
+
+def test_mutation_and_properties_only_gate_proposed_changes():
+    jobs = reader_jobs()
+    for job in ("mutation", "property"):
+        assert (
+            jobs[job]["if"]
+            == "github.event_name == 'pull_request' || github.event_name == 'merge_group'"
+        )
+    assert "coverage-report" not in jobs

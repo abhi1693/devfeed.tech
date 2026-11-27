@@ -65,7 +65,7 @@ at execution, or freeze the clock when testing date boundaries.
 The coverage minimum in `pyproject.toml` applies to the complete merged backend
 measurement across all backend workspaces. A partial shard cannot pass that
 minimum. The aggregate retains the canonical `python-unit-arm64-<attempt>`
-artifact and report paths used by the PR coverage comment and Sonar. Raw shards
+artifact and report paths used by Sonar. Raw shards
 use `unit-shard-<index>-arm64-<attempt>` artifacts so Sonar consumes only the
 validated aggregate, alongside integration and loadtest coverage.
 
@@ -96,4 +96,5 @@ Every Monday, Weekly audits checks the Python workspace, the root npm lockfile
 and the Codex npm lockfile against current advisories. It also reads the image
 manifest at the latest published release tag and scans each published ARM64
 image for HIGH and CRITICAL vulnerabilities and secrets. Manual dispatch runs
-the same audits. Mutation testing runs on affected changes or manual dispatch.
+the same audits. PRs and merge queues run Properties and select affected mutation groups.
+Properties also runs nightly, and both workflows support manual dispatch.
