@@ -263,8 +263,8 @@ export function PartnerConnectionPage({
                         label: "Product click destination",
                         value:
                           account.outbound_destination === "listing_url"
-                            ? "Partner listing · DevFeed UTM"
-                            : "Product website · DevFeed UTM",
+                            ? "Partner listing · campaign UTM"
+                            : "Product website · campaign UTM",
                       },
                     ]}
                   >

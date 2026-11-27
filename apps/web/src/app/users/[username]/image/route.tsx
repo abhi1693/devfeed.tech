@@ -1,3 +1,4 @@
+import { productName } from "@devfeed/theme/product";
 import { DevCardThemeArt } from "@/components/dev-card-theme-art";
 import { cardThemeTokens } from "@devfeed/theme/dev-card";
 import { ImageResponse } from "next/og";
@@ -18,7 +19,7 @@ export async function GET(
       status: 404,
       headers: { "Cache-Control": "no-store" },
     });
-  const card = devCardData(profile, { name: profile.username ?? "DevFeed reader" });
+  const card = devCardData(profile, { name: profile.username ?? `${productName()} reader` });
   const avatar = cachedCardAvatar(profile.avatar_url);
   if (profile.avatar_url && !avatar) void warmCardAvatar(profile.avatar_url);
   const tokens = cardThemeTokens(card.theme, card.accent);

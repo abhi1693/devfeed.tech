@@ -1,4 +1,5 @@
 "use client";
+import { productName } from "@devfeed/theme/product";
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useReaderRouter } from "@/lib/reader-navigation";
@@ -153,7 +154,7 @@ export function UserSearch({ filters, query }: { filters?: FeedFilters; query?: 
     >
       <Search size={20} aria-hidden="true" />
       <label className="sr-only" htmlFor="search">
-        Search DevFeed
+        Search {productName()}
       </label>
       <input
         ref={input}

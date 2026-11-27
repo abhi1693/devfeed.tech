@@ -1,9 +1,9 @@
 import type { AdminRoute } from "./routes";
 import { humanize, resourceGroups, resources } from "./resources";
 
-export const adminSiteTitle = "DevFeed Admin";
+import { productName } from "@devfeed/theme/product";
 export function pageTitle(title: string) {
-  return `${title.replace(/\s+/g, " ").trim()} · ${adminSiteTitle}`;
+  return `${title.replace(/\s+/g, " ").trim()} · ${productName()} Admin`;
 }
 
 /** The same titles serve server metadata and already-loaded record headings. */

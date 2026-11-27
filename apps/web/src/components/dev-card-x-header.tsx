@@ -1,4 +1,5 @@
 "use client";
+import { productName, productWordmark, isHardwareDaily } from "@devfeed/theme/product";
 
 import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type Ref } from "react";
 import { cardThemeTokens } from "@devfeed/theme/dev-card";
@@ -135,8 +136,15 @@ export function DevCardXHeader({
           )}
         </g>
       </g>
-      <g className="dev-card-header-brand" aria-label="DevFeed">
-        <image data-brand-mark="" href={brandMark.src} x="1224" y="77" width="36" height="36" />
+      <g className="dev-card-header-brand" aria-label={productName()}>
+        <image
+          data-brand-mark=""
+          href={isHardwareDaily() ? "/hardware-daily/icon-180.png" : brandMark.src}
+          x="1224"
+          y="77"
+          width="36"
+          height="36"
+        />
         <text
           x="1262"
           y="103"
@@ -145,7 +153,7 @@ export function DevCardXHeader({
           letterSpacing="-1"
           fill="var(--card-foreground)"
         >
-          devfeed.
+          {productWordmark()}
         </text>
       </g>
       <g ref={content} data-header-content="" fill="var(--card-foreground)">

@@ -1,4 +1,5 @@
 "use client";
+import { productName } from "@devfeed/theme/product";
 
 import "../app/styles/mcp.css";
 
@@ -122,7 +123,8 @@ export function McpConsent({ requestId }: { requestId: string }) {
             <div className="mcp-consent-account">
               <UserRound size={20} aria-hidden="true" />
               <span>
-                Signed in as <strong>{user.name || user.email || "your DevFeed account"}</strong>
+                Signed in as{" "}
+                <strong>{user.name || user.email || `your ${productName()} account`}</strong>
               </span>
             </div>
             <fieldset className="mcp-consent-choice" disabled={busy}>

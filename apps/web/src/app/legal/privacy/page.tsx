@@ -1,3 +1,4 @@
+import { productName, isHardwareDaily } from "@devfeed/theme/product";
 import Link from "@/components/reader-link";
 import { LegalContact, LegalPage, type LegalSection } from "@/components/legal-page";
 import { canonicalUrl, pageMetadata } from "@/lib/metadata";
@@ -15,10 +16,13 @@ const sections: LegalSection[] = [
     content: (
       <>
         <p>
-          This policy covers DevFeed at devfeed.tech, the DevFeed extensions for Chrome and
-          Microsoft Edge, and the services that support them. DevFeed is a developer-content
-          discovery service. You can browse without signing in; an account is optional for
-          personalization and contributions.
+          This policy covers {productName()} at{" "}
+          {isHardwareDaily()
+            ? "hardwaretoday.app"
+            : "devfeed.tech, the DevFeed extensions for Chrome and Microsoft Edge,"}{" "}
+          and the services that support them. {productName()} is a developer-content discovery
+          service. You can browse without signing in; an account is optional for personalization and
+          contributions.
         </p>
         <p>
           This policy does not cover independent publishers or identity providers. Their policies
@@ -37,7 +41,8 @@ const sections: LegalSection[] = [
           <li>
             <strong>Account information:</strong> an identifier from our sign-in service, your name
             and email, organization membership, and sign-in timestamps. We use ZITADEL with
-            supported providers such as GitHub. DevFeed does not receive your GitHub password.
+            supported providers such as GitHub. {productName()} does not receive your GitHub
+            password.
           </li>
           <li>
             <strong>Profile and preferences:</strong> a display name or photo URL you choose to
@@ -56,30 +61,30 @@ const sections: LegalSection[] = [
         </ul>
         <p>
           Our infrastructure and providers necessarily process connection information such as IP
-          addresses and browser request details. DevFeed saves reading progress to your account when
-          you open an original article while signed in.
+          addresses and browser request details. {productName()} saves reading progress to your
+          account when you open an original article while signed in.
         </p>
       </>
     ),
   },
   {
     id: "chrome-extension",
-    title: "DevFeed browser extensions",
+    title: `${productName()} browser extensions`,
     content: (
       <>
         <p>
-          Each extension replaces its browser’s new-tab page with the DevFeed reader. It requests
-          access to https://devfeed.tech/* to retrieve feeds, articles, topics, sources and search
-          results, and to provide optional account features. It does not read your browser’s general
-          browsing history, inspect other tabs, or inject content scripts into websites.
+          Each extension replaces its browser’s new-tab page with the {productName()} reader. It
+          requests access to https://devfeed.tech/* to retrieve feeds, articles, topics, sources and
+          search results, and to provide optional account features. It does not read your browser’s
+          general browsing history, inspect other tabs, or inject content scripts into websites.
         </p>
         <p>
           When you sign in through the website, your browser supplies the existing HttpOnly session
           cookie with authenticated requests. The reader receives your account identifier, name,
           email and session-expiry information and uses a CSRF token for account changes. Your
           profile, bookmarks, likes, follows, settings, source suggestions and notification actions
-          are processed by DevFeed. Search text is sent to DevFeed to return results. Passwords are
-          handled by the sign-in provider, not by the extension.
+          are processed by {productName()}. Search text is sent to {productName()} to return
+          results. Passwords are handled by the sign-in provider, not by the extension.
         </p>
         <p>
           Opening an original article while signed in updates your daily reading progress.
@@ -105,7 +110,7 @@ const sections: LegalSection[] = [
         <p>
           We use this information to authenticate users, save settings, personalize recommendations,
           deliver in-app notifications, review source suggestions, respond to requests, measure
-          useful features and keep DevFeed secure and reliable.
+          useful features and keep {productName()} secure and reliable.
         </p>
         <p>
           Recommendations use signals such as follows and likes together with article freshness and
@@ -121,7 +126,7 @@ const sections: LegalSection[] = [
     content: (
       <>
         <p>
-          DevFeed uses first-party cookies for sign-in sessions and authentication security.
+          {productName()} uses first-party cookies for sign-in sessions and authentication security.
           Sessions are time-limited and signing out revokes the local session. Theme and other
           interface preferences may be stored in your browser so they survive navigation or a later
           visit.
@@ -129,7 +134,7 @@ const sections: LegalSection[] = [
         <p>
           You can clear cookies and site storage in your browser. Blocking session cookies can
           prevent sign-in, and clearing preference storage resets the affected settings. Clearing
-          cookies does not delete account information held by DevFeed.
+          cookies does not delete account information held by {productName()}.
         </p>
       </>
     ),
@@ -148,23 +153,28 @@ const sections: LegalSection[] = [
           </a>{" "}
           and <a href="https://policies.google.com/privacy">Google’s Privacy Policy</a>.
         </p>
-        <p>
-          When enabled, the Chrome and Edge extensions send normalized page views, focused reading
-          time and feature interactions through DevFeed’s server to the same Google Analytics
-          property used by the website. A random installation identifier and analytics session are
-          stored locally. Extension events may include the browser family, extension version, page
-          category, locale, timezone and viewport dimensions. Extension analytics do not send your
-          account identity, session cookies, CSRF tokens, search text, article titles or URL query
-          parameters to Google. Article and follow events can include public article, topic or
-          source identifiers.
-        </p>
-        <p>
-          Extension analytics respect Do Not Track and Global Privacy Control signals. You can also
-          disable extension analytics by setting the local storage item{" "}
-          <code>devfeed:extension-analytics-disabled</code> to <code>true</code> in the extension’s
-          DevTools and reloading the tab. Removing the extension removes its local storage but does
-          not delete account or analytics records already held by the service or providers.
-        </p>
+        {!isHardwareDaily() && (
+          <>
+            <p>
+              When enabled, the Chrome and Edge extensions send normalized page views, focused
+              reading time and feature interactions through {productName()}’s server to the same
+              Google Analytics property used by the website. A random installation identifier and
+              analytics session are stored locally. Extension events may include the browser family,
+              extension version, page category, locale, timezone and viewport dimensions. Extension
+              analytics do not send your account identity, session cookies, CSRF tokens, search
+              text, article titles or URL query parameters to Google. Article and follow events can
+              include public article, topic or source identifiers.
+            </p>
+            <p>
+              Extension analytics respect Do Not Track and Global Privacy Control signals. You can
+              also disable extension analytics by setting the local storage item{" "}
+              <code>devfeed:extension-analytics-disabled</code> to <code>true</code> in the
+              extension’s DevTools and reloading the tab. Removing the extension removes its local
+              storage but does not delete account or analytics records already held by the service
+              or providers.
+            </p>
+          </>
+        )}
         <p>
           Our custom events include original-article clicks, likes, follows, source suggestions and
           saved preferences. Those event payloads do not include your name, email, account
@@ -176,7 +186,7 @@ const sections: LegalSection[] = [
           <a href="https://tools.google.com/dlpage/gaoptout">
             Google’s Analytics opt-out browser add-on
           </a>{" "}
-          where supported. DevFeed processes signed-in reading progress separately.
+          where supported. {productName()} processes signed-in reading progress separately.
         </p>
       </>
     ),
@@ -187,10 +197,10 @@ const sections: LegalSection[] = [
     content: (
       <>
         <p>
-          We use infrastructure and services to run DevFeed, including Cloudflare for web delivery
-          and protection, our hosted ZITADEL sign-in service, GitHub when selected for sign-in,
-          Google Analytics and Microsoft Clarity for measurement and behavioral insights, and our
-          hosted notification service for in-app notifications.
+          We use infrastructure and services to run {productName()}, including Cloudflare for web
+          delivery and protection, our hosted ZITADEL sign-in service, GitHub when selected for
+          sign-in, Google Analytics and Microsoft Clarity for measurement and behavioral insights,
+          and our hosted notification service for in-app notifications.
         </p>
         <p>
           AI services, including OpenAI, process public article, source and taxonomy content to
@@ -217,7 +227,8 @@ const sections: LegalSection[] = [
     content: (
       <>
         <p>
-          DevFeed’s use of information received through the Chrome extension complies with the{" "}
+          {productName()}’s use of information received through the Chrome extension complies with
+          the{" "}
           <a href="https://developer.chrome.com/docs/webstore/program-policies/user-data">
             Chrome Web Store User Data Policy
           </a>
@@ -251,7 +262,8 @@ const sections: LegalSection[] = [
         <p>
           Account details, preferences and contributions are retained while needed to provide the
           service and handle legitimate operational or legal requirements. You can request account
-          deletion by email. There is currently no self-service account-deletion control in DevFeed.
+          deletion by email. There is currently no self-service account-deletion control in{" "}
+          {productName()}.
         </p>
         <p>
           Sessions, rate-limit records and caches expire. Operational records and backups may remain
@@ -274,8 +286,8 @@ const sections: LegalSection[] = [
         <p>
           You can browse anonymously, change your profile and preferences, unfollow topics or
           sources, remove likes, adjust notifications and sign out. Email us to request access to,
-          correction of or deletion of your DevFeed personal information, or to raise a privacy
-          concern.
+          correction of or deletion of your {productName()} personal information, or to raise a
+          privacy concern.
         </p>
         <p>
           Depending on the law that applies to you, you may also have rights to object to
@@ -286,8 +298,8 @@ const sections: LegalSection[] = [
         </p>
         <p>
           Requests about a GitHub account or another provider’s independent processing must also be
-          directed to that provider. Removing your DevFeed account does not remove those separate
-          accounts.
+          directed to that provider. Removing your {productName()} account does not remove those
+          separate accounts.
         </p>
       </>
     ),
@@ -304,9 +316,9 @@ const sections: LegalSection[] = [
           requests.
         </p>
         <p>
-          DevFeed is a general developer resource and is not designed for children. If you believe a
-          child has provided personal information inappropriately, contact us so we can investigate
-          and take appropriate action.
+          {productName()} is a general developer resource and is not designed for children. If you
+          believe a child has provided personal information inappropriately, contact us so we can
+          investigate and take appropriate action.
         </p>
       </>
     ),
@@ -327,5 +339,14 @@ const sections: LegalSection[] = [
 ];
 
 export default function PrivacyPage() {
-  return <LegalPage document={document} sections={sections} />;
+  return (
+    <LegalPage
+      document={document}
+      sections={
+        isHardwareDaily()
+          ? sections.filter(({ id }) => id !== "chrome-extension" && id !== "limited-use")
+          : sections
+      }
+    />
+  );
 }

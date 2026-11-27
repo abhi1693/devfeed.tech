@@ -19,7 +19,7 @@ export const settingsSections: { id: SettingsSection; label: string; description
   {
     id: "profile",
     label: "Profile",
-    description: "Personalize how your account appears in DevFeed.",
+    description: "Personalize how your account appears to other readers.",
   },
   {
     id: "notifications",

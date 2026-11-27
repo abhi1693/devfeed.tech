@@ -1,3 +1,4 @@
+import { productName } from "@devfeed/theme/product";
 import { signInFailure } from "@devfeed/ui/sign-in-feedback";
 import { redirect } from "next/navigation";
 import { LoginPanel } from "@/components/organisms/login-panel";
@@ -29,7 +30,7 @@ export default async function LoginPage({
   const message = unavailable
     ? "Cannot reach the admin service. Please try again shortly."
     : error === "access_denied"
-      ? "Your account was authenticated, but the required admin role was not granted. You are not signed in to DevFeed."
+      ? `Your account was authenticated, but the required admin role was not granted. You are not signed in to ${productName()}.`
       : signInFailure(error);
   return (
     <LoginPanel

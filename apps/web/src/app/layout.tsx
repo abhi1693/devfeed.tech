@@ -78,7 +78,11 @@ export default async function RootLayout({
   const gaId = useTagManager ? "" : analyticsMeasurementId();
   const clarityId = clarityProjectId();
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      data-product={isHardwareDaily() ? "hardwaredaily" : "devfeed"}
+      lang="en"
+      suppressHydrationWarning
+    >
       <head>
         <link rel="alternate" type="text/plain" href="/llms.txt" title="AI discovery index" />
         <link

@@ -1,3 +1,4 @@
+import { productName } from "@devfeed/theme/product";
 import { publicSiteOrigin } from "@/lib/server/config";
 
 export const dynamic = "force-dynamic";
@@ -5,7 +6,7 @@ export const dynamic = "force-dynamic";
 export function GET() {
   const origin = publicSiteOrigin();
   return new Response(
-    `# DevFeed Reader API
+    `# ${productName()} Reader API
 
 API catalog: ${origin}/.well-known/api-catalog
 OpenAPI description: ${origin}/api/openapi.json
@@ -14,7 +15,7 @@ Public discovery
 GET ${origin}/api/v1/feed returns published article previews.
 GET ${origin}/api/v1/topics, /api/v1/sources, and /api/v1/tags return public directories.
 GET ${origin}/api/v1/search?q=python searches public content.
-Article previews include original-publisher links; DevFeed does not host the publishers' full articles.
+Article previews include original-publisher links; ${productName()} does not host the publishers' full articles.
 Follow next_cursor when supplied. Pass it as cursor on the next feed request.
 
 Optional accounts

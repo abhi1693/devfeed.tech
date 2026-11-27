@@ -1,3 +1,4 @@
+import { productName } from "@devfeed/theme/product";
 import { UserShell } from "@/components/user-shell";
 import { McpContent } from "@/components/mcp-content";
 import { canonicalUrl, pageMetadata } from "@/lib/metadata";
@@ -8,8 +9,7 @@ import { pageStructuredData } from "@/lib/structured-data";
 export const dynamic = "force-dynamic";
 
 const title = "Connect your agent";
-const description =
-  "Connect your AI agent to DevFeed with MCP. Explore developer articles, topics, and publications with six read-only tools.";
+const description = `Connect your AI agent to ${productName()} with MCP. Explore developer articles, topics, and publications with six read-only tools.`;
 export const metadata = pageMetadata(title, description, canonicalUrl("/mcp"));
 
 export default function Page() {

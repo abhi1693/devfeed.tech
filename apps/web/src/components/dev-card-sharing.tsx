@@ -1,4 +1,6 @@
 "use client";
+import { productName } from "@devfeed/theme/product";
+
 import { useId, useState, useSyncExternalStore } from "react";
 import { CopyButton } from "@/components/copy-button";
 import { Code2 } from "lucide-react";
@@ -16,7 +18,7 @@ export function DevCardSharing({ profile, unsaved }: { profile: UserProfile; uns
   const path = `/users/${username}`;
   const url = origin ? new URL(path, origin).href : "";
   const imageUrl = origin ? new URL(`/api/v1/users/${username}/card.svg`, origin).href : "";
-  const markdown = url ? `[![DevFeed card](${imageUrl})](${url})` : "";
+  const markdown = url ? `[![${productName()} card](${imageUrl})](${url})` : "";
   return (
     <section className="dev-card-sharing" aria-label="Share your dev card">
       {available ? (

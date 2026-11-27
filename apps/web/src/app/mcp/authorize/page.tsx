@@ -1,9 +1,10 @@
+import { productName } from "@devfeed/theme/product";
 import { McpConsent } from "@/components/mcp-consent";
 import { UserShell } from "@/components/user-shell";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
-  title: "Authorize agent | DevFeed",
+  title: `Authorize agent | ${productName()}`,
   robots: { index: false, follow: false },
 };
 

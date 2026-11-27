@@ -1,3 +1,4 @@
+import { productName } from "@devfeed/theme/product";
 import "server-only";
 import { createLlmsTxtHandler } from "@dualmark/nextjs";
 import { aiUnavailable, conditionalResponse, renderPublicMarkdown } from "./ai-content";
@@ -6,9 +7,8 @@ import { publicSiteOrigin } from "./config";
 export function llmsIndex(request: Request) {
   const origin = publicSiteOrigin();
   const response = createLlmsTxtHandler({
-    brandName: "DevFeed",
-    description:
-      "Developer news, tutorials, articles, releases, comparisons and opinions organized by topic, source and tag. Public previews include original publisher links and clearly labeled AI summaries. DevFeed does not host the publishers' full articles.",
+    brandName: productName(),
+    description: `Developer news, tutorials, articles, releases, comparisons and opinions organized by topic, source and tag. Public previews include original publisher links and clearly labeled AI summaries. ${productName()} does not host the publishers' full articles.`,
     cacheControl: "public, max-age=3600, s-maxage=3600",
     sections: [
       {
@@ -82,9 +82,9 @@ export function llmsIndex(request: Request) {
 
 function guide() {
   const origin = publicSiteOrigin();
-  return `# DevFeed — Full agent guide
+  return `# ${productName()} — Full agent guide
 
-> DevFeed helps developers discover published technical content by article, topic, source and tag. This file expands the discovery guide and includes current public previews and directory entries. It is not a dump of the entire article archive. Every included collection is bounded and links to its next page.
+> ${productName()} helps developers discover published technical content by article, topic, source and tag. This file expands the discovery guide and includes current public previews and directory entries. It is not a dump of the entire article archive. Every included collection is bounded and links to its next page.
 
 Website: ${origin}
 Discovery index: ${origin}/llms.txt
@@ -107,7 +107,7 @@ Use the actual slugs and UUIDs returned in links; percent-encode path segments. 
 
 Search with \`/search.md?q={encoded-query}\`. Results are grouped into articles, topics, sources and tags, with articles first. Follow the section's More link to continue. Queries are limited to 200 characters.
 
-Feeds return up to 24 previews per page and use an opaque \`cursor\`. Follow the Next page URL without editing the cursor. Topic, source and tag directories return up to 60 entries per page and use \`offset\`. A final empty directory page is possible. Absence from the first page does not mean an item is absent from DevFeed.
+Feeds return up to 24 previews per page and use an opaque \`cursor\`. Follow the Next page URL without editing the cursor. Topic, source and tag directories return up to 60 entries per page and use \`offset\`. A final empty directory page is possible. Absence from the first page does not mean an item is absent from ${productName()}.
 
 Feed filters include \`content_type\` (article, news, tutorial, release, comparison, opinion), \`topic\` (slug), \`tag\` (slug), \`source_id\` (UUID) and \`sort\` (newest, oldest, most_liked). Keep these filters when continuing pagination. Reader language preferences are saved per account and default to English. Anonymous previews use English. Use the dedicated search page for cross-collection keyword lookup.
 
@@ -117,7 +117,7 @@ For complete discovery, follow each child sitemap in the sitemap index. Preserve
 
 An article here is a public preview, not a copy of the complete original article. The original publisher link identifies where to read and cite the source. AI overview sections are generated summaries; source excerpts are labeled separately. Verify claims against the original publisher when accuracy matters. Topics organize approved subject areas; tags are labels and are not endorsements.
 
-Dates are exposed in the API's timestamp format. Published uses the publisher's publication timestamp where available, otherwise DevFeed's feed timestamp. Content type describes the editorial format. Source and topic links point to related public entries.
+Dates are exposed in the API's timestamp format. Published uses the publisher's publication timestamp where available, otherwise ${productName()}'s feed timestamp. Content type describes the editorial format. Source and topic links point to related public entries.
 
 ## Access and freshness
 

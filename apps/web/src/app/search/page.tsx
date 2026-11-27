@@ -1,3 +1,4 @@
+import { productName } from "@devfeed/theme/product";
 import { SuspenseReveal } from "@/components/suspense-reveal";
 import { canonicalUrl, pageMetadata } from "@/lib/metadata";
 import { UserShell } from "@/components/user-shell";
@@ -53,7 +54,7 @@ export default async function SearchPage({
   return (
     <UserShell section="search" searchQuery={query}>
       <div className="page-heading search-heading">
-        <h1>{query ? `Results for “${query}”` : "Search DevFeed"}</h1>
+        <h1>{query ? `Results for “${query}”` : `Search ${productName()}`}</h1>
         {!query && <p>Find articles, topics, sources, and tags in one place.</p>}
       </div>
       <SearchFilters key={`filters:${resultKey}`} query={query} options={options} />

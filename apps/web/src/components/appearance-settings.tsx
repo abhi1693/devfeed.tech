@@ -1,4 +1,6 @@
 "use client";
+import { productName } from "@devfeed/theme/product";
+
 import { LoadingReveal } from "./loading-reveal";
 
 import { Monitor, Moon, Sun } from "lucide-react";
@@ -79,7 +81,7 @@ function AppearanceForm() {
         aria-label="Appearance"
         aria-busy={busy}
       >
-        <p className="profile-description">Choose how DevFeed looks on your devices.</p>
+        <p className="profile-description">Choose how {productName()} looks on your devices.</p>
         {choice("theme", "Theme", [
           { value: "system", label: "System" },
           { value: "light", label: "Light" },

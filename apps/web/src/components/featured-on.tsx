@@ -1,4 +1,5 @@
 "use client";
+import { isHardwareDaily } from "@devfeed/theme/product";
 
 import { readerIsWebsite } from "@/lib/reader-runtime";
 
@@ -15,7 +16,7 @@ const featuredOn = [
 ];
 
 export function FeaturedOn() {
-  if (!readerIsWebsite()) return null;
+  if (isHardwareDaily() || !readerIsWebsite()) return null;
   return (
     <section className="sidebar-featured" aria-label="Featured on">
       <div className="sidebar-featured-badges">

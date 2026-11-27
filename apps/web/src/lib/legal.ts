@@ -1,3 +1,4 @@
+import { productName } from "@devfeed/theme/product";
 import {
   readerDestinationContract,
   serializeReaderDestination,
@@ -23,5 +24,5 @@ export type LegalDocument = (typeof legalPages)[number];
 export function legalDocument(routeId: string): LegalDocument {
   const document = legalPages.find((page) => page.routeId === routeId);
   if (!document) throw new Error("Unknown legal document");
-  return document;
+  return { ...document, description: document.description.replace("DevFeed", productName()) };
 }

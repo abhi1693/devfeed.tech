@@ -1,4 +1,5 @@
 "use client";
+import { productName } from "@devfeed/theme/product";
 
 import "../app/styles/settings.css";
 
@@ -127,7 +128,9 @@ function SuggestionForm() {
             Suggestion received
           </h2>
         </div>
-        <p>Thanks for helping grow DevFeed. Your source will appear in Sources once approved.</p>
+        <p>
+          Thanks for helping grow {productName()}. Your source will appear in Sources once approved.
+        </p>
         <div className="suggestion-confirmation-source">
           <div>
             <strong>{saved.name}</strong>

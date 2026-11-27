@@ -1,3 +1,4 @@
+import { productName } from "@devfeed/theme/product";
 import "../app/styles/discovery.css";
 import Link from "@/components/reader-link";
 import type { ReactNode } from "react";
@@ -12,9 +13,9 @@ export type LegalSection = { id: string; title: string; content: ReactNode };
 export function LegalContact() {
   return (
     <p>
-      Contact DevFeed at <a href={`mailto:${legalEmail}`}>{legalEmail}</a>. You can also find us on
-      X at <a href={legalSocialUrl}>@abhi16_93</a>. Please use email for account, privacy or
-      copyright requests, and do not post personal information publicly.
+      Contact {productName()} at <a href={`mailto:${legalEmail}`}>{legalEmail}</a>. You can also
+      find us on X at <a href={legalSocialUrl}>@abhi16_93</a>. Please use email for account, privacy
+      or copyright requests, and do not post personal information publicly.
     </p>
   );
 }

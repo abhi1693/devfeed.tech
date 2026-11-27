@@ -1,3 +1,4 @@
+import { isHardwareDaily } from "@devfeed/theme/product";
 import Link from "@/components/reader-link";
 import { ReaderBrandLink } from "./reader-brand";
 import { CollapsibleSidebar } from "@devfeed/ui/sidebar";
@@ -132,7 +133,11 @@ export function UserShell({
             <span>Connect your agent</span>
           </Link>
           <a
-            href="https://changelog.devfeed.tech/"
+            href={
+              isHardwareDaily()
+                ? "https://github.com/abhi1693/devfeed.tech/releases"
+                : "https://changelog.devfeed.tech/"
+            }
             className="nav-item"
             target="_blank"
             rel="noopener noreferrer"

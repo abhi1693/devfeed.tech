@@ -6,6 +6,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ### Enhancements
 
+- Hardware Daily branding now follows readers and administrators through sign-in, navigation, search, profiles and shared cards.
 - Hardware Today can measure reader activity through its own Google Tag Manager container.
 
 ## 0.3.0 — 2026-11-27

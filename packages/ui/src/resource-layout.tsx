@@ -1,5 +1,6 @@
 "use client";
 
+import { productName } from "@devfeed/theme/product";
 import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
 
@@ -10,7 +11,7 @@ export function ResourceHeading({
   homeHref = "/",
   homeLabel = "Home",
   browserTitle = title,
-  siteTitle = "DevFeed Admin",
+  siteTitle = `${productName()} Admin`,
   leading,
   children,
 }: {
