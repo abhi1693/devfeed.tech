@@ -25,7 +25,7 @@ const tools = [
   ["search", "Search articles, topics, sources, and tags.", "Public"],
   ["get_article", "Get an article preview and publisher links.", "Public"],
   ["get_feed", "Browse articles by topic, source, language, and content type.", "Public"],
-  ["list_topics", "List and filter developer topics.", "Public"],
+  ["list_topics", "List and filter topics.", "Public"],
   ["list_sources", "Discover approved publications and sources.", "Public"],
   ["get_source", "Get a publication’s public profile.", "Public"],
   ["get_my_feed", "Read your personalized feed.", "Sign-in"],

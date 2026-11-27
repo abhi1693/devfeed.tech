@@ -23,9 +23,9 @@ export function ProfileStackEditor({
     past: "Used before",
   } as const;
   return (
-    <section className="profile-direct-section" aria-label="Developer stack">
+    <section className="profile-direct-section" aria-label="Tools and technologies">
       <div className="profile-direct-section-heading">
-        <h3>Developer stack</h3>
+        <h3>Tools and technologies</h3>
         <span>Usage and year are optional</span>
       </div>
       <input

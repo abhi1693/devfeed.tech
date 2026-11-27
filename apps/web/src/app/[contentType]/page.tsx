@@ -37,7 +37,7 @@ const resolve = cache((contentType: string) => {
 export async function generateMetadata({ params, searchParams }: Props) {
   const { contentType } = await params;
   const { type, name, title } = resolve(contentType);
-  return feedMetadata(title, `Developer ${name}.`, await searchParams, {
+  return feedMetadata(title, `${name} from the sources in this feed.`, await searchParams, {
     content_type: type,
   });
 }

@@ -60,10 +60,7 @@ export function TagsContent({
           <Hash size={16} aria-hidden="true" /> FIND YOUR NEXT INTEREST
         </span>
         <h1>Explore tags</h1>
-        <p>
-          From the tools you use to the ideas you’re curious about. Find a tag and explore what
-          developers are reading.
-        </p>
+        <p>Choose a tag to see articles about that subject.</p>
         <form
           className="tags-search"
           role="search"

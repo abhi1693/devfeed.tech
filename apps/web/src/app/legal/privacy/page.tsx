@@ -20,7 +20,7 @@ const sections: LegalSection[] = [
           {isHardwareDaily()
             ? "hardwaretoday.app"
             : "devfeed.tech, the DevFeed extensions for Chrome and Microsoft Edge,"}{" "}
-          and the services that support them. {productName()} is a developer-content discovery
+          and the services that support them. {productName()} is a technical-content discovery
           service. You can browse without signing in; an account is optional for personalization and
           contributions.
         </p>
@@ -233,7 +233,7 @@ const sections: LegalSection[] = [
             Chrome Web Store User Data Policy
           </a>
           , including the Limited Use requirements. We use this information only to provide or
-          improve the extension’s single purpose: developer-content discovery and reading, including
+          improve the extension’s single purpose: technical-content discovery and reading, including
           its account, personalization and notification features.
         </p>
         <p>
@@ -316,7 +316,7 @@ const sections: LegalSection[] = [
           requests.
         </p>
         <p>
-          {productName()} is a general developer resource and is not designed for children. If you
+          {productName()} is a general technical resource and is not designed for children. If you
           believe a child has provided personal information inappropriately, contact us so we can
           investigate and take appropriate action.
         </p>

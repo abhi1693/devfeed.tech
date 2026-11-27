@@ -1,5 +1,5 @@
 "use client";
-import { productName } from "@devfeed/theme/product";
+import { isHardwareDaily, productName } from "@devfeed/theme/product";
 
 import "../app/styles/settings.css";
 
@@ -48,7 +48,7 @@ export function SourceSuggestion() {
       <AccountGate
         returnTo={returnTo}
         title="Sign in to suggest a source"
-        description="Share a developer-focused RSS or Atom feed for review."
+        description={`Suggest an RSS or Atom feed for ${productName()}.`}
       >
         <SuggestionForm />
       </AccountGate>
@@ -160,8 +160,10 @@ function SuggestionForm() {
   return (
     <section className="profile-panel" aria-label="Source suggestion">
       <p className="profile-description">
-        Share a source about programming, developer tools, or computing. Suggestions are reviewed
-        before appearing in the feed.
+        {isHardwareDaily()
+          ? "Suggest a source about electronics, embedded systems, or hardware engineering."
+          : "Suggest a source about programming, developer tools, or computing."}{" "}
+        Approved sources appear in the feed.
       </p>
       <form
         className="profile-form"

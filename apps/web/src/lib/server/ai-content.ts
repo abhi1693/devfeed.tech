@@ -144,9 +144,8 @@ export async function renderPublicMarkdown(
   if (route.contentType) filters.content_type = route.contentType;
   let title = route.contentType
     ? `${productName()} ${route.contentType}`
-    : `${productName()} — Developer news`;
-  let description =
-    "Published developer news, articles, tutorials, releases, comparisons and opinions.";
+    : `${productName()} — Latest news`;
+  let description = "Published news, articles, tutorials, releases, comparisons and opinions.";
   if (route.collection && route.id) {
     const item =
       route.collection === "topics"

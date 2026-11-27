@@ -65,7 +65,7 @@ it("canonicalizes tag discovery independently of transient search filters", asyn
     searchParams: Promise.resolve({ q: "C++", letter: "C", offset: "60" }),
   });
   expect(metadata.title).toBe("Explore tags");
-  expect(metadata.description).toBe("Discover developer articles by tag.");
+  expect(metadata.description).toBe("Discover articles by tag.");
   expect(metadata.alternates?.canonical).toBe("https://devfeed.tech/tags?offset=60");
 });
 

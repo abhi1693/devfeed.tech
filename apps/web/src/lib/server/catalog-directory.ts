@@ -9,9 +9,9 @@ import type { Source, Tag, Topic } from "../types";
 type Items = { topics: Topic; sources: Source; tags: Tag };
 type Kind = keyof Items;
 const descriptions = {
-  topics: ["Explore topics", "Explore developer topics and find the latest published articles."],
-  sources: ["Sources", "Discover sources publishing developer news, tutorials, and releases."],
-  tags: ["Explore tags", "Discover developer articles by tag."],
+  topics: ["Explore topics", "Explore topics and find the latest published articles."],
+  sources: ["Sources", "Discover sources publishing news, tutorials, and releases."],
+  tags: ["Explore tags", "Discover articles by tag."],
 } as const;
 
 /** Share one bounded existence decision between metadata and page, before either can stream. */

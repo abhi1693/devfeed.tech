@@ -23,9 +23,9 @@ const sections: LegalSection[] = [
           or legal guardian where required.
         </p>
         <p>
-          {productName()} helps you discover developer news, tutorials and releases. Browsing is
-          available without an account. An optional account lets you save preferences, follow topics
-          and sources, like articles and suggest sources.
+          {productName()} helps you discover news, tutorials and releases. Browsing is available
+          without an account. An optional account lets you save preferences, follow topics and
+          sources, like articles and suggest sources.
         </p>
       </>
     ),

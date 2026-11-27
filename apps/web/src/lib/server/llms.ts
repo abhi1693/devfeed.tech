@@ -8,7 +8,7 @@ export function llmsIndex(request: Request) {
   const origin = publicSiteOrigin();
   const response = createLlmsTxtHandler({
     brandName: productName(),
-    description: `Developer news, tutorials, articles, releases, comparisons and opinions organized by topic, source and tag. Public previews include original publisher links and clearly labeled AI summaries. ${productName()} does not host the publishers' full articles.`,
+    description: `News, tutorials, articles, releases, comparisons and opinions organized by topic, source and tag. Public previews include original publisher links and clearly labeled AI summaries. ${productName()} does not host the publishers' full articles.`,
     cacheControl: "public, max-age=3600, s-maxage=3600",
     sections: [
       {
@@ -84,7 +84,7 @@ function guide() {
   const origin = publicSiteOrigin();
   return `# ${productName()} — Full agent guide
 
-> ${productName()} helps developers discover published technical content by article, topic, source and tag. This file expands the discovery guide and includes current public previews and directory entries. It is not a dump of the entire article archive. Every included collection is bounded and links to its next page.
+> ${productName()} helps readers discover published technical content by article, topic, source and tag. This file expands the discovery guide and includes current public previews and directory entries. It is not a dump of the entire article archive. Every included collection is bounded and links to its next page.
 
 Website: ${origin}
 Discovery index: ${origin}/llms.txt
