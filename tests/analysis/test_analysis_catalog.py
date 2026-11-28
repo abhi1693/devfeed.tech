@@ -732,3 +732,136 @@ def test_repeated_match_candidates_equal_the_unindexed_semantic_reference(monkey
     assert actual == expected
     assert oversized["id"] not in {item["id"] for item in actual["topics"]}
     assert len(actual["topics"]) == settings.analysis_max_candidates
+
+
+@pytest.mark.parametrize("vocabulary", ["shared", "unique", "unicode", "large"])
+def test_prepared_vocabulary_reuse_keeps_all_indexes_and_rankings_exact(vocabulary):
+    taxonomy = {"topics": [], "tags": []}
+    for index in range(160):
+        item = entry(f"Runtime {index}", aliases=[f"Runtime alias {index}"])
+        item["keywords"] = (
+            ["container runtime", "Python", "distributed systems"]
+            if vocabulary == "shared"
+            else [f"keyword {index} {j}" for j in range(3)]
+        )
+        item["description"] = "Container runtime and Python systems."
+        if vocabulary == "unicode":
+            item["aliases"] += ["Ｃ＋＋", "Straße", "数学", "é", "e\u0301"]
+        elif vocabulary == "large":
+            item["keywords"] += ["x" * 20_000]
+        taxonomy["topics" if index % 2 else "tags"].append(item)
+    prepared = analysis._PreparedCatalog(taxonomy)
+    entries = [item for _, item in prepared.entries]
+    assert prepared.indexes == analysis._candidate_indexes(entries)
+    for snapshot in ({"title": "Container runtime in Python"}, {"text": "数学 and STRASSE"}, {}):
+        expected = analysis.candidate_scores(entries, snapshot)
+        assert analysis._candidate_scores(*prepared.indexes, len(entries), snapshot) == expected
+
+
+def test_prepared_normalization_reuses_only_bounded_shared_vocabulary(monkeypatch):
+    taxonomy = {
+        "topics": [
+            entry(f"Runtime {i}", keywords=["shared", "python", "systems"]) for i in range(200)
+        ],
+        "tags": [],
+    }
+    calls = []
+    original = analysis.candidate_text
+
+    def normalize(value):
+        calls.append(value)
+        return original(value)
+
+    monkeypatch.setattr(analysis, "candidate_text", normalize)
+    analysis._PreparedCatalog(taxonomy)
+    assert calls.count("python") == calls.count("shared") == calls.count("systems") == 1
+    calls.clear()
+    # No vocabulary or prepared data survives index construction.
+    analysis._PreparedCatalog(taxonomy)
+    assert calls.count("python") == 1
+    assert not analysis._shared_vocabulary(
+        [entry(f"Unique {i}", keywords=[f"keyword {i} {j}" for j in range(5)]) for i in range(32)]
+    )
+
+
+def test_prepared_normalization_keeps_large_and_unicode_values_on_exact_path(monkeypatch):
+    repeated = ["common", "word", "terms", "shared"]
+    large = "x" * (analysis.CANDIDATE_NORMALIZATION_CACHE_CHARS + 1)
+    unicode_value = "Straße"
+    taxonomy = {
+        "topics": [
+            entry(f"Topic {i}", keywords=[*repeated, large, unicode_value]) for i in range(100)
+        ],
+        "tags": [],
+    }
+    calls = []
+    original = analysis.candidate_text
+
+    def normalize(value):
+        calls.append(value)
+        return original(value)
+
+    monkeypatch.setattr(analysis, "candidate_text", normalize)
+    analysis._PreparedCatalog(taxonomy)
+    assert calls.count("common") == 1
+    assert calls.count(large) == calls.count(unicode_value) == 100
+
+
+@pytest.mark.parametrize(
+    "name,slug",
+    [
+        ("C++ Library", "c++-library"),
+        ("Go_Modules", "go-modules"),
+        ("Runtime--tools", "runtime__tools"),
+    ],
+)
+def test_catalog_identity_memo_keeps_ascii_case_and_delimiter_semantics(name, slug):
+    taxonomy = {"topics": [], "tags": [entry(name, slug=slug) for _ in range(100)]}
+    assert analysis._shared_vocabulary(taxonomy["tags"])
+    prepared = analysis._PreparedCatalog(taxonomy)
+    assert prepared.indexes == analysis._candidate_indexes(taxonomy["tags"])
+
+
+def test_specialist_identity_validation_does_not_replace_retained_full_generation():
+    taxonomy = {"topics": [entry("Angular"), entry("React")], "tags": []}
+    result = analysis.Classifications(
+        developer_relevance="relevant",
+        language="en",
+        content_type="tutorial",
+        content_format="article",
+        topics=[
+            {
+                "topic_id": taxonomy["topics"][0]["id"],
+                "role": "primary",
+                "relevance": 0.9,
+                "evidence": "Angular",
+            }
+        ],
+        tags=[],
+    )
+    snapshot = {"title": "Angular and React"}
+    with analysis.reuse_candidates():
+        analysis.analysis_candidates(taxonomy, snapshot)
+        shortlist = {"topics": taxonomy["topics"][:1], "tags": []}
+        full = analysis._ranking.get()[0]
+        analysis.validate_evidence(result, snapshot, shortlist)
+        result.topics[0].topic_id = uuid.UUID(taxonomy["topics"][1]["id"])
+        with pytest.raises(ValueError, match="unknown catalog ID"):
+            analysis.validate_evidence(result, snapshot, shortlist)
+        assert analysis._ranking.get() == [full]
+        assert full.taxonomy is taxonomy
+
+
+def test_job_retained_catalog_matches_uncached_selection_above_production_identity_count():
+    taxonomy = {
+        "topics": [entry(f"Catalog {index}") for index in range(4450)],
+        "tags": [entry(f"Tag {index}") for index in range(55550)],
+    }
+    snapshot = {"title": "Catalog 4449 and Tag 55549"}
+    expected = analysis.analysis_candidates(taxonomy, snapshot)
+    with analysis.reuse_candidates():
+        for _ in range(3):
+            with analysis.reuse_candidates(reuse_existing=True):
+                assert analysis.analysis_candidates(taxonomy, snapshot) == expected
+        assert len(analysis._ranking.get()) == 1
+        assert len(analysis._ranking.get()[0].entries) == 60000
