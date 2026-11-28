@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { markdownParseCache } from "./markdown-cache";
 
 /** Untrusted publisher/AI text: no raw HTML, scripts, remote badges or images. */
 export function Markdown({
@@ -14,7 +15,7 @@ export function Markdown({
   return (
     <div className={`markdown${compact ? " markdown-compact" : ""} ${className}`}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, markdownParseCache.plugin]}
         skipHtml
         components={{
           img: () => null,
