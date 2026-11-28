@@ -38,7 +38,7 @@ describe("operational telemetry", () => {
     vi.stubEnv("DEVFEED_PYROSCOPE_SERVER", "");
     const log = vi.spyOn(console, "info").mockImplementation(() => {});
     const app = createServer((request, response) => {
-      if (request.url === "/api/v1/user/notifications/chimely/v1/inbox/stream?unauthorized=1") {
+      if (request.url === "/example/stream?unauthorized=1") {
         response.statusCode = 401;
         response.end();
         return;
@@ -80,18 +80,9 @@ describe("operational telemetry", () => {
       expect((await fetch(`http://127.0.0.1:${appPort}/`)).status).toBe(200);
       expect((await fetch(`http://127.0.0.1:${appPort}/search?error=1`)).status).toBe(500);
       expect(
-        (
-          await fetch(
-            `http://127.0.0.1:${appPort}/api/v1/user/notifications/chimely/v1/inbox/stream?unauthorized=1`,
-          )
-        ).status,
+        (await fetch(`http://127.0.0.1:${appPort}/example/stream?unauthorized=1`)).status,
       ).toBe(401);
-      for (const path of [
-        "/api/v1/user/notifications/chimely/v1/inbox/stream?session=private",
-        "/v1/admin/notifications/chimely/v1/inbox/stream/",
-        "/search?sse=1",
-        "/search?html=1",
-      ]) {
+      for (const path of ["/example/stream?session=private", "/search?sse=1", "/search?html=1"]) {
         await (await fetch(`http://127.0.0.1:${appPort}${path}`)).text();
       }
       const abort = new AbortController();
@@ -141,8 +132,7 @@ describe("operational telemetry", () => {
         ["/", "200", "request"],
         ["/search", "500", "request"],
         ["/search", "200", "request"],
-        ["/v1/user/notifications/chimely/v1/inbox/stream", "200", "stream"],
-        ["/v1/user/notifications/chimely/v1/inbox/stream", "401", "stream"],
+        ["unmatched", "401", "request"],
         ["unmatched", "200", "stream"],
         ["/search", "200", "stream"],
         ["unmatched", "499", "stream"],

@@ -72,11 +72,6 @@ export async function registerTelemetry(app: "web" | "admin" | "partner") {
       time: performance.now(),
       method: methodName(request.method),
       route: routeName(request.url, app),
-      // Match the Python admission policy before routeName bounds dynamic suffixes.
-      stream:
-        /^\/(?:api\/)?v1\/(?:user|admin)\/notifications\/chimely\/v1\/inbox\/stream\/?(?:\?|$)/.test(
-          request.url || "",
-        ),
     };
     starts.set(response, state);
     active.inc();
@@ -87,7 +82,6 @@ export async function registerTelemetry(app: "web" | "admin" | "partner") {
       active.dec();
       requests.labels(state.method, state.route, String(status)).inc();
       const stream =
-        state.stream ||
         String(response.getHeader("content-type") || "")
           .split(";")[0]
           .trim()

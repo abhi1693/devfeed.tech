@@ -206,7 +206,7 @@ def test_priority_compose_reserves_each_queue_capacity_and_keeps_scoped_images(b
         {
             "POSTGRES_PASSWORD": "fixture-only-password",
             "COMPOSE_PROFILES": "ai",
-            "DEVFEED_JOB_QUEUE_OVERRIDES": '{"notifications":"high"}',
+            "DEVFEED_JOB_QUEUE_OVERRIDES": '{"ingestion":"high"}',
         },
         worker_overrides=True,
         build=build,
@@ -222,12 +222,10 @@ def test_priority_compose_reserves_each_queue_capacity_and_keeps_scoped_images(b
         service = services[name]
         assert service["scale"] == replicas
         assert service["environment"]["DEVFEED_WORKER_QUEUE"] == queue
-        assert service["environment"]["DEVFEED_JOB_QUEUE_OVERRIDES"] == '{"notifications":"high"}'
+        assert service["environment"]["DEVFEED_JOB_QUEUE_OVERRIDES"] == '{"ingestion":"high"}'
         assert "DEVFEED_IMAGE_STORAGE_SECRET_KEY" not in service["environment"]
         assert not service["environment"].get("DEVFEED_SOLVER_SERVICES")
-        assert service["entrypoint"] == ["python", "/opt/devfeed/chimely-consumer.py", "worker"]
         assert {v["source"] for v in service["volumes"] if v["type"] == "volume"} == {
-            "chimely-worker-credentials",
             "codex-socket",
         }
         if build:

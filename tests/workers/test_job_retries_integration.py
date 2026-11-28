@@ -3,7 +3,6 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from threading import Barrier
 
 import pytest
 from devfeed_admin_api.jobs import MODELS, retry_candidates
@@ -16,7 +15,6 @@ from devfeed_core.models import (
     ArticleImageJob,
     ArticleOrigin,
     IngestionJob,
-    NotificationDelivery,
     PartnerProduct,
     Source,
     SourceEnrichmentJob,
@@ -96,14 +94,6 @@ def failed_jobs(database, monkeypatch):
                 **{**research, "input_snapshot": {"related_topic_id": str(topics[1].id)}},
                 **failed,
             ),
-            "notifications": NotificationDelivery(
-                event_key="event",
-                dedup_key="d" * 64,
-                audience="admin",
-                category="pipeline.failed",
-                payload={"title": "Failure"},
-                **failed,
-            ),
         }
         session.add_all(jobs.values())
         session.flush()
@@ -120,7 +110,6 @@ def failed_jobs(database, monkeypatch):
         "analysis",
         "topic-analysis",
         "relationships",
-        "notifications",
     ],
 )
 def test_retry_queues_work_preserves_history_and_coalesces(
@@ -138,16 +127,12 @@ def test_retry_queues_work_preserves_history_and_coalesces(
     with database() as session:
         original = session.get(MODELS[pipeline], identifier)
         queued = session.get(MODELS[pipeline], queued_id)
-        if kind == "notifications":
-            assert queued_id == identifier and queued.dedup_key == "d" * 64
-            assert queued.event_key == "event" and queued.payload == {"title": "Failure"}
-        else:
-            assert queued_id != identifier
-            assert (
-                original.status == "failed"
-                and original.attempts == 3
-                and original.error == "original failure"
-            )
+        assert queued_id != identifier
+        assert (
+            original.status == "failed"
+            and original.attempts == 3
+            and original.error == "original failure"
+        )
         if pipeline == "topic-analysis":
             assert queued.requested_by["subject"] == "integration-admin"
             assert queued.requested_by["organization_id"] == "integration-org"
@@ -166,7 +151,7 @@ def test_retry_queues_work_preserves_history_and_coalesces(
         assert str(identifier) not in {item["id"] for item in candidates}
     old = admin_client.get(f"/v1/admin/jobs/{pipeline}/{identifier}").json()
     assert not old["retryable"]
-    assert old["status"] == ("queued" if kind == "notifications" else "retried")
+    assert old["status"] == "retried"
     # A retry which fails becomes the only eligible failure for this subject.
     with database.begin() as session:
         queued = session.get(MODELS[pipeline], queued_id)
@@ -176,13 +161,12 @@ def test_retry_queues_work_preserves_history_and_coalesces(
         f"/v1/admin/jobs/{pipeline}", params={"status": "failed", "retryable_only": True}
     ).json()["items"]
     assert str(queued_id) in {item["id"] for item in candidates}
-    if kind != "notifications":
-        assert str(identifier) not in {item["id"] for item in candidates}
-        assert admin_client.post(path).status_code == 409
-        retired = admin_client.get(
-            f"/v1/admin/jobs/{pipeline}", params={"status": "retried"}
-        ).json()["items"]
-        assert str(identifier) in {item["id"] for item in retired}
+    assert str(identifier) not in {item["id"] for item in candidates}
+    assert admin_client.post(path).status_code == 409
+    retired = admin_client.get(f"/v1/admin/jobs/{pipeline}", params={"status": "retried"}).json()[
+        "items"
+    ]
+    assert str(identifier) in {item["id"] for item in retired}
 
 
 @pytest.mark.parametrize(
@@ -196,7 +180,6 @@ def test_retry_queues_work_preserves_history_and_coalesces(
         ("disabled-ai", "analysis"),
         ("reviewed-proposal", "topic-analysis"),
         ("inactive-topic", "relationships"),
-        ("expired-delivery", "notifications"),
     ],
 )
 def test_ineligible_retry_changes_no_job(
@@ -224,8 +207,6 @@ def test_ineligible_retry_changes_no_job(
             proposal.reviewed_by = {"subject": "reviewer"}
         elif reason == "inactive-topic":
             session.get(Topic, job.topic_id).status = "proposed"
-        elif reason == "expired-delivery":
-            job.created_at = utcnow() - timedelta(days=29)
         before = session.scalar(select(func.count()).select_from(MODELS[pipeline]))
     result = admin_client.post(f"/v1/admin/jobs/{pipeline}/{failed_jobs[kind]}/retry")
     assert result.status_code in {404, 409}, result.text
@@ -255,26 +236,6 @@ def test_concurrent_retries_coalesce_on_the_subject(database, failed_jobs):
 def test_missing_and_invalid_job_types_are_rejected(admin_client):
     assert admin_client.post(f"/v1/admin/jobs/analysis/{uuid.uuid4()}/retry").status_code == 404
     assert admin_client.post(f"/v1/admin/jobs/unknown/{uuid.uuid4()}/retry").status_code == 422
-
-
-def test_concurrent_notification_retry_does_not_reset_an_already_queued_delivery(
-    database, failed_jobs
-):
-    barrier = Barrier(2)
-
-    def retry():
-        with database.begin() as session:
-            original = session.get(NotificationDelivery, failed_jobs["notifications"])
-            barrier.wait(timeout=5)
-            try:
-                retry_failed_job(session, original, "notifications", {"subject": "admin"})
-                return "queued"
-            except OperationConflict:
-                return "conflict"
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda _: retry(), range(2)))
-    assert sorted(results) == ["conflict", "queued"]
 
 
 @pytest.mark.parametrize("newer_status", ["queued", "running", "succeeded", "failed"])

@@ -52,7 +52,6 @@ JOB_TABLES = (
     "article_analysis_jobs",
     "topic_analysis_jobs",
     "research_verification_jobs",
-    "notification_deliveries",
 )
 JOB_KINDS = dict(
     zip(
@@ -65,7 +64,6 @@ JOB_KINDS = dict(
             "analysis",
             "topic_analysis",
             "research_verification",
-            "notification",
         ),
         strict=True,
     )

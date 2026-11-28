@@ -109,7 +109,7 @@ function resource(operation) {
 }
 
 test("generated extension operations declare policies and omit direct OAuth exchange operations", () => {
-  assert.equal(operations.length, 79);
+  assert.equal(operations.length, 61);
   assert.equal(
     new Set(operations.map((operation) => operation.operationId)).size,
     operations.length,
@@ -320,23 +320,6 @@ test("browser policy follows a renamed operation instead of the endpoint namespa
   assert.equal(calls[0].init.headers.get("x-csrf-token"), null);
   time.advance(15_000);
   assert.equal(calls[0].init.signal.aborted, true);
-});
-
-test("preserves concrete notification actions, conditional reads and CSRF-protected updates", async () => {
-  const { request, calls } = harness();
-  const path = `/api/v1/user/notifications/chimely/v1/inbox/notifications/${params.notification_id}/read`;
-  await request(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-CSRF-Token": "csrf" },
-    body: "{}",
-  });
-  assert.equal(calls[0].url, origin + path);
-  assert.equal(calls[0].init.credentials, "include");
-  assert.equal(calls[0].init.headers.get("x-csrf-token"), "csrf");
-  await request("/api/v1/user/notifications/chimely/v1/inbox/items?limit=20", {
-    headers: { "If-None-Match": '"inbox-etag"' },
-  });
-  assert.equal(calls[1].init.headers.get("if-none-match"), '"inbox-etag"');
 });
 
 test("accepts opaque MCP request and grant IDs without adding UUID constraints", async () => {

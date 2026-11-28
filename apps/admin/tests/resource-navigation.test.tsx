@@ -84,12 +84,6 @@ const navigationCases: {
     groups: ["jobs"],
     breadcrumbs: jobsTrail,
   },
-  {
-    resource: "notification-jobs",
-    href: "/jobs/notifications",
-    groups: ["jobs"],
-    breadcrumbs: jobsTrail,
-  },
 ];
 
 const groupCases: { group: RouteGroup; title: string; resources: Resource[]; trail: string[] }[] = [
@@ -103,14 +97,7 @@ const groupCases: { group: RouteGroup; title: string; resources: Resource[]; tra
   {
     group: "jobs",
     title: "Jobs",
-    resources: [
-      "ingestion-jobs",
-      "article-jobs",
-      "image-jobs",
-      "source-jobs",
-      "analysis-jobs",
-      "notification-jobs",
-    ],
+    resources: ["ingestion-jobs", "article-jobs", "image-jobs", "source-jobs", "analysis-jobs"],
     trail: ["Home"],
   },
   {
@@ -238,7 +225,6 @@ describe("resource group pages", () => {
         "/jobs/enrichment/images",
         "/jobs/enrichment/sources",
         "/jobs/analysis",
-        "/jobs/notifications",
       ]);
       view.unmount();
       render(<ResourceGroup group="enrichment" />);

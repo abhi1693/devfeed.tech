@@ -12,7 +12,7 @@ from datetime import timedelta
 from unittest.mock import Mock
 
 import pytest
-from devfeed_core import discovery, services, source_notifications
+from devfeed_core import discovery, services
 from devfeed_core import source_enrichment as enrichment
 from devfeed_core.jobs import LEASE_SECONDS
 from devfeed_core.models import SourceCandidate, SourceEnrichmentJob
@@ -278,7 +278,6 @@ def test_actual_rejection_transition_leaves_delivery_to_be_retired_by_the_claim_
     queued = pending_profile(current)
     session = Mock(spec=Session)
     session.scalar.return_value = current
-    monkeypatch.setattr(source_notifications, "notify_source_review", Mock())
     services.review_source(
         session,
         current.id,

@@ -3,7 +3,6 @@ import { mkdir } from "node:fs/promises";
 import { feedModeFixture } from "./feed-mode.mjs";
 
 const apiPath = (url) => url.pathname.replace(/^\/api(?=\/v1\/)/, "");
-const inboxPath = "/v1/user/notifications/chimely/v1/inbox/";
 
 /** Shared public article, authenticated inbox, and navigation evidence for all readers. */
 export function readerDestinationsFixture(article) {
@@ -19,18 +18,10 @@ export function readerDestinationsFixture(article) {
     articles: feed.articles,
     retryArticle,
     failedArticle: true,
-    inboxReads: [],
     handles(url) {
       feed.active = this.active;
       return (
-        this.active &&
-        (apiPath(url).startsWith(inboxPath) ||
-          [
-            `/v1/articles/${retryArticle.slug}`,
-            "/v1/user/notifications/config",
-            "/v1/user/settings/notifications",
-          ].includes(apiPath(url)) ||
-          feed.handles(url))
+        this.active && (apiPath(url) === `/v1/articles/${retryArticle.slug}` || feed.handles(url))
       );
     },
     async respond(url, payload) {
@@ -45,44 +36,6 @@ export function readerDestinationsFixture(article) {
                 ? { article: retryArticle, topic: feed.topic }
                 : retryArticle,
             };
-      if (path === "/v1/user/notifications/config")
-        return {
-          status: 200,
-          json: { enabled: true, environment: "users", subscriber_id: "user_a" },
-        };
-      if (path === "/v1/user/settings/notifications")
-        return { status: 200, json: { show_badge: true, sound: false } };
-      if (path.startsWith(inboxPath)) {
-        const operation = path.slice(inboxPath.length);
-        if (operation === "stream")
-          return { status: 200, contentType: "text/event-stream", body: ": connected\n\n" };
-        if (operation === "items")
-          return {
-            status: 200,
-            json: {
-              items: [
-                {
-                  id: "notif_" + "a".repeat(26),
-                  source: "notification",
-                  category: "topic.article",
-                  payload: {
-                    title: "Open recommended navigation article",
-                    body: "A relevant article from your followed topic.",
-                    action_url: `/articles/${feed.articles[7].slug}`,
-                  },
-                  occurred_at: "2026-10-14T10:00:00Z",
-                  read: false,
-                  archived: false,
-                },
-              ],
-              next_cursor: null,
-            },
-          };
-        if (operation === "counts") return { status: 200, json: { unread: 1, unseen: 1 } };
-        if (operation === "preferences") return { status: 200, json: { preferences: [] } };
-        if (operation.endsWith("/read")) this.inboxReads.push(operation);
-        return { status: 200, json: {} };
-      }
       return feed.respond(url, payload);
     },
   };
@@ -123,18 +76,6 @@ export async function checkReaderDestinations(
       () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
     );
   };
-  const inboxStylesApplied = async () => {
-    if (extension) return;
-    await page.waitForFunction(() => {
-      const style = document.head.querySelector("style[data-chimely]");
-      return style instanceof HTMLStyleElement && !!style.nonce && !!style.sheet?.cssRules.length;
-    });
-    assert.equal(
-      await page.locator("style[data-chimely]").count(),
-      1,
-      "the server installs the nonce-authorized inbox stylesheet once",
-    );
-  };
   await page.addInitScript(() => {
     if (["http:", "https:", "chrome-extension:"].includes(location.protocol))
       localStorage.setItem("devfeed:dev-card-promo-seen", "true");
@@ -146,7 +87,7 @@ export async function checkReaderDestinations(
   try {
     await page.goto(destination("/latest"));
     await readyFeed();
-    await inboxStylesApplied();
+    assert.equal(await page.getByRole("button", { name: /^Notifications/ }).count(), 0);
     const opened = 9;
     await page.locator(".card-open-link").nth(opened).scrollIntoViewIfNeeded();
     const originalScroll = await scroll();
@@ -200,52 +141,6 @@ export async function checkReaderDestinations(
     await singlePreview(fixture.retryArticle.title);
     await close();
     await page.locator(".article-card").first().waitFor();
-
-    // Article notifications retain both ordinary feeds and contextual backgrounds.
-    for (const path of ["/latest", "/topics/javascript"]) {
-      await page.goto("about:blank");
-      await page.goto(destination(path));
-      await readyFeed();
-      await page.locator(".card-open-link").nth(opened).scrollIntoViewIfNeeded();
-      const top = await scroll();
-      const card = await page.locator(".article-card").first().elementHandle();
-      await page.getByRole("button", { name: /^Notifications/ }).click();
-      await inboxStylesApplied();
-      await page.getByText("Open recommended navigation article", { exact: true }).waitFor();
-      if (path === "/latest")
-        await page.screenshot({ path: `${output}/inbox.png`, animations: "disabled" });
-      await page.getByText("Open recommended navigation article", { exact: true }).click();
-      await singlePreview(fixture.articles[7].title);
-      assert.equal(await card.evaluate((node) => node.isConnected), true, `${path}: retained DOM`);
-      await waitAtScroll(top);
-      if (path === "/topics/javascript")
-        await page.screenshot({
-          path: `${output}/notification-preview.png`,
-          animations: "disabled",
-        });
-      await close();
-      await page.waitForURL(destination(path));
-      await waitAtScroll(top);
-      await card.dispose();
-    }
-    assert.equal(fixture.inboxReads.length, 2, "both notifications mark their item read");
-    await page.getByRole("button", { name: /^Notifications/ }).click();
-    const settings = page.getByRole("link", { name: "Notification settings", exact: true });
-    assert.equal(
-      await settings.getAttribute("href"),
-      extension ? "#/settings/notifications" : "/settings/notifications",
-      "the footer also supplies a valid native destination",
-    );
-    await settings.click();
-    await page.waitForURL(destination("/settings/notifications"));
-    await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
-    await page.getByRole("heading", { name: "Inbox events", exact: true }).waitFor();
-    await waitAtScroll(0);
-    assert.equal(await page.locator("dialog.article-modal[open]").count(), 0);
-    await page.screenshot({ path: `${output}/notification-settings.png`, animations: "disabled" });
-    console.log(
-      "Typed destinations, one article overlay, feed/history scroll, and inbox navigation passed.",
-    );
   } catch (error) {
     await page.screenshot({ path: `${output}/failure.png`, fullPage: true });
     console.error("Reader destination failure", page.url());

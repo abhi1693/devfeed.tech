@@ -116,7 +116,6 @@ def disposable_services(*, analytics=False):
             DEVFEED_DATABASE_URL=f"postgresql+psycopg://ci:ci@127.0.0.1:{pg_port}/devfeed_test",
             DEVFEED_REDIS_URL=f"redis://127.0.0.1:{redis_port}/15",
             DEVFEED_AI_ENABLED="false",
-            DEVFEED_NOTIFICATIONS_ENABLED="false",
             DEVFEED_METRICS_ENABLED="false",
             DEVFEED_CACHE_ENABLED="false",
             DEVFEED_IMAGE_STORAGE_ENABLED="false",

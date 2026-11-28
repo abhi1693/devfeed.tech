@@ -92,12 +92,6 @@ neither indexing eligibility nor sitemap membership based on overview length.
   their existing transport policy, without maintaining another URL or method selector.
   Matched endpoints remain bounded when identifiers fail typed validation. Native path
   converters still return 404 for unmatched identifiers without reading a request body.
-- `devfeed_http.inbox.InboxRouter` registers the 17 supported inbox operations for the
-  admin and reader APIs. Each `InboxOperation` declares its upstream target, JSON or event-stream
-  response and transport bounds. The API supplies a verified `InboxSession`; subscriber identity
-  and HMAC headers stay server-side. `InboxProxy` reads bounded bodies after session authorization
-  through the shared `RequestBodyReader`, and owns upstream cleanup through stream completion or
-  disconnect. Generated gateways use these concrete operations instead of an inbox catch-all.
 - `devfeed_api.cache.CachePolicy` makes public response caching opt in on each registered
   read through `x-devfeed-cache` metadata. The namespace and revision identify the response
   contract; path parameters and ordered query values identify its inputs. Its `content` or
@@ -114,7 +108,7 @@ neither indexing eligibility nor sitemap membership based on overview length.
   exclusion and successful-request logging level through `x-devfeed-runtime` metadata.
   `install_runtime_policies()` binds these to native selected routes after registration,
   including deferred router prefixes and mounts. Liveness is exempt; readiness retains
-  request admission. Only the inbox event operation uses stream admission. Slots remain
+  request admission. Slots remain
   held through response and background cleanup, and undeclared operations use the request
   lane. The native telemetry bridge starts observation at the same selected boundary;
   framework redirects and CORS responses use the default policy without another router.

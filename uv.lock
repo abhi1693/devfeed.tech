@@ -19,7 +19,6 @@ members = [
     "devfeed-http",
     "devfeed-images-worker",
     "devfeed-mcp",
-    "devfeed-notifications",
     "devfeed-partner-api",
     "devfeed-search-indexer",
     "devfeed-source-discovery-worker",
@@ -1134,7 +1133,6 @@ dev = [
     { name = "devfeed-cli" },
     { name = "devfeed-images-worker" },
     { name = "devfeed-mcp" },
-    { name = "devfeed-notifications" },
     { name = "devfeed-partner-api" },
     { name = "devfeed-source-discovery-worker" },
     { name = "devfeed-user-api" },
@@ -1168,7 +1166,6 @@ dev = [
     { name = "devfeed-cli", editable = "apps/cli" },
     { name = "devfeed-images-worker", editable = "apps/images-worker" },
     { name = "devfeed-mcp", editable = "apps/mcp" },
-    { name = "devfeed-notifications", editable = "apps/notifications" },
     { name = "devfeed-partner-api", editable = "apps/partner-api" },
     { name = "devfeed-source-discovery-worker", editable = "apps/source-discovery-worker" },
     { name = "devfeed-user-api", editable = "apps/user-api" },
@@ -1223,7 +1220,6 @@ ai = [
 all-workers = [
     { name = "cairosvg" },
     { name = "devfeed-core", extra = ["images", "storage"] },
-    { name = "devfeed-notifications" },
     { name = "lingua-language-detector" },
     { name = "trafilatura" },
     { name = "websockets" },
@@ -1236,9 +1232,6 @@ images = [
     { name = "cairosvg" },
     { name = "devfeed-core", extra = ["images", "storage"] },
 ]
-notifications = [
-    { name = "devfeed-notifications" },
-]
 
 [package.metadata]
 requires-dist = [
@@ -1247,8 +1240,6 @@ requires-dist = [
     { name = "devfeed-core", editable = "packages/core" },
     { name = "devfeed-core", extras = ["images", "storage"], marker = "extra == 'all-workers'", editable = "packages/core" },
     { name = "devfeed-core", extras = ["images", "storage"], marker = "extra == 'images'", editable = "packages/core" },
-    { name = "devfeed-notifications", marker = "extra == 'all-workers'", editable = "apps/notifications" },
-    { name = "devfeed-notifications", marker = "extra == 'notifications'", editable = "apps/notifications" },
     { name = "lingua-language-detector", marker = "extra == 'all-workers'", specifier = ">=2.2.0,<3" },
     { name = "lingua-language-detector", marker = "extra == 'article-enrichment'", specifier = ">=2.2.0,<3" },
     { name = "rq", specifier = ">=2.12.0,<3" },
@@ -1257,7 +1248,7 @@ requires-dist = [
     { name = "websockets", marker = "extra == 'ai'", specifier = ">=17.3,<18" },
     { name = "websockets", marker = "extra == 'all-workers'", specifier = ">=17.3,<18" },
 ]
-provides-extras = ["notifications", "article-enrichment", "images", "ai", "all-workers"]
+provides-extras = ["article-enrichment", "images", "ai", "all-workers"]
 
 [[package]]
 name = "devfeed-api"
@@ -1430,23 +1421,6 @@ requires-dist = [
     { name = "redis", specifier = ">=8.1.0,<9" },
     { name = "starlette", specifier = ">=1.9.0,<2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0,<1" },
-]
-
-[[package]]
-name = "devfeed-notifications"
-version = "0.3.0"
-source = { editable = "apps/notifications" }
-dependencies = [
-    { name = "devfeed-core" },
-    { name = "httpx" },
-    { name = "rq" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "devfeed-core", editable = "packages/core" },
-    { name = "httpx", specifier = ">=0.28.1,<1" },
-    { name = "rq", specifier = ">=2.12.0,<3" },
 ]
 
 [[package]]

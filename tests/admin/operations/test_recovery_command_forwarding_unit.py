@@ -1,12 +1,10 @@
 """Operator recovery commands keep durable identities and surface domain conflicts."""
 
 import uuid
-from datetime import timedelta
 from unittest.mock import Mock
 
 import pytest
-from devfeed_admin_api import ai_connection, notifications, source_imports, sources
-from devfeed_core import job_retries
+from devfeed_admin_api import ai_connection, source_imports, sources
 from devfeed_core.models import Source
 
 from tests.admin.operations.test_codex_protocol_guard_policy_unit import (
@@ -14,44 +12,8 @@ from tests.admin.operations.test_codex_protocol_guard_policy_unit import (
 )
 from tests.admin.operations.test_codex_protocol_guard_policy_unit import monitor, pending
 from tests.admin.sources.test_import_policy_unit import candidate_detail
-from tests.notifications.test_notification_configuration_recovery_contracts_unit import (
-    selected_delivery,
-)
 from tests.support.admin_editorial import operator_api
-from tests.support.source_readiness import NOW, source
-
-
-@pytest.mark.parametrize("state", ["missing", "running", "expired", "failed"])
-def test_notification_retry_keeps_the_delivery_identity_and_commits_only_an_admitted_retry(
-    monkeypatch, state
-):
-    current = selected_delivery(age=timedelta(days=28) if state == "expired" else timedelta(days=2))
-    current.status = "running" if state == "running" else "failed"
-    if current.status == "failed":
-        current.finished_at = NOW - timedelta(minutes=5)
-        current.error = "Upstream unavailable"
-        current.lease_token = current.lease_until = current.dispatched_at = None
-    identifier, event, dedup = current.id, current.event_key, current.dedup_key
-    monkeypatch.setattr(job_retries, "utcnow", lambda: NOW)
-    with operator_api(notifications) as api:
-        api.session.scalar.return_value = None if state == "missing" else current
-        response = api.client.post(f"/v1/admin/notifications/deliveries/{identifier}/retry")
-        assert response.status_code == (
-            200 if state == "failed" else 404 if state == "missing" else 409
-        )
-        if state == "failed":
-            output = response.json()
-            assert (output["id"], output["kind"], output["status"], output["attempts"]) == (
-                str(identifier),
-                "notifications",
-                "queued",
-                0,
-            )
-            assert (current.event_key, current.dedup_key) == (event, dedup)
-            assert current.available_at == NOW and current.finished_at is current.error is None
-            api.session.commit.assert_called_once_with()
-        else:
-            api.session.commit.assert_not_called()
+from tests.support.source_readiness import source
 
 
 @pytest.mark.parametrize("state", ["current", "old-identity", "transport-failure"])

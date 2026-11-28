@@ -19,7 +19,6 @@ x-backend-develop: &backend-develop
     - {action: rebuild, path: ./packages/http}
     - {action: rebuild, path: ./apps/api}
     - {action: rebuild, path: ./apps/aggregator}
-    - {action: rebuild, path: ./apps/notifications}
     - {action: rebuild, path: ./apps/cli}
     - {action: rebuild, path: ./apps/search-indexer}
     - {action: rebuild, path: ./apps/article-enrichment-worker}
@@ -104,7 +103,6 @@ services:
         - {action: rebuild, path: ./packages/core}
         - {action: rebuild, path: ./packages/http}
         - {action: rebuild, path: ./apps/admin-api}
-        - {action: rebuild, path: ./apps/notifications}
         - {action: rebuild, path: ./pyproject.toml}
         - {action: rebuild, path: ./uv.lock}
         - {action: rebuild, path: ./.python-version}
@@ -125,7 +123,6 @@ services:
         - {action: rebuild, path: ./packages/core}
         - {action: rebuild, path: ./packages/http}
         - {action: rebuild, path: ./apps/partner-api}
-        - {action: rebuild, path: ./apps/notifications}
         - {action: rebuild, path: ./pyproject.toml}
         - {action: rebuild, path: ./uv.lock}
         - {action: rebuild, path: ./.python-version}

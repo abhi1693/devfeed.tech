@@ -7,7 +7,6 @@
 @import "tw-animate-css";
 @import "@devfeed/theme/tokens.css";
 @import "@devfeed/theme/brand.css";
-@import "@devfeed/theme/notifications.css";
 @import "@devfeed/theme/tailwind.css";
 
 @source "../../../../packages/ui/src";

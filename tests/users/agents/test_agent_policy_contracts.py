@@ -68,7 +68,7 @@ def test_agent_permissions_are_exported_on_operations_without_entering_gateway_t
             assert AGENT_POLICY_EXTENSION not in operation[GATEWAY_POLICY_EXTENSION]
     assert actual == EXPECTED
     operations = document[GATEWAY_ROUTES_EXTENSION]
-    assert len(operations) == 69
+    assert len(operations) == 51
     for operation in operations:
         assert set(operation) == {"operationId", "method", "path", "parameters", "policy"}
         expected_fields = {
@@ -109,7 +109,7 @@ def test_browser_only_dependencies_do_not_accept_endpoint_agent_permissions():
             assert AGENT_POLICY_EXTENSION not in extra
         if require_user in calls and AGENT_POLICY_EXTENSION not in extra:
             unmarked_user_operations.append(context)
-    assert len(browser_only) >= 2
+    assert browser_only
     assert unmarked_user_operations
 
 

@@ -12,8 +12,7 @@ export type Resource =
   | "article-jobs"
   | "image-jobs"
   | "source-jobs"
-  | "analysis-jobs"
-  | "notification-jobs";
+  | "analysis-jobs";
 export type ContentResource = "articles" | "sources" | "topics" | "tags" | "topic-relations";
 export type RouteGroup = "content" | "taxonomy" | "jobs" | "enrichment";
 type Breadcrumb = { label: string; href: string };
@@ -543,19 +542,6 @@ export const resources: Record<Resource, ResourceSpec> = {
       { key: "id", label: "Run" },
       { key: "kind", label: "Type", kind: "label" },
       { key: "target_name", label: "Subject" },
-      { key: "status", label: "Status", kind: "pill", sort: true },
-      { key: "attempts", label: "Attempts", kind: "number" },
-      { key: "created_at", label: "Created", kind: "datetime", sort: true },
-    ],
-  },
-  "notification-jobs": {
-    ...job("Notification delivery", "sources", {
-      href: "/jobs/notifications",
-      ...jobsNavigation,
-    }),
-    description: "View notification deliveries and retry failures.",
-    columns: [
-      { key: "id", label: "Run" },
       { key: "status", label: "Status", kind: "pill", sort: true },
       { key: "attempts", label: "Attempts", kind: "number" },
       { key: "created_at", label: "Created", kind: "datetime", sort: true },

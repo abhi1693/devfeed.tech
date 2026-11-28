@@ -15,7 +15,6 @@ import {
   adminSettingsProfile,
   adminSettingsAppearance,
   adminSettingsDefaults,
-  adminSettingsNotifications,
   adminSettingsTable,
   adminSettingsTablesReset,
 } from "./api/generated/admin";
@@ -72,7 +71,6 @@ export function SettingsProvider({
         const options = { headers: { "X-CSRF-Token": admin.csrf_token } };
         const actions = {
           profile: adminSettingsProfile,
-          notifications: adminSettingsNotifications,
           appearance: adminSettingsAppearance,
           defaults: adminSettingsDefaults,
         };

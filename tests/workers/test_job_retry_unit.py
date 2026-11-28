@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 from devfeed_core import job_retries, models
-from devfeed_core.services import OperationConflict, RecordNotFound
+from devfeed_core.services import OperationConflict
 from sqlalchemy import JSON, Column, MetaData, Table, create_engine, select
 
 NOW = datetime(2026, 10, 4, tzinfo=UTC)
@@ -189,68 +189,6 @@ def test_retry_selection_keeps_only_unresolved_latest_failure_even_with_out_of_o
     assert eligible == expected
 
 
-def test_notification_retry_selection_reuses_each_failed_delivery():
-    expression = job_retries.retry_candidate(models.NotificationDelivery)
-    assert expression.compare(models.NotificationDelivery.status == "failed")
-
-
-@pytest.mark.parametrize(
-    "age,eligible",
-    [
-        (timedelta(), True),
-        (timedelta(days=28) - timedelta(microseconds=1), True),
-        (timedelta(days=28), False),
-        (timedelta(days=29), False),
-    ],
-)
-def test_notification_retry_keeps_identity_and_resets_the_lease_only_within_safe_window(
-    monkeypatch, age, eligible
-):
-    monkeypatch.setattr(job_retries, "utcnow", lambda: NOW)
-    delivery = models.NotificationDelivery(
-        id=ID,
-        status="failed",
-        created_at=NOW - age,
-        attempts=7,
-        error="upstream failure",
-        dispatched_at=NOW,
-        finished_at=NOW,
-        lease_until=NOW,
-        lease_token=uuid.uuid4(),
-    )
-    session = Mock()
-    session.scalar.return_value = delivery
-    if not eligible:
-        with pytest.raises(OperationConflict, match="safe retry window"):
-            job_retries.retry_notification(session, ID)
-        assert delivery.status == "failed" and delivery.attempts == 7
-        session.flush.assert_not_called()
-        return
-    assert job_retries.retry_notification(session, ID) is delivery
-    assert delivery.id == ID and delivery.status == "queued" and delivery.attempts == 0
-    assert delivery.available_at == NOW
-    assert all(
-        getattr(delivery, field) is None
-        for field in [
-            "dispatched_at",
-            "finished_at",
-            "lease_until",
-            "lease_token",
-            "error",
-        ]
-    )
-    session.flush.assert_called_once()
-
-
-@pytest.mark.parametrize("status", [None, "queued", "running", "succeeded"])
-def test_notification_retry_rejects_missing_or_nonfailed_delivery(status):
-    session = Mock()
-    session.scalar.return_value = None if status is None else SimpleNamespace(status=status)
-    with pytest.raises(RecordNotFound if status is None else OperationConflict):
-        job_retries.retry_notification(session, ID)
-    session.flush.assert_not_called()
-
-
 @pytest.mark.parametrize(
     "kind,model,function,field",
     [
@@ -260,7 +198,6 @@ def test_notification_retry_rejects_missing_or_nonfailed_delivery(status):
         ("source-enrichment", models.SourceEnrichmentJob, "request_enrichment", "source_id"),
         ("analysis", models.ArticleAnalysisJob, "request_analysis", "article_id"),
         ("topic-analysis", models.TopicAnalysisJob, "request_topic_analysis", "proposal_id"),
-        ("notifications", models.NotificationDelivery, "retry_notification", "id"),
     ],
 )
 def test_failed_job_dispatches_to_the_correct_pipeline_and_subject(

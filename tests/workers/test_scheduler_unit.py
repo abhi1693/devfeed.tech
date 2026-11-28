@@ -10,7 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 from devfeed_aggregator import quota_monitor, scheduler
-from devfeed_core import feed_notifications, job_retention, notification_delivery
+from devfeed_core import job_retention
 from devfeed_core.models import ArticleAnalysisJob
 
 NOW = datetime(2026, 10, 4, tzinfo=UTC)
@@ -182,7 +182,6 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
     session.scalar.side_effect = [None, expired]
     settings = NS(
         scheduler_batch_size=5,
-        notifications_enabled=mode == "all",
         solver_queue_enabled=mode == "all",
         ai_enabled=mode != "minimal",
         auto_approve_topics=mode in {"all", "topics-only"},
@@ -211,8 +210,6 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
     monkeypatch.setattr(scheduler, "fail_job", Mock())
     monkeypatch.setattr(scheduler, "request_ingestion", Mock(return_value=NS(id=uuid.UUID(int=5))))
     monkeypatch.setattr(scheduler, "recover_jobs", Mock(return_value=1))
-    monkeypatch.setattr(feed_notifications, "expand_feed_notifications", Mock())
-    monkeypatch.setattr(notification_delivery, "recover_notifications", Mock(return_value=2))
     monkeypatch.setattr(scheduler, "dispatch_partner_pipeline", Mock(return_value=0))
     monkeypatch.setattr(scheduler, "dispatch_partner_evaluations", Mock(return_value=0))
     promotions = Mock(
@@ -258,8 +255,6 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
         assert result["recovered"] == result["scheduled"] == result["dispatched"] == 1
         assert result["automation_scheduled"] == 4 and result["recommendation_users_queued"] == 3
         assert result["analyses_dispatched"] == (0 if mode == "minimal" else 2)
-        assert result["notifications_dispatched"] == int(mode == "all")
-        assert result["notifications_recovered"] == (2 if mode == "all" else 0)
         assert result["verifications_dispatched"] == int(
             mode in {"all", "topics-only", "relationships-only"}
         )

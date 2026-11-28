@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import ConnectionPoolEntry
 
 from devfeed_core import automation_events as _automation_events  # noqa: F401
-from devfeed_core import notifications as _notifications  # noqa: F401
 from devfeed_core.cache_events import AppSession
 from devfeed_core.config import Settings, get_settings
 

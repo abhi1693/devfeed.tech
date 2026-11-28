@@ -15,7 +15,6 @@ from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
     ArticleImageJob,
-    NotificationDelivery,
     PartnerEvaluation,
     PartnerPipelineJob,
     PartnerProduct,
@@ -83,8 +82,6 @@ def retry_candidates(model: type[Job]) -> Select[uuid.UUID]:
         # Image stages share one active lease, but later discovery cannot hide
         # a failed storage operation still required for the current asset.
         return select(model.id).where(retry_candidate(model))
-    if model is NotificationDelivery:
-        return select(model.id).where(model.status == "failed")
     subject = (
         (
             model.article_id,

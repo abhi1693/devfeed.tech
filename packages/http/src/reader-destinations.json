@@ -42,7 +42,6 @@
         "profile": "profile",
         "appearance": "appearance",
         "feed": "feed",
-        "notifications": "notifications",
         "topics": "topics",
         "sources": "sources"
       }

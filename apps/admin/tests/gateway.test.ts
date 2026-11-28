@@ -292,44 +292,6 @@ describe("isolated API gateway", () => {
     expect((await pending).status).toBe(503);
   });
 
-  it("streams inbox hints and forwards ETags without exposing subscriber credentials", async () => {
-    const fetcher = vi.fn().mockResolvedValue(
-      new Response("event: hint\ndata: {}\n\n", {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "X-Accel-Buffering": "no",
-          ETag: '"etag"',
-        },
-      }),
-    );
-    vi.stubGlobal("fetch", fetcher);
-    const request = new Request(
-      "https://admin.example/api/v1/admin/notifications/chimely/v1/inbox/stream",
-      {
-        headers: {
-          "If-None-Match": '"old"',
-          "Last-Event-ID": "resume",
-          "X-Chimely-Subscriber-Hash": "forged",
-        },
-      },
-    );
-    const result = await gateway(request, [
-      "v1",
-      "admin",
-      "notifications",
-      "chimely",
-      "v1",
-      "inbox",
-      "stream",
-    ]);
-    expect(result.headers.get("content-type")).toBe("text/event-stream");
-    expect(result.headers.get("x-accel-buffering")).toBe("no");
-    expect(result.headers.get("etag")).toBe('"etag"');
-    expect(await result.text()).toContain("event: hint");
-    expect(fetcher.mock.calls[0][1].headers.get("if-none-match")).toBe('"old"');
-    expect(fetcher.mock.calls[0][1].headers.get("last-event-id")).toBe("resume");
-    expect(fetcher.mock.calls[0][1].headers.get("x-chimely-subscriber-hash")).toBeNull();
-  });
   it("preserves both callback cookies and redirects without following them", async () => {
     const upstream = new Response(null, {
       status: 302,

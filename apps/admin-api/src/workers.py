@@ -312,9 +312,7 @@ def read_workers(
         logical = {name for name in ROUTABLE_QUEUES if configured_queue(name) in queues}
         ai = bool(logical.intersection((*AI_QUEUES, "partner-evaluation", "partner-pipeline")))
         background = bool(
-            logical.intersection(
-                (*BACKGROUND_QUEUES, "notifications", "recommendations", "partner-pipeline")
-            )
+            logical.intersection((*BACKGROUND_QUEUES, "recommendations", "partner-pipeline"))
         )
         worker = WorkerOut(
             name=key.removeprefix("rq:worker:"),

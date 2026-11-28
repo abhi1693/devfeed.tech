@@ -1206,7 +1206,7 @@ Index("ix_article_topics_topic", ArticleTopic.topic_id, ArticleTopic.article_id)
 
 
 class NotificationDelivery(LeasedJobMixin, Base):
-    """Audience-scoped transactional outbox, independent of Chimely availability."""
+    """Historical inbox deliveries retained for existing installations."""
 
     __tablename__ = "notification_deliveries"
     __table_args__ = (
@@ -1232,7 +1232,7 @@ Index(
 
 
 class FeedNotificationEvent(Base):
-    """One first-publication event; recipient expansion resumes in bounded pages."""
+    """Historical inbox publication events retained for existing installations."""
 
     __tablename__ = "feed_notification_events"
     article_id: Mapped[uuid.UUID] = mapped_column(

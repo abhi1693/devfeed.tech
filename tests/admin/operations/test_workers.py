@@ -235,7 +235,7 @@ def test_priority_snapshot_counts_each_transport_once_and_combines_logical_rows(
     monkeypatch.setattr(
         settings,
         "job_queue_overrides",
-        {"ingestion": "default", "source-enrichment": "default", "notifications": "low"},
+        {"ingestion": "default", "source-enrichment": "default", "article-enrichment": "low"},
     )
     client, store, session = telemetry
     store.worker("shared", queues=b"default", state=b"busy")
@@ -249,7 +249,7 @@ def test_priority_snapshot_counts_each_transport_once_and_combines_logical_rows(
     session.execute = lambda _: [
         ("ingestion", "queued", 3, NOW - timedelta(minutes=2)),
         ("source-enrichment", "queued", 5, NOW - timedelta(minutes=1)),
-        ("notifications", "queued", 2, NOW),
+        ("article-enrichment", "queued", 2, NOW),
     ]
     response = client.get("/v1/admin/workers")
     assert response.status_code == 200

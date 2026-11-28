@@ -3,7 +3,6 @@
 import importlib
 
 import pytest
-from devfeed_http.inbox import INBOX_OPERATIONS
 from devfeed_http.route_policies import RouteRuntimePolicy, install_runtime_policies
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.routing import APIRoute, iter_route_contexts
@@ -122,26 +121,3 @@ def test_service_health_operations_declare_distinct_runtime_policies(package):
     for path, policy in expected.items():
         for name, value in policy.openapi_extra().items():
             assert metadata[path][name] == value
-
-
-@pytest.mark.parametrize("package", ["devfeed_user_api", "devfeed_admin_api"])
-def test_only_event_stream_inbox_operation_declares_stream_admission(package):
-    app = importlib.import_module(package + ".main").create_app()
-    prefix = "userInbox" if package == "devfeed_user_api" else "adminInbox"
-    operations = {
-        context.original_route.operation_id: context.openapi_extra or {}
-        for context in iter_route_contexts(app.routes)
-        if (getattr(context.original_route, "operation_id", None) or "").startswith(prefix)
-    }
-    assert len(operations) == len(INBOX_OPERATIONS)
-    for operation in INBOX_OPERATIONS:
-        expected = RouteRuntimePolicy(
-            admission="stream" if operation.response_mode == "events" else "request"
-        )
-        for name, value in expected.openapi_extra().items():
-            assert (
-                operations[prefix + operation.name].get(
-                    name, RouteRuntimePolicy().openapi_extra()[name]
-                )
-                == value
-            )

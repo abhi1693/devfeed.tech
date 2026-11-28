@@ -1072,41 +1072,6 @@
         "title": "LikeInput",
         "type": "object"
       },
-      "NotificationConfig": {
-        "properties": {
-          "enabled": {
-            "title": "Enabled",
-            "type": "boolean"
-          },
-          "environment": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Environment"
-          },
-          "subscriber_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Subscriber Id"
-          }
-        },
-        "required": [
-          "enabled"
-        ],
-        "title": "NotificationConfig",
-        "type": "object"
-      },
       "NotificationSettings": {
         "additionalProperties": false,
         "properties": {
@@ -6383,62 +6348,6 @@
         "summary": "Present",
         "tags": [
           "personalization"
-        ]
-      }
-    },
-    "/api/v1/user/notifications/config": {
-      "get": {
-        "operationId": "config_v1_user_notifications_config_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NotificationConfig"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed"
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Invalid or unauthorized request"
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service or dependency unavailable"
-          }
-        },
-        "security": [
-          {
-            "APIKeyCookie": []
-          }
-        ],
-        "summary": "Config",
-        "tags": [
-          "user-notifications"
         ]
       }
     },

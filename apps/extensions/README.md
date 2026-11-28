@@ -283,7 +283,7 @@ suppression, manual Must Reads, and deferred presentation claims in all three ru
 
 Use `--test-name-pattern="reader navigation"` for typed navigation and overlay checks:
 scrolled feeds, sequential previews, Back/Forward replay, direct and failed article
-entries, inbox article actions, and native settings links. Screenshots stay under
+entries and native settings links. Screenshots stay under
 ignored `reports/reader-destinations/`.
 
 Use `--test-name-pattern="login destinations"` for shared sign-in destinations: approved

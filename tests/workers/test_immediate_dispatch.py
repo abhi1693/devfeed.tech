@@ -340,7 +340,6 @@ def test_fresh_adaptive_job_can_still_be_dispatched_immediately(monkeypatch):
         ("source-enrichment", {"solver": True}),
         ("images", {"solver": True}),
         ("topic-analysis", {"relationships": True}),
-        ("notifications", {}),
     ],
 )
 def test_batch_dispatch_retains_routing_and_unique_delivery_metadata(kind, options):

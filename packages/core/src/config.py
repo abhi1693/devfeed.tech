@@ -100,8 +100,10 @@ class Settings(BaseSettings):
     def validate_job_queue_routes(self) -> Self:
         import re
 
-        from devfeed_core.worker_queues import ROUTABLE_QUEUES, configured_queue
+        from devfeed_core.worker_queues import PRIORITY_QUEUES, ROUTABLE_QUEUES, configured_queue
 
+        # Older deployments may still set the retired notification queue override.
+        self.job_queue_overrides.pop("notifications", None)
         for kind, destination in self.job_queue_overrides.items():
             if kind not in ROUTABLE_QUEUES or not re.fullmatch(
                 r"[a-z][a-z0-9_-]{0,63}", destination
@@ -111,7 +113,7 @@ class Settings(BaseSettings):
         # A custom dedicated name is supported, but sharing their transport is unsafe.
         for isolated in ("images", "solver"):
             destination = configured_queue(isolated, self)
-            if any(
+            if destination in PRIORITY_QUEUES or any(
                 configured_queue(kind, self) == destination
                 for kind in ROUTABLE_QUEUES
                 if kind != isolated
@@ -304,8 +306,6 @@ class Settings(BaseSettings):
     codex_model: str | None = None
     codex_auth_token: SecretStr | None = None
     codex_timeout_seconds: int = Field(default=90, ge=10, le=120)
-    notifications_enabled: bool = False
-    chimely_user_environment: str | None = None
 
     @field_validator("partner_credential_key")
     @classmethod

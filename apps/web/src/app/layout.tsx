@@ -21,7 +21,6 @@ import "./globals.css";
 import "./reader-motion.css";
 import "./article-actions.css";
 import { themeScript } from "@devfeed/ui/theme-script";
-import { NotificationPreferencesProvider } from "@/components/notification-preferences-provider";
 import { UserProvider } from "@/components/user-account";
 import { ThemePreferencesProvider } from "@/components/theme-preferences";
 import { FeedPreferencesProvider } from "@/components/feed-preferences";
@@ -29,7 +28,6 @@ import { SignupNudge } from "@/components/signup-nudge";
 import { ReaderContextProvider } from "@/components/reader-context";
 import { ReaderPromptsProvider } from "@/components/reader-prompts";
 import { ReaderNavigationRecovery } from "@/components/reader-navigation-recovery";
-import { NotificationStyles } from "@devfeed/ui/notifications";
 export async function generateMetadata(): Promise<Metadata> {
   await connection();
   const hardware = isHardwareDaily();
@@ -83,7 +81,6 @@ export default async function RootLayout({
           title="AI reading guide and public content"
         />
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
-        <NotificationStyles nonce={nonce} />
       </head>
       <body>
         <ReaderNavigationRecovery />
@@ -100,21 +97,19 @@ export default async function RootLayout({
               <ReaderPromptsProvider>
                 <HeaderSponsorshipProvider>
                   <ThemePreferencesProvider>
-                    <NotificationPreferencesProvider>
-                      <FeedPreferencesProvider>
-                        <WebArticleNavigationProvider>
-                          <SourceFollowsProvider>
-                            <TagFollowsProvider>
-                              <TopicFollowsProvider>
-                                {children}
-                                {modal}
-                              </TopicFollowsProvider>
-                            </TagFollowsProvider>
-                          </SourceFollowsProvider>
-                          <SignupNudge />
-                        </WebArticleNavigationProvider>
-                      </FeedPreferencesProvider>
-                    </NotificationPreferencesProvider>
+                    <FeedPreferencesProvider>
+                      <WebArticleNavigationProvider>
+                        <SourceFollowsProvider>
+                          <TagFollowsProvider>
+                            <TopicFollowsProvider>
+                              {children}
+                              {modal}
+                            </TopicFollowsProvider>
+                          </TagFollowsProvider>
+                        </SourceFollowsProvider>
+                        <SignupNudge />
+                      </WebArticleNavigationProvider>
+                    </FeedPreferencesProvider>
                   </ThemePreferencesProvider>
                 </HeaderSponsorshipProvider>
               </ReaderPromptsProvider>

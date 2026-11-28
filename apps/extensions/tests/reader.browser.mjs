@@ -629,7 +629,7 @@ test(
 );
 
 test(
-  "reader navigation preserves article overlays and inbox destinations in built new tabs",
+  "reader navigation preserves article overlays without an inbox in built new tabs",
   { timeout: 180000 },
   async (t) => {
     const { page, pathFor, readerDestinations } = await readerFixture(t);

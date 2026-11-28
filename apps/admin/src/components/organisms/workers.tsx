@@ -29,7 +29,6 @@ const queueNames = [
   "research-verification",
   "source-analysis",
   "relationships",
-  "notifications",
   "ingestion",
   "article-enrichment",
   "source-enrichment",
@@ -45,7 +44,6 @@ const resourcesByKind: Record<string, Resource> = {
   analysis: "analysis-jobs",
   "topic-analysis": "analysis-jobs",
   "research-verification": "analysis-jobs",
-  notifications: "notification-jobs",
 };
 const queueLinks: Record<string, { label: string; href: string }[]> = {
   ingestion: [
@@ -67,7 +65,6 @@ const queueLinks: Record<string, { label: string; href: string }[]> = {
     { label: "Research runs", href: "/jobs/analysis/topics" },
     { label: "Relationship proposals", href: "/taxonomy/relationships/proposals" },
   ],
-  notifications: [{ label: "Deliveries", href: "/jobs/notifications" }],
   solver: [{ label: "Enrichment jobs", href: "/jobs/enrichment" }],
 };
 

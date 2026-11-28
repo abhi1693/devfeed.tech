@@ -257,7 +257,7 @@ export async function checkReaderNavigation(
     if (signedIn) {
       await page.getByRole("button", { name: /^User menu:/ }).waitFor();
       await page.getByRole("button", { name: "Today’s Must Reads", exact: true }).waitFor();
-      await page.getByRole("button", { name: /^Notifications/ }).waitFor();
+      assert.equal(await page.getByRole("button", { name: /^Notifications/ }).count(), 0);
       await page
         .getByRole("button", { name: new RegExp(`^Reading streak: ${streakDays} days`) })
         .waitFor();
@@ -348,7 +348,7 @@ export async function checkReaderNavigation(
     if (signedIn) {
       await page.getByRole("button", { name: /^User menu:/ }).waitFor();
       await page.getByRole("button", { name: "Today’s Must Reads", exact: true }).waitFor();
-      await page.getByRole("button", { name: /^Notifications/ }).waitFor();
+      assert.equal(await page.getByRole("button", { name: /^Notifications/ }).count(), 0);
     } else {
       await page.getByRole("link", { name: "Sign in", exact: true }).waitFor();
     }
@@ -408,7 +408,7 @@ export async function checkReaderNavigation(
     if (signedIn) {
       await page.getByRole("button", { name: /^User menu:/ }).waitFor();
       await page.getByRole("button", { name: "Today’s Must Reads", exact: true }).waitFor();
-      await page.getByRole("button", { name: /^Notifications/ }).waitFor();
+      assert.equal(await page.getByRole("button", { name: /^Notifications/ }).count(), 0);
     } else {
       await page.getByRole("link", { name: "Sign in", exact: true }).waitFor();
     }

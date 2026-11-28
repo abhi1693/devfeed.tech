@@ -20,7 +20,6 @@ import {
   Image,
   Globe,
   BrainCircuit,
-  BellRing,
 } from "lucide-react";
 import { CollapsibleSidebar } from "@devfeed/ui/sidebar";
 import { resourceHref } from "@/lib/routes";
@@ -37,7 +36,6 @@ const icons: Record<Resource, typeof FileText> = {
   "image-jobs": Image,
   "source-jobs": Globe,
   "analysis-jobs": BrainCircuit,
-  "notification-jobs": BellRing,
 };
 export function Sidebar() {
   const pathname = usePathname();

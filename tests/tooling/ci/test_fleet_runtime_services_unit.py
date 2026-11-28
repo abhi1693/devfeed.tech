@@ -26,7 +26,6 @@ def test_backend_worker_smoke_uses_priorities_and_an_explicit_override(monkeypat
     instance.start = Mock(return_value=instance.prefix + "-worker")
     instance.wait_probe = Mock()
     instance.stop = Mock()
-    instance.inbox = Mock(return_value=(["inbox-mount"], {"DEVFEED_NOTIFICATIONS_ENABLED": "true"}))
     launch = Mock(return_value=0)
     monkeypatch.setattr(worker, "start_queue_worker", launch)
     try:
@@ -48,22 +47,15 @@ def test_backend_worker_smoke_uses_priorities_and_an_explicit_override(monkeypat
             monkeypatch.setattr("sys.argv", ["devfeed-worker", "--queue", queue])
             assert worker.main() == 0
             assert launch.call_args.args[1] == queue
-            assert (
-                call.args[0]
-                == smoke_module.CONTRACTS["notification-worker" if queue == "low" else "worker"][
-                    "command"
-                ]
-            )
+            assert call.args[0] == smoke_module.CONTRACTS["worker"]["command"]
             assert ("DEVFEED_SOLVER_SERVICES" in env) == (queue == "solver")
-            assert ("DEVFEED_NOTIFICATIONS_ENABLED" in env) == (queue == "low")
-            assert call.kwargs["mounts"] == (["inbox-mount"] if queue == "low" else [])
+            assert call.kwargs["mounts"] == []
             instance.execute.assert_any_call(
                 instance.prefix + "-worker", "python", "/fleet/runtime.py", "worker", queue
             )
             assert settings.job_queue_overrides == (
                 {"ingestion": "dedicated-ingestion"} if index == 4 else {}
             )
-        instance.inbox.assert_called_once_with("worker")
     finally:
         instance.directory.cleanup()
 

@@ -2,7 +2,6 @@ import Link from "@/components/reader-link";
 import { ReaderBrandLink } from "./reader-brand";
 import { CollapsibleSidebar } from "@devfeed/ui/sidebar";
 import { FeaturedOn } from "./featured-on";
-import { NotificationInbox } from "./notification-inbox";
 import { ReadingTools } from "./reading-tools";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav, ReadLaterNav } from "./user-account";
@@ -63,7 +62,6 @@ export function UserShell({
         <div className="header-actions">
           <ReadingTools />
           <ThemeToggle />
-          <NotificationInbox />
           <UserAccount />
         </div>
       </header>

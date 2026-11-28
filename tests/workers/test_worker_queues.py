@@ -105,7 +105,6 @@ def test_solver_worker_consumes_only_solver_queue(monkeypatch):
         "research-verification",
         "source-analysis",
         "relationships",
-        "notifications",
         "ingestion",
         "source-discovery",
         "article-enrichment",
@@ -136,7 +135,6 @@ def test_dedicated_worker_consumes_only_requested_queue(monkeypatch, queue_name)
         ("article-enrichment-fresh", "high"),
         ("article-analysis", "default"),
         ("ingestion", "default"),
-        ("notifications", "low"),
         ("images", "images"),
         ("solver", "solver"),
         ("partner-evaluation", "default"),
@@ -154,11 +152,10 @@ def test_priority_routes_keep_logical_kinds_separate_from_transport(monkeypatch,
 
 def test_production_routing_defaults_to_priority(monkeypatch):
     from devfeed_core.config import Settings
-    from devfeed_core.worker_queues import configured_queue, physical_queues
+    from devfeed_core.worker_queues import physical_queues
 
     monkeypatch.setenv("DEVFEED_JOB_QUEUE_OVERRIDES", "{}")
     settings = Settings()
-    assert configured_queue("notifications", settings) == "low"
     assert physical_queues(settings) == ("high", "default", "low", "solver", "images")
 
 
@@ -175,7 +172,7 @@ def test_queue_overrides_cover_fresh_lane_and_custom_workers():
     )
     assert configured_queue("article-analysis", settings) == "article-ai"
     assert configured_queue("article-analysis-fresh", settings) == "urgent-ai"
-    assert configured_queue("notifications", settings) == "default"
+    assert "notifications" not in settings.job_queue_overrides
     assert worker_queues("article-ai", settings=settings) == ["article-ai"]
     assert len(physical_queues(settings)) == len(set(physical_queues(settings)))
     settings.job_queue_overrides.pop("article-analysis-fresh")
@@ -192,7 +189,7 @@ def test_queue_overrides_cover_fresh_lane_and_custom_workers():
         {"images": "high"},
         {"solver": "low"},
         {"images": "solver"},
-        {"solver": "custom", "notifications": "custom"},
+        {"solver": "custom", "ingestion": "custom"},
     ],
 )
 def test_invalid_or_credential_mixing_queue_routes_fail_configuration(monkeypatch, overrides):

@@ -47,7 +47,7 @@ jobs:
           else
             [[ "$BASE_SHA" =~ ^[a-fA-F0-9]{40}$ && "$HEAD_SHA" =~ ^[a-fA-F0-9]{40}$ ]]
             /usr/bin/git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- \
-              apps/api apps/user-api apps/admin-api apps/aggregator apps/notifications \
+              apps/api apps/user-api apps/admin-api apps/aggregator \
               packages/core packages/http migrations scripts/ci/failure_recovery.py \
               scripts/ci/failure_services.py tests/tooling/ci/test_failure_recovery.py \
               tests/tooling/ci/test_failure_recovery_runner.py tests/conftest.py \

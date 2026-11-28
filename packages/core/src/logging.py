@@ -32,7 +32,6 @@ _APP_LOGGERS = (
     "devfeed_user_api.",
     "devfeed_cli.",
     "devfeed_aggregator.",
-    "devfeed_notifications.",
 )
 # Exclude logging machinery, not application-provided fields.
 _RECORD_FIELDS = frozenset(logging.makeLogRecord({}).__dict__) | {"message", "asctime"}
@@ -335,7 +334,6 @@ def configure_logging(
         "devfeed_user_api",
         "devfeed_cli",
         "devfeed_aggregator",
-        "devfeed_notifications",
     ):
         logging.getLogger(namespace).setLevel(level)
     # The application supplies its own request logs. Uvicorn's access logs

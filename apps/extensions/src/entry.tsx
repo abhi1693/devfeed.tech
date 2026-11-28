@@ -44,7 +44,6 @@ import { rememberArticles } from "./public-cache";
 import { AccountSession, prepareSignOut, signedOut } from "./session";
 import { PersonalFeed } from "../../web/src/components/personal-feed";
 import { ReadLater } from "../../web/src/components/read-later";
-import { NotificationPreferencesProvider } from "../../web/src/components/notification-preferences-provider";
 import { SignupNudge } from "../../web/src/components/signup-nudge";
 import { ReaderPromptsProvider } from "../../web/src/components/reader-prompts";
 import { ReaderContextProvider } from "../../web/src/components/reader-context";
@@ -294,20 +293,18 @@ createRoot(document.getElementById("root")!).render(
         <HeaderSponsorshipProvider>
           <ReaderNavigationRecovery />
           <ThemePreferencesProvider>
-            <NotificationPreferencesProvider>
-              <FeedPreferencesProvider>
-                <ArticleNavigationProvider>
-                  <SourceFollowsProvider>
-                    <TagFollowsProvider>
-                      <TopicFollowsProvider>
-                        <ExtensionReader />
-                        <SignupNudge />
-                      </TopicFollowsProvider>
-                    </TagFollowsProvider>
-                  </SourceFollowsProvider>
-                </ArticleNavigationProvider>
-              </FeedPreferencesProvider>
-            </NotificationPreferencesProvider>
+            <FeedPreferencesProvider>
+              <ArticleNavigationProvider>
+                <SourceFollowsProvider>
+                  <TagFollowsProvider>
+                    <TopicFollowsProvider>
+                      <ExtensionReader />
+                      <SignupNudge />
+                    </TopicFollowsProvider>
+                  </TagFollowsProvider>
+                </SourceFollowsProvider>
+              </ArticleNavigationProvider>
+            </FeedPreferencesProvider>
           </ThemePreferencesProvider>
         </HeaderSponsorshipProvider>
       </ReaderPromptsProvider>

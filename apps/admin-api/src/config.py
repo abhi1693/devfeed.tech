@@ -4,7 +4,6 @@ import re
 from functools import lru_cache
 from typing import Annotated, Literal, Self
 
-from devfeed_core.notification_config import ChimelySettings
 from pydantic import (
     Field,
     SecretStr,
@@ -12,17 +11,16 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pydantic_settings import SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Settings(ChimelySettings):
+class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="DEVFEED_", env_file=".env", extra="ignore", hide_input_in_errors=True
     )
 
     # Unconfigured admin authentication denies access; there is no login bypass.
     admin_base_url: str | None = None
-    chimely_admin_hmac_secret: SecretStr | None = None
     admin_required_role: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
     ] = "superuser"
@@ -57,7 +55,6 @@ class Settings(ChimelySettings):
         "oidc_github_idp_id",
         "oidc_google_idp_id",
         "oidc_organization_id",
-        "chimely_admin_hmac_secret",
         mode="before",
     )
     @classmethod
@@ -74,16 +71,6 @@ class Settings(ChimelySettings):
     @model_validator(mode="after")
     def validate_admin_configuration(self) -> Self:
         from urllib.parse import urlsplit
-
-        if (
-            self.notifications_enabled
-            and self.chimely_admin_environment
-            and (
-                not self.chimely_admin_hmac_secret
-                or self.chimely_admin_hmac_secret.get_secret_value().strip() in {"", "replace-me"}
-            )
-        ):
-            raise ValueError("Admin inbox requires DEVFEED_CHIMELY_ADMIN_HMAC_SECRET")
 
         if any(char.isspace() for char in self.admin_required_role):
             raise ValueError("Admin role must be a single role key")

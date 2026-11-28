@@ -22,7 +22,6 @@ from devfeed_core.models import (
     ArticlePublicationDecision,
     ArticleReview,
     IngestionJob,
-    NotificationDelivery,
     PartnerAccount,
     PartnerConnection,
     PartnerEvaluation,
@@ -208,7 +207,6 @@ def table_data(profile_data):  # noqa: F811 - imported pytest fixture
             (SourceEnrichmentJob, "source-enrichment", "source"),
             (ArticleEnrichmentJob, "article-enrichment", "pending"),
             (ArticleImageJob, "images", "pending"),
-            (NotificationDelivery, "notifications", None),
         ):
             for generation in range(2):
                 c.execute(
@@ -693,7 +691,6 @@ def tables():
         "source-enrichment",
         "analysis",
         "topic-analysis",
-        "notifications",
     ):
         yield Table(
             "/v1/admin/jobs/{kind}",

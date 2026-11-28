@@ -2,7 +2,6 @@
 
 import json
 import os
-import runpy
 import subprocess
 import tempfile
 from decimal import Decimal
@@ -95,7 +94,7 @@ def check() -> None:
     base = {"POSTGRES_PASSWORD": "a" * 64}
     registry_fixtures = {
         **base,
-        "COMPOSE_PROFILES": "ai,notifications,search,mcp",
+        "COMPOSE_PROFILES": "ai,search,mcp",
     }
     check_product_catalogs(base)
 
@@ -281,7 +280,7 @@ def check() -> None:
     assert services["api"]["environment"].get("DEVFEED_CORS_ORIGINS") is None
     assert services["user-api"]["environment"]["DEVFEED_USER_MCP_RESOURCE_URL"] == ""
     assert services["user-api"]["environment"]["DEVFEED_USER_MCP_ISSUER_URL"] == ""
-    assert "chimely" in services and "chimely-db-init" in services
+    assert not {"chimely", "chimely-db-init", "chimely-provision"} & services.keys()
     assert "codex-server" not in services
     priorities = render(
         {**base, "DEVFEED_HIGH_WORKER_REPLICAS": "8", "DEVFEED_DEFAULT_WORKER_REPLICAS": "2"},
@@ -295,7 +294,6 @@ def check() -> None:
         assert service["scale"] == replicas
         assert service["healthcheck"]["test"] == ["CMD", "devfeed-worker-health"]
         assert {v["source"] for v in service["volumes"] if v["type"] == "volume"} == {
-            "chimely-worker-credentials",
             "codex-socket",
         }
     images = priorities["images-worker"]
@@ -345,44 +343,6 @@ def check() -> None:
     assert not search["typesense"].get("ports")
     assert "codex-server" not in services["admin-api"]["depends_on"]
     assert all(v["read_only"] for v in services["admin-api"]["volumes"])
-    for name, volume, role in (
-        ("high-worker", "chimely-worker-credentials", "worker"),
-        ("default-worker", "chimely-worker-credentials", "worker"),
-        ("low-worker", "chimely-worker-credentials", "worker"),
-        ("admin-api", "chimely-admin-credentials", "admin"),
-        ("user-api", "chimely-user-credentials", "user"),
-    ):
-        assert (
-            services[name]["depends_on"]["chimely-provision"]["condition"]
-            == "service_completed_successfully"
-        )
-        assert services[name]["entrypoint"] == ["python", "/opt/devfeed/chimely-consumer.py", role]
-        assert {v["source"] for v in services[name]["volumes"] if v["type"] == "volume"} == (
-            {volume, "codex-socket"}
-            if name in {"admin-api", "high-worker", "default-worker", "low-worker"}
-            else {volume}
-        )
-        assert all(v["read_only"] for v in services[name]["volumes"])
-    assert services["user-api"]["command"][:2] == ["uvicorn", "devfeed_user_api.main:app"]
-    assert services["chimely-provision"]["depends_on"]["chimely"]["condition"] == "service_healthy"
-    assert services["chimely-provision"]["restart"] == "no"
-    assert "data" not in services["chimely-provision"]["networks"]
-    assert "DEVFEED_DATABASE_URL" not in services["chimely-provision"]["environment"]
-    assert not services["chimely"].get("profiles")
-    assert "data" in services["chimely"]["networks"]
-    assert services["chimely"]["depends_on"]["chimely-db-init"]["condition"] == (
-        "service_completed_successfully"
-    )
-    assert services["chimely-db-init"]["depends_on"]["postgres"]["condition"] == "service_healthy"
-    assert services["chimely-db-init"]["restart"] == "no"
-    assert services["chimely-db-init"]["volumes"][0]["read_only"]
-    assert (
-        services["chimely-db-init"]["environment"]["CHIMELY_POSTGRES_PASSWORD"]
-        == base["POSTGRES_PASSWORD"]
-    )
-    assert services["chimely"]["environment"]["DATABASE_URL"] == (
-        f"postgres://chimely:{base['POSTGRES_PASSWORD']}@postgres:5432/chimely"
-    )
 
     # Changing the port alone must also change the default callback origin.
     for bind in ("192.0.2.10", "::1"):
@@ -424,7 +384,6 @@ def check() -> None:
         "DEVFEED_CODEX_APP_SERVER_URL": "wss://ai.example",
         "DEVFEED_CODEX_MODEL": "test-model",
         "DEVFEED_CODEX_AUTH_TOKEN": "test-ai-token",
-        "DEVFEED_NOTIFICATIONS_ENABLED": "true",
     }
     auth = {
         "DEVFEED_ADMIN_BASE_URL": "https://admin.example",
@@ -445,15 +404,9 @@ def check() -> None:
         "DEVFEED_OIDC_GITHUB_IDP_ID": "test-github-provider",
         "DEVFEED_OIDC_GOOGLE_IDP_ID": "test-google-provider",
     }
-    chimely = {
-        "DEVFEED_CHIMELY_API_URL": "http://host.docker.internal:8082",
-        "DEVFEED_CHIMELY_ADMIN_ENVIRONMENT": "test-admin",
-        "DEVFEED_CHIMELY_ADMIN_API_KEY": "test-management-key",
-        "DEVFEED_CHIMELY_ADMIN_HMAC_SECRET": "test-inbox-secret",
-    }
     for build in (False, True):
         services = render(
-            {**base, **options, **auth, **user_auth, **shared_providers, **chimely}, build=build
+            {**base, **options, **auth, **user_auth, **shared_providers}, build=build
         )["services"]
         for name in ("migrate", "api", "high-worker", "scheduler", "admin-api"):
             environment = services[name]["environment"]
@@ -479,24 +432,6 @@ def check() -> None:
                     if key not in shared_providers
                 )
 
-        for name, service in services.items():
-            environment = service.get("environment", {})
-            assert ("DEVFEED_CHIMELY_ADMIN_API_KEY" in environment) == (
-                name in {"high-worker", "default-worker", "low-worker", "chimely-provision"}
-            )
-            assert ("DEVFEED_CHIMELY_ADMIN_HMAC_SECRET" in environment) == (name == "admin-api")
-            assert ("DEVFEED_CHIMELY_USER_HMAC_SECRET" in environment) == (name == "user-api")
-            assert ("DEVFEED_CHIMELY_USER_API_KEY" in environment) == (
-                name in {"high-worker", "default-worker", "low-worker", "chimely-provision"}
-            )
-        assert (
-            services["high-worker"]["environment"]["DEVFEED_CHIMELY_ADMIN_API_KEY"]
-            == (chimely["DEVFEED_CHIMELY_ADMIN_API_KEY"])
-        )
-        assert (
-            services["admin-api"]["environment"]["DEVFEED_CHIMELY_ADMIN_HMAC_SECRET"]
-            == (chimely["DEVFEED_CHIMELY_ADMIN_HMAC_SECRET"])
-        )
         assert services["web"]["environment"] == {
             "DEVFEED_PRODUCT": "devfeed",
             "DEVFEED_PUBLIC_API_URL": "http://api:8000",
@@ -567,10 +502,7 @@ def check() -> None:
     bundled = render(
         {
             **base,
-            "COMPOSE_PROFILES": "notifications,ai",
-            "CHIMELY_POSTGRES_PASSWORD": "b" * 64,
-            "CHIMELY_ADMIN_EMAIL": "admin@example.test",
-            "CHIMELY_ADMIN_PASSWORD": "test-bootstrap-password",
+            "COMPOSE_PROFILES": "ai",
             "DEVFEED_AI_ENABLED": "true",
             "DEVFEED_CODEX_APP_SERVER_URL": "unix:///run/codex/app-server.sock",
             "DEVFEED_CODEX_MODEL": "operator-selected",
@@ -644,28 +576,6 @@ def check() -> None:
         paths = {Path(rule["path"]).resolve() for rule in bundled[name]["develop"]["watch"]}
         assert ROOT / "packages/core" in paths and ROOT / "uv.lock" in paths
         assert ROOT / "packages/http" in paths
-    assert bundled["chimely"]["ports"][0]["host_ip"] == "0.0.0.0"
-    assert not bundled["chimely-db-init"].get("ports")
-    assert bundled["chimely"]["environment"]["DATABASE_URL"] == (
-        f"postgres://chimely:{'b' * 64}@postgres:5432/chimely"
-    )
-    for name, service in bundled.items():
-        environment = service.get("environment", {})
-        assert ("CHIMELY_ADMIN_PASSWORD" in environment) == (
-            name in {"chimely", "chimely-provision"}
-        )
-        assert ("DATABASE_URL" in environment) == (name == "chimely")
-    encode = runpy.run_path(str(ROOT / "scripts/compose_dev.py"))["env_line"]
-    password = "a$literal\\'\"tail"
-    quoted = encode("CHIMELY_ADMIN_PASSWORD", password).partition("=")[2]
-    escaped = render(
-        {
-            **base,
-            "COMPOSE_PROFILES": "notifications",
-            "CHIMELY_ADMIN_PASSWORD": quoted,
-        }
-    )["services"]["chimely"]["environment"]["CHIMELY_ADMIN_PASSWORD"]
-    assert escaped.replace("$$", "$") == password
     print("Compose checks passed: IP binding, profiles, local images and credential isolation")
 
 

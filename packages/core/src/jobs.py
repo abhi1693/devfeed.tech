@@ -13,7 +13,6 @@ from devfeed_core.models import (
     ArticleEnrichmentJob,
     ArticleImageJob,
     IngestionJob,
-    NotificationDelivery,
     ResearchVerificationJob,
     Source,
     SourceEnrichmentJob,
@@ -31,7 +30,6 @@ JobT = TypeVar(
     SourceEnrichmentJob,
     TopicAnalysisJob,
     ResearchVerificationJob,
-    NotificationDelivery,
 )
 
 MAX_ATTEMPTS = DEFAULT_RETRY.max_attempts
@@ -61,7 +59,6 @@ def owned_job[
         SourceEnrichmentJob,
         TopicAnalysisJob,
         ResearchVerificationJob,
-        NotificationDelivery,
     )
 ](
     session: Session,

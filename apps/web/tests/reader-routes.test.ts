@@ -84,7 +84,6 @@ describe("privacy-safe reader route labels", () => {
     ["/settings/profile", "/settings/profile", "/settings/profile"],
     ["/settings/appearance", "/settings/appearance", "/settings/appearance"],
     ["/settings/feed", "/settings/feed", "/settings/feed"],
-    ["/settings/notifications", "/settings/notifications", "/settings/notifications"],
     ["/settings/topics", "/settings/topics", "/settings/topics"],
     ["/settings/sources", "/settings/sources", "/settings/sources"],
     ["/articles/private-article", "/articles/:id", "/articles"],
