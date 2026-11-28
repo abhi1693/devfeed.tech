@@ -184,3 +184,26 @@ def test_enabled_dedicated_workers_are_built_stopped_and_recreated(monkeypatch, 
     for command in (commands[0], commands[2], commands[-1]):
         assert "article-analysis-worker" in command
     assert "topic-analysis-worker" not in commands[0]
+
+
+@pytest.mark.parametrize("model", ["", "custom-model"])
+def test_enabling_ai_preserves_other_profiles_and_model(monkeypatch, model):
+    updates = []
+    monkeypatch.setattr(
+        dev,
+        "interpolation_environment",
+        lambda: {"COMPOSE_PROFILES": "workers,ai", "DEVFEED_CODEX_MODEL": model},
+    )
+    monkeypatch.setattr(dev, "write_env", updates.append)
+    dev.enable_profiles(ai=False)
+    assert updates == []
+    dev.enable_profiles(ai=True)
+    assert updates == [
+        {
+            "COMPOSE_PROFILES": "ai,workers",
+            "DEVFEED_CODEX_MODEL": model or "gpt-6-sol",
+            "DEVFEED_AI_ENABLED": "true",
+            "DEVFEED_WORKER_QUEUE": "background",
+            "DEVFEED_CODEX_APP_SERVER_URL": "unix:///run/codex/app-server.sock",
+        }
+    ]
