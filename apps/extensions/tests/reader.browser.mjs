@@ -493,6 +493,11 @@ async function readerFixture(t, imageProfile) {
   };
 }
 
+test("MCP discovery copy and setup work in built new tabs", { timeout: 180000 }, async (t) => {
+  const { page } = await readerFixture(t);
+  await checkMcp(page, path.resolve(extension, `../${browser}-mcp`));
+});
+
 test("search opens a visible result without sending a warehouse click", async (t) => {
   const { page, pathFor } = await readerFixture(t);
   await checkSearchSecurity(

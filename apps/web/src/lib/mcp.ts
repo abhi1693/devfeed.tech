@@ -1,5 +1,15 @@
 export type McpClient = "vscode" | "codex" | "claude" | "cursor" | "other";
 
+export const mcpPageTitle = "DevFeed MCP server";
+export const mcpPageDescription =
+  "Use six public read tools to find developer articles, get previews with publisher links and browse feeds. Sign in for nine optional account tools to read saved articles, manage bookmarks and follows, and like articles.";
+
+export const mcpExamples = [
+  ["Find recent PostgreSQL articles.", "search"],
+  ["Show my saved articles.", "list_my_bookmarks"],
+  ["Follow the PostgreSQL topic.", "set_topic_follow"],
+] as const;
+
 export const mcpClients: Record<
   McpClient,
   {
