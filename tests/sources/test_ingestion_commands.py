@@ -59,6 +59,7 @@ def ingestion(monkeypatch):
     monkeypatch.setattr(polling, "get_settings", lambda: settings)
     owner = Mock(return_value=row)
     monkeypatch.setattr(tasks, "owned_job", owner)
+    monkeypatch.setattr(tasks, "_entry_origins", lambda *_: {})
     return SimpleNamespace(source=current, row=row, session=session, factory=factory, owner=owner)
 
 
@@ -109,7 +110,7 @@ def test_success_resets_failures_and_emits_committed_counts_with_bounded_discove
 
     monkeypatch.setattr(tasks, "fetch_feed", fetch)
 
-    def store(session, identifier, parsed, *, activity):
+    def store(session, identifier, parsed, *, activity, known_origins):
         assert v.factory.open and session is v.session and identifier == v.source.id
         assert parsed.entries and parsed.entries[0].canonical_url.startswith("https://")
         assert len(parsed.entries) == parsed.seen == 4 and parsed.skipped == 0
@@ -254,13 +255,15 @@ def test_feed_import_preserves_editorial_classification_and_only_uses_heuristics
     # This supplies the insert-conflict result and subsequent identity/provenance
     # reads; the conditional placeholder-update predicate is not evaluated here.
     existing = classification in {"manual", "ai"}
-    session.scalar.side_effect = (
+    scalar_results = (
         [None, None, article_id, classification]
         if existing
         else [None, article_id, entry.image_url]
         if classification == "enabled-ai"
         else [None, article_id, classification]
     )
+    known_origins = {} if classification == "enabled-ai" else None
+    session.scalar.side_effect = scalar_results[1:] if known_origins is not None else scalar_results
     settings = configuration(ai_enabled=classification == "enabled-ai", image_storage_enabled=True)
     monkeypatch.setattr(tasks, "get_settings", lambda: settings)
     monkeypatch.setattr(
@@ -272,8 +275,14 @@ def test_feed_import_preserves_editorial_classification_and_only_uses_heuristics
     monkeypatch.setattr(tasks, "request_image", image)
     activity = []
     assert tasks.store_entries(
-        session, source_id, ParsedFeed([entry], 1, 0), activity=activity
+        session,
+        source_id,
+        ParsedFeed([entry], 1, 0),
+        activity=activity,
+        known_origins=known_origins,
     ) == (0 if existing else 1)
+    if known_origins is not None:
+        assert known_origins == {entry.entry_key: article_id}
     attach.assert_called_once_with(session, article_id, [supplied_id])
     assert activity == [entry.published_at]
     image.assert_called_once_with(session, article_id, automatic=True)
@@ -456,3 +465,27 @@ def test_delivery_for_a_deleted_source_and_cascaded_job_has_no_claim_or_attempt(
     assert session.scalar.call_count == 1
     session.add.assert_not_called()
     session.flush.assert_not_called()
+
+
+def test_empty_feed_needs_no_origin_database_query():
+    from devfeed_core.feeds.parser import ParsedFeed
+
+    session = Mock()
+    assert tasks._entry_origins(session, uuid.uuid4(), ParsedFeed([], 0, 0)) == {}
+    session.execute.assert_not_called()
+
+
+def test_feed_origin_lookup_is_scoped_to_source_and_distinct_entry_keys():
+    from devfeed_core.feeds.parser import ParsedFeed
+
+    source_id = uuid.uuid4()
+    ids = [uuid.uuid4(), uuid.uuid4()]
+    keys = ["one", "two"]
+    session = Mock()
+    session.execute.return_value.all.return_value = list(zip(keys, ids, strict=True))
+    parsed = ParsedFeed([SimpleNamespace(entry_key=k) for k in [*keys, *keys]], 0, 0)
+    assert tasks._entry_origins(session, source_id, parsed) == dict(zip(keys, ids, strict=True))
+    (statement,) = session.execute.call_args.args
+    params = statement.compile().params
+    assert params["source_id_1"] == source_id
+    assert sorted(params["entry_key_1"]) == keys
