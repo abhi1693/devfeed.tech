@@ -9,7 +9,6 @@ import json
 import os
 import ssl
 import sys
-import time
 import uuid
 from pathlib import Path
 
@@ -71,40 +70,6 @@ def retained():
         assert session.get(UserAccount, USER).profile == {"bio": "Retained fixture profile"}
 
 
-def current_cards():
-    import asyncio
-
-    from devfeed_core.analytics import AnalyticsClient
-    from devfeed_core.analytics_observation import pipeline_policy_version
-
-    async def check():
-        async with AnalyticsClient() as client:
-            status = await client.status()
-            assert status["ready"] and status["policy"] == pipeline_policy_version()
-            rows = await client.query(
-                "SELECT payload FROM analytics_card_canonical FINAL "
-                "WHERE policy={policy:String} AND kind='article' "
-                "AND entity_id={id:UUID} AND NOT deleted",
-                {"policy": status["policy"], "id": str(ARTICLE)},
-            )
-            assert len(rows) == 1 and json.loads(rows[0]["payload"])["title"] == TITLE
-
-    asyncio.run(check())
-    retained()
-    print("Direct analytics import retained records and published current ClickHouse cards")
-
-
-def heartbeat():
-    from devfeed_core.runtime_files import runtime_marker
-
-    marker = runtime_marker("analytics-worker")
-    assert marker.is_file() and marker.stat().st_uid == 10001
-    assert marker.parent.stat().st_mode & 0o777 == 0o700
-    assert marker.stat().st_mode & 0o777 == 0o600
-    assert 0 <= time.time() - float(marker.read_text()) < 120
-    marker.write_text("1")
-
-
 def permissions():
     assert os.geteuid() in {1000, 10001}
     assert os.getegid() == os.geteuid()
@@ -160,10 +125,6 @@ if __name__ == "__main__":
         seed()
     elif action == "retained":
         retained()
-    elif action == "current-cards":
-        current_cards()
-    elif action == "heartbeat":
-        heartbeat()
     elif action == "permissions":
         permissions()
     elif action == "ca":

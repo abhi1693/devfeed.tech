@@ -23,7 +23,7 @@ it.each<[SearchParams, number, string, string]>([
     const page = await Tags({ searchParams: Promise.resolve(params) });
     expect(getTags).toHaveBeenCalledWith(offset, 61, query, letter);
     expect(page.props.section).toBe("tags");
-    expect(page.props.children.props).toEqual({ tags, query, letter, nextCursor: null });
+    expect(page.props.children.props).toEqual({ tags, query, letter, nextCursor: null, offset });
     expect(page.props.children.key).toBe(`${query}:${letter}:${offset}`);
   },
 );
@@ -40,23 +40,27 @@ it("continues a full directory page using its bounded catalog cursor", async () 
   expect(page.props.children.props.tags).toEqual(tags.slice(0, 60));
 });
 
-it("stops tag pagination when a direct continuation page has exactly 60 results", async () => {
-  vi.mocked(getTags).mockResolvedValue(
-    Array.from({ length: 60 }, (_, id) => ({
-      id: String(id),
-      name: `Tag ${id}`,
-      slug: `tag-${id}`,
-    })),
-  );
-  const page = await Tags({
-    searchParams: Promise.resolve({ offset: "60", q: "C++", letter: "C" }),
-  });
-  expect(getTags).toHaveBeenCalledWith(60, 61, "C++", "C");
-  expect(page.props.children.props.nextCursor).toBeNull();
-  expect(page.props.children.props.tags).toHaveLength(60);
-});
+it.each([60, 61])(
+  "uses lookahead for filtered tag continuations with %i results",
+  async (count) => {
+    vi.mocked(getTags).mockResolvedValue(
+      Array.from({ length: count }, (_, id) => ({
+        id: String(id),
+        name: `Tag ${id}`,
+        slug: `tag-${id}`,
+      })),
+    );
+    const page = await Tags({
+      searchParams: Promise.resolve({ offset: "60", q: "C++", letter: "C" }),
+    });
+    expect(getTags).toHaveBeenCalledWith(60, 61, "C++", "C");
+    expect(page.props.children.props.nextCursor).toBe(count > 60 ? "120" : null);
+    expect(page.props.children.props.tags).toHaveLength(60);
+  },
+);
 
 it("canonicalizes tag discovery independently of transient search filters", async () => {
+  vi.mocked(getTags).mockResolvedValue([{ id: "cpp", slug: "c++", name: "C++" }]);
   const metadata = await generateMetadata({
     searchParams: Promise.resolve({ q: "C++", letter: "C", offset: "60" }),
   });
@@ -81,6 +85,6 @@ it.each([502, 503, 504])(
     expect(await Tags(props)).toMatchObject({ props: { kind: "tags" } });
     vi.mocked(getTags).mockResolvedValue([{ id: "rust", slug: "rust", name: "Rust" }]);
     expect(await Tags(props)).toMatchObject({ props: { section: "tags" } });
-    expect(await generateMetadata(props)).not.toMatchObject({ robots: { index: false } });
+    expect(await generateMetadata(props)).toMatchObject({ robots: { index: false, follow: true } });
   },
 );

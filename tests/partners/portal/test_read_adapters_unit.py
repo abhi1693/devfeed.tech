@@ -410,26 +410,13 @@ def test_dashboard_metadata_session_is_closed_before_native_analytics(monkeypatc
             events.append("metadata")
             return ([], 1) if surface == "workspace" else (owner, [])
 
-        async def ready(_client):
-            assert events == ["create", "open", "metadata", "close"]
-            events.append("clickhouse")
-
         async def metrics(assets, _analytics, *_args, **_kwargs):
-            assert assets == [] and events[-1] == "clickhouse"
+            assert assets == [] and events[-1] == "close"
             return {"assets": []}
 
         monkeypatch.setattr(target, "_dashboard_metadata", metadata)
-        monkeypatch.setattr(target, "require_partner_history", ready)
         monkeypatch.setattr(target, "reporting_metrics", metrics)
-        request = SimpleNamespace(
-            app=SimpleNamespace(
-                state=SimpleNamespace(
-                    analytics=SimpleNamespace(client=object()),
-                    analytics_client=object(),
-                )
-            )
-        )
-        options = dict(factory=Session, request=request, days=30, limit=5, offset=0, ad_format=None)
+        options = dict(factory=Session, days=30, limit=5, offset=0, ad_format=None)
         if surface == "admin":
             result = await target.dashboard(account_id=owner.id, admin=object(), **options)
         else:
@@ -437,6 +424,6 @@ def test_dashboard_metadata_session_is_closed_before_native_analytics(monkeypatc
                 account_id=owner.id, partner=object(), sort="name", order="asc", **options
             )
         assert result["assets"] == []
-        assert events == ["create", "open", "metadata", "close", "clickhouse"]
+        assert events == ["create", "open", "metadata", "close"]
 
     asyncio.run(run())

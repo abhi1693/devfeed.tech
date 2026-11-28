@@ -6,10 +6,9 @@ concurrency, or upsert behavior is implemented by the session double.
 
 import asyncio
 import uuid
-from contextlib import contextmanager
-from datetime import timedelta
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from contextlib import nullcontext
+from datetime import date, timedelta
+from unittest.mock import Mock
 
 import pytest
 from devfeed_admin_api import partner_accounts as accounts
@@ -195,42 +194,21 @@ def test_trusted_metric_import_requests_replacement_for_exact_asset_and_day(monk
     current = asset(owner, value)
     session.scalar.side_effect = [owner, current, 73]
     payload = MetricInput(day=NOW.date() - timedelta(days=1), impressions=200, clicks=7)
-    client = object()
-    active = False
-
-    @contextmanager
-    def factory():
-        nonlocal active
-        active = True
-        try:
-            yield session
-        finally:
-            active = False
-
-    async def write(_rows):
-        assert not active, "PostgreSQL session held during analytics I/O"
-
-    store = SimpleNamespace(partner_totals=AsyncMock(side_effect=write))
-    construct = Mock(return_value=store)
-    monkeypatch.setattr(accounts, "DirectEngagementAnalytics", construct)
-    request = SimpleNamespace(
-        app=SimpleNamespace(state=SimpleNamespace(analytics=SimpleNamespace(client=client)))
-    )
     response = asyncio.run(
-        accounts.record_metrics(owner.id, current.id, payload, identity(), factory, request)
+        accounts.record_metrics(
+            owner.id, current.id, payload, identity(), lambda: nullcontext(session)
+        )
     )
-    store.partner_totals.assert_awaited_once()
-    requested = store.partner_totals.await_args.args[0]
-    assert len(requested) == 1
-    assert {name: requested[0][name] for name in ["asset_id", "day", "impressions", "clicks"]} == {
-        "asset_id": current.id,
+    stmt, params = session.execute.call_args.args
+    assert "ON CONFLICT (asset_id,kind,identity) DO UPDATE" in str(stmt)
+    assert params == {
+        "asset": current.id,
+        "identity": str((payload.day - date(1970, 1, 1)).days),
         **payload.model_dump(),
+        "revision": 73,
     }
-    assert requested[0]["revision"] == 73
-    assert requested[0]["updated_at"].utcoffset() == timedelta(0)
     assert response.status_code == 204
-    session.commit.assert_not_called()
-    construct.assert_called_once_with(client)
+    session.commit.assert_called_once_with()
 
 
 @pytest.mark.parametrize("provider", ["missing", "archived"])

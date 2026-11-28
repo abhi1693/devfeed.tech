@@ -1,6 +1,5 @@
 import { getSearch, UserApiError } from "@/lib/api";
 import { parseSearchOptions, searchKinds } from "@/lib/search";
-export { searchClick as POST } from "@/lib/server/search-click";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;

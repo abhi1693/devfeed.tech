@@ -1,14 +1,7 @@
 export const runs = 3;
 
 export function readerPaths(articleSlug) {
-  return [
-    "/latest",
-    `/articles/${articleSlug}`,
-    "/topics",
-    "/sources",
-    "/users/budget-reader",
-    "/leaderboard",
-  ];
+  return ["/latest", `/articles/${articleSlug}`, "/topics", "/sources", "/users/budget-reader"];
 }
 
 // Report median timings and the largest transfer in any run; all limits are advisory.

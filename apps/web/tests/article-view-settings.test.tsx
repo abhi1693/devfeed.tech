@@ -167,7 +167,7 @@ it("applies Grid, List, and Stacked while retaining pages, reading sequence, and
   const original = screen.getAllByRole("link", { name: "Read original article in a new tab" })[0];
   original.addEventListener("click", (event) => event.preventDefault(), { once: true });
   fireEvent.click(original);
-  await screen.findAllByRole("img", { name: "8 clicks to the original article" });
+  expect(screen.queryByRole("img", { name: /clicks to the original article/ })).toBeNull();
   fireEvent.click(screen.getAllByRole("button", { name: "Like article, 2 likes" })[0]);
   await screen.findByRole("button", { name: "Unlike article, 3 likes" });
   const engagementReads = fetcher.mock.calls.filter(([input]) =>
@@ -199,12 +199,10 @@ it("applies Grid, List, and Stacked while retaining pages, reading sequence, and
   expect(screen.getByRole("button", { name: "Remove bookmark" }).getAttribute("aria-pressed")).toBe(
     "true",
   );
-  expect(screen.getByRole("img", { name: "8 clicks to the original article" })).toBeTruthy();
+  expect(screen.queryByRole("img", { name: /clicks to the original article/ })).toBeNull();
   expect(screen.getByLabelText("Reading sequence").textContent).toBe(sequence);
   await act(async () => fireEvent.click(screen.getByRole("radio", { name: "Grid" })));
-  expect(
-    screen.getAllByRole("img", { name: "8 clicks to the original article" }).length,
-  ).toBeGreaterThan(0);
+  expect(screen.queryByRole("img", { name: /clicks to the original article/ })).toBeNull();
   expect(screen.getByRole("button", { name: "Remove bookmark" })).toBeTruthy();
   expect(screen.getByRole("heading", { name: second.title })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Unlike article, 3 likes" })).toBeTruthy();

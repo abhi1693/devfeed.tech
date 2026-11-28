@@ -3,20 +3,13 @@
 Independent FastAPI administration/OIDC service, importing only the shared core
 package. Source files live directly under `src`, mapped to `devfeed_admin_api`.
 
-See [configuration, authentication, service boundaries and commands](../../docs/admin.md).
+See the [admin UI guide](../admin/README.md) for supported operator workflows.
 
-Pipeline and Overview pages read [direct ClickHouse analytics](ANALYTICS.md). That guide
-covers application delivery, bounded historical import, current cards, report
-caching, and coordinated rollout.
-
-The source lifecycle board is available at `GET /v1/admin/source-pipeline`;
-`GET /columns/{stage}` pages one lane with an integer `cursor`. Both accept `q`,
-`source_type`, `needs_attention`, `limit` (20 by default, at most 50), and
-`terminal_since` (seven days by default, at most 90 days). Pending work and active
-jobs remain visible regardless of age. Running cards come first, followed by
-oldest waiting work; terminal lanes show the latest durable activity first.
-Counts cover the entire filtered ClickHouse snapshot. The application loads evidence in bounded
-batches; board reads do not load article bodies or job history.
+The admin home opens the article list. Historical Overview, search analytics, and
+warehouse-backed article and source boards have been retired. Their former API
+endpoints return HTTP 410. Operational lists, lifecycle details, and actions use
+PostgreSQL. Source lifecycle detail and action paths below are relative to
+`/v1/admin/source-pipeline`.
 
 Cards use `source:{id}` or `candidate:{id}` keys. Linked discovery candidates appear
 under their Source once; unlinked candidates remain visible. Read-only details at
@@ -38,19 +31,3 @@ Rejected Sources missing current prerequisites offer an explicit "Reopen for rev
 advance. It retains review history, requests fresh discovery/profile work, and keeps
 the Source disabled until an operator makes a new approval decision. A standalone
 rejected discovery candidate does not gain this Source-specific shortcut.
-
-## Historical reporting
-
-ClickHouse is the required store for historical Overview reports. The dashboard retains
-publication, audience, personalization, source, processing, and inference panels. PostgreSQL
-retains transactional source records and validates operator actions. Chart and board
-reads use ClickHouse with a shared request cache.
-
-The application publishes narrow observations asynchronously after business commits.
-A bounded initial backfill imports available history, including older aggregate-only reader
-metrics. Token reports retain the distinction between cumulative completed-job usage and
-individual inference invocations, including unknown and malformed telemetry.
-
-See [native analytics](ANALYTICS.md) for Compose configuration, ingestion, query
-budgets, freshness, backups, and rollout. The PostgreSQL report comparison profilers have
-been replaced by native ClickHouse diagnostics in `scripts/profile_analytics_reports.py`.

@@ -104,7 +104,12 @@ case "$suite" in
   web|chrome|partner-chrome) browsers=(chromium) ;;
   *) browsers=(chromium msedge) ;;
 esac
-if run_timed npx --no-install --ignore-scripts playwright install --with-deps "${browsers[@]}"; then
+# GitHub's Ubuntu runner image supplies the browser libraries. Refreshing all
+# apt repositories here makes even a preinstalled browser depend on their availability.
+if [[ ${RUNNER_ENVIRONMENT:-} != github-hosted ]]; then
+  browsers=(--with-deps "${browsers[@]}")
+fi
+if run_timed npx --no-install --ignore-scripts playwright install "${browsers[@]}"; then
   :
 else
   code=$?

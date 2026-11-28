@@ -4,7 +4,6 @@ import { readerLoginLink } from "@/lib/reader-runtime";
 import type { ComponentProps } from "react";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Bookmark, Heart } from "lucide-react";
-import { CardEye as Eye } from "./reader-card-icons";
 import { trackEvent } from "@/lib/analytics";
 import { userRequest } from "@/lib/user";
 import {
@@ -222,10 +221,10 @@ export function ArticleReadLink({
   const { user, profile, refreshProfile } = useUser();
   function recordOpen() {
     trackEvent("article_open", { article_id: articleId });
-    // Navigation never waits for telemetry. Keep the request alive if this tab leaves.
+    if (!user) return;
     void recordArticleOpen(articleId, {
       keepalive: true,
-      csrfToken: user?.csrf_token,
+      csrfToken: user.csrf_token,
     })
       .then((value) => {
         publish(value, user?.user_id ?? null);
@@ -334,18 +333,6 @@ export function ArticleEngagement({
         >
           {heart}
         </a>
-      )}
-      {value && (
-        <span
-          className="open-count"
-          data-zero={value.opens === 0}
-          role="img"
-          title={`${value.opens} clicks to the original article`}
-          aria-label={`${value.opens} clicks to the original article`}
-        >
-          <Eye size={15} aria-hidden="true" />
-          {count(value.opens)}
-        </span>
       )}
       {failed && (
         <span className="engagement-error" role="alert">

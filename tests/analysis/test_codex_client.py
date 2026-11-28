@@ -55,7 +55,7 @@ def usage_records(monkeypatch):
 
     records = []
 
-    async def record(value, *, client):
+    async def record(value, *, settings):
         records.append(value)
 
     monkeypatch.setattr(codex_client, "record_call", record)

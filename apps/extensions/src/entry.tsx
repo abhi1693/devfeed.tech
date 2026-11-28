@@ -21,10 +21,10 @@ import { SearchFilters } from "../../web/src/components/search-filters";
 import { LoadingSkeleton } from "../../web/src/components/loading-skeleton";
 import { configureReaderRuntime, readerRequest } from "../../web/src/lib/reader-runtime";
 import {
+  contentFeedTitle,
   feedParams,
   searchParamsFromUrl,
   latestFeedParams,
-  trendingFeedParams,
 } from "../../web/src/lib/feed-query";
 import { readerFeeds, resolveFeed } from "../../web/src/lib/reader-feed";
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
@@ -44,7 +44,6 @@ import { rememberArticles } from "./public-cache";
 import { AccountSession, prepareSignOut, signedOut } from "./session";
 import { PersonalFeed } from "../../web/src/components/personal-feed";
 import { ReadLater } from "../../web/src/components/read-later";
-import { TrendingContent } from "../../web/src/components/trending-content";
 import { NotificationPreferencesProvider } from "../../web/src/components/notification-preferences-provider";
 import { SignupNudge } from "../../web/src/components/signup-nudge";
 import { ReaderPromptsProvider } from "../../web/src/components/reader-prompts";
@@ -108,7 +107,6 @@ function Reader({
   const key = search
     ? `${route}:${revision}`
     : `${route}:${revision}:${user?.user_id ?? "guest"}:${user?.csrf_token ?? ""}`;
-  const trending = mode === "trending";
   const personal = mode === "personal";
   const bookmarks = mode === "bookmarks";
   const query = normalizeSearch(url.searchParams.get("q") ?? "");
@@ -117,7 +115,6 @@ function Reader({
     key: string;
     feed?: FeedContentProps;
     search?: SearchResponse | null;
-    trending?: PromiseSettledResult<FeedPage>;
     missing?: boolean;
   }>();
   useEffect(() => {
@@ -125,13 +122,6 @@ function Reader({
     const controller = new AbortController();
     const { signal } = controller;
     async function load() {
-      if (trending) {
-        const [feed] = await Promise.allSettled([
-          read<FeedPage>(`/api/v1/user/trending?${trendingFeedParams(filters.cursor)}`, signal),
-        ]);
-        if (!signal.aborted) setState({ key, trending: feed });
-        return;
-      }
       if (search) {
         const result = query
           ? await read<SearchResponse>(`/api/v1/search?${url.searchParams}`, signal).catch(
@@ -184,7 +174,8 @@ function Reader({
             feed,
             options,
             filters: resolvedFilters,
-            title: item?.name,
+            title:
+              item?.name ?? (match.contentType ? contentFeedTitle(match.contentType) : undefined),
             topicId: detail?.kind === "topics" ? item?.id : undefined,
             tagId: detail?.kind === "tags" ? item?.id : undefined,
             description: item && "description" in item ? item.description : undefined,
@@ -248,13 +239,6 @@ function Reader({
             <SearchFailure />
           ))}
       </UserShell>
-    );
-  if (trending)
-    return (
-      <TrendingContent
-        feed={state?.key === key ? state.trending : undefined}
-        cursor={filters.cursor}
-      />
     );
   return (
     <UserShell filters={filters} section={detail?.kind ?? "feed"}>

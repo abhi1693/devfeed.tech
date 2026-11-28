@@ -34,6 +34,7 @@ def assess_source(
     settings = get_settings()
     base = {
         "version": VERSION,
+        "product": settings.product,
         "feed_url": feed_url,
         "source_type": source_type,
         "checked_at": utcnow().isoformat(),
@@ -59,7 +60,9 @@ def assess_source(
     client = CodexClient(settings)
     client.operation = "source_relevance"
     client.quality_failure = bool(feedback)
-    output = client.complete(relevance_prompt(sample) + feedback_prompt(feedback), schema)
+    output = client.complete(
+        relevance_prompt(sample, settings.product) + feedback_prompt(feedback), schema
+    )
     result = SourceRelevance.model_validate(restore_source_evidence(output, sample))
     return {
         **base,

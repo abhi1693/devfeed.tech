@@ -72,7 +72,7 @@ it("keeps a narrow widget-only resource policy without general Google origins", 
   expect(policy["script-src"]).toEqual(["'nonce-test-nonce'", publisher]);
   expect(policy["script-src-attr"]).toEqual(["'none'"]);
   expect(policy["style-src"]).toEqual(["'unsafe-inline'"]);
-  expect(policy["img-src"]).toEqual([icon]);
+  expect(policy["img-src"]).toEqual(["data:", icon]);
   expect(policy["frame-src"]).toEqual([
     "https://news.google.com/swg/ui/v1/serviceiframe",
     "https://news.google.com/swg/ui/v1/toastiframe",

@@ -90,7 +90,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-it.each(["latest", "trending", "content:article", `topic:${topicId}`] as FeedViewScope[])(
+it.each(["latest", "content:news", "content:article", `topic:${topicId}`] as FeedViewScope[])(
   "server-renders public article links, pagination, and structured data while %s preferences load",
   (scope) => {
     const html = renderToStaticMarkup(<PublicFeed scope={scope} />);

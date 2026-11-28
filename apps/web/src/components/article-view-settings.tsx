@@ -58,7 +58,6 @@ export function ArticleViewOptions({
           >
             <option value="my_feed">My feed</option>
             <option value="latest">Latest</option>
-            <option value="trending">Trending</option>
             <option value="read_later">Read later</option>
             <optgroup label="Article feeds">
               <option value="content:article">Articles</option>

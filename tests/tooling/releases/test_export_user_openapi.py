@@ -44,11 +44,11 @@ def test_reader_gateway_covers_user_operations_and_hidden_inbox_without_exposing
         for method, operation in methods.items()
         if path.startswith("/v1/user/")
     }
-    assert len(actual) == len(operations) == 72
+    assert len(actual) == len(operations) == 69
     assert len({operation["operationId"] for operation in operations}) == len(operations)
-    assert len({operation["path"] for operation in operations}) == 60
+    assert len({operation["path"] for operation in operations}) == 57
     assert Counter(operation["method"] for operation in operations) == {
-        "GET": 33,
+        "GET": 30,
         "POST": 22,
         "PUT": 15,
         "DELETE": 2,
@@ -160,7 +160,7 @@ def test_extension_auth_grants_keep_oidc_navigation_out_of_fetch_transport():
         ("user_auth_logout", "POST"),
         ("user_auth_sso_logout", "POST"),
     }
-    assert sum(operation["policy"]["extension"] is not None for operation in operations) == 68
+    assert sum(operation["policy"]["extension"] is not None for operation in operations) == 65
 
 
 def test_reader_workspace_and_layout_operations_keep_private_extension_transport():
@@ -249,7 +249,7 @@ def test_public_operation_provenance_catalog_is_complete_unique_and_deterministi
         for operation in operations
     }
     assert actual == documented
-    assert len(actual) == len(operations) == 20
+    assert len(actual) == len(operations) == 19
     assert len({operation["operationId"] for operation in operations}) == len(operations)
     assert all(set(operation) == {"operationId", "method", "path"} for operation in operations)
     assert operations == sorted(

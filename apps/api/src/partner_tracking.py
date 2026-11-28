@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from devfeed_core.analytics import AnalyticsUnavailable
-from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.config import get_settings
 from devfeed_core.partner_claim_backfill import LEGACY_CLAIM_AT
 from devfeed_core.partner_tracking import (
@@ -20,13 +18,12 @@ from devfeed_core.rate_limits import (
     consume_rate_limits,
     consume_reserved_rate_limits,
 )
-from devfeed_http.analytics import analytics_client
 from devfeed_http.body_limits import BodyLimitedRoute, RequestBodyPolicy
 from devfeed_http.dependencies import run_database
-from devfeed_http.partner_analytics_reporting import require_partner_claims
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from redis.exceptions import RedisError
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -82,6 +79,23 @@ def _claim_event(
                     "Partner event limit reached",
                     headers={**headers, "Retry-After": str(retry)},
                 )
+        if claim.recorded_at != LEGACY_CLAIM_AT:
+            session.execute(
+                text("""
+                INSERT INTO partner_observations
+                    (asset_id,kind,identity,day,revision,impressions,clicks,updated_at)
+                VALUES (:asset,'partner_event',:identity,:day,0,:impressions,:clicks,:stamp)
+                ON CONFLICT (asset_id,kind,identity) DO NOTHING
+            """),
+                {
+                    "asset": receipt.asset_id,
+                    "identity": f"{receipt.delivery_id}:{kind}",
+                    "day": receipt.issued_at.date(),
+                    "impressions": int(kind == "impression"),
+                    "clicks": int(kind == "click"),
+                    "stamp": claim.recorded_at,
+                },
+            )
         session.commit()
         return claim
     except InactivePartnerAsset:
@@ -103,33 +117,5 @@ async def track_event(body: PartnerEvent, request: Request, factory: DBFactory) 
     receipt = PartnerTrackingTokens(key.get_secret_value()).verify(body.receipt) if key else None
     if receipt is None:
         raise HTTPException(403, "Invalid partner delivery receipt", headers=headers)
-    client = analytics_client(request)
-    try:
-        await require_partner_claims(client)
-    except AnalyticsUnavailable:
-        raise HTTPException(
-            503, "Partner tracking unavailable", headers={**headers, "Retry-After": "1"}
-        ) from None
-    claim = await run_database(
-        factory, _claim_event, receipt, body.kind, partner_caller_key(request)
-    )
-    # TODO(REMOVE_AFTER_CLICKHOUSE_BACKFILL): Old receipt claims already belong
-    # to the imported baseline; their temporary sentinel prevents double count.
-    if claim.recorded_at != LEGACY_CLAIM_AT:
-        try:
-            await DirectEngagementAnalytics(client).partner_events(
-                [
-                    {
-                        "asset_id": receipt.asset_id,
-                        "delivery_id": receipt.delivery_id,
-                        "kind": body.kind,
-                        "day": receipt.issued_at.date(),
-                        "observed_at": claim.recorded_at,
-                    }
-                ]
-            )
-        except AnalyticsUnavailable:
-            raise HTTPException(
-                503, "Partner tracking unavailable", headers={**headers, "Retry-After": "1"}
-            ) from None
+    await run_database(factory, _claim_event, receipt, body.kind, partner_caller_key(request))
     return Response(status_code=204, headers=headers)

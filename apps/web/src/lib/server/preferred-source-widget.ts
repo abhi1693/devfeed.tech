@@ -5,7 +5,7 @@ export function preferredSourceWidgetPolicy(nonce: string) {
     `script-src 'nonce-${nonce}' https://news.google.com/swg/js/v1/publisher.js`,
     "script-src-attr 'none'",
     "style-src 'unsafe-inline'",
-    "img-src https://www.gstatic.com/images/branding/productlogos/googleg_gradient/v1/24px.svg",
+    "img-src data: https://www.gstatic.com/images/branding/productlogos/googleg_gradient/v1/24px.svg",
     "frame-src https://news.google.com/swg/ui/v1/serviceiframe https://news.google.com/swg/ui/v1/toastiframe",
     "connect-src 'none'",
     "object-src 'none'",

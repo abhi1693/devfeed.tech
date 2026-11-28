@@ -9,6 +9,7 @@ import os
 import threading
 import time
 import uuid
+import zlib
 from collections.abc import Callable, Collection
 from contextlib import suppress
 from dataclasses import dataclass
@@ -25,6 +26,8 @@ from devfeed_core.telemetry import current
 from redis import Redis
 
 logger = logging.getLogger(__name__)
+COMPRESSED_PREFIX = b"\xffDFZ1"
+COMPRESSION_MIN_BYTES = 4096
 LOCK_SECONDS = 30
 RETRY_SECONDS = 5
 CACHE_NAMES = frozenset(
@@ -198,8 +201,19 @@ class ResponseCache:
                 try:
                     if not isinstance(body, bytes) or len(body) > get_settings().cache_max_bytes:
                         raise ValueError("Invalid cached response size")
+                    if body.startswith(COMPRESSED_PREFIX):
+                        decoder = zlib.decompressobj()
+                        body = decoder.decompress(
+                            body[len(COMPRESSED_PREFIX) :], get_settings().cache_max_bytes + 1
+                        )
+                        if (
+                            len(body) > get_settings().cache_max_bytes
+                            or not decoder.eof
+                            or decoder.unused_data
+                        ):
+                            raise ValueError("Invalid compressed cache entry")
                     json.loads(body)
-                except (ValueError, UnicodeError, RecursionError):
+                except (ValueError, UnicodeError, RecursionError, zlib.error):
                     logger.warning("cache_entry_invalid")
                     body = None
             token = None
@@ -227,6 +241,10 @@ class ResponseCache:
     def publish(self, lookup: CacheLookup, body: bytes, ttl: int) -> bool:
         if lookup.token is None or len(body) > get_settings().cache_max_bytes:
             return False
+        if get_settings().cache_compress_writes and len(body) >= COMPRESSION_MIN_BYTES:
+            encoded = COMPRESSED_PREFIX + zlib.compress(body, level=1)
+            if len(encoded) < len(body):
+                body = encoded
         token = lookup.token
         return bool(
             self._run(

@@ -102,6 +102,29 @@ def test_disabled_redis_still_checks_database_revision_for_tick_local_reuse(revi
     assert not v.store.redis.mock_calls
 
 
+def test_joined_snapshot_scopes_preserve_owner_invalidation_and_cleanup(revisions):
+    v = revisions
+    v.settings.cache_enabled = False
+    retained, invalidated = {}, Mock()
+    loader = Mock(side_effect=[{"name": "Original"}, {"name": "Changed"}, {}])
+    with catalog_cache.reuse_snapshots(retained=retained, on_invalidate=invalidated):
+        first = catalog_cache.snapshot(v.session, ("topics",), loader)
+        with pytest.raises(RuntimeError), catalog_cache.reuse_snapshots(reuse_existing=True):
+            assert catalog_cache.snapshot(v.session, ("topics",), loader) is first
+            raise RuntimeError("cancelled nested operation")
+        v.version = ("topics", str(uuid.uuid4()))
+        with catalog_cache.reuse_snapshots(reuse_existing=True):
+            assert catalog_cache.snapshot(v.session, ("topics",), loader)["name"] == "Changed"
+        invalidated.assert_called_once()
+        # The default keeps independently owned scopes isolated.
+        with catalog_cache.reuse_snapshots():
+            assert catalog_cache.snapshot(v.session, ("topics",), loader) == {}
+        assert len(retained) == 1
+    assert catalog_cache._snapshots.get() is None
+    assert catalog_cache._invalidator.get() is None
+    assert loader.call_count == 3
+
+
 def test_missing_revision_cannot_be_remembered_or_published(revisions):
     v = revisions
     v.session.execute.return_value = []
