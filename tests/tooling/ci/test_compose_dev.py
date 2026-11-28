@@ -35,40 +35,18 @@ def test_build_then_stop_then_migrate_then_recreate_without_data_recreation(comm
     assert all("down" not in c and "--volumes" not in c for c in commands)
 
 
-def test_analytics_rebuild_starts_data_before_migration_and_recreates_importer(
-    monkeypatch, commands
-):
+def test_rebuild_targets_the_rendered_worker_pools_without_the_warehouse(monkeypatch, commands):
+    workers = {"high-worker", "default-worker", "low-worker", "images-worker"}
     monkeypatch.setattr(
         dev,
         "configuration",
-        lambda: {"services": {**{name: {} for name in dev.APPLICATIONS}, "clickhouse": {}}},
+        lambda: {"services": {name: {} for name in set(dev.APPLICATIONS) | workers}},
     )
     dev.rebuild()
-    data_start = next(command for command in commands if command[:3] == ("up", "-d", "--wait"))
-    assert data_start[-3:] == ("postgres", "redis", "clickhouse")
-    assert "analytics-importer" in commands[0]
-    assert "analytics-importer" in next(command for command in commands if command[0] == "stop")
-    assert "analytics-importer" in commands[-1]
-    assert "clickhouse" not in commands[-1]
-
-
-def test_management_ui_starts_after_apps_without_gating_their_health(monkeypatch, commands):
-    monkeypatch.setattr(
-        dev,
-        "configuration",
-        lambda: {
-            "services": {
-                **{name: {} for name in dev.APPLICATIONS},
-                "clickhouse": {},
-                "ch-ui": {},
-            }
-        },
-    )
-    dev.rebuild()
-    assert commands[-1] == ("up", "-d", "--no-deps", "ch-ui")
-    assert "--wait" in commands[-2] and "--force-recreate" in commands[-2]
-    assert "ch-ui" not in commands[-2]
-    assert "ch-ui" not in commands[0]
+    for command in (commands[0], commands[2], commands[-1]):
+        assert workers.issubset(command)
+        assert "worker" not in command
+    assert commands[1] == ("up", "-d", "--wait", "postgres", "redis")
 
 
 @pytest.mark.parametrize(
@@ -199,10 +177,12 @@ def test_bundled_chimely_starts_without_forcing_local_provisioning(
     services = {name: {} for name in dev.APPLICATIONS if name != "codex-client"}
     services.update(
         chimely={},
-        worker={
-            "environment": {
-                "DEVFEED_NOTIFICATIONS_ENABLED": enabled,
-                "DEVFEED_CHIMELY_API_URL": endpoint,
+        **{
+            "default-worker": {
+                "environment": {
+                    "DEVFEED_NOTIFICATIONS_ENABLED": enabled,
+                    "DEVFEED_CHIMELY_API_URL": endpoint,
+                }
             }
         },
     )
@@ -221,10 +201,12 @@ def test_bundled_notifications_are_provisioned_when_enabled(monkeypatch, command
     services = {name: {} for name in dev.APPLICATIONS if name != "codex-client"}
     services.update(
         chimely={},
-        worker={
-            "environment": {
-                "DEVFEED_NOTIFICATIONS_ENABLED": "true",
-                "DEVFEED_CHIMELY_API_URL": "http://chimely:8080",
+        **{
+            "default-worker": {
+                "environment": {
+                    "DEVFEED_NOTIFICATIONS_ENABLED": "true",
+                    "DEVFEED_CHIMELY_API_URL": "http://chimely:8080",
+                }
             }
         },
     )

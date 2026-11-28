@@ -59,12 +59,12 @@ export async function checkEngagementPagination(page, target) {
   try {
     await page.goto(target);
     await setArticleView(page, "cards");
-    await page.locator(".article-card:visible").first().waitFor();
-    await page.locator(".article-card:visible .open-count").first().waitFor({ state: "attached" });
+    // Finish the settings navigation before counting requests from the measured feed.
+    await page.goto("about:blank");
     page.on("request", capture);
-    await page.reload();
-    await loadAll(".article-card .open-count");
-    assert.equal(await page.locator(".article-card:visible .open-count").count(), 120);
+    await page.goto(target);
+    await loadAll(".article-card .heart-button");
+    assert.equal(await page.locator(".article-card:visible .heart-button").count(), 120);
     assert.ok(batches.every((batch) => batch.length > 0 && batch.length <= 100));
     assert.equal(batches.flat().length, 120, "Each loaded article should be requested only once");
     assert.equal(
@@ -90,7 +90,7 @@ export async function checkEngagementPagination(page, target) {
     );
     await setArticleView(page, "cards");
     await page.locator(".article-card:visible").first().waitFor();
-    await loadAll(".article-card .open-count");
+    await loadAll(".article-card .heart-button");
     assert.equal(await page.locator(".article-card:visible").count(), 120);
     console.log(
       `Engagement pagination: 120 unique articles, batch sizes ${batches.map((batch) => batch.length).join(", ")}.`,

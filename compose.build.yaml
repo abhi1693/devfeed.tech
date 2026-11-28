@@ -67,10 +67,6 @@ services:
     <<: *backend-build
     image: devfeed/scheduler:local
     develop: *backend-develop
-  analytics-importer:
-    <<: *backend-build
-    image: devfeed/analytics-importer:local
-    develop: *backend-develop
   high-worker:
     <<: *backend-build
     image: devfeed/high-worker:local

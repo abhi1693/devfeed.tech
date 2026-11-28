@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Partner API
  * Partner analytics API with role-gated sessions and live memberships.
- * OpenAPI spec version: 0.1.8
+ * OpenAPI spec version: 0.3.0
  */
 import type { ProductAssessment } from './productAssessment';
 import type { ProductDetailOutApprovalSource } from './productDetailOutApprovalSource';

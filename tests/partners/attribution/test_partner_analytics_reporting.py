@@ -1,4 +1,4 @@
-"""Direct ClickHouse metrics preserve partner reporting scope and ordering."""
+"""Partner measurements preserve partner reporting scope and ordering."""
 
 import asyncio
 import uuid
@@ -276,6 +276,7 @@ def test_direct_report_matches_canonical_products_and_format_totals(database, pa
 
 def test_reporting_requires_completed_history_and_claim_import():
     from devfeed_core.analytics import AnalyticsUnavailable
+    from devfeed_core.partner_history_import import require_partner_history
 
     class Checkpoints:
         def __init__(self, names):
@@ -290,14 +291,11 @@ def test_reporting_requires_completed_history_and_claim_import():
             "partner_tracked_daily_metrics",
             "partner_delivery_events",
         }
-        await report.require_partner_history(Checkpoints(complete))
-        await report.require_partner_claims(Checkpoints({"partner_delivery_events"}))
+        await require_partner_history(Checkpoints(complete))
         with pytest.raises(AnalyticsUnavailable):
-            await report.require_partner_history(
-                Checkpoints(complete - {"partner_delivery_events"})
-            )
+            await require_partner_history(Checkpoints(complete - {"partner_delivery_events"}))
         with pytest.raises(AnalyticsUnavailable):
-            await report.require_partner_claims(Checkpoints(set()))
+            await require_partner_history(Checkpoints(set()))
 
     asyncio.run(run())
 
@@ -387,3 +385,184 @@ def test_identical_native_names_and_metrics_use_stable_asset_identity(sort):
         assert [row["id"] for row in result["assets"]] == [uuid.UUID(int=1), uuid.UUID(int=2)]
 
     asyncio.run(run())
+
+
+@pytest.mark.integration
+def test_partner_history_copy_is_replayable_and_rejects_a_conflicting_snapshot(database):
+    from devfeed_core.models import PartnerAccount, PartnerAsset, PartnerPlacementDelivery
+    from devfeed_core.partner_claim_backfill import LEGACY_CLAIM_AT
+    from devfeed_core.partner_history_import import import_snapshot
+    from sqlalchemy import text
+
+    delivery_id = uuid.uuid4()
+    with database.begin() as session:
+        account = PartnerAccount(name="Cutover partner", tier="gold", status="active")
+        session.add(account)
+        session.flush()
+        asset = PartnerAsset(account_id=account.id, name="Asset", kind="ad", status="active")
+        session.add(asset)
+        session.flush()
+        identity = str(asset.id)
+        stamp = datetime(2026, 1, 2, tzinfo=UTC)
+        session.add(
+            PartnerPlacementDelivery(
+                delivery_id=delivery_id,
+                asset_id=asset.id,
+                issued_at=stamp,
+                impression_recorded_at=stamp,
+                click_recorded_at=LEGACY_CLAIM_AT,
+            )
+        )
+    observation = dict(
+        owner=identity,
+        kind="partner_baseline",
+        identity="42",
+        day=42,
+        revision=9,
+        impressions=23,
+        clicks=2,
+        updated_at="2026-01-01 00:00:00",
+    )
+
+    class Source:
+        async def query(self, _statement, parameters=None):
+            if parameters is not None:
+                return [{"source": name, "complete": 1} for name in parameters["sources"]]
+            return [observation]
+
+    with database() as session:
+        conn = session.connection().connection.driver_connection
+        for _ in range(2):
+            assert asyncio.run(import_snapshot(Source(), conn)) == 1
+        observation["impressions"] = 24
+        with pytest.raises(ValueError, match="differs"):
+            asyncio.run(import_snapshot(Source(), conn))
+        assert session.execute(
+            text(
+                "SELECT count(*),sum(impressions),sum(clicks) FROM partner_observations "
+                "WHERE asset_id=:asset"
+            ),
+            {"asset": identity},
+        ).one() == (2, 24, 2)
+
+
+def test_partner_snapshot_copies_original_identity_and_aborts_on_verification_failure():
+    from unittest.mock import AsyncMock, MagicMock
+
+    from devfeed_core.partner_history_import import import_snapshot
+
+    asset_id = str(uuid.uuid4())
+    stamp = "2026-01-01 10:00:00.000001"
+    row = dict(
+        owner=asset_id,
+        kind="partner_baseline",
+        identity="1",
+        day=1,
+        revision=2**64 - 1,
+        impressions=12,
+        clicks=1,
+        updated_at=stamp,
+    )
+    source = AsyncMock()
+    source.query.side_effect = [
+        [
+            {"source": name, "complete": 1}
+            for name in (
+                "partner_daily_metrics",
+                "partner_tracked_daily_metrics",
+                "partner_delivery_events",
+            )
+        ],
+        [row],
+    ]
+    destination = MagicMock()
+    cursor = destination.cursor.return_value.__enter__.return_value
+    cursor.fetchone.return_value = (True,)
+    with pytest.raises(ValueError, match="differs from the destination"):
+        asyncio.run(import_snapshot(source, destination))
+    copy = cursor.copy.return_value.__enter__.return_value
+    copy.write_row.assert_called_once_with(
+        (asset_id, "partner_baseline", "1", datetime(1970, 1, 2).date(), 2**64 - 1, 12, 1, stamp)
+    )
+    assert destination.transaction.return_value.__exit__.call_args.args[0] is ValueError
+
+
+def test_partner_checkpoint_failure_leaves_destination_untouched():
+    from unittest.mock import AsyncMock, MagicMock
+
+    from devfeed_core.analytics import AnalyticsUnavailable
+    from devfeed_core.partner_history_import import import_snapshot
+
+    source = AsyncMock()
+    source.query.return_value = []
+    destination = MagicMock()
+    with pytest.raises(AnalyticsUnavailable, match="incomplete"):
+        asyncio.run(import_snapshot(source, destination))
+    destination.transaction.assert_not_called()
+    assert source.query.await_count == 1
+
+
+def test_failed_partner_import_exits_without_disclosing_connection_details(monkeypatch):
+    from devfeed_core import partner_history_import
+
+    def invalid_settings():
+        raise ValueError("disposable-credential-in-validation-detail")
+
+    monkeypatch.setattr(partner_history_import, "get_settings", invalid_settings)
+    with pytest.raises(SystemExit) as failure:
+        asyncio.run(partner_history_import.main())
+    assert failure.value.code == "Partner history verification failed (ValueError)"
+
+
+def test_both_measurement_reads_bind_only_the_authorized_assets_and_daily_range():
+    from unittest.mock import MagicMock
+
+    from devfeed_http.partner_measurements import PartnerMeasurements
+
+    factory = MagicMock()
+    session = factory.return_value.__enter__.return_value
+    asset_id = uuid.uuid4()
+    row = {"owner": str(asset_id), "impressions": 42, "clicks": 1}
+    session.execute.return_value.mappings.return_value = [row]
+    measurements = PartnerMeasurements(factory)
+    first, last = datetime(2026, 1, 1).date(), datetime(2026, 1, 31).date()
+    assert asyncio.run(measurements.partner_daily([asset_id], start=first, end=last)) == [row]
+    assert asyncio.run(measurements.partner_summary([asset_id])) == [row]
+    daily, summary = session.execute.call_args_list
+    for call in (daily, summary):
+        assert "asset_id = ANY(CAST(:ids AS uuid[]))" in str(call.args[0])
+    assert daily.args[1] == {"ids": [str(asset_id)], "start": first, "end": last}
+    assert summary.args[1] == {"ids": [str(asset_id)]}
+
+
+def test_partner_import_cli_reports_verified_count_only_after_commit(monkeypatch, capsys):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    from devfeed_core import partner_history_import as importer
+
+    settings = SimpleNamespace(database_url="postgresql+psycopg://localhost/disposable_test")
+    monkeypatch.setattr(importer, "get_settings", lambda: settings)
+    source = AsyncMock()
+    source.query.side_effect = [
+        [
+            {"source": name, "complete": 1}
+            for name in (
+                "partner_daily_metrics",
+                "partner_tracked_daily_metrics",
+                "partner_delivery_events",
+            )
+        ],
+        [],
+    ]
+    client = MagicMock()
+    client.return_value.__aenter__.return_value = source
+    monkeypatch.setattr(importer, "AnalyticsClient", client)
+    connection = MagicMock()
+    monkeypatch.setattr(importer, "Connection", connection)
+    db = connection.connect.return_value.__enter__.return_value
+    db.cursor.return_value.__enter__.return_value.fetchone.return_value = (False,)
+    asyncio.run(importer.main())
+    connection.connect.assert_called_once_with("postgresql://localhost/disposable_test")
+    db.transaction.return_value.__exit__.assert_called_once_with(None, None, None)
+    assert capsys.readouterr().out == "Verified 0 partner observations\n"

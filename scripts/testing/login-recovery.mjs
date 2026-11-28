@@ -189,7 +189,6 @@ export async function checkLoginRecovery(t, browserName = null) {
         content_types: ["article", "news"],
         languages: ["en"],
       },
-      "/api/v1/leaderboard": { longest_streak: [], reading_days: [] },
       "/api/v1/extension/analytics": { enabled: false },
       "/api/v1/user/engagement": [],
     };

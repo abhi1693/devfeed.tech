@@ -6,8 +6,6 @@ import { contentTypes } from "@/lib/feed-query";
 import { FeedSettings } from "@/components/feed-settings";
 import { ArticleGrid } from "@/components/article-grid";
 import { ArticleViewOptions } from "@/components/article-view-settings";
-import { TrendingContent } from "@/components/trending-content";
-import type { FeedPage } from "@/lib/types";
 import type { UserIdentity } from "@/lib/user";
 import { guestReaderPreferencesKey, type ReaderColumn } from "@/lib/reader-preferences";
 import { useEffect, type ReactNode } from "react";
@@ -164,65 +162,6 @@ it("keeps a guest's old Columns preference intact while offering Grid and requir
   expect(fetcher).not.toHaveBeenCalled();
 });
 
-it.each(["loading", "failed", "empty"])(
-  "keeps Appearance layout settings independent while the trending feed is %s",
-  async (state) => {
-    const feed: PromiseSettledResult<FeedPage> | undefined =
-      state === "loading"
-        ? undefined
-        : state === "failed"
-          ? { status: "rejected", reason: new Error("unavailable") }
-          : { status: "fulfilled", value: { items: [], next_cursor: null } };
-    render(
-      <FeedPreferencesProvider>
-        <ArticleViewOptions />
-        <TrendingContent feed={feed} />
-      </FeedPreferencesProvider>,
-    );
-    const list = await screen.findByRole("radio", { name: "List" });
-    expect(screen.queryByRole("group", { name: "Article view" })).toBeNull();
-    await waitFor(() => expect(list.hasAttribute("disabled")).toBe(false));
-    fireEvent.click(list);
-    expect((list as HTMLInputElement).checked).toBe(true);
-    if (state === "loading") {
-      expect(screen.getByRole("status", { name: "Loading trending articles…" })).toBeTruthy();
-      expect(document.querySelector(".loading-skeleton.compact")).toBeTruthy();
-    } else if (state === "failed") {
-      expect(screen.getByRole("heading", { name: "Couldn’t load trending articles" })).toBeTruthy();
-      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-      expect(navigation.refresh).toHaveBeenCalledOnce();
-    } else {
-      expect(screen.getByRole("heading", { name: "No trending articles yet" })).toBeTruthy();
-      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
-    }
-  },
-);
-
-it("switches a loaded trending feed without replacing its articles or fetching again", async () => {
-  const fetcher = vi.fn();
-  vi.stubGlobal("fetch", fetcher);
-  render(
-    <FeedPreferencesProvider>
-      <ArticleViewOptions />
-      <TrendingContent
-        feed={{ status: "fulfilled", value: { items: [article], next_cursor: null } }}
-      />
-    </FeedPreferencesProvider>,
-  );
-  const grid = await screen.findByRole("radio", { name: "Grid" });
-  await waitFor(() => expect(grid.hasAttribute("disabled")).toBe(false));
-  expect((grid as HTMLInputElement).checked).toBe(true);
-  expect(screen.getByRole("link", { name: article.title })).toBeTruthy();
-  fireEvent.click(screen.getByRole("radio", { name: "List" }));
-  expect(screen.getByRole("table", { name: "Articles in compact view" })).toBeTruthy();
-  expect(screen.getByRole("link", { name: article.title }).getAttribute("href")).toBe(
-    `/articles/${article.slug}`,
-  );
-  fireEvent.click(grid);
-  expect(screen.queryByRole("table")).toBeNull();
-  expect(screen.getByRole("link", { name: article.title })).toBeTruthy();
-  expect(fetcher).not.toHaveBeenCalled();
-});
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();

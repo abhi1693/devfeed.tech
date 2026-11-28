@@ -41,7 +41,7 @@ export async function auditReaderDom(origin, output) {
             await page.waitForFunction(
               (feed) =>
                 feed
-                  ? document.querySelectorAll(".article-card .open-count").length === 24
+                  ? document.querySelectorAll(".article-card .heart-button").length === 24
                   : document.querySelectorAll(".catalog-card a.follow-button").length === 60,
               path === "/latest",
             );

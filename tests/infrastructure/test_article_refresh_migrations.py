@@ -283,7 +283,7 @@ def test_refresh_upgrade_preserves_large_ordinary_history_and_post_import_schema
     prepare_refresh_schema()
     assert ordinary_fingerprints(database) == before
     assert_owner_constraints(database, validated=False)
-    command.upgrade(config(), "head")
+    command.upgrade(config(), "0040")
     assert ordinary_fingerprints(database) == before
     assert_owner_constraints(database, validated=True)
     indexes = index_state(database)
@@ -313,6 +313,7 @@ def test_refresh_upgrade_preserves_large_ordinary_history_and_post_import_schema
 
     asyncio.run(post_import())
     assert ordinary_fingerprints(database) == before
+    command.upgrade(config(), "head")
     command.check(config())
     print(
         json.dumps(
@@ -350,7 +351,7 @@ def test_cancelled_concurrent_refresh_index_repairs_without_rebuilding_valid_sib
         psycopg.connect(dsn(), autocommit=True, row_factory=dict_row) as observer,
         ThreadPoolExecutor(max_workers=1) as executor,
     ):
-        future = executor.submit(command.upgrade, config(), "head")
+        future = executor.submit(command.upgrade, config(), "0040")
         writer = None
         try:
             assert ready.wait(15), "Migration did not reach the second concurrent index"
@@ -393,7 +394,7 @@ def test_cancelled_concurrent_refresh_index_repairs_without_rebuilding_valid_sib
     first = "ix_article_enrichment_jobs_refresh_id"
     assert failed[first]["indisvalid"] and not failed[second]["indisvalid"]
     assert ordinary_fingerprints(database) == before
-    command.upgrade(config(), "head")
+    command.upgrade(config(), "0040")
     repaired = index_state(database)
     assert len(repaired) == 3 and all(row["indisvalid"] for row in repaired.values())
     assert repaired[first]["oid"] == failed[first]["oid"]
@@ -436,7 +437,7 @@ def test_refresh_index_name_collision_preserves_the_unexpected_relation(
             {"name": name},
         )
     with pytest.raises(RuntimeError, match="Unexpected definition"):
-        command.upgrade(config(), "head")
+        command.upgrade(config(), "0040")
     with database() as session:
         assert session.scalar(text("SELECT CAST(:name AS regclass)::oid"), {"name": name}) == oid
         assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0039"
@@ -450,7 +451,7 @@ def test_unused_refresh_schema_downgrades_without_changing_ordinary_history(
     database = historical_refresh_database
     seed_ordinary_records(database)
     before = ordinary_fingerprints(database)
-    command.upgrade(config(), "head")
+    command.upgrade(config(), "0040")
     command.downgrade(config(), "0039")
     assert ordinary_fingerprints(database) == before
     with database() as session:
@@ -474,7 +475,7 @@ def test_refresh_history_refuses_downgrade_and_owner_deletion_but_article_cascad
 ):
     database = historical_refresh_database
     article = seed_ordinary_records(database, (1, 1, 2))
-    command.upgrade(config(), "head")
+    command.upgrade(config(), "0040")
     owner = add_owner(database, article, status="cancelled", bind=True)
     before = ordinary_fingerprints(database)
     indexes = index_state(database)
@@ -532,7 +533,7 @@ def test_refresh_upgrade_rejects_unowned_existing_table(historical_refresh_datab
         session.execute(text("CREATE TABLE article_refreshes(id integer)"))
         oid = session.scalar(text("SELECT 'article_refreshes'::regclass::oid"))
     with pytest.raises(RuntimeError, match="Unexpected existing article_refreshes"):
-        command.upgrade(config(), "head")
+        command.upgrade(config(), "0040")
     with database() as session:
         assert session.scalar(text("SELECT 'article_refreshes'::regclass::oid")) == oid
         assert session.scalar(text("SELECT version_num FROM alembic_version")) == "0039"
@@ -546,7 +547,7 @@ def test_refresh_schema_phase_failure_rolls_back_all_additions(historical_refres
     with database.begin() as session:
         session.execute(text("CREATE TABLE ix_article_refresh_due(id integer)"))
     with pytest.raises(DBAPIError, match="already exists"):
-        command.upgrade(config(), "head")
+        command.upgrade(config(), "0040")
     assert ordinary_fingerprints(database) == before
     with database() as session:
         assert session.scalar(text("SELECT to_regclass('article_refreshes')")) is None
@@ -563,6 +564,6 @@ def test_refresh_schema_phase_failure_rolls_back_all_additions(historical_refres
         )
     with database.begin() as session:
         session.execute(text("DROP TABLE ix_article_refresh_due"))
-    command.upgrade(config(), "head")
+    command.upgrade(config(), "0040")
     assert ordinary_fingerprints(database) == before
     assert_owner_constraints(database, validated=True)

@@ -923,16 +923,14 @@ def test_source_candidates_deduplicate_origins_before_the_per_follow_limit(datab
 
 
 def test_recommendation_dispatch_uses_one_locked_batch_and_recovers_partial_publication(
-    database, monkeypatch
+    database,
 ):
     from unittest.mock import Mock
 
     from devfeed_aggregator.queue import get_queue
-    from devfeed_core import analytics_producer
     from devfeed_core.models import Topic, UserAccount
     from sqlalchemy import event
 
-    monkeypatch.setattr(analytics_producer, "submit", lambda changes: None)
     now = utcnow()
     topic = uuid.uuid4()
     users = [uuid.uuid4() for _ in range(26)]
@@ -1011,7 +1009,7 @@ def test_recommendation_dispatch_uses_one_locked_batch_and_recovers_partial_publ
         finally:
             event.remove(engine, "before_cursor_execute", observe)
             event.remove(engine, "commit", committed)
-        assert counts == {"select": 2, "commit": 1}
+        assert counts == {"select": 1, "commit": 1}
         assert queue.count == 25  # The interrupted delivery has the same durable identity.
         assert dispatch_recommendations(database, queue, batch=25) == 1
         assert queue.count == 26

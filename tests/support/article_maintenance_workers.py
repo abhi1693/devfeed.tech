@@ -53,5 +53,5 @@ def complete_private_analysis(database, monkeypatch, article_id, *, before_compl
     monkeypatch.setattr(
         analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
     )
-    analysis_tasks._analyze(identifier)
+    analysis_tasks.analyze_article(str(identifier))
     return refresh_id, identifier, calls

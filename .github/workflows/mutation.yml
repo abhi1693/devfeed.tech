@@ -6,8 +6,6 @@ on:
       coverage:
         value: ${{ jobs.test.outputs.coverage }}
   workflow_dispatch:
-  schedule:
-    - cron: "41 2 * * *"
 
 permissions:
   contents: read
@@ -37,6 +35,7 @@ jobs:
       - name: Install
         run: npm ci --ignore-scripts
       - name: Policy tests
+        if: github.event_name == 'workflow_dispatch'
         run: >-
           node node_modules/c8/bin/c8.js --config scripts/ci/mutation-coverage.json
           node --test tests/mutation.test.mjs

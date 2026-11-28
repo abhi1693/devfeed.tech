@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterable
 from datetime import datetime
-from typing import Any, NotRequired, Required, TypedDict, cast
+from typing import Any, Required, TypedDict, cast
 from urllib.parse import quote
 
 from sqlalchemy import func, select
@@ -55,7 +55,6 @@ class SearchHitData(TypedDict):
     sponsor_link_rel: list[LinkRel]
     label: str
     published_at: str | None
-    click_token: NotRequired[str | None]
 
 
 class SearchDocument(TypedDict):

@@ -10,7 +10,6 @@ from datetime import datetime
 from typing import Literal, cast
 
 from devfeed_core.analysis import fail_analysis
-from devfeed_core.analytics_producer import shutdown as drain_analytics
 from devfeed_core.automation_scheduler import schedule_automation
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
@@ -112,14 +111,17 @@ def _tick(resources: SchedulerResources | None = None) -> dict[str, int]:
     refresh_quota()
     factory = resources.factory if resources else session_factory()
     queue_factory = resources.queue if resources else get_queue
-    # The exporter preserves expired opens before their transactional rows
-    # are removed. Historical aggregation belongs to ClickHouse.
+    from devfeed_core.inference_ledger import prune_inference_history
     from devfeed_core.job_retention import prune_job_payloads
 
     try:
         prune_job_payloads(factory)
     except Exception:
         logger.exception("job_payload_retention_failed")
+    try:
+        prune_inference_history(factory)
+    except Exception:
+        logger.exception("inference_usage_retention_failed")
     try:
         prune_partner_delivery_history(factory)
     except Exception as exc:
@@ -460,7 +462,6 @@ def run() -> None:
                         health.completed()
                     stop.wait(15)
         finally:
-            drain_analytics()
             stop_runtime(telemetry)
             logger.info("scheduler_stopped")
 

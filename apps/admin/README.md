@@ -5,27 +5,13 @@ App Router API routes. It has no direct database, Redis or OIDC-provider access.
 The UI sends HSTS and a per-request nonce-based script policy; the internal
 Traefik ingress also redirects HTTP to HTTPS.
 
-See [configuration, authentication, service boundaries and commands](../../docs/admin.md).
+The admin home opens **Articles**. The sidebar links to operational resources,
+workers, queues and partnership workflows. The historical Overview, pipeline
+boards and search analytics dashboard have been retired. Bookmarked article and
+source board URLs open the corresponding list and preserve shared filters.
 
-## Overview
-
-All twelve panels use the selected UTC date range. Publication panels include
-articles published during that period, including articles discovered earlier;
-time to publication retains their full discovery-to-publication duration.
-Review and queue counts cover current items created in the period. Feed health
-covers accounts created or feeds computed in the period, and topic demand covers
-active follows added and current interest profiles refreshed in the period.
-
-Only **Queue pressure** refreshes periodically after loading, using the configured
-interval while the chart is visible and the page is active. Other charts retain
-their loaded result until a page reload, date-range change, explicit retry or
-recovery action. Relative ranges such as **Today** resolve once for all panels
-and advance together at UTC midnight, including when a hidden page becomes active
-again. Absolute custom date ranges remain fixed.
-
-Every chart automatically checks a preparing response until data becomes available,
-even when general refresh is disabled. Those checks stop after a non-queue chart succeeds.
-Validate with `npm run admin:test` and, after `npm run admin:build`,
+Validate the landing page, notification inbox and AI connection dialog with
+`npm run admin:test` and, after `npm run admin:build`,
 `node apps/admin/tests/browser/overview.mjs`.
 
 ## Record identities
@@ -199,87 +185,15 @@ const columns = useBoardColumns("devfeed:admin-review-columns", stages);
 </KanbanBoard>;
 ```
 
-Shared component/hook tests use a third review domain. The article and source
-tests retain their API, retry, grouping and polling coverage. Validate changes
-with `npm run admin:test`, `npm run admin:lint`, `npm run admin:build`, then both
-`node apps/admin/tests/browser/article-pipeline.mjs` and
-`node apps/admin/tests/browser/source-pipeline.mjs`.
+Validate the shared Kanban components and hooks with `npm run admin:test`.
 
 ## Article eligibility
 
-The Articles page has **Pipeline** and **List** views. Open
-`/content/articles?view=pipeline` to follow ingestion, enrichment, AI analysis, images,
-review, readiness, and publication. The desktop board has independently paginated
-columns; mobile uses a stage selector. Search, source, and needs-attention filters
-remain in the URL. Published and rejected columns show the last seven days; processing
-columns include all waiting articles. The board, readiness panel, and article review
-update automatically every five seconds when general refresh is disabled, or use a
-saved slower interval. Updates pause while the page is inactive. The article revision
-also updates during review so completed processing can enable publication automatically.
-
-Cards show the article title and source, with a status color and accessible icon.
-Running work appears first within each column, with stable discovery order inside each
-priority group. Automatic updates animate forward, backward, and priority changes;
-reduced-motion preferences disable movement. Open an article for job details, retry
-timing, the **Publication readiness** checklist, and links to current runs and logs.
-Missing or outdated work can expose a server-authorized next-step action. Failed runs
-link to their existing guarded retry workflow. The board never changes a stage directly.
-Publication remains disabled while any required processing or editorial check is incomplete, and the API
-rechecks readiness before accepting a publication decision.
-
-Double-click a desktop column header, or use its collapse button, to reduce it to a
-narrow rail with its name and count. Use **Columns** to show or hide stages; at least
-one column stays visible. **Show all columns** restores hidden stages. Visibility and
-collapse choices are remembered in this browser through refreshes and navigation.
-On mobile, the stage selector includes only visible columns and always opens the full
-column. Changing the column layout does not animate cards as processing transitions.
-
-Use **Group cards → Source** to replace individual cards with a compact source
-summary in each column. Each summary shows the full matching article count and
-colored status counts; sources with running articles appear first. Expand a source
-to load its articles and use the same per-article retry and drag controls. Source
-summaries do not retry articles in bulk. Grouping respects search, source, and
-attention filters, and remains selected in the page URL. Open groups refresh
-automatically with the board, resetting extra article pages to the current first
-page. Source groups and the articles inside each group paginate independently.
-
-Drag a card onto an earlier **Enrichment**, **AI analysis**, or **Images** column to
-retry that task, including onto a collapsed rail. The card menu provides the same
-actions for keyboard and mobile use, including tasks whose columns are hidden.
-Only eligible destinations are offered; active work and scheduled retries retain
-their leases and timing. Independent tasks can continue while the selected task runs.
-
-Moving a **Published** card back unpublishes it and queues the selected task together.
-The menu labels state this explicitly. An image-only retry preserves the existing
-approval, current AI content, original feed timestamp, and notification history; when
-it completes, the article returns to **Ready** for the normal Publish action. Source
-or AI retries go through the usual content and review requirements. The board waits
-for server results before moving a card and refreshes stale cards after conflicts.
-
-The AI analysis run shows its ordered steps for eligibility, classification, topics,
-tags, title, overview, and description. Each row reports its status, prompt version,
-attempt count, and scheduled retry or error when applicable. These are steps of one
-durable analysis job; run logs and retries use the existing analysis-job workflow.
-
-Validate with
-`npm run admin:test -- tests/article-pipeline.test.tsx tests/analysis-step-list.test.tsx`, then
-`npm run admin:build` and `node apps/admin/tests/browser/article-pipeline.mjs`.
-The browser test uses a disposable local API fixture and writes desktop/mobile
-screenshots and a result summary under ignored `reports/article-pipeline/`.
-
-Classifying an article requires a page-kind decision before approval or publication.
-The form preserves an existing decision and defaults missing/legacy decisions to
-`uncertain`. Select `non_article` for RSS subscription/feed-link pages, signup forms,
-About/contact pages and other site utilities. Technical vocabulary or matching
-topics does not establish article eligibility. Actual RSS tutorials remain eligible.
-Manual classification API/CLI clients should send `page_kind`; omission records
-`uncertain` and blocks approval until the page has been assessed.
-
-Validate the page-kind form with `npm run admin:build` followed by
-`node apps/admin/tests/browser/article-page-kind.mjs`. The browser fixture checks
-legacy defaults, saved decisions, and desktop/mobile layout.
-Screenshots: [desktop](screenshots/article-page-kind-desktop.png),
-[mobile](screenshots/article-page-kind-mobile.png).
+Open an article from **Articles** to see publication readiness, the current
+analysis step, processing runs and retry availability. The publication action
+checks the current editorial revision and processing state. Verify the detail
+and review flow after a production build with
+`node apps/admin/tests/browser/article-pipeline.mjs`.
 
 ## Partner account workspace
 
@@ -551,53 +465,10 @@ Validate with `npm run admin:lint`, `npm run admin:test`, and `npm run admin:bui
 The overview browser suite checks nonce rotation after its overview scenarios so
 the extra page loads do not affect panel concurrency or lazy-loading measurements.
 
-## Source lifecycle pipeline
+## Source lifecycle
 
-Open **Sources → Pipeline** to follow source preparation, review and ingestion. The
-existing **List** remains the default view with its approval filters and page-size
-preferences. The board shows Discovery, Profile, AI assessment, Branding, Review,
-Ingestion, Active, Paused and Rejected. Each compact card contains the source name,
-host and an accessible status icon. Color distinguishes waiting, running, retrying,
-blocked, ready and completed work; running sources appear first in processing lanes.
-
-The board and readiness panels refresh automatically while visible, at least every
-five seconds when ordinary refresh is off or faster. A saved slower interval is
-respected. Loaded cards remain visible while refreshing, and a newer snapshot replaces
-old extra pages. The initial board and each **Load more** request are bounded to
-20 cards per lane. Active, Paused and Rejected show activity from the last seven days
-by default; the existing list and history remain available for older sources.
-
-Double-click a desktop column heading, or use its **Collapse/Expand** button, to switch
-between a full lane and a narrow rail. **Columns** hides or restores lanes, keeping at
-least one visible. These choices are saved separately for this browser’s source board.
-On mobile, the stage selector includes visible columns and shows one normal lane;
-desktop collapse choices do not compress the mobile lane. Card movement respects both
-the operating system and admin **Reduce motion** setting.
-
-A source card opens its existing record. An unlinked candidate opens a readiness
-dialog; once discovery links it to a source, the dialog offers **Open source** and
-uses the source’s current identity for actions. The board shows that source only once.
-**Source readiness** explains blockers, current runs, attempts and retry availability.
-Source enrichment run lists and details distinguish operations and show saved results.
-
-Use a card’s action menu or drag it to a server-listed processing lane to retry that
-step. Retrying upstream processing for an enabled, approved source pauses new feed
-ingestion and preserves its approval, articles and history. The menu says **Pause and
-retry**; use **Resume** after required processing settles. An ingestion retry only
-recovers fetching and does not pause the source. Dragging into Active or Review cannot
-approve or enable a source.
-
-Manual approval remains an explicit review decision. It requires a current profile
-and settled branding; an unsuccessful or uncertain AI assessment does not prevent an
-operator from reviewing the evidence and approving manually. Approval and feed-fetch
-controls use the server’s current readiness flags. Existing approved sources retain
-the core lifecycle’s compatibility rules; an Active card describes scheduled ingestion
-without claiming that every historical preparation step was rerun.
-
-A rejected source with incomplete preparation offers **Reopen for review**. This
-explicit action prepares the source again while ingestion stays disabled and keeps
-its earlier review history. Processing cannot automatically overturn the rejection;
-an operator must review and approve it after its prerequisites settle.
-
-Validate with `npm run admin:test`, `npm run admin:lint` and, after
-`npm run admin:build`, `node apps/admin/tests/browser/source-pipeline.mjs`.
+Open a source from **Sources** to inspect readiness, current runs, failed checks
+and retry availability. The table supports the existing approval and search
+filters. Operators review source evidence and approve or reject the source
+explicitly. Verify the list and detail flow after a production build with
+`node apps/admin/tests/browser/source-pipeline.mjs`.

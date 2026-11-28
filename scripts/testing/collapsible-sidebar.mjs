@@ -33,6 +33,7 @@ export async function checkCollapsibleSidebar(page, screenshotPrefix) {
       "true",
     );
     assert.equal(await sidebar.getByRole("navigation", { name: "Legal" }).isVisible(), true);
+    assert.equal(await sidebar.getByRole("link", { name: "Leaderboard" }).count(), 0);
     const latest = sidebar.getByRole("link", { name: "Latest feed", exact: true });
     assert.equal(
       await latest.locator("span").evaluate((node) => getComputedStyle(node).opacity),

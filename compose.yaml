@@ -1,4 +1,4 @@
-name: devfeed
+name: ${DEVFEED_PRODUCT:-devfeed}
 
 x-postgres-image: &postgres-image ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}postgres:18.6-alpine3.24@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
 
@@ -17,6 +17,7 @@ x-runtime: &runtime
       max-file: "3"
 
 x-core-environment: &core-environment # Use a hex password so it is safe inside this connection URL.
+  DEVFEED_PRODUCT: ${DEVFEED_PRODUCT:-devfeed}
   DEVFEED_DATABASE_URL: ${DEVFEED_DATABASE_URL:-postgresql+psycopg://devfeed:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/devfeed}
   DEVFEED_REDIS_URL: ${DEVFEED_REDIS_URL:-redis://redis:6379/0}
   DEVFEED_SITEMAP_REFRESH_SECONDS: ${DEVFEED_SITEMAP_REFRESH_SECONDS:-900}
@@ -63,6 +64,7 @@ x-core-environment: &core-environment # Use a hex password so it is safe inside 
   DEVFEED_CACHE_ENABLED:
   DEVFEED_CACHE_TTL_SECONDS:
   DEVFEED_CACHE_METADATA_TTL_SECONDS:
+  DEVFEED_CACHE_COMPRESS_WRITES:
   DEVFEED_CACHE_MAX_BYTES:
   DEVFEED_AI_ENABLED:
   DEVFEED_AI_CONTENT_NOT_BEFORE: ${DEVFEED_AI_CONTENT_NOT_BEFORE-2026-07-01}
@@ -83,6 +85,7 @@ x-core-environment: &core-environment # Use a hex password so it is safe inside 
   DEVFEED_AI_COMPACT_ARTICLE_PROMPTS: ${DEVFEED_AI_COMPACT_ARTICLE_PROMPTS:-false}
   DEVFEED_ANALYSIS_MAX_CANDIDATES:
   DEVFEED_ANALYSIS_FALLBACK_CANDIDATES:
+  DEVFEED_ANALYSIS_CATALOG_REUSE_ENABLED: ${DEVFEED_ANALYSIS_CATALOG_REUSE_ENABLED:-false}
   DEVFEED_AI_CAPACITY_COOLDOWN_SECONDS:
   DEVFEED_EVIDENCE_TIMEOUT_SECONDS:
   DEVFEED_CODEX_APP_SERVER_URL:
@@ -97,44 +100,6 @@ x-chimely-environment: &chimely-environment
   DEVFEED_CHIMELY_API_URL: ${DEVFEED_CHIMELY_API_URL:-http://chimely:8080}
   DEVFEED_CHIMELY_ADMIN_ENVIRONMENT:
   DEVFEED_CHIMELY_USER_ENVIRONMENT: ${DEVFEED_CHIMELY_USER_ENVIRONMENT:-devfeed-users}
-
-# Analytical readers and producers receive role-scoped ClickHouse credentials.
-x-clickhouse-environment: &clickhouse-environment
-  DEVFEED_CLICKHOUSE_URL: ${DEVFEED_CLICKHOUSE_URL:-http://clickhouse:8123}
-  DEVFEED_CLICKHOUSE_DATABASE: ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}
-  DEVFEED_CLICKHOUSE_USERNAME: ${DEVFEED_CLICKHOUSE_USERNAME:-devfeed}
-  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}}
-  DEVFEED_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS: ${DEVFEED_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS:-3}
-  DEVFEED_CLICKHOUSE_TIMEOUT_SECONDS: ${DEVFEED_CLICKHOUSE_TIMEOUT_SECONDS:-30}
-  DEVFEED_CLICKHOUSE_MAX_THREADS: ${DEVFEED_CLICKHOUSE_MAX_THREADS:-2}
-  DEVFEED_CLICKHOUSE_MAX_CONCURRENT_QUERIES: ${DEVFEED_CLICKHOUSE_MAX_CONCURRENT_QUERIES:-2}
-  DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS: ${DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS:-20}
-  DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES:-268435456}
-
-x-clickhouse-public: &clickhouse-public
-  <<: *clickhouse-environment
-  DEVFEED_CLICKHOUSE_USERNAME: devfeed_public
-  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD:?Set DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD in .env}
-
-x-clickhouse-user: &clickhouse-user
-  <<: *clickhouse-environment
-  DEVFEED_CLICKHOUSE_USERNAME: devfeed_user
-  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_USER_PASSWORD:?Set DEVFEED_CLICKHOUSE_USER_PASSWORD in .env}
-
-x-clickhouse-partner: &clickhouse-partner
-  <<: *clickhouse-environment
-  DEVFEED_CLICKHOUSE_USERNAME: devfeed_partner
-  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_PARTNER_PASSWORD:?Set DEVFEED_CLICKHOUSE_PARTNER_PASSWORD in .env}
-
-x-clickhouse-admin: &clickhouse-admin
-  <<: *clickhouse-environment
-  DEVFEED_CLICKHOUSE_USERNAME: devfeed_admin
-  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_ADMIN_PASSWORD:?Set DEVFEED_CLICKHOUSE_ADMIN_PASSWORD in .env}
-
-x-clickhouse-worker: &clickhouse-worker
-  <<: *clickhouse-environment
-  DEVFEED_CLICKHOUSE_USERNAME: devfeed_worker
-  DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_WORKER_PASSWORD:?Set DEVFEED_CLICKHOUSE_WORKER_PASSWORD in .env}
 
 x-host-access: &host-access # Also support host services on Docker Engine for Linux.
   extra_hosts:
@@ -181,7 +146,6 @@ x-worker-runtime: &worker-runtime
 
 x-worker-environment: &worker-environment
   DEVFEED_WORKER_HEALTH_PATH: /tmp/devfeed-worker-health
-  DEVFEED_ANALYTICS_WORKER_DRAIN_SECONDS: ${DEVFEED_ANALYTICS_WORKER_DRAIN_SECONDS:-45}
 
 services:
   postgres:
@@ -201,112 +165,6 @@ services:
       test: [CMD, pg_isready, -U, devfeed, -d, devfeed]
       interval: 5s
 
-  clickhouse:
-    image: ${DEVFEED_CLICKHOUSE_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/}clickhouse/clickhouse-server:26.8-alpine@sha256:7d2c6c7af374dfaacd6d7aec3403aa43cee5ea334cb2d82400bd3dfa6f62f697}
-    restart: unless-stopped
-    environment:
-      CLICKHOUSE_DB: ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}
-      CLICKHOUSE_USER: ${DEVFEED_CLICKHOUSE_USERNAME:-devfeed}
-      CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}}
-      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
-      DEVFEED_CLICKHOUSE_READER_PASSWORD: ${DEVFEED_CLICKHOUSE_READER_PASSWORD:?Set a distinct DEVFEED_CLICKHOUSE_READER_PASSWORD in .env}
-      DEVFEED_CLICKHOUSE_READER_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.*
-      DEVFEED_CLICKHOUSE_INGEST_PASSWORD: ${DEVFEED_CLICKHOUSE_INGEST_PASSWORD:?Set a distinct DEVFEED_CLICKHOUSE_INGEST_PASSWORD in .env}
-      DEVFEED_CLICKHOUSE_INGEST_GRANT: GRANT SELECT, INSERT, CREATE TABLE, CREATE VIEW, DROP TABLE, DROP VIEW, ALTER TABLE, SYSTEM MERGES ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.*
-      DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD: ${DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD:?Set DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD in .env}
-      DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_PARTNER_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_partner_events
-      DEVFEED_CLICKHOUSE_PUBLIC_EVENTS_SEARCH_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_search_events
-      DEVFEED_CLICKHOUSE_PUBLIC_PIPELINE_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_pipeline_events
-      DEVFEED_CLICKHOUSE_PUBLIC_CARDS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_card_canonical
-      DEVFEED_CLICKHOUSE_PUBLIC_PROGRESS_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_backfill_progress
-      DEVFEED_CLICKHOUSE_USER_PASSWORD: ${DEVFEED_CLICKHOUSE_USER_PASSWORD:?Set DEVFEED_CLICKHOUSE_USER_PASSWORD in .env}
-      DEVFEED_CLICKHOUSE_USER_OPENS_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_article_opens
-      DEVFEED_CLICKHOUSE_USER_EVENTS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_user_events
-      DEVFEED_CLICKHOUSE_USER_LIFETIME_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_open_lifetime
-      DEVFEED_CLICKHOUSE_USER_BASELINE_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_article_open_baseline
-      DEVFEED_CLICKHOUSE_USER_CUTOVER_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_article_open_cutover
-      DEVFEED_CLICKHOUSE_PARTNER_PASSWORD: ${DEVFEED_CLICKHOUSE_PARTNER_PASSWORD:?Set DEVFEED_CLICKHOUSE_PARTNER_PASSWORD in .env}
-      DEVFEED_CLICKHOUSE_PARTNER_EVENTS_PARTNER_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_partner_events
-      DEVFEED_CLICKHOUSE_PARTNER_PROGRESS_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_backfill_progress
-      DEVFEED_CLICKHOUSE_ADMIN_PASSWORD: ${DEVFEED_CLICKHOUSE_ADMIN_PASSWORD:?Set DEVFEED_CLICKHOUSE_ADMIN_PASSWORD in .env}
-      DEVFEED_CLICKHOUSE_ADMIN_ALL_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.*
-      DEVFEED_CLICKHOUSE_ADMIN_PIPELINE_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_pipeline_events
-      DEVFEED_CLICKHOUSE_ADMIN_USER_EVENTS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_user_events
-      DEVFEED_CLICKHOUSE_ADMIN_CARDS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_card_canonical
-      DEVFEED_CLICKHOUSE_ADMIN_EVENTS_PARTNER_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_partner_events
-      DEVFEED_CLICKHOUSE_WORKER_PASSWORD: ${DEVFEED_CLICKHOUSE_WORKER_PASSWORD:?Set DEVFEED_CLICKHOUSE_WORKER_PASSWORD in .env}
-      DEVFEED_CLICKHOUSE_WORKER_INFERENCE_GRANT: GRANT SELECT, INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_inference_events
-      DEVFEED_CLICKHOUSE_WORKER_PIPELINE_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_pipeline_events
-      DEVFEED_CLICKHOUSE_WORKER_USER_EVENTS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_user_events
-      DEVFEED_CLICKHOUSE_WORKER_CARDS_GRANT: GRANT INSERT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_card_canonical
-      DEVFEED_CLICKHOUSE_WORKER_PROGRESS_GRANT: GRANT SELECT ON ${DEVFEED_CLICKHOUSE_DATABASE:-devfeed}.analytics_backfill_progress
-      DEVFEED_CLICKHOUSE_MAX_THREADS: ${DEVFEED_CLICKHOUSE_MAX_THREADS:-2}
-      DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS: ${DEVFEED_CLICKHOUSE_MAX_EXECUTION_SECONDS:-20}
-      DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_MAX_MEMORY_BYTES:-268435456}
-      DEVFEED_CLICKHOUSE_READER_MAX_QUERIES: ${DEVFEED_CLICKHOUSE_READER_MAX_QUERIES:-2}
-      DEVFEED_CLICKHOUSE_READER_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_READER_MAX_MEMORY_BYTES:-536870912}
-      DEVFEED_CLICKHOUSE_INGEST_MAX_QUERIES: ${DEVFEED_CLICKHOUSE_INGEST_MAX_QUERIES:-3}
-      DEVFEED_CLICKHOUSE_INGEST_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_INGEST_MAX_MEMORY_BYTES:-402653184}
-      DEVFEED_CLICKHOUSE_SERVER_MAX_MEMORY_BYTES: ${DEVFEED_CLICKHOUSE_SERVER_MAX_MEMORY_BYTES:-1610612736}
-      DEVFEED_CLICKHOUSE_SERVER_MAX_QUERIES: ${DEVFEED_CLICKHOUSE_SERVER_MAX_QUERIES:-6}
-      DEVFEED_CLICKHOUSE_SERVER_MAX_SELECTS: ${DEVFEED_CLICKHOUSE_SERVER_MAX_SELECTS:-3}
-      DEVFEED_CLICKHOUSE_SERVER_MAX_INSERTS: ${DEVFEED_CLICKHOUSE_SERVER_MAX_INSERTS:-2}
-    volumes:
-      - clickhouse-data:/var/lib/clickhouse
-      - clickhouse-logs:/var/log/clickhouse-server
-      - ./infra/clickhouse/resources.xml:/etc/clickhouse-server/config.d/devfeed-resources.xml:ro
-      - ./infra/clickhouse/users.xml:/etc/clickhouse-server/users.d/devfeed-analytics.xml:ro
-    networks: [data]
-    cpus: ${DEVFEED_CLICKHOUSE_CPUS:-2}
-    mem_limit: ${DEVFEED_CLICKHOUSE_MEMORY_LIMIT:-2g}
-    ulimits:
-      nofile: { soft: 262144, hard: 262144 }
-    healthcheck:
-      <<: *healthcheck
-      test:
-        [
-          CMD-SHELL,
-          'clickhouse-client --host 127.0.0.1 --user devfeed_ingest --password "$$DEVFEED_CLICKHOUSE_INGEST_PASSWORD" --database "$$CLICKHOUSE_DB" --query "SELECT 1" >/dev/null',
-        ]
-      interval: 5s
-      start_period: 60s
-
-  ch-ui:
-    <<: *runtime
-    image: ${DEVFEED_CH_UI_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/caioricciuti/ch-ui:v2.31.0@sha256:4a51a2c1754ad8866dd50a073a4f388216b3d1fdcd58e9d531dbb065e3d1dfeb}
-    # The pinned image runs as chui (100:101); keep its PID in a private runtime mount.
-    user: "100:101"
-    command: [--pid-file, /run/ch-ui/ch-ui-server.pid]
-    tmpfs:
-      - /tmp:size=128m,mode=1777
-      - /run/ch-ui:size=1m,mode=0700,uid=100,gid=101
-    depends_on:
-      clickhouse:
-        condition: service_healthy
-    environment:
-      PORT: "4000"
-      CLICKHOUSE_URL: http://clickhouse:8123
-      CONNECTION_NAME: DevFeed analytics
-      DATABASE_PATH: /app/data/ch-ui.db
-      APP_URL: ${DEVFEED_CH_UI_URL:-http://localhost:${DEVFEED_CH_UI_PORT:-4000}}
-      APP_SECRET_KEY: ${DEVFEED_CH_UI_SECRET_KEY:-}
-      ALLOWED_ORIGINS: ${DEVFEED_CH_UI_URL:-http://localhost:${DEVFEED_CH_UI_PORT:-4000}}
-      ALLOW_LOGIN_URL: "false"
-      TRUSTED_PROXIES: none
-    volumes:
-      - ch-ui-data:/app/data
-    # Host port publishing needs the normal network; database traffic stays on data.
-    networks: [default, data]
-    ports:
-      - target: 4000
-        published: "${DEVFEED_CH_UI_PORT:-4000}"
-        host_ip: "${DEVFEED_CH_UI_BIND_IP:-${DEVFEED_BIND_IP:-0.0.0.0}}"
-    cpus: ${DEVFEED_CH_UI_CPUS:-0.5}
-    mem_limit: ${DEVFEED_CH_UI_MEMORY_LIMIT:-512m}
-    healthcheck:
-      <<: *healthcheck
-      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:4000/health]
-
   redis:
     image: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}redis:8-alpine@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
     restart: unless-stopped
@@ -324,32 +182,28 @@ services:
     <<: *backend
     restart: "no"
     command:
-      - sh
-      - -ec
-      - devfeed db upgrade && exec devfeed analytics upgrade
+      - devfeed
+      - db
+      - upgrade
     environment:
-      <<: [*core-environment, *clickhouse-environment]
+      <<: *core-environment
       DEVFEED_DATABASE_URL: ${DEVFEED_DIRECT_DATABASE_URL:-${DEVFEED_DATABASE_URL:-postgresql+psycopg://devfeed:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/devfeed}}
-      DEVFEED_CLICKHOUSE_USERNAME: devfeed_ingest
-      DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_INGEST_PASSWORD:?Set a distinct DEVFEED_CLICKHOUSE_INGEST_PASSWORD in .env}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      clickhouse:
-        condition: service_healthy
 
   api:
     <<: *backend
     environment:
-      <<: [*core-environment, *clickhouse-public]
+      <<: *core-environment
       DEVFEED_SEARCH_ENABLED: ${DEVFEED_SEARCH_ENABLED:-false}
       DEVFEED_SEARCH_URL: ${DEVFEED_SEARCH_URL:-http://typesense:8108}
       DEVFEED_SEARCH_QUERY_KEY: ${DEVFEED_SEARCH_QUERY_KEY:-}
       DEVFEED_PARTNER_TRACKING_KEY: ${DEVFEED_PARTNER_TRACKING_KEY:-}
       DEVFEED_PARTNER_CALLER_KEY: ${DEVFEED_PARTNER_CALLER_KEY:-}
-      DEVFEED_SEARCH_COLLECTION_PREFIX: ${DEVFEED_SEARCH_COLLECTION_PREFIX:-devfeed}
+      DEVFEED_SEARCH_COLLECTION_PREFIX: ${DEVFEED_SEARCH_COLLECTION_PREFIX:-${DEVFEED_PRODUCT:-devfeed}}
     depends_on: *ready
     ports:
       - target: 8000
@@ -431,7 +285,7 @@ services:
       DEVFEED_SEARCH_URL: ${DEVFEED_SEARCH_URL:-http://typesense:8108}
       DEVFEED_SEARCH_ADMIN_KEY: ${DEVFEED_SEARCH_ADMIN_KEY:-}
       DEVFEED_SEARCH_QUERY_KEY: ${DEVFEED_SEARCH_QUERY_KEY:-}
-      DEVFEED_SEARCH_COLLECTION_PREFIX: ${DEVFEED_SEARCH_COLLECTION_PREFIX:-devfeed}
+      DEVFEED_SEARCH_COLLECTION_PREFIX: ${DEVFEED_SEARCH_COLLECTION_PREFIX:-${DEVFEED_PRODUCT:-devfeed}}
       DEVFEED_SEARCH_INDEX_BATCH_SIZE: ${DEVFEED_SEARCH_INDEX_BATCH_SIZE:-200}
     depends_on:
       <<: *ready
@@ -449,7 +303,7 @@ services:
       DEVFEED_SEARCH_ENABLED: "true"
       DEVFEED_SEARCH_URL: ${DEVFEED_SEARCH_URL:-http://typesense:8108}
       DEVFEED_SEARCH_ADMIN_KEY: ${DEVFEED_SEARCH_ADMIN_KEY:-}
-      DEVFEED_SEARCH_COLLECTION_PREFIX: ${DEVFEED_SEARCH_COLLECTION_PREFIX:-devfeed}
+      DEVFEED_SEARCH_COLLECTION_PREFIX: ${DEVFEED_SEARCH_COLLECTION_PREFIX:-${DEVFEED_PRODUCT:-devfeed}}
       DEVFEED_SEARCH_INDEX_BATCH_SIZE: ${DEVFEED_SEARCH_INDEX_BATCH_SIZE:-200}
     depends_on:
       <<: *ready
@@ -474,34 +328,6 @@ services:
     healthcheck:
       <<: *healthcheck
       test: [CMD, python, -m, devfeed_aggregator.scheduler_probe]
-
-  analytics-importer:
-    <<: *backend
-    command: [python, -m, devfeed_core.analytics_worker]
-    depends_on:
-      <<: *ready
-      clickhouse:
-        condition: service_healthy
-    environment:
-      <<: [*core-environment, *clickhouse-environment]
-      DEVFEED_DATABASE_URL: ${DEVFEED_DIRECT_DATABASE_URL:-${DEVFEED_DATABASE_URL:-postgresql+psycopg://devfeed:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/devfeed}}
-      # Separate user budgets reserve ingestion capacity across every reader replica.
-      DEVFEED_CLICKHOUSE_USERNAME: devfeed_ingest
-      DEVFEED_CLICKHOUSE_PASSWORD: ${DEVFEED_CLICKHOUSE_INGEST_PASSWORD:?Set a distinct DEVFEED_CLICKHOUSE_INGEST_PASSWORD in .env}
-      DEVFEED_ANALYTICS_BACKFILL_BATCH_SIZE: ${DEVFEED_ANALYTICS_BACKFILL_BATCH_SIZE:-1000}
-      DEVFEED_ANALYTICS_POLL_SECONDS: ${DEVFEED_ANALYTICS_POLL_SECONDS:-1}
-      DEVFEED_ANALYTICS_BACKFILL_POLL_SECONDS: ${DEVFEED_ANALYTICS_BACKFILL_POLL_SECONDS:-0.1}
-      DEVFEED_ANALYTICS_RECONCILE_BATCH_SIZE: ${DEVFEED_ANALYTICS_RECONCILE_BATCH_SIZE:-100}
-      DEVFEED_ANALYTICS_RECONCILE_POLL_SECONDS: ${DEVFEED_ANALYTICS_RECONCILE_POLL_SECONDS:-30}
-      DEVFEED_ANALYTICS_RECONCILE_SWEEP_SECONDS: ${DEVFEED_ANALYTICS_RECONCILE_SWEEP_SECONDS:-300}
-    cpus: ${DEVFEED_ANALYTICS_IMPORTER_CPUS:-0.5}
-    mem_limit: ${DEVFEED_ANALYTICS_IMPORTER_MEMORY_LIMIT:-512m}
-    healthcheck:
-      <<: *healthcheck
-      test: [CMD, python, -m, devfeed_core.analytics_worker, --check]
-      # Module startup under the importer's half-CPU budget can exceed five seconds.
-      timeout: 10s
-      start_period: 180s
 
   admin-api:
     <<: [*runtime, *host-access]
@@ -531,7 +357,7 @@ services:
       - ./infra/chimely/consumer.py:/opt/devfeed/chimely-consumer.py:ro
       - chimely-admin-credentials:/run/devfeed-chimely:ro
     environment:
-      <<: [*core-environment, *chimely-environment, *clickhouse-admin]
+      <<: [*core-environment, *chimely-environment]
       # The inbox API uses its HMAC secret, never the management API key.
       DEVFEED_CHIMELY_ADMIN_HMAC_SECRET:
       DEVFEED_PARTNER_CREDENTIAL_KEY:
@@ -576,7 +402,7 @@ services:
     depends_on: *ready
     networks: [default, data]
     environment:
-      <<: [*core-environment, *clickhouse-partner]
+      <<: *core-environment
       DEVFEED_PARTNER_BASE_URL: ${DEVFEED_PARTNER_BASE_URL:-http://localhost:${DEVFEED_PARTNER_PORT:-3002}}
       DEVFEED_PARTNER_COOKIE_SECURE: ${DEVFEED_PARTNER_COOKIE_SECURE:-false}
       DEVFEED_PARTNER_CREDENTIAL_KEY:
@@ -636,7 +462,7 @@ services:
       - chimely-user-credentials:/run/devfeed-chimely:ro
     networks: [default, data]
     environment:
-      <<: [*chimely-environment, *clickhouse-user]
+      <<: *chimely-environment
       DEVFEED_JOB_QUEUE_OVERRIDES:
       DEVFEED_NOTIFICATIONS_ENABLED:
       DEVFEED_CHIMELY_USER_HMAC_SECRET:
@@ -695,6 +521,7 @@ services:
         condition: service_healthy
     networks: [default]
     environment:
+      DEVFEED_PRODUCT: ${DEVFEED_PRODUCT:-devfeed}
       DEVFEED_MCP_PUBLIC_URL: ${DEVFEED_MCP_PUBLIC_URL:-}
       DEVFEED_MCP_INTERNAL_URL: ${DEVFEED_MCP_INTERNAL_URL:-}
       DEVFEED_PUBLIC_API_URL: http://api:8000
@@ -872,7 +699,7 @@ services:
     networks: [default]
     healthcheck:
       <<: *healthcheck
-      test: [CMD, node, /opt/devfeed/health.cjs]
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:4502/readyz]
       interval: 5s
 
   # One independently sized worker deployment per priority by default.
@@ -882,7 +709,7 @@ services:
     <<: [*backend, *worker-runtime]
     entrypoint: [python, /opt/devfeed/chimely-consumer.py, worker]
     environment: &priority-worker-environment
-      <<: [*core-environment, *chimely-environment, *clickhouse-worker, *worker-environment]
+      <<: [*core-environment, *chimely-environment, *worker-environment]
       DEVFEED_WORKER_QUEUE: high
       DEVFEED_PARTNER_CREDENTIAL_KEY:
       # Per-kind routing can move notification jobs between priority queues.
@@ -918,7 +745,7 @@ services:
     command: [devfeed-images-worker]
     scale: ${DEVFEED_IMAGES_WORKER_REPLICAS:-1}
     environment:
-      <<: [*core-environment, *clickhouse-worker, *worker-environment]
+      <<: [*core-environment, *worker-environment]
       DEVFEED_IMAGE_STORAGE_ENDPOINT:
       DEVFEED_IMAGE_STORAGE_BUCKET:
       DEVFEED_IMAGE_STORAGE_ACCESS_KEY:
@@ -964,9 +791,6 @@ networks:
     internal: true
 
 volumes:
-  ch-ui-data:
-  clickhouse-data:
-  clickhouse-logs:
   search-data:
   postgres-data:
   redis-data:

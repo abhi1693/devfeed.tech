@@ -1,7 +1,6 @@
 """Durable admission accounting; failed or interrupted calls cannot regain budget."""
 
 import uuid
-from collections.abc import AsyncIterator
 from copy import deepcopy
 
 from sqlalchemy import func, select
@@ -9,8 +8,6 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_core.ai_content import eligible_articles
 from devfeed_core.analysis import snapshot_hash
-from devfeed_core.analytics import AnalyticsClient
-from devfeed_core.analytics_inference_store import QuotaConnection
 from devfeed_core.article_topic_policy import proposal_condition
 from devfeed_core.config import Settings, get_settings
 from devfeed_core.inference_routing import total_tokens
@@ -248,7 +245,7 @@ def actionable_topic_backlog(session: Session) -> bool:
 
 
 def relationship_allowance(session: Session) -> bool:
-    """Check operational policy before the final ClickHouse quota reservation."""
+    """Check operational policy before the final PostgreSQL quota reservation."""
     settings = get_settings()
     if settings.ai_quota_pacing_enabled:
         from devfeed_core.quota_pacing import current_pause_reason
@@ -270,43 +267,23 @@ def _relationship_policy_allowed() -> bool:
         return relationship_allowance(session)
 
 
-async def admit_relationship_call(
-    values: JsonRecord, *, settings: Settings, client: AnalyticsClient
-) -> bool:
-    """Reserve the invocation directly in ClickHouse under a short PG lock."""
+async def admit_relationship_call(values: JsonRecord, *, settings: Settings) -> bool:
+    """Check pacing and commit the reservation before dispatch."""
     import asyncio
-    from contextlib import asynccontextmanager
 
     import psycopg
+    from sqlalchemy.exc import SQLAlchemyError
 
-    from devfeed_core.analytics import AnalyticsUnavailable
-    from devfeed_core.analytics_inference_store import InferenceStore, RelationshipQuota
+    from devfeed_core.inference_ledger import InferenceLedger
 
-    if not await asyncio.to_thread(_relationship_policy_allowed):
-        return False
-    store = InferenceStore(client)
     try:
-        if settings.ai_quota_pacing_enabled:
-            await store.write([values])
-            return True
-        ready = await client.query(
-            "SELECT complete FROM analytics_backfill_progress FINAL "
-            "WHERE import_id={import_id:String} AND source={source:String}",
-            {"import_id": "direct-v1", "source": "inference_calls"},
-        )
-        if len(ready) != 1 or int(ready[0]["complete"]) != 1:
+        if not await asyncio.to_thread(_relationship_policy_allowed):
             return False
-
-        @asynccontextmanager
-        async def connect() -> AsyncIterator[QuotaConnection]:
-            dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://", 1)
-            async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as connection:
-                yield connection
-
-        return await RelationshipQuota(store, connect).admit(
-            values, settings.relationship_daily_call_budget
+        limit = (
+            None if settings.ai_quota_pacing_enabled else settings.relationship_daily_call_budget
         )
-    except (AnalyticsUnavailable, psycopg.Error, TimeoutError, KeyError, TypeError, ValueError):
+        return await InferenceLedger(settings).admit(values, limit)
+    except (psycopg.Error, SQLAlchemyError, TimeoutError, TypeError, ValueError):
         return False
 
 
