@@ -12,7 +12,7 @@ from devfeed_user_api import auth
 from devfeed_user_api.main import create_app
 from fastapi.testclient import TestClient
 
-from tests.support.api_fuzz_support import READER_ORIGIN, store_identity
+from tests.support.api_security import READER_ORIGIN, store_identity
 
 pytestmark = pytest.mark.integration
 VIEW = "/v1/user/settings/feed-view"
