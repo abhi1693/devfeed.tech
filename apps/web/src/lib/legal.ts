@@ -1,3 +1,4 @@
+import { productName } from "@devfeed/theme/product";
 import {
   readerDestinationContract,
   serializeReaderDestination,
@@ -14,7 +15,14 @@ export const legalPages = readerDestinationContract.routes
       query: {},
     });
     if (!path) throw new Error("Invalid legal page definition");
-    return [{ ...definition.page, routeId: definition.id, path }];
+    return [
+      {
+        ...definition.page,
+        description: definition.page.description.replace("DevFeed", productName()),
+        routeId: definition.id,
+        path,
+      },
+    ];
   })
   .sort((left, right) => left.order - right.order);
 

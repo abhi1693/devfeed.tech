@@ -192,6 +192,8 @@ def derive_source_readiness(
         elif check.status in {"missing", "stale"}:
             result.next_action = "discovery"
         elif check.status in {"complete", "failed"}:
+            if check.status == "complete":
+                check.status = "unresolved"
             result.state = "blocked"
             result.blockers = ["feed_discovery_unresolved"]
             result.retry_targets = ["discovery"]

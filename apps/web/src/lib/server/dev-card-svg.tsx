@@ -1,3 +1,4 @@
+import { productName, isHardwareDaily } from "@devfeed/theme/product";
 import "server-only";
 import { cardThemeTokens } from "@devfeed/theme/dev-card";
 import { readFile } from "node:fs/promises";
@@ -33,7 +34,14 @@ let assets: Promise<{ tokens: Record<string, string>; brand: string }> | undefin
 function cardAssets() {
   return (assets ??= Promise.all([
     readFile(path.join(process.cwd(), "../../packages/theme/tokens.css"), "utf8"),
-    readFile(path.join(process.cwd(), "../../packages/theme/assets/devfeed-mark.png")),
+    readFile(
+      path.join(
+        process.cwd(),
+        isHardwareDaily()
+          ? "public/hardware-daily/icon-180.png"
+          : "../../packages/theme/assets/devfeed-mark.png",
+      ),
+    ),
   ])
     .then(async ([css, png]) => ({
       tokens: readLightThemeTokens(css),
@@ -47,7 +55,7 @@ function cardAssets() {
 
 export async function renderDevCardSvg(profile: UserProfile) {
   const { tokens, brand } = await cardAssets();
-  const data = devCardData(profile, { name: profile.username ?? "DevFeed reader" });
+  const data = devCardData(profile, { name: profile.username ?? `${productName()} reader` });
   // Finish bounded image loading before serializing so the first request is complete.
   await Promise.all([
     warmCardAvatar(profile.avatar_url),

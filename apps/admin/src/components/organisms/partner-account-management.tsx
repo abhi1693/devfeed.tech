@@ -417,7 +417,7 @@ export function PartnerAccountManagement({
                     name="outbound_destination"
                     required
                     disabled={busy}
-                    subtext="DevFeed attribution is added to both destinations. Direct products use their website when no listing is available."
+                    subtext="Campaign attribution is added to both destinations. Direct products use their website when no listing is available."
                   >
                     {(control) => (
                       <Select

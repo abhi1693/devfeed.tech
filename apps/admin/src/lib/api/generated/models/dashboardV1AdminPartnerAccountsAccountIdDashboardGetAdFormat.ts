@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.3.0
+ * OpenAPI spec version: 0.3.1
  */
 
 export type DashboardV1AdminPartnerAccountsAccountIdDashboardGetAdFormat = typeof DashboardV1AdminPartnerAccountsAccountIdDashboardGetAdFormat[keyof typeof DashboardV1AdminPartnerAccountsAccountIdDashboardGetAdFormat] | null;

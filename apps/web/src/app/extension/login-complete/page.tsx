@@ -1,3 +1,4 @@
+import { productName } from "@devfeed/theme/product";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 
@@ -12,7 +13,7 @@ export default async function ExtensionLoginComplete() {
     <main className="standalone-state" aria-live="polite">
       <script nonce={nonce} dangerouslySetInnerHTML={{ __html: "window.close()" }} />
       <h1>Sign-in complete</h1>
-      <p>You can return to DevFeed.</p>
+      <p>You can return to {productName()}.</p>
     </main>
   );
 }

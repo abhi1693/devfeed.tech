@@ -75,6 +75,7 @@ def runtime(monkeypatch):
         codex_model="configured-model",
         analysis_catalog_reuse_enabled=False,
         cache_enabled=True,
+        product="devfeed",
     )
     monkeypatch.setattr(analysis_tasks, "session_factory", lambda: Factory())
     monkeypatch.setattr(analysis_tasks, "get_settings", lambda: settings)

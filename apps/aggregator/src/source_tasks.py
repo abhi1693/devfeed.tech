@@ -62,7 +62,20 @@ def lookup_profile(
             )
         except FeedError as exc:
             exc.resource = "Source website"
-            error = exc
+            if (
+                exc.reason == "browser_challenge"
+                and sample
+                and all(
+                    existing[field] or values[field]
+                    for field in PROFILE_FIELDS
+                    if field != "image_url"
+                )
+            ):
+                # A cover image is optional. Keep the diagnostic without discarding
+                # a usable RSS profile or blocking independent relevance review.
+                values["_website_warning"] = {"reason": exc.reason, "status": exc.status}
+            else:
+                error = exc
     return {**values, "_sample": sample}, error
 
 
@@ -187,6 +200,11 @@ def _enrich_source(identifier: uuid.UUID) -> None:
                     **captured,
                     "input": source_identity(source),
                     "profile": {field: candidates.get(field) for field in PROFILE_FIELDS},
+                    **(
+                        {"website_warning": candidates["_website_warning"]}
+                        if "_website_warning" in candidates
+                        else {}
+                    ),
                     "sample": sample,
                     "sample_hash": hashlib.sha256(
                         json.dumps(sample, sort_keys=True, ensure_ascii=False).encode()

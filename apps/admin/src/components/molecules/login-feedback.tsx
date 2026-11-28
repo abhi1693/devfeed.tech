@@ -1,5 +1,6 @@
 "use client";
 
+import { productName } from "@devfeed/theme/product";
 import { useEffect, useRef } from "react";
 import { notify } from "@/lib/notifications";
 
@@ -13,7 +14,7 @@ export function LoginFeedback({ error, signedOut }: { error?: string; signedOut:
     const timer = setTimeout(() => {
       shown.current = message;
       if (error) notify.error("Sign-in failed", { description: error, id: "auth-result" });
-      else notify.info("You have signed out of DevFeed.", { id: "auth-result" });
+      else notify.info(`You have signed out of ${productName()}.`, { id: "auth-result" });
     }, 0);
     return () => clearTimeout(timer);
   }, [error, signedOut]);

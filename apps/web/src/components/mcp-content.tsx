@@ -1,4 +1,5 @@
 "use client";
+import { productName } from "@devfeed/theme/product";
 
 import "../app/styles/mcp.css";
 
@@ -27,7 +28,7 @@ const tools = [
   ["search", "Search articles, topics, sources, and tags.", "Public"],
   ["get_article", "Get an article preview and publisher links.", "Public"],
   ["get_feed", "Browse articles by topic, source, language, and content type.", "Public"],
-  ["list_topics", "List and filter developer topics.", "Public"],
+  ["list_topics", "List and filter topics.", "Public"],
   ["list_sources", "Discover approved publications and sources.", "Public"],
   ["get_source", "Get a publication’s public profile.", "Public"],
   ["get_my_feed", "Read your personalized feed.", "Sign-in"],
@@ -271,7 +272,7 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
                   </span>
                   <details key={client} className="mcp-sign-in">
                     <summary>
-                      Sign in to DevFeed <ChevronDown size={14} aria-hidden="true" />
+                      Sign in to {productName()} <ChevronDown size={14} aria-hidden="true" />
                     </summary>
                     <ol>
                       <li>
@@ -292,7 +293,8 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
                       </li>
                       <li>
                         <p>
-                          Return to {selected.name} and ask it to show your saved DevFeed articles.
+                          Return to {selected.name} and ask it to show your saved {productName()}{" "}
+                          articles.
                         </p>
                       </li>
                     </ol>
@@ -353,7 +355,7 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
           </div>
           <div className="mcp-reference-content">
             <table>
-              <caption className="sr-only">DevFeed MCP tools</caption>
+              <caption className="sr-only">{productName()} MCP tools</caption>
               <thead>
                 <tr>
                   <th scope="col">Tool</th>

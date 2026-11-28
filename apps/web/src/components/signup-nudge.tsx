@@ -1,4 +1,5 @@
 "use client";
+import { productName } from "@devfeed/theme/product";
 
 import { useEffect, useState, useSyncExternalStore, type MouseEvent } from "react";
 import { readerLocation, readerLoginLink } from "@/lib/reader-runtime";
@@ -98,9 +99,9 @@ export function SignupNudge() {
   const link = currentSignupLink();
 
   return (
-    <aside className={styles.nudge} aria-label="Create a DevFeed account">
+    <aside className={styles.nudge} aria-label={`Create a ${productName()} account`}>
       <div className={styles.copy}>
-        <strong>Create your DevFeed account.</strong>
+        <strong>Create your {productName()} account.</strong>
         <p>Save articles, follow topics, and get recommendations shaped by your interests.</p>
       </div>
       <div className={styles.actions}>

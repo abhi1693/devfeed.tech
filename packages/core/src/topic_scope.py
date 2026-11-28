@@ -1,5 +1,7 @@
 """Shared editorial scope for topic research and independent approval review."""
 
+from devfeed_core.config import get_settings
+
 SCOPE_POLICY = """DevFeed is a feed for software developers. A topic must have a direct,
 substantive connection to programming, software engineering, developer tools,
 computing infrastructure, security, or the technical foundations of computing.
@@ -20,3 +22,16 @@ Factual accuracy, popularity and valid citations alone do not establish relevanc
 If the direct connection cannot be established, relevance is uncertain and automatic
 approval is not permitted.
 """
+
+
+def topic_scope_policy() -> str:
+    if get_settings().product == "hardwaredaily":
+        return """Hardware Today serves engineers and makers designing, building and testing
+electronics and embedded systems. Consider components, sensors, power electronics, circuit
+design, semiconductor manufacturing, instrumentation, firmware and embedded computing.
+Evaluate the exact topic against primary evidence. A subject can qualify through hardware
+engineering alone. A vendor name, promotional claim or incidental association is insufficient.
+Financial results, dividends and unrelated consumer or software subjects are out of scope.
+If the evidence cannot establish the exact identity and audience relevance, return uncertain.
+"""
+    return SCOPE_POLICY

@@ -1,3 +1,4 @@
+import { productName, productWordmark, isHardwareDaily } from "@devfeed/theme/product";
 import { cardMotionCss, classicCardDots } from "@devfeed/theme/dev-card-motion";
 import { DevCardThemeArt } from "./dev-card-theme-art";
 import { cardThemeTokens } from "@devfeed/theme/dev-card";
@@ -150,7 +151,7 @@ export function DevCardFrame({
             <DevCardThemeArt theme={data.theme} id={id} />
           </g>
         </g>
-        <g className="dev-card-brand" aria-label="DevFeed">
+        <g className="dev-card-brand" aria-label={productName()}>
           <path d="M384 20H540V76H416Q400 76 400 60V36Q400 20 384 20Z" fill="var(--card)" />
           <image
             data-brand-mark=""
@@ -170,11 +171,11 @@ export function DevCardFrame({
             y="55"
             textAnchor="start"
             fill="var(--card-foreground)"
-            fontSize="20"
+            fontSize={isHardwareDaily() ? 13 : 20}
             fontWeight="700"
             letterSpacing="-.6"
           >
-            devfeed.
+            {productWordmark()}
           </text>
         </g>
         {data.avatar && (

@@ -2,7 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { productName, productWordmark, isHardwareDaily } from "@devfeed/theme/product";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
+import hardwareMark from "@devfeed/theme/assets/hardware-daily-icon-180.png";
 import { SignIn, type SignInProvider } from "@devfeed/ui/sign-in";
 import { LoginFeedback } from "@/components/molecules/login-feedback";
 
@@ -32,17 +34,29 @@ export function LoginPanel({
       <LoginFeedback error={error} signedOut={signedOut} />
       <SignIn
         config={{ enabled, providers }}
-        title="Sign in to DevFeed Admin"
+        title={`Sign in to ${productName()} Admin`}
         error={error}
         retry={Boolean(error)}
         loginHref={loginHref}
         hostedLabel={error ? "Sign in again" : "Continue to sign in"}
         unavailableMessage="Sign-in is not available. Please contact your administrator."
         brand={
-          <Link href="/" prefetch={false} aria-label="DevFeed Admin home">
-            <Image src={brandMark} alt="" width={34} height={34} priority />
+          <Link href="/" prefetch={false} aria-label={`${productName()} Admin home`}>
+            <Image
+              src={isHardwareDaily() ? hardwareMark : brandMark}
+              alt=""
+              width={34}
+              height={34}
+              priority
+            />
             <span>
-              devfeed<span>.</span>
+              {isHardwareDaily() ? (
+                productWordmark()
+              ) : (
+                <>
+                  devfeed<span>.</span>
+                </>
+              )}
             </span>
           </Link>
         }
@@ -53,7 +67,11 @@ export function LoginPanel({
             </p>
           </>
         }
-        footer={<span>© {new Date().getFullYear()} DevFeed</span>}
+        footer={
+          <span>
+            © {new Date().getFullYear()} {productName()}
+          </span>
+        }
       />
     </>
   );

@@ -13,12 +13,12 @@ import { UserSettingsLayout } from "./user-settings-layout";
 import { useFeedPreferences } from "./feed-preferences";
 
 const contentOptions = {
-  article: ["Articles", "Deep dives, explainers, and developer stories."],
-  news: ["News", "Updates from across the developer community."],
+  article: ["Articles", "Deep dives and technical explainers."],
+  news: ["News", "News from the sources you follow."],
   tutorial: ["Tutorials", "Step-by-step guides and practical walkthroughs."],
   release: ["Releases", "New versions, features, and changelogs."],
   comparison: ["Comparisons", "Side-by-side looks at tools and technologies."],
-  opinion: ["Opinions", "Perspectives and commentary on software development."],
+  opinion: ["Opinions", "Perspectives and commentary on the topics you follow."],
 } as const;
 
 export function FeedSettings() {

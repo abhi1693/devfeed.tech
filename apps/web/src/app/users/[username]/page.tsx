@@ -1,3 +1,4 @@
+import { productName } from "@devfeed/theme/product";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { publicDevCard, publicReadingActivity } from "@/lib/server/public-dev-card";
@@ -15,7 +16,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = `${profile.display_name || username}’s profile`;
   const description =
     profile.bio ||
-    `Explore ${profile.display_name || username}’s stack and reading journey on DevFeed.`;
+    `Explore ${profile.display_name || username}’s stack and reading journey on ${productName()}.`;
   const url = `${publicSiteOrigin()}/users/${username}`;
   const images = [{ url: `${url}/image`, width: 1200, height: 630, alt: title }];
   return {

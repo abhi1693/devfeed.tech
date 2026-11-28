@@ -1,3 +1,4 @@
+import { productName } from "@devfeed/theme/product";
 import "server-only";
 import { createHash } from "node:crypto";
 import { cleanBody, markdownResponse, toMarkdownPath } from "@dualmark/core";
@@ -40,7 +41,7 @@ export function articleMarkdown(article: Article, level = 1) {
   const overview = article.ai_summary || article.summary;
   return [
     `${"#".repeat(level)} ${label(article.title)}`,
-    `DevFeed: ${publicLink(article.title, `/articles/${encodeURIComponent(article.slug)}`)}`,
+    `${productName()}: ${publicLink(article.title, `/articles/${encodeURIComponent(article.slug)}`)}`,
     `Original publisher: ${externalLink("Read original article", article.canonical_url)}`,
     article.author && `Author: ${label(article.author)}`,
     `Published: ${label(article.published_at ?? article.feed_at)}`,
@@ -100,7 +101,7 @@ export async function renderPublicMarkdown(
     });
     const next = page.next_cursor;
     return [
-      `# DevFeed ${route.collection}`,
+      `# ${productName()} ${route.collection}`,
       "Public entries with published articles. This directory is paginated.",
       ...links,
       !items.length && "No more entries.",
@@ -112,7 +113,7 @@ export async function renderPublicMarkdown(
   if (route.kind === "search") {
     const q = (query.get("q") ?? "").trim().slice(0, 200);
     if (!q)
-      return "# Search DevFeed\n\nUse /search.md?q=your+query to search articles, topics, sources and tags. Articles appear first.";
+      return `# Search ${productName()}\n\nUse /search.md?q=your+query to search articles, topics, sources and tags. Articles appear first.`;
     const section = query.get("section") ?? undefined;
     const page = query.get("page") ?? "1";
     if ((section && !searchKinds.some((kind) => kind === section)) || !/^[1-9]\d{0,3}$/.test(page))
@@ -141,9 +142,10 @@ export async function renderPublicMarkdown(
   }
   const filters = parseFilters(Object.fromEntries(query));
   if (route.contentType) filters.content_type = route.contentType;
-  let title = route.contentType ? `DevFeed ${route.contentType}` : "DevFeed — Developer news";
-  let description =
-    "Published developer news, articles, tutorials, releases, comparisons and opinions.";
+  let title = route.contentType
+    ? `${productName()} ${route.contentType}`
+    : `${productName()} — Latest news`;
+  let description = "Published news, articles, tutorials, releases, comparisons and opinions.";
   if (route.collection && route.id) {
     const item =
       route.collection === "topics"

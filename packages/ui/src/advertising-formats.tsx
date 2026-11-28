@@ -1,4 +1,5 @@
 "use client";
+import { productName } from "@devfeed/theme/product";
 
 /* eslint-disable @next/next/no-img-element -- Previews use managed media and the owner's draft image. */
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
@@ -1164,7 +1165,7 @@ export function AdCreativePreview({
           {format === "header_sponsorship" ? (
             <div className="flex flex-wrap items-center gap-3 p-2 sm:p-3">
               <span aria-hidden className="text-sm font-semibold">
-                DevFeed
+                {productName()}
               </span>
               <span
                 aria-hidden

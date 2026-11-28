@@ -40,12 +40,15 @@ class CrawlSession:
                     if exc.status in {404, 410}:
                         self.robots[origin] = None
                     else:
-                        raise FeedError(
+                        failure = FeedError(
                             "Robots unavailable",
                             reason="robots_unavailable",
                             retryable=exc.retryable,
                             retry_after=exc.retry_after,
-                        ) from exc
+                            status=exc.status,
+                        )
+                        self.blocked.setdefault(origin, failure)
+                        raise failure from exc
                 else:
                     parser = Protego.parse(response.body.decode("utf-8", errors="replace"))
                     self.robots[origin] = parser

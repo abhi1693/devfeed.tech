@@ -378,3 +378,23 @@ it("emits persisted sitemap modification dates and page hints on stable URLs", a
   expect(xml).toContain("<priority>0.8</priority>");
   expect(xml).toContain(`<lastmod>${modifiedAt}</lastmod>`);
 });
+
+it.each([
+  ["hardwaredaily", "Hardware Today", "hardwaretoday.app", false],
+  ["devfeed", "DevFeed", "devfeed.tech", true],
+] as const)("publishes legal documents for %s", async (product, name, domain, extensions) => {
+  vi.stubEnv("DEVFEED_PRODUCT", product);
+  vi.resetModules();
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { default: privacy } = await import("@/app/legal/privacy/page");
+  const { default: terms } = await import("@/app/legal/terms/page");
+  const sections = privacy().props.sections;
+  expect(sections.some((section: { id: string }) => section.id === "chrome-extension")).toBe(
+    extensions,
+  );
+  for (const page of [sections, terms().props.sections]) {
+    const introduction = renderToStaticMarkup(page[0].content);
+    expect(introduction).toContain(name);
+    expect(introduction).toContain(domain);
+  }
+});

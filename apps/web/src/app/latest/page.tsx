@@ -1,3 +1,4 @@
+import { HARDWARE_DESCRIPTION, isHardwareDaily } from "@/lib/reader-brand";
 import { PublicPage } from "@/components/public-page";
 import { permanentRedirect } from "next/navigation";
 import { FeedView } from "@/components/feed-view";
@@ -7,8 +8,10 @@ import { feedMetadata, SITE_DESCRIPTION } from "@/lib/metadata";
 export const dynamic = "force-dynamic";
 export async function generateMetadata({ searchParams }: { searchParams: Promise<SearchParams> }) {
   return feedMetadata(
-    "Latest developer news, tutorials & releases",
-    SITE_DESCRIPTION,
+    isHardwareDaily()
+      ? "Latest electronics and embedded engineering news"
+      : "Latest developer news, tutorials & releases",
+    isHardwareDaily() ? HARDWARE_DESCRIPTION : SITE_DESCRIPTION,
     await searchParams,
   );
 }

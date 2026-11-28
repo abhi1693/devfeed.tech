@@ -1,10 +1,25 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { LoginPanel } from "@/components/organisms/login-panel";
+import { Brand } from "@/components/molecules/brand";
 import { Metric } from "@/components/molecules/metric";
 import { UserMenu } from "@/components/molecules/user-menu";
 
 describe("simple admin UI", () => {
+  it.each([
+    ["hardwaredaily", "Hardware Today", "Hardware Today"],
+    ["devfeed", "DevFeed", "devfeed."],
+  ])("uses the %s identity on the admin home link and login panel", (product, name, wordmark) => {
+    vi.stubEnv("DEVFEED_PRODUCT", product);
+    try {
+      const brand = renderToStaticMarkup(<Brand />);
+      expect(brand).toContain(`aria-label="${name} home"`);
+      expect(brand).toContain(wordmark);
+      expect(renderToStaticMarkup(<LoginPanel enabled />)).toContain(`Sign in to ${name} Admin`);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it("uses document navigation for OIDC without local credential fields", () => {
     const html = renderToStaticMarkup(<LoginPanel enabled />);
     expect(html).toContain('href="/api/v1/admin/auth/login"');

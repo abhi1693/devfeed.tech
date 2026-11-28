@@ -2,6 +2,17 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.3.1 — 2026-11-28
+
+### Enhancements
+
+- Hardware Today branding now follows readers and administrators through sign-in, navigation, search, profiles and shared cards.
+- Hardware Today can measure reader activity through its own Google Tag Manager container.
+
+### Fixes
+
+- Hardware Today evaluates articles for their electronics and embedded engineering content, including technical vendor announcements.
+
 ## 0.3.0 — 2026-11-27
 
 ### Enhancements

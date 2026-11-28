@@ -1,3 +1,4 @@
+import { productName } from "@devfeed/theme/product";
 /** Isolate Google's standard widget and its inline styles from the reader document. */
 export function preferredSourceWidgetPolicy(nonce: string) {
   return [
@@ -67,7 +68,7 @@ const bootstrap = `(() => {
 export function preferredSourceWidgetHtml(nonce: string, theme: "light" | "dark") {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Add DevFeed as a preferred source on Google</title>
+<title>Add ${productName()} as a preferred source on Google</title>
 <style>html{color-scheme:${theme}}html,body{margin:0;background:transparent}body{min-height:52px;display:grid;justify-items:end;align-content:start;color:${theme === "dark" ? "#e8eaed" : "#3c4043"};font:12px system-ui;text-align:center}#control{width:min(100%,240px);min-height:52px;display:grid;place-items:center;align-content:center;gap:4px}.publisher-toast{color-scheme:normal}p{margin:0}button{font:inherit}button[hidden],p[hidden]{display:none}</style>
 </head><body>
 <div id="control"><div google-add-preferred-source-btn data-theme="${theme}"></div>

@@ -1,4 +1,5 @@
 "use client";
+import { isHardwareDaily } from "@devfeed/theme/product";
 
 import { useId, useMemo, useState, type Ref } from "react";
 import type { DevCardData } from "@/lib/dev-card";
@@ -32,7 +33,7 @@ export function DevCardArtwork({
       name={<CardName lines={names} />}
       bio={<CardBio lines={bios} y={devCardLayout(data, nameLines, bioLines).detailsY} />}
       Text={FittedText}
-      brandHref={brandMark.src}
+      brandHref={isHardwareDaily() ? "/hardware-daily/icon-180.png" : brandMark.src}
       onAvatarError={() => setFailedAvatar(data.avatar)}
       failedTechnologyLogos={failedTechnologyLogos}
       onTechnologyImageError={(id) =>

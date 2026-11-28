@@ -1,4 +1,5 @@
 "use client";
+import { productName } from "@devfeed/theme/product";
 
 import "../app/styles/public-profile.css";
 
@@ -31,9 +32,9 @@ function profileMetadata(profile?: UserProfile) {
   const name = profile?.display_name || profile?.username;
   const title = name ? `${name}’s profile` : "Profile unavailable";
   const description = profile
-    ? profile.bio || `Explore ${name}’s stack and reading journey on DevFeed.`
+    ? profile.bio || `Explore ${name}’s stack and reading journey on ${productName()}.`
     : "This profile may be private or unavailable.";
-  document.title = `${title} · DevFeed`;
+  document.title = `${title} · ${productName()}`;
   for (const element of document.querySelectorAll(
     'meta[name="description"], meta[property="og:description"], meta[name="twitter:description"]',
   ))
@@ -135,7 +136,7 @@ function PublicProfileContents({
   const owner = Boolean(
     !loading && ownProfile?.username && ownProfile.username === profile.username,
   );
-  const name = profile.display_name || profile.username || "DevFeed reader";
+  const name = profile.display_name || profile.username || `${productName()} reader`;
   const stats = profile.reading_streak;
   const links = (profile.links ?? []).filter((link) => safeExternalUrl(link.url));
   useEffect(() => {

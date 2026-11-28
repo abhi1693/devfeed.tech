@@ -144,6 +144,17 @@ def test_website_failure_returns_feed_profile_and_sample_with_actionable_resourc
     assert values["logo_url"] is None
 
 
+def test_challenged_website_does_not_block_feed_missing_only_optional_cover(transport):
+    _, page = transport
+    page.side_effect = FeedError("challenge", reason="browser_challenge", status=403)
+    existing = dict.fromkeys(PROFILE_FIELDS)
+    existing["logo_url"] = WEBSITE + "logo.png"
+    values, error = source_tasks.lookup_profile(FEED, "publisher", existing)
+    assert error is None and values["image_url"] is None
+    assert values["_website_warning"] == {"reason": "browser_challenge", "status": 403}
+    assert values["_sample"]
+
+
 @pytest.fixture
 def runtime(monkeypatch):
     current = source()

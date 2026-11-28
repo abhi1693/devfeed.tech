@@ -47,6 +47,7 @@ export function UserLogin({
 
   return (
     <SignIn
+      title={`Sign in to ${brand.name}`}
       config={config}
       unavailable={unavailable}
       error={signInFailure(error)}

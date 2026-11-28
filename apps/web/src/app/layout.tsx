@@ -11,7 +11,7 @@ import { siteStructuredData } from "@/lib/structured-data";
 import { canonicalUrl, socialMetadata, SITE_DESCRIPTION } from "@/lib/metadata";
 import { connection } from "next/server";
 import { headers } from "next/headers";
-import { analyticsMeasurementId, clarityProjectId } from "@/lib/server/config";
+import { analyticsMeasurementId, clarityProjectId, publicSiteOrigin } from "@/lib/server/config";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import browserIcon from "@devfeed/theme/assets/devfeed-icon-32.png";
 import appleIcon from "@devfeed/theme/assets/devfeed-icon-180.png";
@@ -34,7 +34,7 @@ export async function generateMetadata(): Promise<Metadata> {
   await connection();
   const hardware = isHardwareDaily();
   const title = hardware
-    ? "Hardware Daily — Electronics and embedded engineering"
+    ? "Hardware Today — Electronics and embedded engineering"
     : "DevFeed — Developer news";
   const description = hardware ? HARDWARE_DESCRIPTION : SITE_DESCRIPTION;
   return {
@@ -70,10 +70,19 @@ export default async function RootLayout({
   // Read deployment settings per request, including on otherwise prerenderable pages.
   await connection();
   const nonce = (await headers()).get("content-security-policy")?.match(/'nonce-([^']+)'/)?.[1];
-  const gaId = analyticsMeasurementId();
+  const containerId = process.env.GOOGLE_TAG_MANAGER_ID?.trim();
+  const useTagManager =
+    isHardwareDaily() &&
+    publicSiteOrigin() === "https://hardwaretoday.app" &&
+    /^GTM-[A-Z0-9]+$/.test(containerId ?? "");
+  const gaId = useTagManager ? "" : analyticsMeasurementId();
   const clarityId = clarityProjectId();
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      data-product={isHardwareDaily() ? "hardwaredaily" : "devfeed"}
+      lang="en"
+      suppressHydrationWarning
+    >
       <head>
         <link rel="alternate" type="text/plain" href="/llms.txt" title="AI discovery index" />
         <link
@@ -83,6 +92,22 @@ export default async function RootLayout({
           title="AI reading guide and public content"
         />
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
+        {useTagManager && (
+          <>
+            <script
+              nonce={nonce}
+              dangerouslySetInnerHTML={{
+                __html:
+                  "window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());window.dataLayer.push({'gtm.start':Date.now(),event:'gtm.js'});",
+              }}
+            />
+            <script
+              async
+              nonce={nonce}
+              src={`https://www.googletagmanager.com/gtm.js?id=${containerId}`}
+            />
+          </>
+        )}
         <NotificationStyles nonce={nonce} />
       </head>
       <body>

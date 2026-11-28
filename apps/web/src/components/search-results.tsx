@@ -1,4 +1,5 @@
 "use client";
+import { productName } from "@devfeed/theme/product";
 
 import "../app/styles/discovery.css";
 
@@ -371,8 +372,8 @@ export function SearchFailure() {
 export function SearchLoading() {
   return (
     <div aria-busy="true">
-      <p>Searching DevFeed…</p>
-      <LoadingSkeleton label="Searching DevFeed…" />
+      <p>Searching {productName()}…</p>
+      <LoadingSkeleton label={`Searching ${productName()}…`} />
     </div>
   );
 }

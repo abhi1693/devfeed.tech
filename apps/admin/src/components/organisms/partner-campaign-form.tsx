@@ -396,7 +396,7 @@ function PartnerCampaignForm({
             name="article_id"
             required
             disabled={busy}
-            subtext="Choose an approved, published article. The campaign promotes its DevFeed preview in the feed. Delivery also requires the article topics to match the current feed."
+            subtext="Choose an approved, published article. The campaign promotes its article preview in the feed. Delivery also requires the article topics to match the current feed."
           >
             {(control) => (
               <EntityPicker

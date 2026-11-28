@@ -1,3 +1,4 @@
+import { productName, isHardwareDaily } from "@devfeed/theme/product";
 import Link from "@/components/reader-link";
 import { LegalContact, LegalPage, type LegalSection } from "@/components/legal-page";
 import { canonicalUrl, pageMetadata } from "@/lib/metadata";
@@ -11,17 +12,18 @@ export function generateMetadata() {
 const sections: LegalSection[] = [
   {
     id: "using-devfeed",
-    title: "Using DevFeed",
+    title: `Using ${productName()}`,
     content: (
       <>
         <p>
-          These terms govern your use of DevFeed at devfeed.tech. By using the service, you agree to
-          these terms. If you do not agree, please stop using it. You must be legally able to accept
-          these terms or use the service with the permission and supervision of a parent or legal
-          guardian where required.
+          These terms govern your use of {productName()} at{" "}
+          {isHardwareDaily() ? "hardwaretoday.app" : "devfeed.tech"}. By using the service, you
+          agree to these terms. If you do not agree, please stop using it. You must be legally able
+          to accept these terms or use the service with the permission and supervision of a parent
+          or legal guardian where required.
         </p>
         <p>
-          DevFeed helps you discover developer news, tutorials and releases. Browsing is available
+          {productName()} helps you discover news, tutorials and releases. Browsing is available
           without an account. An optional account lets you save preferences, follow topics and
           sources, like articles and suggest sources.
         </p>
@@ -41,8 +43,8 @@ const sections: LegalSection[] = [
         </p>
         <p>
           Do not impersonate others, share access to evade restrictions or use another person’s
-          account without permission. Signing out of DevFeed ends your DevFeed session; it may not
-          sign you out of your identity provider or other websites.
+          account without permission. Signing out of {productName()} ends your {productName()}{" "}
+          session; it may not sign you out of your identity provider or other websites.
         </p>
       </>
     ),
@@ -54,9 +56,9 @@ const sections: LegalSection[] = [
       <>
         <p>
           Linked articles, publisher names, logos, images and other third-party material belong to
-          their respective owners. Display on DevFeed does not imply ownership, partnership or
-          endorsement. DevFeed previews help you find the original work; the publisher’s website
-          remains the source of the complete article and its applicable terms.
+          their respective owners. Display on {productName()} does not imply ownership, partnership
+          or endorsement. {productName()} previews help you find the original work; the publisher’s
+          website remains the source of the complete article and its applicable terms.
         </p>
         <p>
           We use automated systems, including AI, to summarize, classify and organize public
@@ -70,7 +72,7 @@ const sections: LegalSection[] = [
           websites.
         </p>
         <p>
-          DevFeed’s source code is available under the{" "}
+          {productName()}’s source code is available under the{" "}
           <a href="https://github.com/abhi1693/devfeed.tech/blob/master/LICENSE">MIT license</a>.
           These service terms do not limit the rights that license grants. Third-party dependencies
           and publisher content retain their own licenses and rights.
@@ -89,7 +91,8 @@ const sections: LegalSection[] = [
           source suggestion. Suggestions are reviewed and may be rejected, edited or removed.
         </p>
         <p>
-          You retain any rights you hold in your contributions. By submitting them, you give DevFeed
+          You retain any rights you hold in your contributions. By submitting them, you give{" "}
+          {productName()}
           permission to store, review, process and display them as needed to operate and improve the
           service, including automated source assessment. This permission does not transfer
           ownership of a publisher’s content.
@@ -102,7 +105,7 @@ const sections: LegalSection[] = [
     title: "Acceptable use",
     content: (
       <>
-        <p>Use DevFeed lawfully and respectfully. You must not:</p>
+        <p>Use {productName()} lawfully and respectfully. You must not:</p>
         <ul>
           <li>Attempt unauthorized access, introduce malware or interfere with the service.</li>
           <li>Evade rate limits, access controls or other abuse protections.</li>
@@ -148,9 +151,10 @@ const sections: LegalSection[] = [
           review.
         </p>
         <p>
-          You may stop using DevFeed at any time. Contact us to request deletion of your DevFeed
-          account. Deleting a DevFeed account does not delete your GitHub account or accounts with
-          other providers.
+          You may stop using {productName()} at any time. Contact us to request deletion of your{" "}
+          {productName()}
+          account. Deleting a {productName()} account does not delete your GitHub account or
+          accounts with other providers.
         </p>
       </>
     ),
@@ -161,16 +165,16 @@ const sections: LegalSection[] = [
     content: (
       <>
         <p>
-          To the extent permitted by applicable law, DevFeed is provided “as is” and “as available,”
-          without warranties of uninterrupted availability, accuracy or fitness for a particular
-          purpose. We cannot guarantee that every article, summary or recommendation will be correct
-          or useful.
+          To the extent permitted by applicable law, {productName()} is provided “as is” and “as
+          available,” without warranties of uninterrupted availability, accuracy or fitness for a
+          particular purpose. We cannot guarantee that every article, summary or recommendation will
+          be correct or useful.
         </p>
         <p>
-          To the extent permitted by applicable law, DevFeed is not responsible for indirect or
-          consequential losses arising from use of the service or reliance on third-party content.
-          Nothing in these terms excludes liability that cannot lawfully be excluded, or limits
-          mandatory consumer rights.
+          To the extent permitted by applicable law, {productName()} is not responsible for indirect
+          or consequential losses arising from use of the service or reliance on third-party
+          content. Nothing in these terms excludes liability that cannot lawfully be excluded, or
+          limits mandatory consumer rights.
         </p>
       </>
     ),
@@ -181,9 +185,10 @@ const sections: LegalSection[] = [
     content: (
       <>
         <p>
-          If you believe material on DevFeed infringes your rights, email us with the affected
-          DevFeed URL, the original work, an explanation of your rights and a way to contact you. We
-          will review the report and may correct or remove the material.
+          If you believe material on {productName()} infringes your rights, email us with the
+          affected
+          {productName()} URL, the original work, an explanation of your rights and a way to contact
+          you. We will review the report and may correct or remove the material.
         </p>
         <p>
           Please contact us first with other concerns so we can try to resolve them. These terms do

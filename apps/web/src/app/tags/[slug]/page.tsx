@@ -40,7 +40,7 @@ export async function generateMetadata({ params, searchParams }: Props) {
   const { route, tag } = result;
   return collectionFeedMetadata(
     tag.name,
-    `Published developer articles tagged ${tag.name}.`,
+    `Published articles tagged ${tag.name}.`,
     await searchParams,
     { tag: tag.slug, ...(route.contentType ? { content_type: route.contentType } : {}) },
   );

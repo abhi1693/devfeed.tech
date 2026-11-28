@@ -192,8 +192,7 @@ export function ConnectorCredentialFields({
       )}
       {!credentialsAvailable && (
         <p className="text-sm text-muted-foreground">
-          Authenticated imports are not configured on this DevFeed server. Public APIs remain
-          available.
+          Authenticated imports are not configured on this server. Public APIs remain available.
         </p>
       )}
       {configured && mode !== "none" && (
@@ -225,7 +224,7 @@ export function ConnectorCredentialFields({
           label={mode === "bearer" ? "Bearer token" : "API key"}
           required
           disabled={disabled || !credentialsAvailable}
-          tooltip="Stored encrypted. DevFeed never returns this value to the portal."
+          tooltip="Stored encrypted. The server never returns this value to the portal."
           error={errors.credential}
         >
           {(control) => (

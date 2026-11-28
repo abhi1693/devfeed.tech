@@ -2,6 +2,7 @@
 
 import uuid
 from copy import deepcopy
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -22,6 +23,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.pipeline_capacity import observe_capacity, topic_admission_limit
+from devfeed_core.services import OperationConflict
 from devfeed_core.topic_decisions import VERSION, DecisionDeferred
 
 
@@ -222,7 +224,38 @@ def schedule_decisions(
                 )
             )
             proposal.research_requested = False
-        return len(proposals)
+        recovered = 0
+        if len(proposals) < slots:
+            recoverable = session.scalars(
+                select(TopicDecisionRun.proposal_id)
+                .join(TopicProposal, TopicProposal.id == TopicDecisionRun.proposal_id)
+                .where(
+                    TopicProposal.status == "pending",
+                    proposal_condition(),
+                    identity_proposal_condition(),
+                    ~busy.correlate(TopicProposal),
+                    TopicDecisionRun.status == "deferred",
+                    TopicDecisionRun.reason.in_(RECOVERABLE_REASONS),
+                    func.coalesce(func.jsonb_array_length(TopicDecisionRun.state["grants"]), 0) < 2,
+                )
+                .order_by(TopicDecisionRun.updated_at, TopicDecisionRun.proposal_id)
+                .limit(slots - len(proposals))
+            ).all()
+            for identifier in recoverable:
+                try:
+                    grant_budget(
+                        session,
+                        identifier,
+                        calls=2,
+                        tokens=min(64000, settings.topic_decision_max_tokens),
+                        actor="topic-automation",
+                        note="Resume independent topic verification.",
+                        automatic=True,
+                    )
+                except OperationConflict:
+                    continue
+                recovered += 1
+        return len(proposals) + recovered
 
 
 def actionable_topic_backlog(session: Session) -> bool:
@@ -287,11 +320,43 @@ async def admit_relationship_call(values: JsonRecord, *, settings: Settings) -> 
         return False
 
 
+BUDGET_REASONS = {
+    "token_budget_exhausted",
+    "inference_token_budget_exhausted",
+    "call_budget_exhausted",
+    "time_budget_exhausted",
+    "search_budget_exhausted",
+}
+RECOVERABLE_REASONS = BUDGET_REASONS | {
+    "evidence_unavailable",
+    "identity_sources_unavailable",
+    "evidence_expired",
+    "decision_dependency_failure",
+}
+
+
+def _fresh_checkpoint(state: JsonRecord, max_age: int) -> bool:
+    pages = (state.get("evidence") or {}).get("pages") or []
+    try:
+        return bool(pages) and all(
+            0 <= (utcnow() - datetime.fromisoformat(page["fetched_at"])).total_seconds() < max_age
+            for page in pages
+        )
+    except (KeyError, ValueError, TypeError):
+        return False
+
+
 def grant_budget(
-    session: Session, proposal_id: uuid.UUID, *, calls: int, tokens: int, note: str, actor: str
+    session: Session,
+    proposal_id: uuid.UUID,
+    *,
+    calls: int,
+    tokens: int,
+    note: str,
+    actor: str,
+    automatic: bool = False,
 ) -> JsonRecord:
     """Explicit operator recovery. Preserve all spent budget and earlier evidence audits."""
-    from devfeed_core.services import OperationConflict
 
     if not (
         1 <= calls <= 5
@@ -320,6 +385,8 @@ def grant_budget(
         )
     if any(job.status in {"queued", "running"} for job in jobs):
         raise OperationConflict("Wait for the current job before granting budget")
+    if automatic and (run.status != "deferred" or run.reason not in RECOVERABLE_REASONS):
+        raise OperationConflict("Topic decision no longer needs automatic recovery")
     state = deepcopy(run.state)
     if len(state.get("grants", [])) >= 2:
         raise OperationConflict(
@@ -342,17 +409,39 @@ def grant_budget(
     for call in state["calls"]:
         if call["status"] == "running":
             call["status"] = "unknown"  # Retain full reservations for the lost invocation.
-    # Fresh evidence and prompts, without forgiving a single spent token or call.
-    for key in (
-        "discovery",
-        "evidence",
-        "hint_evidence",
-        "draft",
-        "draft_verification",
-        "escalated_draft",
-        "escalated_draft_verification",
-    ):
-        state.pop(key, None)
+    # Only resume checkpoints for the same proposal and still-current evidence.
+    # Explicit operator grants retain their fresh-research semantics.
+    resume = (
+        automatic
+        and run.reason in BUDGET_REASONS
+        and previous_hash == snapshot_hash(proposal.proposed)
+        and _fresh_checkpoint(state, get_settings().topic_evidence_max_age_seconds)
+    )
+    if not resume:
+        for key in (
+            "discovery",
+            "evidence",
+            "hint_evidence",
+            "draft",
+            "draft_verification",
+            "escalated_draft",
+            "escalated_draft_verification",
+            "escalated_verification",
+        ):
+            state.pop(key, None)
+        if automatic:
+            urls = list(
+                dict.fromkeys(
+                    item["url"]
+                    for item in proposal.evidence
+                    if item.get("article_id") and isinstance(item.get("url"), str)
+                )
+            )[:3]
+            if urls:
+                state["discovery"] = {
+                    "sources": [{"url": url} for url in urls],
+                    "reason": "Evaluate the articles linked to this topic proposal.",
+                }
     for key, extra in {
         "calls": calls,
         "tokens": tokens,

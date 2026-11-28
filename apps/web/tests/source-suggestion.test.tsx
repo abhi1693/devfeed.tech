@@ -6,6 +6,7 @@ import { UserProvider } from "@/components/user-account";
 
 afterEach(() => {
   cleanup();
+  delete document.documentElement.dataset.product;
   vi.unstubAllGlobals();
 });
 const validReceipt = {
@@ -224,4 +225,19 @@ it("retains the entered source and emits no success event for a malformed receip
   } finally {
     window.removeEventListener("devfeed:analytics", analytics);
   }
+});
+
+it.each([
+  ["hardwaredaily", "electronics, embedded systems, or hardware engineering"],
+  ["devfeed", "programming, developer tools, or computing"],
+])("describes the %s audience on the suggestion form", async (product, audience) => {
+  document.documentElement.dataset.product = product;
+  setup();
+  render(
+    <UserProvider>
+      <SourceSuggestion />
+    </UserProvider>,
+  );
+  await screen.findByLabelText("RSS or Atom URL");
+  expect(screen.getByText(new RegExp(audience))).toBeTruthy();
 });

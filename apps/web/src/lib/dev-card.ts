@@ -1,3 +1,4 @@
+import { productName } from "@devfeed/theme/product";
 import { safeExternalUrl } from "./feed-query";
 import { avatarSource } from "./avatar";
 import type { DevCardStat, UserIdentity, UserProfile } from "./user";
@@ -35,7 +36,7 @@ export function devCardData(
   profile: UserProfile,
   user: Pick<UserIdentity, "name"> & Partial<UserIdentity>,
 ) {
-  const name = profile.display_name?.trim() || user.name?.trim() || "DevFeed reader";
+  const name = profile.display_name?.trim() || user.name?.trim() || `${productName()} reader`;
   const words = name.split(/\s+/u);
   const initials = [words[0], ...(words.length > 1 ? [words.at(-1)!] : [])]
     .map((word) => Array.from(word)[0])
