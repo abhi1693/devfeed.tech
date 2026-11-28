@@ -239,3 +239,7 @@ column exists, run `uv run alembic stamp --purge 0037` followed by
 before stamping it. These commands change migration metadata only or add the two
 operational columns; they retain old analytics for the automatic import. Do not
 run this development repair on a deployed database.
+
+## Retire ClickHouse (0041 and 0042)
+
+Revision 0041 stores partner observations and revision 0042 stores AI usage. On an existing installation, follow the [cutover instructions](../apps/partner-api/HISTORY_CUTOVER.md) before serving reports or admitting inference calls. The earlier instructions for revision 0038 describe the historical transition into ClickHouse.

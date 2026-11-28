@@ -515,11 +515,10 @@ def test_relationship_budget_counts_started_calls_and_prioritizes_topics(
 ):
     import asyncio
 
+    from devfeed_core.inference_ledger import InferenceLedger
     from devfeed_core.inference_usage import call_id
     from devfeed_core.models import TopicDecisionRun, TopicProposal
     from devfeed_core.topic_decision_budget import admit_relationship_call
-
-    from tests.support.inference_analytics import inference_client
 
     monkeypatch.setenv("DEVFEED_AI_BOUNDED_TOPICS_ENABLED", "true")
     monkeypatch.setenv("DEVFEED_RELATIONSHIP_DAILY_CALL_BUDGET", "1")
@@ -542,22 +541,24 @@ def test_relationship_budget_counts_started_calls_and_prioritizes_topics(
     )
 
     async def run():
-        async with inference_client() as client:
-            assert not await admit_relationship_call(values, settings=get_settings(), client=client)
-            with database.begin() as session:
-                proposal = session.get(TopicProposal, uuid.UUID(pending))
-                session.add(
-                    TopicDecisionRun(
-                        proposal_id=proposal.id,
-                        input_hash=snapshot_hash(proposal.proposed),
-                        status="deferred",
-                        state=initial_state(get_settings()),
-                    )
+        async with await InferenceLedger(get_settings()).connect() as conn:
+            await conn.execute("TRUNCATE inference_usage_ledger, inference_quota_cutover")
+            await conn.execute("INSERT INTO inference_quota_cutover VALUES (true,now())")
+        assert not await admit_relationship_call(values, settings=get_settings())
+        with database.begin() as session:
+            proposal = session.get(TopicProposal, uuid.UUID(pending))
+            session.add(
+                TopicDecisionRun(
+                    proposal_id=proposal.id,
+                    input_hash=snapshot_hash(proposal.proposed),
+                    status="deferred",
+                    state=initial_state(get_settings()),
                 )
-            assert await admit_relationship_call(values, settings=get_settings(), client=client)
-            assert not await admit_relationship_call(
-                {**values, "id": call_id()}, settings=get_settings(), client=client
             )
+        assert await admit_relationship_call(values, settings=get_settings())
+        assert not await admit_relationship_call(
+            {**values, "id": call_id()}, settings=get_settings()
+        )
 
     asyncio.run(run())
 

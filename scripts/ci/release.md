@@ -34,7 +34,7 @@ run is considered. Its current attempt must be complete and successful, with exa
 one successful `CI required` job and each of the Python, Actions and JavaScript /
 TypeScript CodeQL jobs. Their source SHA and run ID must match. API pagination covers
 all jobs, including jobs beyond the first page; previous attempts are not combined.
-Master's `CI required` gate remains responsible for every test, DAST, recovery,
+Master's `CI required` gate remains responsible for every test, recovery,
 analysis and image prerequisite.
 
 If that master run is still pending, preflight waits for at most one hour. A failed,

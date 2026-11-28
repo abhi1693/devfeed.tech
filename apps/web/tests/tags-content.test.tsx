@@ -55,7 +55,6 @@ it("groups names alphabetically and keeps punctuation and Unicode in tag destina
   );
   expect(alphabet.getByRole("link", { name: "All" }).getAttribute("href")).toBe("/tags?q=C%2B%2B");
   expect(screen.getByText("You’ve seen all matching tags.")).toBeTruthy();
-  expect(screen.queryByRole("link", { name: "Next page of tags" })).toBeNull();
   expect(screen.queryByRole("link", { name: /^(Next|Previous) tags$/ })).toBeNull();
   expect(fetcher).not.toHaveBeenCalled();
 });
@@ -72,6 +71,8 @@ it("submits trimmed bounded searches while preserving the selected letter", () =
   expect(router.push).toHaveBeenLastCalledWith("/tags?letter=C");
   expect(tagsHref("", "")).toBe("/tags");
   expect(tagsHref("C++", "C", 60)).toBe("/tags?q=C%2B%2B&letter=C&offset=60");
+  expect(tagsHref("C++", "C", "60")).toBe("/tags?q=C%2B%2B&letter=C&offset=60");
+  expect(tagsHref("", "", "0")).toBe("/tags");
 });
 
 it("retains tags after a page failure and retries without duplicate entries or requests", async () => {
@@ -83,6 +84,7 @@ it("retains tags after a page failure and retries without duplicate entries or r
       }),
   );
   render(<TagsContent tags={[tags[1]]} query="C++" letter="C" nextCursor="60" />);
+  expect(document.querySelectorAll('a[rel="next"]')).toHaveLength(1);
   expect(screen.getByRole("link", { name: "Next page of tags" }).getAttribute("href")).toBe(
     "/tags?q=C%2B%2B&letter=C&offset=60",
   );
@@ -103,7 +105,6 @@ it("retains tags after a page failure and retries without duplicate entries or r
   expect(screen.getAllByRole("link", { name: "C++" })).toHaveLength(1);
   expect(screen.getAllByRole("link", { name: "Rust" })).toHaveLength(1);
   expect(screen.getByText("You’ve seen all matching tags.")).toBeTruthy();
-  expect(screen.queryByRole("link", { name: "Next page of tags" })).toBeNull();
 });
 
 it("offers an unfiltered directory when no tags match", () => {

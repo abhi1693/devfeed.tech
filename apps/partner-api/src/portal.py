@@ -5,8 +5,6 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from devfeed_core.analytics import AnalyticsUnavailable
-from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.models import PartnerAccount
 from devfeed_core.partner_ad_formats import AdFormat, validate_account_formats
 from devfeed_core.partner_audiences import (
@@ -18,7 +16,6 @@ from devfeed_core.partner_audiences import (
 from devfeed_core.partner_link_rel import validate_link_rel
 from devfeed_core.partner_promotions import request_promotion_enrollment
 from devfeed_core.text_search import text_search
-from devfeed_http.analytics import analytics_client
 from devfeed_http.body_limits import BodyLimitedRoute
 from devfeed_http.dependencies import run_database
 from devfeed_http.image_uploads import limit_image_upload
@@ -32,8 +29,8 @@ from devfeed_http.partner_analytics_reporting import (
     ReportingMetrics,
     reporting_assets,
     reporting_metrics,
-    require_partner_history,
 )
+from devfeed_http.partner_measurements import PartnerMeasurements
 from devfeed_http.partner_portal import (
     AccountOut,
     AccountsData,
@@ -65,8 +62,9 @@ from devfeed_http.partner_products import (
     product_detail,
     update_manual_product,
 )
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from devfeed_partner_api.access import PartnerAccountAccess
@@ -200,7 +198,6 @@ async def dashboard(
     account_id: uuid.UUID,
     factory: DBFactory,
     partner: Partner,
-    request: Request,
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -211,19 +208,17 @@ async def dashboard(
     account, assets = await run_database(
         factory, _dashboard_metadata, partner, account_id, ad_format
     )
-    client = analytics_client(request)
     try:
-        await require_partner_history(client)
         metrics = await reporting_metrics(
             assets,
-            DirectEngagementAnalytics(client),
+            PartnerMeasurements(factory),
             days,
             limit,
             offset,
             sort=sort,
             order=order,
         )
-    except AnalyticsUnavailable:
+    except SQLAlchemyError:
         raise HTTPException(503, "Partner analytics is being prepared") from None
     return {"account": account, **metrics}
 

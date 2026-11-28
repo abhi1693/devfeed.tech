@@ -23,7 +23,7 @@ export async function checkDeferredColumns(page, target, output) {
       .locator("[data-column-id]")
       .evaluateAll((nodes) => nodes.map((node) => node.dataset.columnId));
   try {
-    for (const path of ["/latest", "/trending"]) {
+    for (const path of ["/latest", "/news"]) {
       await page.goto(readerRouteUrl(target, path));
       await page.locator(".article-card").first().waitFor();
       assert.equal(await workspace.count(), 0, "Public routes retain their own feed");
@@ -56,7 +56,7 @@ export async function checkDeferredColumns(page, target, output) {
     await page.screenshot({ path: `${output}.png`, animations: "disabled" });
     await writeFile(
       `${output}.json`,
-      `${JSON.stringify({ passed: true, publicRoutes: ["/latest", "/trending"], columns: await identifiers(), privateReads: requests.length }, null, 2)}\n`,
+      `${JSON.stringify({ passed: true, publicRoutes: ["/latest", "/news"], columns: await identifiers(), privateReads: requests.length }, null, 2)}\n`,
     );
   } finally {
     page.off("request", record);

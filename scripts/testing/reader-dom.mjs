@@ -48,7 +48,7 @@ export async function checkReaderDom(page, destination, fixture, output) {
       await page.goto("about:blank");
       await page.goto(destination("/latest"));
       const card = page.locator(".article-card:visible").first();
-      await card.locator(".open-count").waitFor({ state: "attached" });
+      await card.locator(".heart-button").waitFor({ state: "attached" });
       const count = await card.evaluate(
         (node) =>
           node.querySelectorAll("*").length +

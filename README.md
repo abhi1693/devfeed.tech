@@ -7,7 +7,6 @@
 A personal reading feed for developer news, tutorials, and releases.
 
 [![CI](https://github.com/abhi1693/devfeed.tech/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/abhi1693/devfeed.tech/actions/workflows/ci.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/abhi1693/devfeed.tech/badge)](https://scorecard.dev/viewer/?uri=github.com/abhi1693/devfeed.tech)
 [![Latest release](https://img.shields.io/github/v/release/abhi1693/devfeed.tech?style=flat-square&color=6366f1)](https://github.com/abhi1693/devfeed.tech/releases/latest)
 [![Self-hosted](https://img.shields.io/badge/Self--hosted-Docker%20Compose-475569?style=flat-square)](compose.yaml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-0f766e?style=flat-square)](LICENSE)
@@ -54,12 +53,6 @@ work. Here’s mine:
   you follow, with recommendations based on those choices.
 - **Choose how to read.** Switch between cards and a compact list, and use light,
   dark, or system appearance.
-- **See your reading rank.** Compare longest streaks and total reading days among
-  readers with public visibility, recorded reading activity, and a display name
-  or username. A username is optional; named readers without one appear without
-  a profile link. Accounts without either name are omitted.
-  Each leaderboard shows your rank in your linked profile row, or separately
-  below the board when your account cannot be matched to a listed username.
 - **Bring a source with you.** Suggest an RSS or Atom feed for review from the web
   app or browser extensions.
 
@@ -83,10 +76,13 @@ choose the kind of reading you’re in the mood for.
 DevFeed combines **Next.js and React** with **FastAPI**, **PostgreSQL**, and
 **Redis/RQ**. [Run your own instance with Docker Compose](compose.yaml).
 
-ClickHouse serves historical reports and operator boards. The analytics process
-repairs missed current job/card observations in bounded background pages, and
-boards show the source state verified by its latest completed coverage pass.
-See [analytics delivery and recovery](apps/admin-api/ANALYTICS.md).
+PostgreSQL stores partner reporting history, reader progress and AI usage. Existing
+installations upgrading from ClickHouse must drain old writers and import the
+partner history and active AI budget window before resuming service. See the
+[warehouse cutover instructions](apps/partner-api/HISTORY_CUTOVER.md).
+Admins manage articles and
+sources in their resource lists. The historical Overview, pipeline boards, and search
+analytics dashboard have been retired.
 
 Published article retries preserve the current approval while a private replacement
 is prepared. See [maintenance rollout and recovery review](dev/published-article-maintenance.md)
@@ -113,6 +109,13 @@ Tags without any publicly visible articles also retain their 404 response. Colle
 require published articles visible to anonymous readers (English by default), with primary
 or supporting assignments for topics. Non-English article detail pages remain eligible
 for the article sitemap.
+
+Topic, source, and tag directories validate continuation pages before sending response headers.
+A continuation beyond the available results returns HTTP 404. Empty first-page searches and
+letter filters remain available with `noindex,follow`; populated directory pages retain their
+normalized canonical URLs. Next and previous links preserve the directory filters.
+
+See [Codex health checks](infra/codex/README.md) for the private bridge probe and rollout contract.
 
 The scheduler generates cached sitemaps in the background. Crawler requests serve
 the last completed snapshot while refreshes run; see

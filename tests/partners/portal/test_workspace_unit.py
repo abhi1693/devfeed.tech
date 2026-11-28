@@ -102,7 +102,6 @@ def test_workspace_report_receives_complete_identity_scope_and_validated_filters
     reporter = AsyncMock(return_value=report_payload())
     monkeypatch.setattr(workspace, "reporting_assets", catalog)
     monkeypatch.setattr(workspace, "reporting_metrics", reporter)
-    monkeypatch.setattr(workspace, "require_partner_history", AsyncMock())
     result = client.get(
         "/v1/partner/dashboard?days=7&sort=account&order=desc&limit=3&offset=2&ad_format=feed"
     )

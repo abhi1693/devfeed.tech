@@ -19,7 +19,7 @@ export function fixedReaderFeed(currentUrl) {
   if (["q", "topic", "source_id", "tag", "content_type"].some((key) => route.searchParams.has(key)))
     return null;
   return (
-    { "/": "my_feed", "/latest": "latest", "/trending": "trending", "/read-later": "read_later" }[
+    { "/": "my_feed", "/latest": "latest", "/news": "content:news", "/read-later": "read_later" }[
       route.pathname
     ] ?? null
   );

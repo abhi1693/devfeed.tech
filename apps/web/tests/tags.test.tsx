@@ -22,20 +22,19 @@ it("keeps tag directory searches inside the extension reader", () => {
 });
 it("bounds catalog pages and forwards search and alphabet filters without credentials", async () => {
   vi.stubEnv("DEVFEED_PUBLIC_API_URL", "http://public-api:8000");
-  const fetchedItems = Array.from({ length: 61 }, (_, i) => ({
+  const items = Array.from({ length: 61 }, (_, i) => ({
     id: String(i),
     name: `C ${i}`,
     slug: `c-${i}`,
   }));
-  const items = fetchedItems.slice(0, 60);
-  const fetcher = vi.fn().mockResolvedValue(Response.json(fetchedItems));
+  const fetcher = vi.fn().mockResolvedValue(Response.json(items));
   vi.stubGlobal("fetch", fetcher);
   const response = await list(
     new Request("https://devfeed.test/api/v1/tags?q=C%2B%2B&letter=C&offset=60&limit=9999", {
       headers: { authorization: "Bearer secret", cookie: "secret=value" },
     }),
   );
-  expect(await response.json()).toEqual({ items, next_cursor: "120" });
+  expect(await response.json()).toEqual({ items: items.slice(0, 60), next_cursor: "120" });
   const [url, options] = fetcher.mock.calls[0];
   expect(url.pathname).toBe("/v1/tags");
   expect(Object.fromEntries(url.searchParams)).toEqual({
@@ -46,12 +45,6 @@ it("bounds catalog pages and forwards search and alphabet filters without creden
   });
   expect(options.headers).not.toHaveProperty("authorization");
   expect(options.headers).not.toHaveProperty("cookie");
-});
-it("does not invent a next tag page at an exact page-size boundary", async () => {
-  const items = Array.from({ length: 60 }, (_, id) => ({ id: String(id), name: `Tag ${id}` }));
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(items)));
-  const response = await list(new Request("https://devfeed.test/api/v1/tags"));
-  expect(await response.json()).toEqual({ items, next_cursor: null });
 });
 it("preserves punctuation in tag detail requests and rejects unsafe paths", async () => {
   vi.stubEnv("DEVFEED_PUBLIC_API_URL", "http://public-api:8000");

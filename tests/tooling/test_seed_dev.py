@@ -116,8 +116,6 @@ def test_seed_readers_have_consistent_activity_and_populate_both_boards(database
     from datetime import timedelta
 
     from devfeed_core.models import UserAccount, UserReadingDay, UserReadingStreak
-    from devfeed_user_api.main import create_app
-    from fastapi.testclient import TestClient
     from sqlalchemy import select
 
     with database.begin() as session:
@@ -148,11 +146,6 @@ def test_seed_readers_have_consistent_activity_and_populate_both_boards(database
             assert dates[-1] == streak.last_read_date
             total += len(dates)
         assert total == counts["reading_days"]
-    with TestClient(create_app()) as client:
-        boards = client.get("/v1/user/leaderboard").json()
-    assert len(boards["longest_streak"]) == len(boards["reading_days"]) == 10
-    assert [row["rank"] for row in boards["longest_streak"][:3]] == [1, 1, 3]
-    assert boards["longest_streak"][0]["username"] != boards["reading_days"][0]["username"]
     with database.begin() as session:
         account = session.scalar(select(UserAccount).where(UserAccount.username == "seed-maya"))
         account.profile = {"display_name": "Local edit", "visibility": {"public": False}}

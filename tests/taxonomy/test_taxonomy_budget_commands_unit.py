@@ -379,49 +379,20 @@ def test_quota_pacing_authority_controls_relationship_admission_without_reading_
 
 
 @pytest.mark.parametrize("allowed", [False, True])
-def test_only_admitted_relationship_calls_reserve_directly_in_clickhouse(monkeypatch, allowed):
-    from devfeed_core import analytics_inference_store
+@pytest.mark.parametrize("paced", [False, True])
+def test_only_admitted_relationship_calls_reserve_in_postgres(monkeypatch, allowed, paced):
+    from devfeed_core.inference_ledger import InferenceLedger
 
-    async def run():
-        monkeypatch.setattr(budget, "_relationship_policy_allowed", lambda: allowed)
-        admit = AsyncMock(return_value=True)
-        monkeypatch.setattr(analytics_inference_store.RelationshipQuota, "admit", admit)
-        client = AsyncMock()
-        client.query.return_value = [{"complete": 1}]
-        values = {
-            "id": uuid.uuid4(),
-            "operation": "relationship_research",
-            "started_at": NOW,
-            "model": "test-model",
-            "reasoning_effort": "low",
-            "status": "running",
-            "tokens": {},
-            "web_searches": 0,
-            "duration_ms": 0,
-        }
-        settings = configuration(ai_quota_pacing_enabled=False, relationship_daily_call_budget=2)
-        assert (
-            await budget.admit_relationship_call(values, settings=settings, client=client)
-            is allowed
-        )
-        if allowed:
-            admit.assert_awaited_once_with(values, 2)
-        else:
-            admit.assert_not_awaited()
-            client.query.assert_not_awaited()
-
-    asyncio.run(run())
-
-
-def test_relationship_admission_fails_closed_while_historical_import_is_incomplete(monkeypatch):
-    async def run():
-        monkeypatch.setattr(budget, "_relationship_policy_allowed", lambda: True)
-        client = AsyncMock()
-        client.query.return_value = []
-        settings = configuration(ai_quota_pacing_enabled=False, relationship_daily_call_budget=2)
-        assert not await budget.admit_relationship_call({}, settings=settings, client=client)
-
-    asyncio.run(run())
+    monkeypatch.setattr(budget, "_relationship_policy_allowed", lambda: allowed)
+    admit = AsyncMock(return_value=True)
+    monkeypatch.setattr(InferenceLedger, "admit", admit)
+    settings = configuration(ai_quota_pacing_enabled=paced, relationship_daily_call_budget=2)
+    values = {"id": uuid.uuid4()}
+    assert asyncio.run(budget.admit_relationship_call(values, settings=settings)) is allowed
+    if allowed:
+        admit.assert_awaited_once_with(values, None if paced else 2)
+    else:
+        admit.assert_not_awaited()
 
 
 def test_unbounded_topic_policy_needs_no_postgres_analytical_lookup(monkeypatch):
@@ -457,103 +428,10 @@ def test_relationship_policy_source_session_closes_after_preflight(monkeypatch):
     assert events == ["open", "close"]
 
 
-def test_relationship_admission_confirms_clickhouse_before_releasing_its_async_lock(monkeypatch):
-    from contextlib import asynccontextmanager
-
+def test_postgres_failure_never_authorizes_a_paid_call(monkeypatch):
     import psycopg
+    from devfeed_core.inference_ledger import InferenceLedger
 
-    async def run():
-        events = []
-
-        class Connection:
-            async def __aenter__(self):
-                events.append("connect")
-                return self
-
-            async def __aexit__(self, *_args):
-                events.append("close")
-
-            @asynccontextmanager
-            async def transaction(self):
-                events.append("transaction")
-                yield
-                events.append("commit")
-
-            async def execute(self, statement, parameters):
-                events.append("lock" if "advisory" in statement else "deadline")
-
-        async def connect(dsn, *, autocommit):
-            assert dsn == "postgresql://fixture@db.invalid/test" and autocommit
-            return Connection()
-
-        monkeypatch.setattr(psycopg.AsyncConnection, "connect", connect)
-        monkeypatch.setattr(budget, "_relationship_policy_allowed", lambda: True)
-        client = AsyncMock()
-        client.query.side_effect = [[{"complete": 1}], [{"calls": 0}], [{"calls": 0}]]
-
-        async def write(table, rows):
-            assert table == "analytics_inference_events" and len(rows) == 1
-            assert rows[0]["status"] == "running"
-            events.append("acknowledged")
-
-        client.insert.side_effect = write
-        settings = configuration(
-            ai_quota_pacing_enabled=False,
-            relationship_daily_call_budget=2,
-            database_url="postgresql+psycopg://fixture@db.invalid/test",
-        )
-        values = dict(
-            id=uuid.uuid4(),
-            started_at=NOW,
-            status="running",
-            operation="relationship_research",
-            tokens={},
-        )
-        assert await budget.admit_relationship_call(values, settings=settings, client=client)
-        assert events == [
-            "connect",
-            "transaction",
-            "deadline",
-            "lock",
-            "acknowledged",
-            "commit",
-            "close",
-        ]
-
-    asyncio.run(run())
-
-
-@pytest.mark.parametrize("error", [TimeoutError(), KeyError("complete"), TypeError(), ValueError()])
-def test_ambiguous_quota_admission_never_authorizes_a_paid_call(monkeypatch, error):
-    async def run():
-        monkeypatch.setattr(budget, "_relationship_policy_allowed", lambda: True)
-        client = AsyncMock()
-        client.query.side_effect = error
-        settings = configuration(ai_quota_pacing_enabled=False)
-        assert not await budget.admit_relationship_call({}, settings=settings, client=client)
-        client.insert.assert_not_called()
-
-    asyncio.run(run())
-
-
-def test_provider_pacing_reservation_requires_confirmed_direct_write(monkeypatch):
-    from devfeed_core.analytics import AnalyticsUnavailable
-
-    async def run():
-        monkeypatch.setattr(budget, "_relationship_policy_allowed", lambda: True)
-        client = AsyncMock()
-        settings = configuration(ai_quota_pacing_enabled=True)
-        values = dict(
-            id=uuid.uuid4(),
-            started_at=NOW,
-            status="running",
-            operation="relationship_verification",
-            tokens={},
-        )
-        assert await budget.admit_relationship_call(values, settings=settings, client=client)
-        client.insert.assert_awaited_once()
-        client.query.assert_not_awaited()
-        client.insert.side_effect = AnalyticsUnavailable("offline")
-        assert not await budget.admit_relationship_call(values, settings=settings, client=client)
-
-    asyncio.run(run())
+    monkeypatch.setattr(budget, "_relationship_policy_allowed", lambda: True)
+    monkeypatch.setattr(InferenceLedger, "admit", AsyncMock(side_effect=psycopg.OperationalError()))
+    assert not asyncio.run(budget.admit_relationship_call({}, settings=configuration()))

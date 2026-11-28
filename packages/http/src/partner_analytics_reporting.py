@@ -1,4 +1,4 @@
-"""Partner report aggregation over ClickHouse observations and authorized catalog data."""
+"""Partner report aggregation over PostgreSQL observations and authorized catalog data."""
 
 from __future__ import annotations
 
@@ -9,13 +9,13 @@ from datetime import UTC, date, datetime, timedelta
 from functools import cmp_to_key
 from typing import Literal, NotRequired, TypedDict, cast
 
-from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
-from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.models import PartnerAccount, PartnerAsset, PartnerProduct
 from sqlalchemy import any_, func, literal, select
 from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import Select
+
+from devfeed_http.partner_measurements import PartnerMeasurements
 
 type ReportSort = Literal["name", "account", "impressions", "clicks", "ctr"]
 
@@ -93,32 +93,6 @@ class ReportingMetrics(TypedDict):
 
 # Each query returns at most 50 assets x 365 days; no unbounded IN clause.
 _ASSET_CHUNK = 50
-
-
-async def _require_partner_import(client: AnalyticsClient, expected: set[str]) -> None:
-    rows = await client.query(
-        "SELECT source,complete FROM analytics_backfill_progress FINAL "
-        "WHERE import_id={import_id:String} AND source IN {sources:Array(String)}",
-        {"import_id": "direct-v1", "sources": sorted(expected)},
-    )
-    if (
-        len(rows) != len(expected)
-        or {row.get("source") for row in rows if row.get("complete") == 1} != expected
-    ):
-        raise AnalyticsUnavailable("Partner history import is still running")
-
-
-async def require_partner_claims(client: AnalyticsClient) -> None:
-    """Accept direct receipts only after legacy operational claims are imported."""
-    await _require_partner_import(client, {"partner_delivery_events"})
-
-
-async def require_partner_history(client: AnalyticsClient) -> None:
-    """Do not serve incomplete one-time partner baseline imports."""
-    await _require_partner_import(
-        client,
-        {"partner_daily_metrics", "partner_tracked_daily_metrics", "partner_delivery_events"},
-    )
 
 
 def reporting_assets(
@@ -285,7 +259,7 @@ def _order(
 
 async def reporting_metrics(
     assets: Sequence[ReportingAsset],
-    analytics: DirectEngagementAnalytics,
+    analytics: PartnerMeasurements,
     days: int = 30,
     limit: int = 100,
     offset: int = 0,
@@ -293,7 +267,7 @@ async def reporting_metrics(
     sort: ReportSort = "name",
     order: ReportOrder = "asc",
 ) -> ReportingMetrics:
-    """Read bounded CH batches and sort the complete authorized account scope."""
+    """Read bounded asset batches and sort the complete authorized account scope."""
     if sort not in {"name", "account", "impressions", "clicks", "ctr"} or order not in {
         "asc",
         "desc",

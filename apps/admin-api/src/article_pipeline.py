@@ -6,7 +6,6 @@ import uuid
 from typing import Annotated, Literal
 
 from devfeed_core.analysis import catalog
-from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.analytics_article_cards import (
     _actions as _actions,
 )
@@ -100,47 +99,15 @@ from devfeed_core.article_processing_retry import (
 from devfeed_core.models import Article
 from devfeed_core.schemas import DatabaseText
 from devfeed_core.services import OperationConflict
-from devfeed_core.text_search import normalized_text
-from devfeed_http.dependencies import run_database
 from devfeed_http.pagination import record
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import literal, select
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from devfeed_admin_api.analytics_current import preparing
-from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
 from devfeed_admin_api.article_maintenance import maintenance_detail
 from devfeed_admin_api.auth import Admin, actor, require_admin
-from devfeed_admin_api.dependencies import DB, DBFactory
+from devfeed_admin_api.dependencies import DB
 
 router = APIRouter(tags=["admin-articles"], dependencies=[Depends(require_admin)])
-Analytics = Annotated[AnalyticsRuntime, Depends(get_analytics)]
-
-
-def _normalized_search(session: Session, query: str | None) -> str | None:
-    """Retain PostgreSQL Unicode/locale semantics using one literal, table-free SELECT."""
-    if not query:
-        return None
-    return session.scalar(select(normalized_text(literal(query))))
-
-
-def _hydrate_clocks(session: Session, result: PipelineBoard) -> PipelineBoard:
-    items = [item for column in result.columns for item in column.items]
-    clocks = (
-        dict(
-            session.execute(
-                select(Article.id, Article.automation_next_check_at).where(
-                    Article.id.in_([item.id for item in items])
-                )
-            ).all()
-        )
-        if items
-        else {}
-    )
-    for item in items:
-        if item.state != "complete" and item.id in clocks:
-            item.next_check_at = clocks[item.id]
-    return result
 
 
 @router.get(
@@ -149,27 +116,13 @@ def _hydrate_clocks(session: Session, result: PipelineBoard) -> PipelineBoard:
     operation_id="admin_article_pipeline",
 )
 async def board(
-    factory: DBFactory,
-    analytics: Analytics,
     q: Annotated[DatabaseText | None, Query(max_length=200)] = None,
     source_id: uuid.UUID | None = None,
     needs_attention: bool = False,
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
     group_by: Literal["source"] | None = None,
 ) -> PipelineBoard:
-    needle = await run_database(factory, _normalized_search, q)
-    try:
-        result = await analytics.article_board(
-            q=q,
-            normalized_q=needle,
-            source_id=source_id,
-            needs_attention=needs_attention,
-            limit=limit,
-            group_by=group_by,
-        )
-    except AnalyticsUnavailable as error:
-        raise preparing() from error
-    return await run_database(factory, _hydrate_clocks, result)
+    raise HTTPException(410, "This analytics report has been retired.")
 
 
 @router.get(
@@ -179,8 +132,6 @@ async def board(
 )
 async def column(
     stage: Stage,
-    factory: DBFactory,
-    analytics: Analytics,
     q: Annotated[DatabaseText | None, Query(max_length=200)] = None,
     source_id: uuid.UUID | None = None,
     needs_attention: bool = False,
@@ -189,22 +140,7 @@ async def column(
     group_by: Literal["source"] | None = None,
     source_group: uuid.UUID | Literal["unknown"] | None = None,
 ) -> PipelineColumn:
-    needle = await run_database(factory, _normalized_search, q)
-    try:
-        result = await analytics.article_board(
-            q=q,
-            normalized_q=needle,
-            source_id=source_id,
-            needs_attention=needs_attention,
-            limit=limit,
-            stage=stage,
-            cursor=cursor,
-            group_by=group_by,
-            source_group=source_group,
-        )
-    except AnalyticsUnavailable as error:
-        raise preparing() from error
-    return (await run_database(factory, _hydrate_clocks, result)).columns[0]
+    raise HTTPException(410, "This analytics report has been retired.")
 
 
 def _detail(session: Session, article: Article) -> PipelineDetail:

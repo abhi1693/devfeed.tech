@@ -801,56 +801,11 @@ def test_expired_login_and_session_are_rejected(oidc_app):
     assert oidc_app.client.get("/v1/admin/auth/me").status_code == 401
 
 
-def test_authenticated_overview_returns_private_snapshot(oidc_app, monkeypatch):
-    from datetime import UTC, datetime
-
-    from devfeed_admin_api import overview
-    from devfeed_admin_api.overview_sections import (
-        OperationsSection,
-        OverviewSectionReport,
-        ReviewQueue,
-    )
-
+def test_authenticated_overview_returns_retired_report_status(oidc_app):
     complete(oidc_app)
-    monkeypatch.setattr(overview, "utcnow", lambda: datetime(2026, 9, 9, 12, tzinfo=UTC))
-    snapshot = OverviewSectionReport(
-        generated_at="2026-09-09T12:00:00Z",
-        days=1,
-        data=OperationsSection(reviews=[ReviewQueue(kind="articles", count=7)], source_failures=1),
-    )
-    calls = []
-
-    async def metrics(group, window):
-        assert group == "operations"
-        calls.append(window.key)
-        return snapshot.model_copy(
-            update={"days": window.days, "start": window.start, "end": window.inclusive_end}
-        )
-
-    oidc_app.client.app.dependency_overrides[overview.get_analytics] = lambda: SimpleNamespace(
-        section=metrics
-    )
-    for query, days, start in (
-        ("", 30, "2026-08-11"),
-        ("?from=now-6d/d&to=now", 7, "2026-09-03"),
-    ):
-        response = oidc_app.client.get(f"/v1/admin/overview/charts/attention{query}")
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["chart"] == "attention" and payload["days"] == days
-        assert payload["start"] == start and payload["end"] == "2026-09-09"
-        assert payload["data"]["reviews"][0]["count"] == 7
-        assert "section" not in payload["data"]
-        assert response.headers["cache-control"] == "no-store"
-    assert calls == ["2026-08-11:2026-09-10", "2026-09-03:2026-09-10"]
-    for value in ("now-3661d", "P7D", "-1", "1.5", "all"):
-        assert (
-            oidc_app.client.get(
-                f"/v1/admin/overview/charts/publication-rate?from={value}&to=now"
-            ).status_code
-            == 422
-        )
-    assert calls == ["2026-08-11:2026-09-10", "2026-09-03:2026-09-10"]
+    response = oidc_app.client.get("/v1/admin/overview/charts/attention")
+    assert response.status_code == 410
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_secure_cookie_and_origin_configuration_is_explicit():

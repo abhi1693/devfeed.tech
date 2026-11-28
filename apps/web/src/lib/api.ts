@@ -6,13 +6,7 @@ import { ReaderCookies } from "./server/reader-cookies";
 import { xPixelEnabled } from "./server/config";
 import type { Article, FeedPage, FeedOptions, Source, Topic, Tag } from "./types";
 import { privateApi, publicApi, UserApiError } from "./server/api-client";
-import {
-  contentTypes,
-  feedParams,
-  latestFeedParams,
-  trendingFeedParams,
-  type FeedFilters,
-} from "./feed-query";
+import { contentTypes, feedParams, latestFeedParams, type FeedFilters } from "./feed-query";
 
 const readerCookies = new ReaderCookies(xPixelEnabled);
 
@@ -133,10 +127,6 @@ export const getSource = (id: string, signal?: AbortSignal) =>
   publicApi.read<Source>(`/v1/sources/${encodeURIComponent(id)}`, { signal });
 export const getArticle = (slug: string, signal?: AbortSignal) =>
   publicApi.read<Article>(`/v1/articles/${encodeURIComponent(slug)}`, { signal });
-
-export async function getTrending(cursor = "") {
-  return privateApi.read<FeedPage>(`/v1/user/trending?${trendingFeedParams(cursor)}`);
-}
 
 export async function getSearch(
   query: string,

@@ -6,23 +6,13 @@ import runpy
 import subprocess
 import tempfile
 from decimal import Decimal
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def render(values: dict[str, str], *, build: bool = False, worker_overrides: bool = False) -> dict:
     # Never read the developer's .env or inherited application credentials.
-    values = {
-        "DEVFEED_CLICKHOUSE_READER_PASSWORD": "fixture-only-reader-password",
-        "DEVFEED_CLICKHOUSE_INGEST_PASSWORD": "fixture-only-ingest-password",
-        "DEVFEED_CLICKHOUSE_PUBLIC_PASSWORD": "fixture-only-public-password",
-        "DEVFEED_CLICKHOUSE_USER_PASSWORD": "fixture-only-user-password",
-        "DEVFEED_CLICKHOUSE_PARTNER_PASSWORD": "fixture-only-partner-password",
-        "DEVFEED_CLICKHOUSE_ADMIN_PASSWORD": "fixture-only-admin-password",
-        "DEVFEED_CLICKHOUSE_WORKER_PASSWORD": "fixture-only-worker-password",
-        **values,
-    }
     environment = {
         key: value
         for key, value in os.environ.items()
@@ -85,21 +75,20 @@ def check_private_mcp_routing(
         assert ("DEVFEED_MCP_INTERNAL_URL" in service.get("environment", {})) == (name == "web")
 
 
-def check_ch_ui_runtime(management: dict) -> None:
-    """Require an ephemeral PID directory writable only by the pinned image user."""
-    directory = PurePosixPath("/run/ch-ui")
-    assert management["user"] == "100:101"
-    assert management["read_only"]
-    assert management["command"] == ["--pid-file", str(directory / "ch-ui-server.pid")]
-    mounts = [mount for mount in management["tmpfs"] if mount.partition(":")[0] == str(directory)]
-    assert mounts == [f"{directory}:size=1m,mode=0700,uid=100,gid=101"]
-    for volume in management.get("volumes", []):
-        target = PurePosixPath(volume["target"])
-        assert (
-            target != directory
-            and target not in directory.parents
-            and directory not in target.parents
-        )
+def check_product_catalogs(base: dict[str, str]) -> None:
+    for product in ("devfeed", "hardwaredaily"):
+        values = {"COMPOSE_PROFILES": "search", **base}
+        if product == "hardwaredaily":
+            values["DEVFEED_PRODUCT"] = product
+        config = render(values)
+        assert config["name"] == product
+        for volume in ("postgres-data", "redis-data", "search-data"):
+            assert config["volumes"][volume]["name"] == f"{product}_{volume}"
+        for service in ("api", "search-indexer", "search-setup"):
+            environment = config["services"][service]["environment"]
+            assert environment["DEVFEED_SEARCH_COLLECTION_PREFIX"] == product
+        assert config["services"]["default-worker"]["environment"]["DEVFEED_PRODUCT"] == product
+        assert config["services"]["web"]["environment"]["DEVFEED_PRODUCT"] == product
 
 
 def check() -> None:
@@ -108,6 +97,8 @@ def check() -> None:
         **base,
         "COMPOSE_PROFILES": "ai,notifications,search,mcp",
     }
+    check_product_catalogs(base)
+
     mcp = render({**base, "COMPOSE_PROFILES": "mcp"})["services"]["mcp"]
     assert mcp["ports"][0]["host_ip"] == "127.0.0.1"
     assert mcp["environment"] == {
@@ -163,7 +154,7 @@ def check() -> None:
                 expected = image  # Local build tags never become remote pull targets.
             elif registry == "ghcr.io":
                 expected = "registry.home/" + image
-            elif registry in {"typesense", "clickhouse"}:
+            elif registry == "typesense":
                 expected = "registry.home/docker.io/" + image
             else:
                 expected = "registry.home/docker.io/library/" + image
@@ -279,73 +270,12 @@ def check() -> None:
     assert services["web"]["depends_on"]["api"]["condition"] == "service_healthy"
     for name in ("admin", "admin-api"):
         assert services[name]["environment"]["DEVFEED_ADMIN_BASE_URL"] == "http://localhost:3001"
-    for name in ("postgres", "redis", "clickhouse", "admin-api"):
+    for name in ("postgres", "redis", "admin-api"):
         assert not services[name].get("ports")
-    clickhouse = services["clickhouse"]
-    assert set(clickhouse["networks"]) == {"data"}
-    assert clickhouse["environment"]["CLICKHOUSE_PASSWORD"] == base["POSTGRES_PASSWORD"]
-    assert clickhouse["cpus"] == 2
-    assert int(clickhouse["mem_limit"]) == 2 * 1024**3
-    assert {volume["source"] for volume in clickhouse["volumes"] if volume["type"] == "volume"} == {
-        "clickhouse-data",
-        "clickhouse-logs",
-    }
-    assert {volume["target"] for volume in clickhouse["volumes"] if volume["type"] == "bind"} == {
-        "/etc/clickhouse-server/config.d/devfeed-resources.xml",
-        "/etc/clickhouse-server/users.d/devfeed-analytics.xml",
-    }
-    assert all(
-        volume.get("read_only") for volume in clickhouse["volumes"] if volume["type"] == "bind"
-    )
-    assert clickhouse["environment"]["DEVFEED_CLICKHOUSE_SERVER_MAX_SELECTS"] == "3"
-    assert clickhouse["environment"]["DEVFEED_CLICKHOUSE_SERVER_MAX_INSERTS"] == "2"
-    assert services["analytics-importer"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == (
-        "devfeed_ingest"
-    )
-    assert services["admin-api"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed_admin"
-    assert services["admin-api"]["environment"]["DEVFEED_CLICKHOUSE_PASSWORD"] == (
-        "fixture-only-admin-password"
-    )
-    assert services["analytics-importer"]["cpus"] == Decimal("0.5")
-    assert int(services["analytics-importer"]["mem_limit"]) == 512 * 1024**2
-    for name, service in services.items():
-        assert ("DEVFEED_CLICKHOUSE_PASSWORD" in service.get("environment", {})) == (
-            name
-            in {
-                "migrate",
-                "analytics-importer",
-                "admin-api",
-                "api",
-                "partner-api",
-                "user-api",
-                "high-worker",
-                "default-worker",
-                "low-worker",
-                "images-worker",
-            }
-        ), name
-    assert "clickhouse" not in services["admin-api"]["depends_on"]
-    assert "clickhouse" not in services["api"]["depends_on"]
-    assert services["migrate"]["depends_on"]["clickhouse"]["condition"] == "service_healthy"
-    assert services["migrate"]["environment"]["DEVFEED_CLICKHOUSE_USERNAME"] == "devfeed_ingest"
-    assert services["migrate"]["command"][-1] == (
-        "devfeed db upgrade && exec devfeed analytics upgrade"
-    )
-    assert services["analytics-importer"]["depends_on"]["clickhouse"]["condition"] == (
-        "service_healthy"
-    )
-    management = services["ch-ui"]
-    assert management["ports"][0]["host_ip"] == "0.0.0.0"
-    assert management["ports"][0]["published"] == "4000"
-    assert set(management["networks"]) == {"default", "data"}
-    assert set(management["depends_on"]) == {"clickhouse"}
-    assert management["environment"]["CLICKHOUSE_URL"] == "http://clickhouse:8123"
-    assert "CLICKHOUSE_PASSWORD" not in management["environment"]
-    check_ch_ui_runtime(management)
-    assert int(management["mem_limit"]) == 512 * 1024**2
-    for name, service in services.items():
-        assert ("APP_SECRET_KEY" in service.get("environment", {})) == (name == "ch-ui")
-        assert "ch-ui" not in service.get("depends_on", {})
+    assert not {"clickhouse", "analytics-importer", "ch-ui"} & services.keys()
+    assert services["migrate"]["command"] == ["devfeed", "db", "upgrade"]
+    for service in services.values():
+        assert not any("CLICKHOUSE" in key for key in service.get("environment", {}))
     assert default["networks"]["data"]["internal"]
     assert services["admin-api"]["environment"].get("DEVFEED_OIDC_ISSUER_URL") is None
     assert services["api"]["environment"].get("DEVFEED_CORS_ORIGINS") is None
@@ -568,6 +498,7 @@ def check() -> None:
             == (chimely["DEVFEED_CHIMELY_ADMIN_HMAC_SECRET"])
         )
         assert services["web"]["environment"] == {
+            "DEVFEED_PRODUCT": "devfeed",
             "DEVFEED_PUBLIC_API_URL": "http://api:8000",
             "DEVFEED_PARTNER_CALLER_KEY": "",
             "DEVFEED_PARTNER_CALLER_IP_HEADER": "",

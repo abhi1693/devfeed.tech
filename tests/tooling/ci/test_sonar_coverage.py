@@ -450,12 +450,15 @@ def test_prepare_combines_complementary_shard_coverage(
         )
 
 
-def test_prepare_imports_absolute_sources_outside_the_current_working_directory(tmp_path):
+@pytest.mark.parametrize("unit_only", [False, True])
+def test_prepare_imports_absolute_sources_outside_the_current_working_directory(
+    tmp_path, unit_only
+):
     (tmp_path / "pyproject.toml").write_text("[tool.coverage.run]\nrelative_files = true\n")
     source = tmp_path / "apps/api/src/main.py"
     source.parent.mkdir(parents=True)
     source.write_text("value = 1\n")
-    for suite in PYTHON_SUITES:
+    for suite in ("python-unit", "python-loadtest") if unit_only else PYTHON_SUITES:
         path = tmp_path / "reports/coverage" / suite / "coverage.db"
         path.parent.mkdir(parents=True)
         data = CoverageData(basename=str(path))
@@ -467,7 +470,7 @@ def test_prepare_imports_absolute_sources_outside_the_current_working_directory(
         page.write_text("export const page = 1;\n")
         write_lcov(tmp_path / "reports/coverage" / frontend / "lcov.info", "src/page.ts")
 
-    prepare_reports(tmp_path)
+    prepare_reports(tmp_path, unit_only=unit_only)
 
     report = ET.parse(tmp_path / "reports/coverage/python.xml")
     measured = report.find(".//class")

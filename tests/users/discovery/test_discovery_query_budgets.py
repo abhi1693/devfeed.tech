@@ -9,7 +9,6 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
 from devfeed_core.db import get_engine
 from devfeed_core.models import (
     Article,
@@ -31,7 +30,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import insert, text
 
 from tests.api.test_api_query_budgets import identity, percentile, profile_request
-from tests.support.user_analytics import reader_analytics
 
 pytestmark = pytest.mark.integration
 
@@ -205,28 +203,7 @@ def discovery_user(discovery_data):
     app = create_app()
     app.dependency_overrides[require_user] = lambda: user
     app.dependency_overrides[optional_user] = lambda: user
-    with TestClient(app) as client, reader_analytics(client) as native:
-
-        async def seed_activity():
-            store = ArticleOpenAnalytics(native)
-            now = utcnow().replace(microsecond=0) - timedelta(minutes=1)
-            for start in range(0, size, 1000):
-                indexes = range(start, min(start + 1000, size))
-                await store.import_totals(
-                    [{"article_id": identity("scale-article", i), "opens": 1} for i in indexes]
-                )
-                await store.import_opens(
-                    [
-                        {
-                            "article_id": identity("scale-article", i),
-                            "viewer_key": "a" * 64,
-                            "opened_hour": now if i >= size - 12 else now - timedelta(days=20),
-                        }
-                        for i in indexes
-                    ]
-                )
-
-        client.portal.call(seed_activity)
+    with TestClient(app) as client:
         yield client
 
 
@@ -254,8 +231,6 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
         ("/v1/user/preferences", 1),
         ("/v1/user/feed?limit=1", 7),
         ("/v1/user/feed?limit=100", 7),
-        ("/v1/user/trending?limit=1", 5),
-        ("/v1/user/trending?limit=100", 5),
     ]
     for limit in (1, 100):
         paths.append(
@@ -283,10 +258,8 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
                     sum(article_rows_visited(plan["plan"][0]["Plan"]) for plan in row["plans"])
                     < size * 3 // 4
                 ), path
-        if (
-            (path.startswith("/v1/feed?") and "topic=scale-topic-200" in path)
-            or (path.startswith("/v1/feed?") and "source_id=" in path)
-            or path.startswith("/v1/user/trending")
+        if (path.startswith("/v1/feed?") and "topic=scale-topic-200" in path) or (
+            path.startswith("/v1/feed?") and "source_id=" in path
         ):
             expected = [str(identity("scale-article", i)) for i in range(size - 12, size) if i % 10]
             assert (
@@ -294,7 +267,7 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
                 if "limit=1" in path and "limit=100" not in path
                 else [item["id"] for item in payload["items"]] == expected
             )
-            if report_path and size >= 10000 and not path.startswith("/v1/user/trending"):
+            if report_path and size >= 10000:
                 # Protect against a bounded query count hiding a catalogue scan.
                 # All these sparse paths match twelve IDs, eleven of them public.
                 assert (
@@ -312,7 +285,7 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
                 ) <= 2 * (page_limit + 1)
         if path.startswith("/v1/user/engagement"):
             assert all(
-                item["liked"] and item["likes"] == 1 and item["opens"] == 1 for item in payload
+                item["liked"] and item["likes"] == 1 and "opens" not in item for item in payload
             )
         if path == "/v1/feed?limit=100":
             cursor = payload["next_cursor"]
@@ -332,7 +305,6 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
             "/v1/feed?limit=100",
             "/v1/feed?topic=scale-topic-200&limit=100",
             "/v1/user/feed?limit=100",
-            "/v1/user/trending?limit=100",
         ]
 
         def request(path):
@@ -368,7 +340,6 @@ def test_discovery_scale_budgets(discovery_data, discovery_user, client):
                 dict(
                     articles=size,
                     likes=size,
-                    opens=size,
                     repeats=repeats,
                     transport="TestClient; synthetic DB; authentication dependency overridden",
                     endpoints=results,
