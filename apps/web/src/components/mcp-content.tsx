@@ -17,6 +17,9 @@ import {
   mcpConfiguration,
   mcpEndpoint,
   mcpExamplePrompt,
+  mcpExamples,
+  mcpPageDescription,
+  mcpPageTitle,
   type McpClient,
 } from "@/lib/mcp";
 
@@ -139,9 +142,22 @@ export function McpContent({ initialEndpoint }: { initialEndpoint?: string | nul
     <article className="mcp-page mcp-setup-page">
       <header className="mcp-page-header">
         <div>
-          <h1>Connect your agent</h1>
+          <h1>{mcpPageTitle}</h1>
+          <p className="mcp-introduction">{mcpPageDescription}</p>
         </div>
       </header>
+
+      <section className="mcp-examples" aria-labelledby="mcp-examples-heading">
+        <h2 id="mcp-examples-heading">Try asking your agent</h2>
+        <ul>
+          {mcpExamples.map(([question, tool]) => (
+            <li key={tool}>
+              <span>{question}</span>
+              <code>{tool}</code>
+            </li>
+          ))}
+        </ul>
+      </section>
 
       <section className="mcp-server" aria-label="Server connection">
         <div className="mcp-server-heading">

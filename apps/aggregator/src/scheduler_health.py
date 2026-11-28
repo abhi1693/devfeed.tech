@@ -5,26 +5,36 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
 from devfeed_core.config import get_settings
 from devfeed_core.models import utcnow
 from devfeed_core.redis import create_redis
+from devfeed_core.runtime_files import runtime_marker, write_runtime_marker
 from redis import Redis
 from redis.backoff import NoBackoff
 from redis.exceptions import RedisError
 from redis.retry import Retry
 
+from devfeed_aggregator.scheduler_probe import HEARTBEAT_TTL
+
 logger = logging.getLogger(__name__)
 HEARTBEAT_KEY = "devfeed:scheduler:heartbeat"
-HEARTBEAT_TTL = 120
 STALL_SECONDS = 300
 
 
 class SchedulerHealth:
-    def __init__(self, connection: Redis, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        connection: Redis,
+        clock: Callable[[], float] = time.monotonic,
+        *,
+        marker: Path | None = None,
+    ) -> None:
         self.connection = connection
         self.clock = clock
         self.last_success = clock()
+        self.marker = marker
 
     def completed(self) -> None:
         self.last_success = self.clock()
@@ -37,6 +47,17 @@ class SchedulerHealth:
             self.connection.set(HEARTBEAT_KEY, utcnow().isoformat(), ex=HEARTBEAT_TTL)
         except RedisError:
             logger.warning("scheduler_heartbeat_unavailable")
+            if self.marker is not None:
+                try:
+                    self.marker.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("scheduler_heartbeat_marker_unavailable")
+            return
+        if self.marker is not None:
+            try:
+                write_runtime_marker(self.marker, str(time.time()))
+            except OSError:
+                logger.warning("scheduler_heartbeat_marker_unavailable")
 
 
 @contextmanager
@@ -47,7 +68,9 @@ def scheduler_health() -> Iterator[SchedulerHealth]:
         socket_timeout=1,
         retry=Retry(NoBackoff(), retries=0),
     )
-    health = SchedulerHealth(connection)
+    marker = runtime_marker("scheduler-heartbeat")
+    marker.unlink(missing_ok=True)
+    health = SchedulerHealth(connection, marker=marker)
     stop = threading.Event()
 
     def heartbeat() -> None:
@@ -74,3 +97,4 @@ def scheduler_health() -> Iterator[SchedulerHealth]:
     finally:
         stop.set()
         thread.join(timeout=5)
+        marker.unlink(missing_ok=True)

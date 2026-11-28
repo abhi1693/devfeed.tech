@@ -102,7 +102,7 @@ try {
         .locator(".sidebar")
         .getByRole("link", { name: "Connect your agent", exact: true })
         .click();
-      await page.getByRole("heading", { name: "Connect your agent", exact: true }).waitFor();
+      await page.getByRole("heading", { name: "DevFeed MCP server", exact: true }).waitFor();
       const cookie = (await context.cookies(origin)).find(
         (item) => item.name === "devfeed_user_x_click",
       );

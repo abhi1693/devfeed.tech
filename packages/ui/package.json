@@ -76,5 +76,9 @@
     "next": {
       "optional": true
     }
+  },
+  "devDependencies": {
+    "@types/mdast": "4.0.4",
+    "unified": "11.0.5"
   }
 }

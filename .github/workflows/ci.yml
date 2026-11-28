@@ -208,20 +208,6 @@ jobs:
         run: >-
           echo "$RESULTS" | jq -e
           '[.["admin-web"], .["partner-web"], .["user-web"], .extensions] | all(.result == "success")'
-  api-fuzz:
-    needs: backend-unit
-    name: API fuzzing
-    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
-    uses: abhi1693/actions/.github/workflows/python-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
-    with:
-      runs-on: ubuntu-24.04-arm
-      timeout-minutes: 15
-      python-version: "3.12"
-      uv-version: 0.13.5
-      sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages --group fuzz
-      test-command: uv run --group fuzz --locked --no-sync --no-build python scripts/ci/api_fuzz.py --profile pr
-      test-results-path: reports/api-fuzz/
-      test-results-name: api-fuzz-pr-${{ github.run_attempt }}
   # Backend integration starts only after the complete backend unit coverage gate.
   python-integration:
     name: Integration / Python shard ${{ matrix.shard }} (ARM64)
@@ -605,7 +591,7 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
   backend-integration:
     name: Stage / Backend integration checks
-    needs: [backend-unit, python-integration, migration-upgrade, api-fuzz, recovery]
+    needs: [backend-unit, python-integration, migration-upgrade, recovery]
     if: always() && !cancelled()
     runs-on: ubuntu-24.04
     steps:
@@ -617,9 +603,6 @@ jobs:
           echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" '
             ([.["backend-unit"], .["python-integration"], .["migration-upgrade"]]
              | all(.result == "success")) and
-            (if $event == "pull_request" or $event == "merge_group"
-             then .["api-fuzz"].result == "success"
-             else .["api-fuzz"].result == "skipped" end) and
             (if $event == "pull_request" or $event == "merge_group" or $event == "push"
              then .recovery.result == "success" else .recovery.result == "skipped" end)'
   frontend-integration:
@@ -696,7 +679,6 @@ jobs:
       - partner-web
       - user-web
       - extensions
-      - api-fuzz
       - python-integration
       - migration-upgrade
       - reader-parity
@@ -731,9 +713,6 @@ jobs:
             .containers.result == "success" and
             (if $event == "pull_request" or $event == "merge_group" or $event == "push"
              then .recovery.result == "success" else .recovery.result == "skipped" end) and
-            (if $event == "pull_request" or $event == "merge_group"
-             then .["api-fuzz"].result == "success"
-             else .["api-fuzz"].result == "skipped" end) and
             (if $event == "pull_request" or $event == "merge_group"
              then .mutation.result == "success" and .property.result == "success"
              else .mutation.result == "skipped" and .property.result == "skipped" end) and

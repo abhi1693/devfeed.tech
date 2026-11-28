@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { McpContent } from "@/components/mcp-content";
-import { mcpAgentPrompt, mcpConfiguration, mcpEndpoint } from "@/lib/mcp";
+import { mcpAgentPrompt, mcpConfiguration, mcpEndpoint, mcpPageDescription } from "@/lib/mcp";
 
 import * as runtime from "@/lib/reader-runtime";
 const configuredEndpoint = "https://mcp.ingress.test/devfeed/mcp";
@@ -11,6 +11,37 @@ const configuredEndpoint = "https://mcp.ingress.test/devfeed/mcp";
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+it("explains public discovery and optional account actions before setup", () => {
+  render(<McpContent initialEndpoint={configuredEndpoint} />);
+  const title = screen.getByRole("heading", { name: "DevFeed MCP server", level: 1 });
+  const introduction = screen.getByText(mcpPageDescription);
+  const connection = screen.getByRole("region", { name: "Server connection" });
+  expect(
+    title.compareDocumentPosition(introduction) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    introduction.compareDocumentPosition(connection) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(introduction.textContent).toMatch(/six public read tools/);
+  expect(introduction.textContent).toMatch(/nine optional account tools/);
+  expect(introduction.textContent).toMatch(/manage bookmarks and follows, and like articles/);
+  expect(introduction.textContent).not.toContain("six read-only tools");
+  const tools = screen.getByRole("table", { name: "DevFeed MCP tools" });
+  expect(
+    [...tools.querySelectorAll("tbody td:last-child")].map((cell) => cell.textContent),
+  ).toEqual([...Array(6).fill("Public"), ...Array(9).fill("Sign-in")]);
+  const examples = screen.getByRole("region", { name: "Try asking your agent" });
+  expect(examples.querySelectorAll("li")).toHaveLength(3);
+  expect(examples.textContent).toContain("Find recent PostgreSQL articles.");
+  expect(examples.textContent).toContain("Show my saved articles.");
+  expect(examples.textContent).toContain("Follow the PostgreSQL topic.");
+  for (const tool of examples.querySelectorAll("code")) {
+    expect(
+      [...tools.querySelectorAll("tbody th")].some((row) => row.textContent === tool.textContent),
+    ).toBe(true);
+  }
 });
 
 it("keeps all available tools visible alongside either setup method", () => {
