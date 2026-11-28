@@ -1,29 +1,16 @@
-"""Real, isolated ClickHouse partner metrics for transactional domain tests."""
+"""Partner measurement fixtures use the same PostgreSQL database as the catalog."""
 
 import asyncio
-import time
-import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
-from devfeed_core.analytics import AnalyticsClient
-from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
-from devfeed_core.config import get_settings
-
-from tests.support import analytics
+from devfeed_http.partner_measurements import PartnerMeasurements
+from sqlalchemy import text
 
 
 class PartnerAnalyticsFixture:
-    def __init__(self, settings):
-        self.settings = settings
-
-    def run(self, operation):
-        async def invoke():
-            async with AnalyticsClient(self.settings) as client:
-                client.insert_settings = {"async_insert_busy_timeout_ms": 1}
-                return await operation(DirectEngagementAnalytics(client), client)
-
-        return asyncio.run(invoke())
+    def __init__(self, database):
+        self.database = database
 
     def seed(self, asset_id, day, impressions, clicks, *, baseline=False, updated_at=None):
         self.seed_many(
@@ -40,98 +27,68 @@ class PartnerAnalyticsFixture:
         )
 
     def seed_many(self, rows, *, baseline=False):
-        async def write(store, _client):
-            for offset in range(0, len(rows), 1000):
-                await store.partner_totals(
-                    [
-                        dict(
-                            row,
-                            revision=time.time_ns(),
-                            updated_at=row.get("updated_at") or datetime.now(UTC),
-                        )
-                        for row in rows[offset : offset + 1000]
-                    ],
-                    baseline=baseline,
+        with self.database.begin() as session:
+            for row in rows:
+                session.execute(
+                    text("""
+                    INSERT INTO partner_observations
+                        (asset_id,kind,identity,day,revision,impressions,clicks,updated_at)
+                    VALUES (:asset_id,:kind,:identity,:day,txid_current(),
+                            :impressions,:clicks,:updated_at)
+                    ON CONFLICT (asset_id,kind,identity) DO UPDATE
+                      SET (revision,impressions,clicks,updated_at) =
+                      (excluded.revision,excluded.impressions,excluded.clicks,excluded.updated_at)
+                """),
+                    dict(updated_at=datetime.now(UTC))
+                    | row
+                    | {
+                        "kind": "partner_baseline" if baseline else "partner_import",
+                        "identity": str((row["day"] - date(1970, 1, 1)).days),
+                    },
                 )
 
-        self.run(write)
-
     def publish_claim(self, receipt, kind, claim):
-        async def write(store, _client):
-            await store.partner_events(
-                [
-                    dict(
-                        asset_id=receipt.asset_id,
-                        delivery_id=receipt.delivery_id,
-                        kind=kind,
-                        day=receipt.issued_at.date(),
-                        observed_at=claim.recorded_at,
-                    )
-                ]
+        with self.database.begin() as session:
+            session.execute(
+                text("""
+                INSERT INTO partner_observations
+                    (asset_id,kind,identity,day,revision,impressions,clicks,updated_at)
+                VALUES (:asset,'partner_event',:identity,:day,0,:impressions,:clicks,:stamp)
+                ON CONFLICT DO NOTHING
+            """),
+                {
+                    "asset": receipt.asset_id,
+                    "identity": f"{receipt.delivery_id}:{kind}",
+                    "day": receipt.issued_at.date(),
+                    "impressions": int(kind == "impression"),
+                    "clicks": int(kind == "click"),
+                    "stamp": claim.recorded_at,
+                },
             )
-
-        self.run(write)
 
     def daily(self, asset_ids, *, start=None, end=None):
-        async def read(store, _client):
-            return await store.partner_daily(list(asset_ids), start=start, end=end)
-
-        return self.run(read)
+        return asyncio.run(
+            PartnerMeasurements(self.database).partner_daily(
+                list(asset_ids), start=start or date.min, end=end or date.max
+            )
+        )
 
     def events(self):
-        async def read(_store, client):
-            return await client.query(
-                "SELECT * FROM analytics_partner_events FINAL WHERE kind='partner_event' "
-                "ORDER BY owner,identity"
-            )
-
-        return self.run(read)
+        with self.database() as session:
+            return [
+                dict(row)
+                for row in session.execute(
+                    text("""
+                SELECT asset_id::text AS owner, identity, impressions, clicks,
+                       updated_at AS last_seen
+                FROM partner_observations WHERE kind='partner_event' ORDER BY owner,identity
+            """)
+                ).mappings()
+            ]
 
 
 @pytest.fixture
-def partner_analytics(monkeypatch):
-    configured = analytics.settings()
-    name = "devfeed_partner_" + uuid.uuid4().hex + "_test"
-
-    async def namespace(statement):
-        async with AnalyticsClient(configured) as client:
-            await client.execute(statement)
-
-    asyncio.run(namespace(f"CREATE DATABASE `{name}`"))
-    configured = configured.model_copy(update={"clickhouse_database": name})
-    fixture = PartnerAnalyticsFixture(configured)
-
-    async def initialize(store, client):
-        await client.initialize()
-        await client.insert(
-            "analytics_backfill_progress",
-            [
-                dict(
-                    import_id="direct-v1",
-                    source=source,
-                    page=1,
-                    cursor="null",
-                    boundary="null",
-                    complete=1,
-                )
-                for source in (
-                    "partner_daily_metrics",
-                    "partner_tracked_daily_metrics",
-                    "partner_delivery_events",
-                )
-            ],
-        )
-
-    fixture.run(initialize)
-    settings = get_settings()
-    for field in (
-        "clickhouse_url",
-        "clickhouse_database",
-        "clickhouse_username",
-        "clickhouse_password",
-    ):
-        monkeypatch.setattr(settings, field, getattr(configured, field))
-    try:
-        yield fixture
-    finally:
-        asyncio.run(namespace(f"DROP DATABASE `{name}` SYNC"))
+def partner_analytics(database):
+    with database.begin() as session:
+        session.execute(text("TRUNCATE partner_observations"))
+    return PartnerAnalyticsFixture(database)

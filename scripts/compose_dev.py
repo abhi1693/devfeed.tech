@@ -17,10 +17,8 @@ APPLICATIONS = [
     "admin",
     "admin-api",
     "api",
-    "worker",
     "scheduler",
     "codex-client",
-    "analytics-importer",
 ]
 IGNORED = {
     ".git",
@@ -156,23 +154,16 @@ def enable_profiles(*, notifications: bool, ai: bool) -> None:
 
 def rebuild() -> None:
     services = configuration()["services"]
-    dedicated_workers = [
-        name
-        for name, service in services.items()
-        if name.endswith("-worker") and service.get("environment", {}).get("DEVFEED_WORKER_QUEUE")
-    ]
-    targets = ["migrate", "api", "worker", "scheduler", "admin-api", "admin", *dedicated_workers]
-    if "analytics-importer" in services:
-        targets.append("analytics-importer")
+    workers = [name for name in services if name.endswith("-worker")]
+    targets = ["migrate", "api", "scheduler", "admin-api", "admin", *workers]
     if "codex-server" in services:
         targets.extend(("codex-server", "codex-client"))
     print("Building replacement images; current app containers keep running.", flush=True)
     compose("build", *targets)
     if "chimely" in services:
-        notifications = (
-            services["worker"].get("environment", {}).get("DEVFEED_NOTIFICATIONS_ENABLED", "false")
-        )
-        endpoint = services["worker"].get("environment", {}).get("DEVFEED_CHIMELY_API_URL", "")
+        worker_env = services.get("default-worker", {}).get("environment", {})
+        notifications = worker_env.get("DEVFEED_NOTIFICATIONS_ENABLED", "false")
+        endpoint = worker_env.get("DEVFEED_CHIMELY_API_URL", "")
         if str(notifications).lower() in {"true", "1"} and endpoint == "http://chimely:8080":
             from compose_notifications import provision
 
@@ -191,19 +182,13 @@ def rebuild() -> None:
                     "in the admin header and choose Connect ChatGPT.",
                     flush=True,
                 )
-    applications = [name for name in APPLICATIONS if name in services] + dedicated_workers
-    data_services = ["postgres", "redis"]
-    if "clickhouse" in services:
-        data_services.append("clickhouse")
-    compose("up", "-d", "--wait", *data_services)
+    applications = [name for name in APPLICATIONS if name in services] + workers
+    compose("up", "-d", "--wait", "postgres", "redis")
     print("Stopping app processes before migration; data services remain running.", flush=True)
     compose("stop", *applications)
     compose("run", "--rm", "--no-deps", "migrate")
     # Recreate the one-off migration service too, including after a failed prior run.
     compose("up", "-d", "--wait", "--no-deps", "--force-recreate", "migrate", *applications)
-    if "ch-ui" in services:
-        # UI availability does not gate application migration or health.
-        compose("up", "-d", "--no-deps", "ch-ui")
     print("Local images are running and healthy.", flush=True)
 
 

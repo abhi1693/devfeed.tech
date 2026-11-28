@@ -6,6 +6,7 @@ import logging
 import time
 import uuid
 from collections.abc import Callable
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import timedelta
 from types import SimpleNamespace
@@ -18,6 +19,7 @@ from devfeed_core.analysis import (
     AnalysisCatalog,
     AnalysisResult,
     SourceSnapshot,
+    _PreparedCatalog,
     analysis_candidates,
     analysis_catalog_current,
     apply_analysis,
@@ -40,7 +42,7 @@ from devfeed_core.article_analysis_steps import (
 )
 from devfeed_core.article_jobs import approved_sources
 from devfeed_core.article_quality import identifying_title
-from devfeed_core.catalog_cache import reuse_snapshots, snapshot_current
+from devfeed_core.catalog_cache import SnapshotCache, reuse_snapshots, snapshot_current
 from devfeed_core.config import Settings, get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.inference_validation import ValidationFeedback, validation_feedback
@@ -100,8 +102,8 @@ def _apply_prepared[T](
     from devfeed_core.transaction_retry import run_transaction
 
     for attempt in range(3):
-        # Do not retain full retrieval indexes during the external inference wait.
-        with reuse_snapshots(), reuse_candidates():
+        # Join an opted-in job scope; standalone calls release indexes after apply.
+        with reuse_snapshots(reuse_existing=True), reuse_candidates(reuse_existing=True):
             taxonomy, current = _prepare_application(factory, article_id, snapshot)
             try:
 
@@ -120,7 +122,16 @@ def _apply_prepared[T](
 
 
 def analyze_article(job_id: str) -> None:
-    with job_log_context("analysis", job_id):
+    with job_log_context("analysis", job_id), ExitStack() as scope:
+        if get_settings().analysis_catalog_reuse_enabled and get_settings().cache_enabled:
+            snapshots: SnapshotCache = {}
+            rankings: list[_PreparedCatalog] = []
+            # Clear owned containers even when an exception traceback retains this
+            # frame. Nothing prepared survives into another job or a fork parent.
+            scope.callback(snapshots.clear)
+            scope.callback(rankings.clear)
+            scope.enter_context(reuse_snapshots(retained=snapshots, on_invalidate=rankings.clear))
+            scope.enter_context(reuse_candidates(retained=rankings))
         try:
             _analyze(uuid.UUID(job_id))
         except Exception:

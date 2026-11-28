@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>Hardware Daily</title>
+  <rect width="64" height="64" rx="13" fill="#211c19"/>
+  <g stroke="#ffac68" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 45h10l17-17V16M12 34h7l11-11V12M26 52l18-18h8"/>
+    <circle cx="39" cy="13" r="4" fill="#211c19"/>
+    <circle cx="52" cy="34" r="4" fill="#211c19"/>
+  </g>
+</svg>

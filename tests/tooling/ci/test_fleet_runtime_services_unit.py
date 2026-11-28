@@ -146,10 +146,8 @@ def test_native_worker_probe_requires_exactly_one_expected_physical_queue(
             runtime.worker(expected)
 
 
-@pytest.mark.parametrize("postgres_code,analytics_code", [(0, 0), (1, None), (0, 1)])
-def test_migration_hook_orders_both_schemas_and_propagates_failure(
-    monkeypatch, postgres_code, analytics_code
-):
+@pytest.mark.parametrize("postgres_code", [0, 1])
+def test_migration_hook_runs_postgres_and_propagates_failure(monkeypatch, postgres_code):
     from devfeed_cli import main
     from devfeed_core import db
     from sqlalchemy import event
@@ -162,20 +160,18 @@ def test_migration_hook_orders_both_schemas_and_propagates_failure(
 
     def run(arguments):
         calls.append(arguments)
-        return postgres_code if arguments == ["db", "upgrade"] else analytics_code
+        return postgres_code
 
     monkeypatch.setattr(main, "run", run)
     command = smoke_module.CONTRACTS["migrate"]["command"][-1]
     with pytest.raises(SystemExit) as caught:
         exec(compile(command, "fleet-migration-fixture", "exec"), {})
-    assert caught.value.code == (postgres_code or analytics_code)
-    assert calls == (
-        [["db", "upgrade"]] if postgres_code else [["db", "upgrade"], ["analytics", "upgrade"]]
-    )
+    assert caught.value.code == postgres_code
+    assert calls == [["db", "upgrade"]]
     assert listener.call_args.args[:2] == (engine, "connect")
 
 
-def test_required_clickhouse_is_private_authenticated_bounded_and_owned(monkeypatch):
+def test_native_runtime_services_use_only_postgres_and_redis(monkeypatch):
     command = Mock()
     monkeypatch.setattr(smoke_module, "command", command)
     instance = smoke_module.Smoke("candidate-admin-api", "admin-api")
@@ -183,93 +179,8 @@ def test_required_clickhouse_is_private_authenticated_bounded_and_owned(monkeypa
     instance.wait_probe = Mock()
     try:
         instance.services()
-        clickhouse = instance.prefix + "-clickhouse"
-        runs = [call.args for call in command.call_args_list]
-        launch = next(args for args in runs if clickhouse in args)
-        assert launch[:3] == ("docker", "run", "-d")
-        assert "--publish" not in launch and "-p" not in launch
-        assert launch[launch.index("--network") + 1] == instance.network
-        assert launch[launch.index("--cpus") + 1] == "2"
-        assert launch[launch.index("--memory") + 1] == "2g"
-        assert "CLICKHOUSE_USER=ci" in launch
-        assert "CLICKHOUSE_PASSWORD=disposable-analytics-key" in launch
-        assert launch[-1] == smoke_module.CLICKHOUSE
-        assert clickhouse in instance.containers
-        assert instance.env["DEVFEED_CLICKHOUSE_URL"] == f"http://{clickhouse}:8123"
-        assert instance.env["DEVFEED_CLICKHOUSE_DATABASE"].endswith("_test")
-        assert instance.env["DEVFEED_CLICKHOUSE_USERNAME"] == "ci"
-        instance.wait_probe.assert_any_call(
-            clickhouse,
-            [
-                "clickhouse-client",
-                "--user",
-                "ci",
-                "--password",
-                "disposable-analytics-key",
-                "--database",
-                "fleet_native_test",
-                "--query",
-                "SELECT 1",
-            ],
-            seconds=60,
-        )
+        assert set(instance.containers) == {instance.prefix + "-pg", instance.prefix + "-redis"}
+        assert not any("CLICKHOUSE" in key for key in instance.env)
+        assert not {"backfill", "analytics-importer"} & smoke_module.CONTRACTS.keys()
     finally:
         instance.directory.cleanup()
-
-
-@pytest.mark.parametrize("failed", [False, True])
-def test_preparation_requires_direct_history_and_current_card_policy(monkeypatch, failed):
-    import time
-
-    import devfeed_core.analytics as analytics
-    import devfeed_core.analytics_observation as observation
-    import devfeed_core.analytics_worker as worker_module
-    import devfeed_core.config as config
-
-    state = SimpleNamespace(clock=0.0, cycles=0, current_policies=[])
-    settings = SimpleNamespace(
-        database_url="postgresql+psycopg://worker:fixture@database.invalid/app_test",
-        analytics_backfill_poll_seconds=0,
-    )
-
-    class Client:
-        def __init__(self, supplied):
-            assert supplied is settings
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            pass
-
-        async def initialize(self):
-            pass
-
-        async def status(self):
-            policy = "previous" if state.cycles == 1 else "current"
-            state.current_policies.append(policy)
-            return {"ready": not failed, "policy": policy, "lag_seconds": 0}
-
-    class ImportWorker:
-        def __init__(self, client, supplied):
-            assert isinstance(client, Client) and supplied is settings
-
-        async def once(self):
-            state.cycles += 1
-            state.clock += 30
-            return False
-
-    monkeypatch.setattr(config, "get_settings", lambda: settings)
-    monkeypatch.setattr(analytics, "AnalyticsClient", Client)
-    monkeypatch.setattr(worker_module, "AnalyticsImportWorker", ImportWorker)
-    monkeypatch.setattr(observation, "pipeline_policy_version", lambda supplied: "current")
-    monkeypatch.setattr(time, "monotonic", lambda: state.clock)
-    command = smoke_module.CONTRACTS["backfill"]["command"][-1]
-    if failed:
-        with pytest.raises(RuntimeError, match="coverage is incomplete"):
-            exec(compile(command, "fleet-preparation-fixture", "exec"), {})
-        assert state.cycles == 3
-    else:
-        exec(compile(command, "fleet-preparation-fixture", "exec"), {})
-        assert state.cycles == 2
-    assert state.current_policies[:2] == ["previous", "current"]

@@ -119,7 +119,7 @@ def test_campaign_adapters_keep_account_scope_explicit_settings_and_commit_order
         finally:
             active = False
 
-    analytics, client = object(), object()
+    analytics = object()
     metadata = SimpleNamespace(total=3)
 
     async def reports(measured):
@@ -135,40 +135,29 @@ def test_campaign_adapters_keep_account_scope_explicit_settings_and_commit_order
     service.metadata.return_value = metadata
     service.save.return_value = saved
     construct = Mock(return_value=service)
-    request = SimpleNamespace(
-        app=SimpleNamespace(state=SimpleNamespace(analytics=SimpleNamespace(client=client)))
-    )
-    monkeypatch.setattr(accounts, "require_partner_history", AsyncMock())
     store = Mock(return_value=analytics)
-    monkeypatch.setattr(accounts, "DirectEngagementAnalytics", store)
+    monkeypatch.setattr(accounts, "PartnerMeasurements", store)
     monkeypatch.setattr(accounts, "CampaignService", construct)
     if command == "list":
-        output = asyncio.run(
-            accounts.campaigns(owner.id, factory, identity(), request, limit=1, offset=2)
-        )
+        output = asyncio.run(accounts.campaigns(owner.id, factory, identity(), limit=1, offset=2))
         assert output == {"items": [report], "total": 3}
         service.page.assert_called_once_with(limit=1, offset=2)
     elif command == "get":
-        assert (
-            asyncio.run(accounts.campaign(owner.id, saved.id, factory, identity(), request))
-            is report
-        )
+        assert asyncio.run(accounts.campaign(owner.id, saved.id, factory, identity())) is report
         service.get.assert_called_once_with(saved.id)
     elif command == "create":
         assert accounts.create_campaign(owner.id, body, session, identity()) is saved
         service.save.assert_called_once_with(body)
     else:
         assert (
-            asyncio.run(
-                accounts.update_campaign(owner.id, saved.id, body, factory, identity(), request)
-            )
+            asyncio.run(accounts.update_campaign(owner.id, saved.id, body, factory, identity()))
             is report
         )
         service.save.assert_called_once_with(body, campaign_id=saved.id)
         service.metadata.assert_called_once_with([saved])
     if command != "create":
         metadata.reports.assert_awaited_once_with(analytics)
-        store.assert_called_once_with(client)
+        store.assert_called_once_with(factory)
     construct.assert_called_once_with(session, owner)
     access.assert_called_once_with(
         session, identity(), owner.id, **({"lock": True} if command in {"create", "update"} else {})

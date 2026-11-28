@@ -122,9 +122,9 @@ export async function checkIndependentFeedViews(page, target, output, { signedIn
       animations: "disabled",
     });
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await chooseFor("/trending", "compact", { keyboard: true });
+    await chooseFor("/news", "compact", { keyboard: true });
     await visit("/latest?sort=most_liked", "stacked", { reload: true });
-    await visit("/trending", "compact", { reload: true });
+    await visit("/news", "compact", { reload: true });
     if (signedIn) await visit("/read-later", "cards", { reload: true });
     else await visit("/", "stacked");
 
@@ -188,7 +188,7 @@ export async function checkIndependentFeedViews(page, target, output, { signedIn
       const expected = {
         my_feed: "columns",
         latest: "stacked",
-        trending: "compact",
+        "content:news": "compact",
         read_later: "cards",
         [`topic:${first.id}`]: "compact",
         [`topic:${second.id}`]: "stacked",
@@ -216,7 +216,7 @@ export async function checkIndependentFeedViews(page, target, output, { signedIn
       assert.equal(saved.default_view, "cards");
       assert.deepEqual(saved.views, {
         latest: "stacked",
-        trending: "compact",
+        "content:news": "compact",
         [`topic:${first.id}`]: "compact",
         [`topic:${second.id}`]: "stacked",
         [`source:${source.id}`]: "stacked",

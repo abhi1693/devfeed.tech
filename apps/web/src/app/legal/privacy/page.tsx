@@ -56,9 +56,8 @@ const sections: LegalSection[] = [
         </ul>
         <p>
           Our infrastructure and providers necessarily process connection information such as IP
-          addresses and browser request details. This is separate from DevFeed’s article-click
-          records, which use account or random browser identifiers rather than storing IP addresses
-          or browser fingerprints.
+          addresses and browser request details. DevFeed saves reading progress to your account when
+          you open an original article while signed in.
         </p>
       </>
     ),
@@ -83,10 +82,9 @@ const sections: LegalSection[] = [
           handled by the sign-in provider, not by the extension.
         </p>
         <p>
-          DevFeed records original-article clicks made through the reader for counts and abuse
-          prevention. These records concern activity within DevFeed, not your browsing on other
-          websites. Infrastructure and image providers process connection information such as IP
-          addresses; the extension does not request GPS or device-location access.
+          Opening an original article while signed in updates your daily reading progress.
+          Infrastructure and image providers process connection information such as IP addresses;
+          the extension does not request GPS or device-location access.
         </p>
         <p>
           The extension caches public article and topic records in tab storage to support previews
@@ -127,12 +125,6 @@ const sections: LegalSection[] = [
           Sessions are time-limited and signing out revokes the local session. Theme and other
           interface preferences may be stored in your browser so they survive navigation or a later
           visit.
-        </p>
-        <p>
-          When an anonymous reader opens an original article, DevFeed can set a random visitor
-          cookie lasting up to 30 days. It helps deduplicate clicks and limit abuse.
-          Original-article clicks are counted independently of Google Analytics; opening a preview
-          is not counted as reading the original article.
         </p>
         <p>
           You can clear cookies and site storage in your browser. Blocking session cookies can
@@ -184,8 +176,7 @@ const sections: LegalSection[] = [
           <a href="https://tools.google.com/dlpage/gaoptout">
             Google’s Analytics opt-out browser add-on
           </a>{" "}
-          where supported. These controls do not disable DevFeed’s separate article-click abuse
-          protection.
+          where supported. DevFeed processes signed-in reading progress separately.
         </p>
       </>
     ),
@@ -263,10 +254,9 @@ const sections: LegalSection[] = [
           deletion by email. There is currently no self-service account-deletion control in DevFeed.
         </p>
         <p>
-          Article-click deduplication records are scheduled for removal after 30 days; aggregate
-          article counts can remain. Sessions, rate-limit records and caches expire. Operational
-          records and backups may remain for their operational or recovery periods; deletion from
-          active systems does not imply immediate erasure from every backup.
+          Sessions, rate-limit records and caches expire. Operational records and backups may remain
+          for their operational or recovery periods; deletion from active systems does not imply
+          immediate erasure from every backup.
         </p>
         <p>
           Google Analytics and other independent providers apply their own retention settings and

@@ -99,10 +99,6 @@ and branch coverage is **98%**, configured by `tool.coverage.report.fail_under` 
 minimum when adding code, and raise it as coverage improves. A missing workspace,
 missing report, empty suite, failure, or skipped unit test fails the CI report gate.
 
-CI updates one coverage comment on each same-repository PR, showing test counts
-and line, branch, and combined coverage for each workspace. Superseded PR commits
-cannot overwrite the current comment. Fork PRs and Dependabot runs retain the job
-summary and report artifacts because their tokens cannot write PR comments.
 Download the Python unit artifact for HTML, JSON, and Cobertura XML reports; local
 reports are in `reports/coverage/` (open `html/index.html`). Integration results do
 not inflate the unit coverage score and remain independent CI requirements.

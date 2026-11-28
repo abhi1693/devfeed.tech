@@ -14,7 +14,7 @@ it.each([
   [Sources, getSources, source, "sources"],
   [Topics, getTopics, topic, "topics"],
 ] as const)(
-  "streams catalog results without waiting for the upstream %#",
+  "checks catalog existence before returning its stream boundary %#",
   async (Page, load, item, kind) => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => {
@@ -22,33 +22,23 @@ it.each([
     });
     vi.mocked(getSources).mockReturnValue(held.then(() => [source]));
     vi.mocked(getTopics).mockReturnValue(held.then(() => [topic]));
-    const page = await Page({ searchParams: Promise.resolve({ offset: "60" }) });
+    let resolved = false;
+    const pending = Page({ searchParams: Promise.resolve({ offset: "60" }) }).then((page) => {
+      resolved = true;
+      return page;
+    });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    release();
+    const page = await pending;
     expect(page.props.kind).toBe(kind);
     expect(load).toHaveBeenCalledWith(60, 61);
-    release();
     const result = await page.props.content;
     expect(result.props[kind]).toEqual([item]);
     expect(result.props.offset).toBe(60);
     expect(result.props.withShell).toBe(false);
   },
 );
-it.each([
-  [Sources, "sources"],
-  [Topics, "topics"],
-] as const)("loads direct %s continuations with a lookahead row", async (Page, kind) => {
-  vi.mocked(getSources).mockResolvedValue(
-    Array.from({ length: 61 }, (_, id) => ({ ...source, id: String(id) })),
-  );
-  vi.mocked(getTopics).mockResolvedValue(
-    Array.from({ length: 61 }, (_, id) => ({ ...topic, id: String(id) })),
-  );
-  const page = await Page({ searchParams: Promise.resolve({ offset: "60" }) });
-  const result = await page.props.content;
-  expect(kind === "sources" ? getSources : getTopics).toHaveBeenCalledWith(60, 61);
-  expect(result.props[kind]).toHaveLength(60);
-  expect(result.props.initialPage.items).toHaveLength(60);
-  expect(result.props.initialPage.next_cursor).toBe("120");
-});
 it("keeps the fallback separate from the eventual public content and propagates failures", async () => {
   const content = Promise.resolve(<p>Ready</p>);
   const filters = parseFilters({ q: "existing search" });

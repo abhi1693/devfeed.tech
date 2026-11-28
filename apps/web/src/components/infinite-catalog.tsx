@@ -5,35 +5,42 @@ import { sourceHref } from "@/lib/feed-query";
 import { useCallback } from "react";
 import { Markdown } from "@devfeed/ui/markdown";
 import { AccountError } from "@/lib/user";
-import type { CatalogPage } from "@/lib/catalog-page";
+import { catalogHref, type CatalogPage } from "@/lib/catalog-page";
 import { flattenPageItems, uniquePageItems, useInfinitePages } from "@/lib/use-infinite-pages";
 import type { Source, Topic } from "@/lib/types";
 import { SourceFollow } from "./source-follow";
 import { TopicFollow } from "./topic-follow";
 import { InfiniteScroll } from "./infinite-scroll";
 import { CatalogCard } from "./catalog-card";
+import Link from "./reader-link";
 
 type Item = Source | Topic;
 export function InfiniteCatalog({
   kind,
   initialPage,
+  query = "",
 }: {
   kind: "topics" | "sources";
   initialPage: CatalogPage<Item>;
+  query?: string;
 }) {
   const fetchPage = useCallback(
     async (cursor: string, signal: AbortSignal) => {
-      const response = await readerRequest(`/api/v1/${kind}?offset=${encodeURIComponent(cursor)}`, {
-        signal,
-        cache: "no-store",
-      });
+      const response = await readerRequest(
+        `/api/v1${catalogHref(kind, { query, offset: cursor })}`,
+        {
+          signal,
+          cache: "no-store",
+        },
+      );
       if (!response.ok) throw new AccountError(response.status);
       return (await response.json()) as { items: Item[]; next_cursor: string | null };
     },
-    [kind],
+    [kind, query],
   );
   const { pages, cursor, loading, error, loadMore } = useInfinitePages(initialPage, fetchPage);
   const items = uniquePageItems(flattenPageItems(pages), (item) => item.id);
+  // This directory owns its filtered continuation; the boundary only loads or retries.
   return (
     <InfiniteScroll
       hasMore={cursor !== null}
@@ -41,7 +48,7 @@ export function InfiniteCatalog({
       error={!!error}
       onLoadMore={loadMore}
       label={kind}
-      nextHref={cursor !== null ? `/${kind}?offset=${encodeURIComponent(cursor)}` : undefined}
+      nextHref={undefined}
       endMessage={`You’ve seen all ${kind}.`}
     >
       <div className="topic-grid">
@@ -79,6 +86,11 @@ export function InfiniteCatalog({
           ),
         )}
       </div>
+      {cursor !== null && (
+        <Link className="button" rel="next" href={catalogHref(kind, { query, offset: cursor })}>
+          Next page of {kind}
+        </Link>
+      )}
     </InfiniteScroll>
   );
 }

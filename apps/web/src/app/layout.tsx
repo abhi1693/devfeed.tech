@@ -15,6 +15,8 @@ import { analyticsMeasurementId, clarityProjectId } from "@/lib/server/config";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import browserIcon from "@devfeed/theme/assets/devfeed-icon-32.png";
 import appleIcon from "@devfeed/theme/assets/devfeed-icon-180.png";
+import { ReaderBrandProvider } from "@/components/reader-brand";
+import { isHardwareDaily, readerName, HARDWARE_DESCRIPTION } from "@/lib/reader-brand";
 import "./globals.css";
 import "./reader-motion.css";
 import "./article-actions.css";
@@ -30,19 +32,32 @@ import { ReaderNavigationRecovery } from "@/components/reader-navigation-recover
 import { NotificationStyles } from "@devfeed/ui/notifications";
 export async function generateMetadata(): Promise<Metadata> {
   await connection();
+  const hardware = isHardwareDaily();
+  const title = hardware
+    ? "Hardware Daily — Electronics and embedded engineering"
+    : "DevFeed — Developer news";
+  const description = hardware ? HARDWARE_DESCRIPTION : SITE_DESCRIPTION;
   return {
     robots: { "max-image-preview": "large" },
     metadataBase: new URL(canonicalUrl("/")),
-    ...socialMetadata("DevFeed — Developer news", SITE_DESCRIPTION),
+    ...socialMetadata(title, description),
     icons: {
-      icon: { url: browserIcon.src, type: "image/png", sizes: "32x32" },
-      apple: { url: appleIcon.src, type: "image/png", sizes: "180x180" },
+      icon: {
+        url: hardware ? "/hardware-daily/icon-32.png" : browserIcon.src,
+        type: "image/png",
+        sizes: "32x32",
+      },
+      apple: {
+        url: hardware ? "/hardware-daily/icon-180.png" : appleIcon.src,
+        type: "image/png",
+        sizes: "180x180",
+      },
     },
     title: {
-      default: "DevFeed — Developer news",
-      template: "%s · DevFeed",
+      default: title,
+      template: `%s · ${readerName()}`,
     },
-    description: SITE_DESCRIPTION,
+    description,
   };
 }
 export default async function RootLayout({
@@ -72,32 +87,40 @@ export default async function RootLayout({
       </head>
       <body>
         <ReaderNavigationRecovery />
-        <JsonLd data={siteStructuredData(brandMark)} />
-        <UserProvider>
-          <ReaderContextProvider>
-            <ReaderPromptsProvider>
-              <HeaderSponsorshipProvider>
-                <ThemePreferencesProvider>
-                  <NotificationPreferencesProvider>
-                    <FeedPreferencesProvider>
-                      <WebArticleNavigationProvider>
-                        <SourceFollowsProvider>
-                          <TagFollowsProvider>
-                            <TopicFollowsProvider>
-                              {children}
-                              {modal}
-                            </TopicFollowsProvider>
-                          </TagFollowsProvider>
-                        </SourceFollowsProvider>
-                        <SignupNudge />
-                      </WebArticleNavigationProvider>
-                    </FeedPreferencesProvider>
-                  </NotificationPreferencesProvider>
-                </ThemePreferencesProvider>
-              </HeaderSponsorshipProvider>
-            </ReaderPromptsProvider>
-          </ReaderContextProvider>
-        </UserProvider>
+        <JsonLd
+          data={siteStructuredData(
+            isHardwareDaily()
+              ? { src: "/hardware-daily/icon-512.png", width: 512, height: 512 }
+              : brandMark,
+          )}
+        />
+        <ReaderBrandProvider value={isHardwareDaily()}>
+          <UserProvider>
+            <ReaderContextProvider>
+              <ReaderPromptsProvider>
+                <HeaderSponsorshipProvider>
+                  <ThemePreferencesProvider>
+                    <NotificationPreferencesProvider>
+                      <FeedPreferencesProvider>
+                        <WebArticleNavigationProvider>
+                          <SourceFollowsProvider>
+                            <TagFollowsProvider>
+                              <TopicFollowsProvider>
+                                {children}
+                                {modal}
+                              </TopicFollowsProvider>
+                            </TagFollowsProvider>
+                          </SourceFollowsProvider>
+                          <SignupNudge />
+                        </WebArticleNavigationProvider>
+                      </FeedPreferencesProvider>
+                    </NotificationPreferencesProvider>
+                  </ThemePreferencesProvider>
+                </HeaderSponsorshipProvider>
+              </ReaderPromptsProvider>
+            </ReaderContextProvider>
+          </UserProvider>
+        </ReaderBrandProvider>
         {gaId && <DeferredGoogleAnalytics gaId={gaId} />}
         {clarityId && <DeferredClarity projectId={clarityId} />}
       </body>

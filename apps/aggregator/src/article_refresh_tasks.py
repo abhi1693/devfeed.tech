@@ -403,7 +403,7 @@ class RefreshAnalysisService(ArticleAnalysisService):
     ) -> str | None:
         assert context.refresh_id is not None
         for retry in range(3):
-            with reuse_snapshots(), reuse_candidates():
+            with reuse_snapshots(reuse_existing=True), reuse_candidates(reuse_existing=True):
                 with self.factory() as session:
                     prepared = prepare_refresh_inputs(session, context.refresh_id)
                 metadata = prepared.version, prepared.draft.fields

@@ -99,11 +99,13 @@ export async function checkSelectMenus(page, labels) {
   }
 }
 
-export async function checkSourceFilter(page, target, source, output) {
+export async function checkSourceFilter(page, target, source, output, waitForReader) {
   const viewport = page.viewportSize();
   try {
+    await page.setViewportSize({ width: 320, height: 1000 });
     await page.goto(target);
     await page.locator(".article-card:visible, .article-list-row:visible").first().waitFor();
+    await waitForReader?.();
     await page.locator(".filter-menu > summary").click();
     await checkSelectMenus(page, ["Source"]);
     for (const width of [320, 375, 768, 1440]) {

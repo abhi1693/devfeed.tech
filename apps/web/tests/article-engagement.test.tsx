@@ -26,17 +26,11 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-it("records anonymous clicks while the optional session probe is still loading", async () => {
+it("skips anonymous reading-day writes while the optional session probe is still loading", async () => {
   account.loading = true;
   preview();
   fireEvent.click(screen.getByRole("link", { name: "Read article" }));
-  await waitFor(() =>
-    expect(userRequest).toHaveBeenCalledWith("articles/article/open", {
-      method: "POST",
-      keepalive: true,
-      headers: {},
-    }),
-  );
+  expect(userRequest).not.toHaveBeenCalled();
 });
 
 function preview() {
@@ -55,17 +49,11 @@ function preview() {
   );
 }
 
-it("records no view on preview mount and records an anonymous outbound click", async () => {
+it("records no view on preview mount or anonymous outbound click", async () => {
   preview();
   expect(userRequest).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("link", { name: "Read article" }));
-  await waitFor(() =>
-    expect(userRequest).toHaveBeenCalledWith("articles/article/open", {
-      method: "POST",
-      keepalive: true,
-      headers: {},
-    }),
-  );
+  expect(userRequest).not.toHaveBeenCalled();
 });
 
 it("includes signed-in CSRF and supports opening the original with the middle button", async () => {
@@ -91,6 +79,13 @@ it("includes signed-in CSRF and supports opening the original with the middle bu
 });
 
 it("keeps the original link usable when tracking fails or is throttled", async () => {
+  account.user = {
+    user_id: "user",
+    csrf_token: "csrf",
+    name: null,
+    email: null,
+    expires_at: 4102444800,
+  };
   vi.mocked(userRequest).mockRejectedValue(new Error("Throttled"));
   preview();
   const link = screen.getByRole("link", { name: "Read article" });

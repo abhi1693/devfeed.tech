@@ -29,28 +29,19 @@ def test_saved_http_reads_accept_only_the_from_to_protocol(query, valid):
 
 
 @pytest.mark.parametrize("lower,upper", [("bad", "now"), ("now", "now-1d"), ("now-3660d", "now")])
-def test_invalid_calendar_windows_fail_before_saved_storage_is_opened(monkeypatch, lower, upper):
+def test_retired_overview_returns_gone_for_historical_windows(lower, upper):
     import asyncio
-    from unittest.mock import Mock
 
     from devfeed_admin_api import overview
     from starlette.responses import Response
 
-    read = Mock(side_effect=AssertionError("Invalid dates reached analytics"))
-    analytics = type("Analytics", (), {"section": read})()
     with pytest.raises(HTTPException) as error:
         asyncio.run(
             overview.overview_chart(
-                "publication-rate",
-                Response(),
-                object(),
-                analytics,
-                from_value=lower,
-                to_value=upper,
+                "publication-rate", Response(), object(), from_value=lower, to_value=upper
             )
         )
-    assert error.value.status_code == 422
-    read.assert_not_called()
+    assert error.value.status_code == 410
 
 
 def test_calendar_report_bounds_are_utc_and_reject_an_unbounded_snapshot():

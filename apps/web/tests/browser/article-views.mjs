@@ -211,7 +211,7 @@ export async function checkArticleViews(page, target, output, routes = [], { fix
   const record = (request) => {
     const url = new URL(request.url());
     if (
-      /\/api\/v1\/(?:feed|user\/(?:feed|bookmarks|trending))$/.test(url.pathname) &&
+      /\/api\/v1\/(?:feed|user\/(?:feed|bookmarks))$/.test(url.pathname) &&
       !url.searchParams.get("cursor")
     )
       reloads.push(url.href);

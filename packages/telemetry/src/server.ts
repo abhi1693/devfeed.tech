@@ -136,7 +136,7 @@ export async function registerTelemetry(app: "web" | "admin" | "partner") {
   });
   server.unref();
   let sdk: { shutdown(): Promise<void> } | undefined;
-  if (process.env.DEVFEED_OTLP_ENDPOINT) {
+  if (process.env.DEVFEED_TRACES_ENABLED !== "false" && process.env.DEVFEED_OTLP_ENDPOINT) {
     try {
       const [
         { NodeSDK },
@@ -190,7 +190,7 @@ export async function registerTelemetry(app: "web" | "admin" | "partner") {
     }
   }
   let profiler: { stop(): Promise<void> } | undefined;
-  if (process.env.DEVFEED_PYROSCOPE_SERVER) {
+  if (process.env.DEVFEED_PROFILES_ENABLED !== "false" && process.env.DEVFEED_PYROSCOPE_SERVER) {
     try {
       const pyroscope = (await import("@pyroscope/nodejs")).default;
       pyroscope.setLogger({

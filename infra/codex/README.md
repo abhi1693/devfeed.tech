@@ -36,3 +36,21 @@ Pinned implementation: [configuration schema](https://github.com/openai/codex/bl
 and [inactive-thread lifecycle](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/app-server/src/request_processors/thread_lifecycle.rs#L59).
 The [app-server documentation](https://learn.chatgpt.com/docs/app-server#unsubscribe-from-a-loaded-thread)
 describes the default last-subscriber grace period.
+
+## Codex bridge health
+
+The bridge process exposes a small, unauthenticated health-only HTTP endpoint on
+port **4502**, `/readyz`. It returns only `ready` or `unavailable`. Each check still
+requires the upstream Codex `/readyz` response to succeed and a fresh connection to
+the private Unix bridge socket. Concurrent liveness/readiness probes share only
+an in-flight check, never a previous successful result. Failed, timed-out and
+stopped-child checks fail closed. The TLS/WebSocket RPC service and credentials
+remain on their existing transport and are not exposed through this endpoint.
+
+Compose uses Alpine's native `wget` against loopback instead of starting another
+Node process for every probe. The legacy `node /opt/devfeed/health.cjs` probe stays
+compatible during mixed-image rollout. The candidate-image smoke validates both
+commands and still exercises the shipped entrypoint, private socket permissions,
+TLS credentials, model fixture, idle/disconnect cleanup and active-turn safety.
+
+Kubernetes probes use HTTP GET on pod port 4502 at `/readyz`. Keep this port out of the RPC Service, ingress and tunnel. Roll back the probe alongside its image when returning to a version without the health listener.
