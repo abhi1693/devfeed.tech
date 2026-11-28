@@ -25,6 +25,14 @@ def run_migration_context():
         with get_engine().connect() as connection:
             context.configure(connection=connection, target_metadata=Base.metadata)
             with context.begin_transaction():
+                # Capture this before Alembic creates its version table. An existing
+                # installation needs a verified warehouse import for its active quota.
+                context.config.attributes["fresh_database"] = connection.exec_driver_sql(
+                    "SELECT NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n "
+                    "ON n.oid=c.relnamespace WHERE left(n.nspname, 3) <> 'pg_' "
+                    "AND n.nspname <> 'information_schema' "
+                    "AND c.relkind IN ('r','p','f','v','m','S'))"
+                ).scalar_one()
                 context.run_migrations()
 
 

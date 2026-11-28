@@ -3,7 +3,7 @@ from functools import lru_cache
 from typing import Annotated
 
 from devfeed_core.config import get_settings
-from devfeed_core.db import session_factory
+from devfeed_core.db import read_session_factory, session_factory
 from devfeed_core.redis import create_redis
 from devfeed_http.dependencies import redis_dependency
 from fastapi import Depends, Request
@@ -15,7 +15,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 # Each service owns its cached clients and dependency identity.
 def get_session(request: Request) -> Iterator[Session]:
-    with session_factory()() as session:
+    # Public GETs only read PostgreSQL. Mutating POSTs keep the ordinary factory,
+    # including delivery receipts and search-click persistence.
+    factory = read_session_factory if request.method in {"GET", "HEAD"} else session_factory
+    with factory()() as session:
         request.state.public_read_session = session
         yield session
 

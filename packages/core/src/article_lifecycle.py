@@ -346,6 +346,7 @@ def _processing_facts(
     session: Session, article: Article, taxonomy: AnalysisCatalog | None
 ) -> ProcessingFacts:
     from devfeed_core.analysis import catalog
+    from devfeed_core.article_refresh_jobs import ordinary_job_condition
 
     facts: dict[str, object] = {
         "content": session.get(ArticleContent, article.id),
@@ -357,7 +358,9 @@ def _processing_facts(
         ("discovery", ArticleImageJob, "discover"),
         ("storage", ArticleImageJob, "store"),
     ):
-        statement = select(model).where(model.article_id == article.id)
+        statement = select(model).where(
+            model.article_id == article.id, ordinary_job_condition(model)
+        )
         if model is ArticleAnalysisJob:
             # Active jobs need only execution metadata. The retained input and
             # catalog evidence can be much larger than the article itself.

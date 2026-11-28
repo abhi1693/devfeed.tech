@@ -111,9 +111,7 @@ it("keeps six direct mobile destinations and retains secondary destinations on d
   expect(desktop().getByRole("link", { name: "Connect your agent" }).getAttribute("href")).toBe(
     "/mcp",
   );
-  expect(desktop().getByRole("link", { name: "Leaderboard" }).getAttribute("href")).toBe(
-    "/leaderboard",
-  );
+  expect(desktop().queryByRole("link", { name: "Leaderboard" })).toBeNull();
 });
 
 it("shows only public mobile destinations to guests and hides Read later on both layouts", async () => {

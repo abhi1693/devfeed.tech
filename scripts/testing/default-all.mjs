@@ -20,6 +20,25 @@ export function defaultAllFeed(article, params) {
   };
 }
 
+/** Ignore hidden streaming trees while retaining exact visible order and counts. */
+export async function checkDefaultAllArticles(page, kind, label) {
+  const expected = kind ? [title(kind)] : kinds.map(title);
+  await page.waitForFunction(
+    (expected) =>
+      JSON.stringify(
+        [...document.querySelectorAll(".article-card h2")]
+          .filter((heading) => heading.checkVisibility())
+          .map((heading) => heading.textContent.trim()),
+      ) === JSON.stringify(expected),
+    expected,
+  );
+  assert.deepEqual(
+    await page.locator(".article-card h2:visible").allTextContents(),
+    expected,
+    label,
+  );
+}
+
 /** The same visible behavior and URL contract must hold in web and packaged readers. */
 export async function checkDefaultAll(page, base, output, requests) {
   await mkdir(output, { recursive: true });
@@ -30,17 +49,7 @@ export async function checkDefaultAll(page, base, output, requests) {
       : url;
   };
   const check = async (kind, label) => {
-    const expected = kind ? [title(kind)] : kinds.map(title);
-    await page.waitForFunction(
-      (expected) =>
-        JSON.stringify(
-          [...document.querySelectorAll(".article-card h2")].map((heading) =>
-            heading.textContent.trim(),
-          ),
-        ) === JSON.stringify(expected),
-      expected,
-    );
-    assert.deepEqual(await page.locator(".article-card h2").allTextContents(), expected, label);
+    await checkDefaultAllArticles(page, kind, label);
     const selected = page.locator('.feed-toolbar:visible a[aria-current="page"]');
     assert.equal(
       await selected.textContent(),

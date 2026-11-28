@@ -231,7 +231,7 @@ const installation = (suite) =>
       : ["chromium", "msedge"]),
   );
 
-async function execute(t, args = [], failures = []) {
+async function execute(t, args = [], failures = [], runnerEnvironment = "self-hosted") {
   const directory = await mkdtemp(path.join(tmpdir(), "devfeed-reader-dispatch-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const bin = path.join(directory, "bin");
@@ -268,6 +268,7 @@ process.exit(code);
   const env = {
     ...process.env,
     PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+    RUNNER_ENVIRONMENT: runnerEnvironment,
     READER_FAKE_LOG: log,
     READER_FAKE_LOCK: path.join(directory, "command.lock"),
     READER_FAKE_FAILURES: JSON.stringify(failures),
@@ -304,6 +305,23 @@ test("isolated suites execute only their complete commands and required browser 
     assert.match(result.summary, /UTC start.*Duration \(s\).*Exit/);
     assert.match(result.summary, /\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ/);
   }
+});
+
+test("hosted partner web installs both browsers using the runner system libraries", async (t) => {
+  const result = await execute(t, ["partner-web"], [], "github-hosted");
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.commands, [
+    command(
+      "npx",
+      "--no-install",
+      "--ignore-scripts",
+      "playwright",
+      "install",
+      "chromium",
+      "msedge",
+    ),
+    ...suites["partner-web"],
+  ]);
 });
 
 test("all 18 browser commands belong to exactly one suite, with explicit partner prerequisites", () => {

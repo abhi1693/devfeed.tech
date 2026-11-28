@@ -35,27 +35,9 @@ from devfeed_core.models import (
     TopicProposal,
     TopicRelation,
 )
-from sqlalchemy import event, insert, select, text
-
-from tests.support.analytics_cards import card_publication as card_publication
-from tests.support.overview import publish_section
+from sqlalchemy import event, insert, text
 
 pytestmark = pytest.mark.integration
-
-CHART_FIELDS = {
-    "attention": {"full_automation", "reviews", "source_failures", "blockers"},
-    "publication-rate": {"summary", "activity"},
-    "publication-latency": {"summary", "activity"},
-    "audience-activity": {"activity"},
-    "personalization": {"personalization"},
-    "queue-pressure": {"queues"},
-    "throughput": {"throughput"},
-    "job-outcomes": {"outcomes"},
-    "ai-activity": {"summary", "activity"},
-    "ai-breakdown": {"tasks", "models", "efforts"},
-    "source-output": {"sources", "source_publications_total"},
-    "topic-coverage": {"topics"},
-}
 
 
 def identity(kind, index):
@@ -336,8 +318,6 @@ def cases():
     yield "/v1/admin/articles?limit=100&offset=100", 5
     yield "/v1/admin/topic-proposals?limit=100&offset=100", 3
     yield "/v1/sources?limit=500", 1
-    # Published JSON and bounded refresh-demand metadata; reports are built off-request.
-    yield "/v1/admin/overview/charts/attention?from=now-29d/d&to=now", 4
 
 
 def percentile(values, fraction):
@@ -366,18 +346,7 @@ def profile_request(http, path, budget, repeats=1, *, plans=False, expected_stat
             counts.append(len(statements))
             db_elapsed.append(1000 * sum(row[2] for row in statements))
             assert len(statements) <= budget, (path, len(statements), budget)
-            if path.startswith("/v1/admin/overview/charts/attention"):
-                assert all(
-                    "article_contents" not in sql and "article_analysis_jobs" not in sql
-                    for sql, _, _ in statements
-                ), path
-            if path.startswith("/v1/admin/overview/"):
-                assert all(
-                    table not in sql.casefold()
-                    for sql, _, _ in statements
-                    for table in ("from articles ", "from inference_calls", "from article_contents")
-                ), path
-            if path.startswith(("/v1/feed", "/v1/articles/", "/v1/user/feed", "/v1/user/trending")):
+            if path.startswith(("/v1/feed", "/v1/articles/", "/v1/user/feed")):
                 assert all("classification_provenance" not in sql for sql, _, _ in statements), path
             if "/jobs/" in path or "/topic-proposals" in path:
                 assert all(
@@ -410,20 +379,7 @@ def profile_request(http, path, budget, repeats=1, *, plans=False, expected_stat
     return row, response.json()
 
 
-def test_populated_api_query_budgets(
-    profile_data, database, client, admin_client, monkeypatch, card_publication
-):
-    publish_section(card_publication)
-    # Read fixture timestamps before installing the SQL-budget listeners. Expected
-    # counts follow the returned UTC interval, including a run across midnight.
-    with database() as session:
-        discovered = dict(
-            session.execute(
-                select(Article.id, Article.discovered_at).where(
-                    Article.publication_status == "unpublished"
-                )
-            ).all()
-        )
+def test_populated_api_query_budgets(profile_data, client, admin_client, monkeypatch):
     report_path = os.environ.get("DEVFEED_PROFILE_REPORT")
     repeats = int(os.environ.get("DEVFEED_PROFILE_REPEATS", "1"))
     assert 1 <= repeats <= 100
@@ -433,38 +389,6 @@ def test_populated_api_query_budgets(
         http = admin_client if path.startswith("/v1/admin/") else client
         warm = http.get(path)
         assert warm.status_code == 200, (path, warm.text)
-        if path.startswith("/v1/admin/overview/charts/attention"):
-            report = warm.json()
-            start = datetime.fromisoformat(report["start"]).replace(tzinfo=UTC)
-            end = datetime.fromisoformat(report["end"]).replace(tzinfo=UTC) + timedelta(days=1)
-            assert report["days"] == (end - start).days == 30
-            # Card publication does not certify a completed reconciliation
-            # sweep. Real counts remain readable while source coverage catches up.
-            snapshot = report["snapshot"]
-            assert snapshot["status"] == "catching_up"
-            assert snapshot["generated_at"] is None and snapshot["coverage_expires_at"] is None
-            assert warm.headers["X-Overview-Stale"] == "true"
-            metrics = report["data"]
-            blockers = {blocker["code"]: blocker for blocker in metrics["blockers"]}
-            expected_groups = {
-                "insufficient_text": 0,
-                "analysis_relevance_review": 1,
-                "analysis_failed": 2,
-                "publication_preview": 3,
-                "editorial_review": 4,
-            }
-            for code, remainder in expected_groups.items():
-                blocker = blockers[code]
-                expected = [
-                    i
-                    for i in range(profile_data)
-                    if i % 5 == remainder and start <= discovered[identity("pending", i)] < end
-                ]
-                assert blocker["count"] == len(expected), (code, blocker, expected)
-                expected.sort(key=lambda i: (-(i % 60), identity("pending", i)))
-                assert [target["id"] for target in blocker["targets"]] == [
-                    str(identity("pending", i)) for i in expected[:5]
-                ]
         row, _ = profile_request(http, path, budget, repeats, plans=bool(report_path))
         results.append(row)
     monkeypatch.setattr(get_settings(), "cache_enabled", True)
@@ -493,7 +417,7 @@ def test_populated_api_query_budgets(
         concurrency = int(os.environ.get("DEVFEED_PROFILE_CONCURRENCY", "8"))
         assert 1 <= concurrency <= 16
         workload = [
-            "/v1/admin/overview/charts/attention",
+            "/v1/admin/topic-relationships?limit=100",
             "/v1/admin/articles?limit=100",
             "/v1/admin/jobs/ai-analysis?limit=100",
             "/v1/admin/topic-proposals?limit=100",
@@ -535,145 +459,12 @@ def test_populated_api_query_budgets(
         )
 
 
-def test_blocker_text_threshold_and_overlapping_latest_results(
-    database, admin_client, card_publication
-):
-    from types import SimpleNamespace
+def test_article_content_and_missing_admin_records(profile_data, database, admin_client):
+    identifier = identity("published", 0)
+    with database.begin() as session:
+        session.delete(session.get(ArticleContent, identifier))
 
-    from devfeed_core.editorial import meaningful_text
-
-    samples = [
-        None,
-        "",
-        "x" * 39,
-        "x" * 40,
-        "1 " * 20000,
-        "1 " * 20000 + "x" * 39,
-        "1 " * 20000 + "x" * 40,
-        "é界\n" * 20,
-        "a\n\t1" * 40,
-        "a\n\t1" * 39,
-    ]
-    now = datetime.now(UTC) - timedelta(minutes=1)
-    with get_engine().begin() as connection:
-        connection.execute(
-            insert(Source.__table__),
-            dict(
-                id=identity("threshold-source", 0),
-                name="Threshold publisher",
-                source_type="publisher",
-                feed_url="https://example.test/threshold/rss",
-                approval_status="approved",
-                enabled=True,
-            ),
-        )
-        connection.execute(
-            insert(Article.__table__),
-            [
-                dict(
-                    id=identity("threshold", i),
-                    canonical_url=f"https://example.test/{i}",
-                    url_hash=identity("threshold", i).hex,
-                    title=f"Threshold {i}",
-                    summary="Fallback " * 40 if samples[i] is None else "",
-                    discovered_at=now,
-                    editorial_revision=i,
-                )
-                for i in range(len(samples))
-            ],
-        )
-        connection.execute(
-            insert(ArticleOrigin.__table__),
-            [
-                dict(
-                    article_id=identity("threshold", i),
-                    source_id=identity("threshold-source", 0),
-                    entry_key=str(i),
-                    original_url=f"https://example.test/{i}",
-                )
-                for i in range(len(samples))
-            ],
-        )
-        connection.execute(
-            insert(ArticleContent.__table__),
-            [
-                dict(
-                    article_id=identity("threshold", i),
-                    url=f"https://example.test/{i}",
-                    text=value,
-                    content_hash="a" * 64,
-                    method="html",
-                )
-                for i, value in enumerate(samples)
-                if value is not None
-            ],
-        )
-        # An old failure must not appear once superseded. An unreadable article
-        # stays in the text blocker even when its latest analysis failed.
-        connection.execute(
-            insert(ArticleAnalysisJob.__table__),
-            [
-                dict(
-                    article_id=identity("threshold", i),
-                    status=status,
-                    outcome=(
-                        "applied"
-                        if status == "succeeded" and result.get("outcome") == "applied"
-                        else None
-                    ),
-                    created_at=created,
-                    result=result,
-                )
-                for i, status, created, result in [
-                    (0, "failed", now - timedelta(hours=1), {}),
-                    (
-                        0,
-                        "succeeded",
-                        now,
-                        {
-                            "outcome": "applied",
-                            "developer_relevance": "relevant",
-                            "topics": [],
-                        },
-                    ),
-                    (1, "failed", now, {"publication_policy": {"status": "would_publish"}}),
-                ]
-            ],
-        )
-        expected = sorted(
-            (
-                SimpleNamespace(
-                    id=identity("threshold", i),
-                    editorial_revision=i,
-                    readable=meaningful_text(value if value is not None else "Fallback " * 40),
-                )
-                for i, value in enumerate(samples)
-            ),
-            key=lambda row: row.id,
-        )
-    publish_section(card_publication)
-    response = admin_client.get("/v1/admin/overview/charts/attention")
-    assert response.status_code == 200, response.text
-    blockers = {b["code"]: b for b in response.json()["data"]["blockers"]}
-    unreadable = [r for r in expected if not r.readable]
-    assert blockers["insufficient_text"]["count"] == len(unreadable)
-    assert [(r["id"], r["revision"]) for r in blockers["insufficient_text"]["targets"]] == [
-        (str(r.id), r.editorial_revision) for r in unreadable[:5]
-    ]
-    topic_gap = blockers["topic_not_matched"]
-    assert topic_gap["count"] == 1, blockers
-    assert topic_gap["targets"][0]["id"] == str(identity("threshold", 0))
-    pending_rows = [
-        r
-        for r in expected
-        if r.readable and r.id not in {identity("threshold", 0), identity("threshold", 1)}
-    ]
-    assert blockers["analysis_pending"]["count"] == len(pending_rows)
-    assert blockers["analysis_failed"]["count"] == 0
-    assert blockers["publication_preview"]["count"] == 1
-    assert blockers["publication_preview"]["targets"][0]["id"] == str(identity("threshold", 1))
-    assert blockers["editorial_review"]["count"] == 0
-    assert admin_client.get(f"/v1/admin/articles/{identity('threshold', 0)}/content").json() is None
+    assert admin_client.get(f"/v1/admin/articles/{identifier}/content").json() is None
     missing = uuid.uuid4()
     for path in (
         f"/v1/admin/articles/{missing}/content",

@@ -50,6 +50,7 @@ def normalize_lcov(path: Path, root: Path, workspace: Path) -> None:
 def prepare_reports(
     root: Path = ROOT,
     *,
+    unit_only: bool = False,
     dast_coverage: bool = False,
     mutation_coverage: bool = False,
     property_coverage: bool = False,
@@ -58,7 +59,8 @@ def prepare_reports(
 ) -> None:
     root = root.resolve()
     reports = root / "reports/coverage"
-    databases = [reports / suite / "coverage.db" for suite in PYTHON_SUITES]
+    suites = ("python-unit", "python-loadtest") if unit_only else PYTHON_SUITES
+    databases = [reports / suite / "coverage.db" for suite in suites]
     lcov_reports = [reports / frontend / "lcov.info" for frontend in FRONTENDS]
     utilities = {
         "dast": dast_coverage,
@@ -98,6 +100,7 @@ def prepare_reports(
 if __name__ == "__main__":
     try:
         prepare_reports(
+            unit_only=os.environ.get("SONAR_UNIT_ONLY") == "true",
             dast_coverage=os.environ.get("DAST_COVERAGE_REQUIRED") == "true",
             mutation_coverage=os.environ.get("MUTATION_COVERAGE_REQUIRED") == "true",
             property_coverage=os.environ.get("PROPERTY_COVERAGE_REQUIRED") == "true",

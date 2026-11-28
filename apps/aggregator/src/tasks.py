@@ -1,6 +1,7 @@
 import logging
 import time
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import TypedDict
 
@@ -58,11 +59,10 @@ def store_entries(
     *,
     activity: list[datetime | None] | None = None,
 ) -> int:
-    topics = session.scalars(select(Topic).where(Topic.status == "active")).all()
+    heuristic_catalog: tuple[Sequence[Topic], Sequence[Tag]] | None = None
     supplied_tags, _ = resolve_source_tags(
         session, (tag for entry in parsed.entries for tag in entry.tags)
     )
-    tags = session.scalars(select(Tag)).all()
     created = 0
     # Stable lock order across workers importing the same URLs from different feeds.
     for entry in sorted(parsed.entries, key=lambda item: item.canonical_url):
@@ -168,6 +168,14 @@ def store_entries(
             )
         ) in {"ai", "manual"}:
             continue
+        if heuristic_catalog is None:
+            # Explicit feed labels are independent of heuristic classification.
+            # AI, known-origin and human-owned entries need no ORM catalog load.
+            heuristic_catalog = (
+                session.scalars(select(Topic).where(Topic.status == "active")).all(),
+                session.scalars(select(Tag)).all(),
+            )
+        topics, tags = heuristic_catalog
         for topic_id in sorted(classify(entry.title, entry.summary, entry.tags, topics)):
             session.execute(
                 insert(ArticleTopic)

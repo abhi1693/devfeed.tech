@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from clickhouse_connect.driver.exceptions import DatabaseError
 from devfeed_core import analytics_worker as worker
 from psycopg.errors import QueryCanceled
 
@@ -145,6 +146,36 @@ def test_background_failure_logs_class_without_sql_or_credentials(
     assert record.cause_type == ("QueryCanceled" if with_cause else "none")
     assert record.exc_info is None
     assert secret not in caplog.text
+
+
+@pytest.mark.parametrize("code", [202, 1000])
+def test_background_failure_exposes_structured_clickhouse_code_without_server_text(
+    monkeypatch, caplog, code
+):
+    secret = "password=private-fixture SELECT confidential_parameter"
+    error = worker.AnalyticsUnavailable(secret)
+    error.__cause__ = RuntimeError(secret)
+    error.__cause__.__cause__ = DatabaseError(secret, code=code)
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    importer = SimpleNamespace(
+        once=AsyncMock(side_effect=error), bootstrapping=False, close=AsyncMock()
+    )
+    monkeypatch.setattr(worker, "get_settings", lambda: object())
+    monkeypatch.setattr(worker, "AnalyticsClient", lambda _: client)
+    monkeypatch.setattr(worker, "AnalyticsImportWorker", lambda *_: importer)
+    with pytest.raises(worker.AnalyticsUnavailable):
+        asyncio.run(worker.run(once=True))
+    record = next(
+        record
+        for record in caplog.records
+        if record.message == "analytics_current_reconciliation_failed"
+    )
+    assert record.clickhouse_code == code
+    assert record.cause_type == "RuntimeError" and record.exc_info is None
+    assert all(secret not in str(value) for value in record.__dict__.values())
+    assert secret not in caplog.text
+    importer.close.assert_awaited_once()
 
 
 def test_backoff_deadline_returns_without_a_shutdown_signal():

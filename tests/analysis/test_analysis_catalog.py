@@ -632,3 +632,236 @@ def test_replacing_prepared_generation_releases_old_indexes_before_new_allocatio
                 {"title": f"Generation {generation}"},
             )["topics"]
     assert len(references) == 3
+
+
+@pytest.mark.parametrize("repeat", [1, 2, 1000])
+def test_repeated_terminal_matches_preserve_weighted_fields_overlaps_and_suffixes(repeat):
+    items = [
+        entry("Go", aliases=["Go lang", "lang", "GO"], keywords=["Go lang", "lang"]),
+        entry("C++", aliases=["C#", "工具", "ＡＩ", "foo_bar"]),
+        entry("Suffix", aliases=["lang tools", "tools", "Go lang tools"]),
+        entry("...", aliases=["---", ""]),
+    ]
+    phrase = "Go lang tools C++ C# 工具 AI foo_bar "
+    snapshot = {field: phrase * repeat for field in ("title", "source_summary", "text")}
+    root, frequency, postings = analysis._candidate_indexes(items)
+    expected = [analysis.candidate_score(item, snapshot) for item in items]
+    for _ in range(2):
+        assert (
+            analysis._candidate_scores(root, frequency, postings, len(items), snapshot) == expected
+        )
+    # Matching once in each weighted field must not suppress another field,
+    # another position's longer/suffix phrase, or a subsequent independent call.
+    assert expected == [
+        analysis.candidate_score(item, {field: phrase for field in snapshot}) for item in items
+    ]
+
+
+def test_repeated_terminal_lists_are_consumed_once_per_text_and_released_between_calls():
+    class MatchList(list):
+        reads = 0
+
+        def __iter__(self):
+            self.reads += 1
+            return super().__iter__()
+
+    matches = MatchList([(0, 0, " python ")])
+    root = {"python": {None: matches}}
+    snapshot = {field: "Python " * 1000 for field in ("title", "source_summary", "text")}
+    for iteration in range(2):
+        assert analysis._candidate_scores(root, {}, {}, 1, snapshot) == [52]
+        assert matches.reads == 3 * (iteration + 1)
+
+
+def test_new_terminal_vocabulary_is_not_retained_between_independent_catalogs():
+    # Keep a weak reference to a terminal list: the per-text optimization must
+    # neither retain it across calls nor remember an earlier object's identity.
+    import gc
+    import weakref
+
+    class MatchList(list):
+        pass
+
+    def evaluate():
+        matches = MatchList([(0, 1, " python ")])
+        reference = weakref.ref(matches)
+        assert analysis._candidate_scores(
+            {"python": {None: matches}}, {}, {}, 1, {"text": "Python " * 200}
+        ) == [1]
+        return reference
+
+    references = [evaluate() for _ in range(100)]
+    gc.collect()
+    assert all(reference() is None for reference in references)
+    assert analysis._candidate_scores(
+        {"python": {None: [(0, 0, " python ")]}}, {}, {}, 1, {"title": "Python Python"}
+    ) == [32]
+
+
+@pytest.mark.parametrize("repeat", [1, 100])
+def test_repeated_match_candidates_equal_the_unindexed_semantic_reference(monkeypatch, repeat):
+    settings = configuration(analysis_max_candidates=3, analysis_fallback_candidates=1)
+    monkeypatch.setattr(analysis, "get_settings", lambda: settings)
+    oversized = entry("A oversized", aliases=["λ" * 140000], keywords=["Python"])
+    taxonomy = {
+        "topics": [
+            oversized,
+            entry("alpha", id=str(uuid.UUID(int=2)), aliases=["Go lang", "lang"]),
+            entry("Alpha", id=str(uuid.UUID(int=1)), keywords=["Python", "Go lang"]),
+            entry("工具", aliases=["C++", "foo_bar"]),
+            entry("Unmatched fallback"),
+        ],
+        "tags": [entry("Tags", aliases=["Go lang", "C++"]), entry("Zero fallback")],
+    }
+    snapshot = {
+        field: "Python Go lang C++ 工具 foo_bar " * repeat
+        for field in ("title", "source_summary", "text")
+    }
+    entries = [item for field in ("topics", "tags") for item in taxonomy[field]]
+
+    def semantic_reference(_root, _frequency, _postings, _size, value):
+        # Independent substring-based semantics, not the trie traversal under test.
+        return [analysis.candidate_score(item, value, cache_terms=False) for item in entries]
+
+    with monkeypatch.context() as reference:
+        reference.setattr(analysis, "_candidate_scores", semantic_reference)
+        with analysis.reuse_candidates():
+            expected = analysis.analysis_candidates(taxonomy, snapshot)
+    with analysis.reuse_candidates():
+        actual = analysis.analysis_candidates(taxonomy, snapshot)
+    assert actual == expected
+    assert oversized["id"] not in {item["id"] for item in actual["topics"]}
+    assert len(actual["topics"]) == settings.analysis_max_candidates
+
+
+@pytest.mark.parametrize("vocabulary", ["shared", "unique", "unicode", "large"])
+def test_prepared_vocabulary_reuse_keeps_all_indexes_and_rankings_exact(vocabulary):
+    taxonomy = {"topics": [], "tags": []}
+    for index in range(160):
+        item = entry(f"Runtime {index}", aliases=[f"Runtime alias {index}"])
+        item["keywords"] = (
+            ["container runtime", "Python", "distributed systems"]
+            if vocabulary == "shared"
+            else [f"keyword {index} {j}" for j in range(3)]
+        )
+        item["description"] = "Container runtime and Python systems."
+        if vocabulary == "unicode":
+            item["aliases"] += ["Ｃ＋＋", "Straße", "数学", "é", "e\u0301"]
+        elif vocabulary == "large":
+            item["keywords"] += ["x" * 20_000]
+        taxonomy["topics" if index % 2 else "tags"].append(item)
+    prepared = analysis._PreparedCatalog(taxonomy)
+    entries = [item for _, item in prepared.entries]
+    assert prepared.indexes == analysis._candidate_indexes(entries)
+    for snapshot in ({"title": "Container runtime in Python"}, {"text": "数学 and STRASSE"}, {}):
+        expected = analysis.candidate_scores(entries, snapshot)
+        assert analysis._candidate_scores(*prepared.indexes, len(entries), snapshot) == expected
+
+
+def test_prepared_normalization_reuses_only_bounded_shared_vocabulary(monkeypatch):
+    taxonomy = {
+        "topics": [
+            entry(f"Runtime {i}", keywords=["shared", "python", "systems"]) for i in range(200)
+        ],
+        "tags": [],
+    }
+    calls = []
+    original = analysis.candidate_text
+
+    def normalize(value):
+        calls.append(value)
+        return original(value)
+
+    monkeypatch.setattr(analysis, "candidate_text", normalize)
+    analysis._PreparedCatalog(taxonomy)
+    assert calls.count("python") == calls.count("shared") == calls.count("systems") == 1
+    calls.clear()
+    # No vocabulary or prepared data survives index construction.
+    analysis._PreparedCatalog(taxonomy)
+    assert calls.count("python") == 1
+    assert not analysis._shared_vocabulary(
+        [entry(f"Unique {i}", keywords=[f"keyword {i} {j}" for j in range(5)]) for i in range(32)]
+    )
+
+
+def test_prepared_normalization_keeps_large_and_unicode_values_on_exact_path(monkeypatch):
+    repeated = ["common", "word", "terms", "shared"]
+    large = "x" * (analysis.CANDIDATE_NORMALIZATION_CACHE_CHARS + 1)
+    unicode_value = "Straße"
+    taxonomy = {
+        "topics": [
+            entry(f"Topic {i}", keywords=[*repeated, large, unicode_value]) for i in range(100)
+        ],
+        "tags": [],
+    }
+    calls = []
+    original = analysis.candidate_text
+
+    def normalize(value):
+        calls.append(value)
+        return original(value)
+
+    monkeypatch.setattr(analysis, "candidate_text", normalize)
+    analysis._PreparedCatalog(taxonomy)
+    assert calls.count("common") == 1
+    assert calls.count(large) == calls.count(unicode_value) == 100
+
+
+@pytest.mark.parametrize(
+    "name,slug",
+    [
+        ("C++ Library", "c++-library"),
+        ("Go_Modules", "go-modules"),
+        ("Runtime--tools", "runtime__tools"),
+    ],
+)
+def test_catalog_identity_memo_keeps_ascii_case_and_delimiter_semantics(name, slug):
+    taxonomy = {"topics": [], "tags": [entry(name, slug=slug) for _ in range(100)]}
+    assert analysis._shared_vocabulary(taxonomy["tags"])
+    prepared = analysis._PreparedCatalog(taxonomy)
+    assert prepared.indexes == analysis._candidate_indexes(taxonomy["tags"])
+
+
+def test_specialist_identity_validation_does_not_replace_retained_full_generation():
+    taxonomy = {"topics": [entry("Angular"), entry("React")], "tags": []}
+    result = analysis.Classifications(
+        developer_relevance="relevant",
+        language="en",
+        content_type="tutorial",
+        content_format="article",
+        topics=[
+            {
+                "topic_id": taxonomy["topics"][0]["id"],
+                "role": "primary",
+                "relevance": 0.9,
+                "evidence": "Angular",
+            }
+        ],
+        tags=[],
+    )
+    snapshot = {"title": "Angular and React"}
+    with analysis.reuse_candidates():
+        analysis.analysis_candidates(taxonomy, snapshot)
+        shortlist = {"topics": taxonomy["topics"][:1], "tags": []}
+        full = analysis._ranking.get()[0]
+        analysis.validate_evidence(result, snapshot, shortlist)
+        result.topics[0].topic_id = uuid.UUID(taxonomy["topics"][1]["id"])
+        with pytest.raises(ValueError, match="unknown catalog ID"):
+            analysis.validate_evidence(result, snapshot, shortlist)
+        assert analysis._ranking.get() == [full]
+        assert full.taxonomy is taxonomy
+
+
+def test_job_retained_catalog_matches_uncached_selection_above_production_identity_count():
+    taxonomy = {
+        "topics": [entry(f"Catalog {index}") for index in range(4450)],
+        "tags": [entry(f"Tag {index}") for index in range(55550)],
+    }
+    snapshot = {"title": "Catalog 4449 and Tag 55549"}
+    expected = analysis.analysis_candidates(taxonomy, snapshot)
+    with analysis.reuse_candidates():
+        for _ in range(3):
+            with analysis.reuse_candidates(reuse_existing=True):
+                assert analysis.analysis_candidates(taxonomy, snapshot) == expected
+        assert len(analysis._ranking.get()) == 1
+        assert len(analysis._ranking.get()[0].entries) == 60000

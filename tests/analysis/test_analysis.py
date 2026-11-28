@@ -485,7 +485,7 @@ def test_published_article_cannot_start_analysis_or_change_public_prose(automati
     if automatic:
         assert analysis.request_analysis(db, current.id, automatic=True) is None
     else:
-        with pytest.raises(OperationConflict, match="Unpublish the article"):
+        with pytest.raises(OperationConflict, match="article maintenance"):
             analysis.request_analysis(db, current.id)
     assert current.publication_status == "published" and current.review_status == "approved"
     assert current.ai_summary == "The published overview remains available."

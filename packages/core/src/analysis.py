@@ -9,12 +9,13 @@ import re
 import unicodedata
 import uuid
 from collections import OrderedDict
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import timedelta
 from functools import lru_cache
-from typing import Literal, NotRequired, Self, TypedDict, cast, overload
+from itertools import chain, islice
+from typing import TYPE_CHECKING, Literal, NotRequired, Self, TypedDict, cast, overload
 
 from pydantic import Field, model_validator
 from sqlalchemy import delete, select
@@ -44,6 +45,9 @@ from devfeed_core.models import (
     TopicAnalysisJob,
     utcnow,
 )
+
+if TYPE_CHECKING:
+    from devfeed_core.article_refresh_processing import RefreshInputs
 from devfeed_core.schemas import (
     ContentFormat,
     ContentType,
@@ -62,6 +66,8 @@ ARTICLE_SOURCE_BYTES = 190_000
 CANDIDATE_PROMPT_CACHE_ENTRIES = 2048
 CANDIDATE_PROMPT_CACHE_BYTES = 2 * 1024 * 1024
 ARTICLE_INPUT_RESERVE_BYTES = 32_000
+CANDIDATE_NORMALIZATION_CACHE_ENTRIES = 512
+CANDIDATE_NORMALIZATION_CACHE_CHARS = 128
 VALIDATION_VERSION = "article-validation-v4-specialist-steps"
 TERMINAL_ANALYSIS_ERRORS = frozenset(
     {"ai_not_configured", "unexpected_tool_execution", "unexpected_server_request"}
@@ -393,15 +399,12 @@ def candidate_index(terms: Iterable[tuple[frozenset[str], frozenset[str]]]) -> C
 
 def candidate_description_index(
     descriptions: Iterable[tuple[str | None, str | None]],
+    *,
+    normalize: Callable[[str], str] = candidate_text,
 ) -> tuple[dict[str, int], dict[str, list[int]]]:
     """Build retrieval vocabulary with the same lifetime as its prepared catalog."""
     description_terms = (
-        {
-            word
-            for value in pair
-            if value
-            for word in re.findall(r"[\w+#]{3,}", candidate_text(value))
-        }
+        {word for value in pair if value for word in re.findall(r"[\w+#]{3,}", normalize(value))}
         for pair in descriptions
     )
     document_frequency: dict[str, int] = {}
@@ -411,6 +414,21 @@ def candidate_description_index(
             document_frequency[word] = document_frequency.get(word, 0) + 1
             postings.setdefault(word, []).append(index)
     return document_frequency, postings
+
+
+def _shared_vocabulary(items: Sequence[CatalogItem]) -> bool:
+    # Do not add per-value memo overhead to catalogs whose identifiers/keywords
+    # are mostly unique. This bounded probe only selects an equivalent CPU path.
+    sample = [
+        value.lower().replace("-", " ").replace("_", " ")
+        for item in items[:: max(1, len(items) // 32)][:32]
+        for value in islice(
+            chain((item["name"], item["slug"]), item.get("aliases", []), item.get("keywords", [])),
+            16,
+        )
+        if value and value.isascii() and len(value) <= CANDIDATE_NORMALIZATION_CACHE_CHARS
+    ]
+    return len(sample) >= 8 and len(set(sample)) * 3 <= len(sample) * 2
 
 
 def _candidate_indexes(
@@ -426,8 +444,33 @@ def _candidate_indexes(
         )
         for item in items
     )
+    cached_text = lru_cache(maxsize=CANDIDATE_NORMALIZATION_CACHE_ENTRIES)(candidate_text)
+
+    def normalize(value: str) -> str:
+        # ASCII normalization cannot expand beyond the input plus two spaces.
+        # Keep a small construction-only vocabulary; Unicode/large values retain
+        # the exact uncached path rather than occupying an unbounded byte budget.
+        if value.isascii() and len(value) <= CANDIDATE_NORMALIZATION_CACHE_CHARS:
+            return cached_text(value.lower().replace("-", " ").replace("_", " "))
+        return candidate_text(value)
+
+    memoize = not cache_terms and _shared_vocabulary(items)
+    if memoize:
+        terms = (
+            (
+                frozenset(
+                    normalize(value)
+                    for value in (item["name"], item["slug"], *item.get("aliases", []))
+                    if value
+                ),
+                frozenset(normalize(value) for value in item.get("keywords", []) if value),
+            )
+            for item in items
+        )
     descriptions = ((item.get("description"), item.get("ai_description")) for item in items)
-    frequency, postings = candidate_description_index(descriptions)
+    frequency, postings = candidate_description_index(
+        descriptions, normalize=normalize if memoize else candidate_text
+    )
     return candidate_index(terms), frequency, postings
 
 
@@ -443,6 +486,9 @@ def _candidate_scores(
     for text, weight in evidence:
         matches = set(cast(list[CandidateMatch], root.get(None, []))) if "  " in text else set()
         words = text.strip().split()
+        # A term contributes once per evidence field, even if it occurs at many
+        # positions. Visit each immutable terminal list once for this text only.
+        visited: set[int] = set()
         for start in range(len(words)):
             node = root
             for offset in range(start, len(words)):
@@ -450,7 +496,10 @@ def _candidate_scores(
                 if child is None:
                     break
                 node = cast(CandidateNode, child)
-                matches.update(cast(list[CandidateMatch], node.get(None, [])))
+                terminal = node.get(None)
+                if terminal is not None and (identity := id(node)) not in visited:
+                    visited.add(identity)
+                    matches.update(cast(list[CandidateMatch], terminal))
         for index, group, _ in matches:
             scores[index] += weight * (4 if group == 0 else 1)
 
@@ -804,13 +853,16 @@ def validate_evidence(
         " ".join(str(snapshot.get(field) or "").split())
         for field in ("title", "source_summary", "text")
     )
+    # A specialist shortlist needs only ID membership. Do not replace the
+    # job's complete retrieval generation just to validate a smaller catalog.
+    prepared = _ranking.get()
     for field, selections in (
         ("topics", result.topics),
         ("tags", result.tags),
     ):
         valid = (
-            _prepared_catalog(cast(AnalysisCatalog, taxonomy)).current(field)
-            if _ranking.get() is not None
+            prepared[0].current(field)
+            if prepared and prepared[0].taxonomy is taxonomy
             else {item["id"] for item in taxonomy[field]}
         )
         for item in selections:
@@ -838,6 +890,8 @@ def request_analysis(
     automatic: Literal[False] = False,
     force: bool = False,
     taxonomy: AnalysisCatalog | None = None,
+    refresh_id: uuid.UUID | None = None,
+    refresh_inputs: RefreshInputs | None = None,
 ) -> ArticleAnalysisJob: ...
 
 
@@ -849,6 +903,8 @@ def request_analysis(
     automatic: bool,
     force: bool = False,
     taxonomy: AnalysisCatalog | None = None,
+    refresh_id: uuid.UUID | None = None,
+    refresh_inputs: RefreshInputs | None = None,
 ) -> ArticleAnalysisJob | None: ...
 
 
@@ -859,7 +915,17 @@ def request_analysis(
     automatic: bool = False,
     force: bool = False,
     taxonomy: AnalysisCatalog | None = None,
+    refresh_id: uuid.UUID | None = None,
+    refresh_inputs: RefreshInputs | None = None,
 ) -> ArticleAnalysisJob | None:
+    if refresh_id is not None:
+        from devfeed_core.article_refresh_processing import request_refresh_analysis
+
+        return request_refresh_analysis(
+            session, refresh_id, prepared=refresh_inputs, expected_article_id=identifier
+        )
+    from devfeed_core.article_refresh_jobs import ordinary_job_condition
+
     article = session.scalar(
         select(Article).where(Article.id == identifier).with_for_update(of=Article)
     )
@@ -868,7 +934,7 @@ def request_analysis(
     if article.publication_status == "published":
         if automatic:
             return None
-        raise OperationConflict("Unpublish the article before requesting analysis")
+        raise OperationConflict("Use article maintenance to refresh a published article")
     if not eligible_article(article):
         if automatic:
             return None
@@ -888,6 +954,10 @@ def request_analysis(
         )
     )
     if active:
+        if active.refresh_id is not None:
+            if automatic:
+                return None
+            raise OperationConflict("Previous private maintenance is still stopping")
         return active
     snapshot = source_snapshot(article, session.get(ArticleContent, identifier))
     if not meaningful_text(snapshot["text"]):
@@ -906,6 +976,7 @@ def request_analysis(
             select(ArticleAnalysisJob)
             .where(
                 ArticleAnalysisJob.article_id == identifier,
+                ordinary_job_condition(ArticleAnalysisJob),
                 ArticleAnalysisJob.input_hash == digest,
                 ArticleAnalysisJob.prompt_version == PROMPT_VERSION,
                 ArticleAnalysisJob.model == settings.codex_model,
@@ -945,7 +1016,10 @@ def request_analysis(
     if automatic and not force:
         latest = session.scalar(
             select(ArticleAnalysisJob)
-            .where(ArticleAnalysisJob.article_id == identifier)
+            .where(
+                ArticleAnalysisJob.article_id == identifier,
+                ordinary_job_condition(ArticleAnalysisJob),
+            )
             .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id.desc())
             .limit(1)
         )
@@ -1078,6 +1152,8 @@ def fail_analysis(
 def apply_analysis(
     session: Session, article: Article, job: ArticleAnalysisJob, result: AnalysisResult
 ) -> None:
+    if job.refresh_id is not None:
+        raise OperationConflict("Private maintenance must use its guarded replacement application")
     current = source_snapshot(article, session.get(ArticleContent, article.id))
     if (
         article.editorial_revision != job.editorial_revision

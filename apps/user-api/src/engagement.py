@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 import hashlib
-import secrets
 import uuid
-from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Annotated, TypedDict
 
-from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
-from devfeed_core.analytics_article_opens import ArticleOpenAnalytics
 from devfeed_core.models import (
     Article,
     ArticleBookmark,
@@ -19,12 +15,9 @@ from devfeed_core.models import (
 )
 from devfeed_core.publication import visible_article
 from devfeed_core.reading_streaks import record_reading_day
-from devfeed_core.schemas import FeedPage
 from devfeed_http.agent_permissions import AgentAccessPolicy
-from devfeed_http.analytics import analytics_client
 from devfeed_http.dependencies import run_database
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import delete, func, literal, select
 from sqlalchemy.dialects.postgresql import insert
@@ -32,10 +25,9 @@ from sqlalchemy.orm import Session
 
 from devfeed_user_api import oidc
 from devfeed_user_api.auth import TOKEN, User, UserIdentity, require_user
-from devfeed_user_api.config import Settings, get_settings
+from devfeed_user_api.config import get_settings
 from devfeed_user_api.dependencies import DBFactory
 from devfeed_user_api.open_limits import limit_open_requests
-from devfeed_user_api.trending import trending_page
 
 router = APIRouter(prefix="/v1/user", tags=["article-engagement"])
 
@@ -57,7 +49,6 @@ def optional_user(request: Request) -> UserIdentity | None:
 
 
 Viewer = Annotated[UserIdentity | None, Depends(optional_user)]
-ClickHouse = Annotated[AnalyticsClient, Depends(analytics_client)]
 
 
 class EngagementRow(TypedDict):
@@ -70,7 +61,6 @@ class EngagementRow(TypedDict):
 class EngagementOut(BaseModel):
     article_id: uuid.UUID
     likes: int
-    opens: int
     liked: bool
     bookmarked: bool = False
 
@@ -126,13 +116,6 @@ def engagement_rows(
     ]
 
 
-async def _with_opens(
-    rows: Sequence[EngagementRow], analytics: ArticleOpenAnalytics, cutover: datetime
-) -> list[EngagementOut]:
-    totals = await analytics.totals([row["article_id"] for row in rows], cutover=cutover)
-    return [EngagementOut(**row, opens=totals[str(row["article_id"])]) for row in rows]
-
-
 def public_article(session: Session, article_id: uuid.UUID) -> None:
     if (
         session.scalar(select(Article.id).where(Article.id == article_id, visible_article()))
@@ -145,13 +128,10 @@ def public_article(session: Session, article_id: uuid.UUID) -> None:
 async def engagement(
     factory: DBFactory,
     viewer: Viewer,
-    client: ClickHouse,
     article_id: Annotated[list[uuid.UUID], Query(min_length=1, max_length=100)],
 ) -> list[EngagementOut]:
-    analytics = ArticleOpenAnalytics(client)
-    cutover = await analytics.cutover()
     rows = await run_database(factory, engagement_rows, article_id, viewer)
-    return await _with_opens(rows, analytics, cutover)
+    return [EngagementOut(**row) for row in rows]
 
 
 def _write_like(
@@ -177,12 +157,10 @@ def _write_like(
     openapi_extra=AgentAccessPolicy(scope="devfeed:write").openapi_extra(),
 )
 async def like(
-    article_id: uuid.UUID, payload: LikeInput, user: User, factory: DBFactory, client: ClickHouse
+    article_id: uuid.UUID, payload: LikeInput, user: User, factory: DBFactory
 ) -> EngagementOut:
-    analytics = ArticleOpenAnalytics(client)
-    cutover = await analytics.cutover()
     rows = await run_database(factory, _write_like, article_id, payload, user)
-    return (await _with_opens(rows, analytics, cutover))[0]
+    return EngagementOut(**rows[0])
 
 
 def _authorize_open(
@@ -202,71 +180,15 @@ def _record_reading_day(
     session.commit()
 
 
-def _set_visitor_cookie(response: Response, name: str, token: str, settings: Settings) -> None:
-    response.set_cookie(
-        name,
-        token,
-        max_age=60 * 60 * 24 * 30,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite="lax",
-        path="/",
-    )
-
-
 @router.post("/articles/{article_id}/open", response_model=EngagementOut)
 async def opened(
-    article_id: uuid.UUID,
-    request: Request,
-    response: Response,
-    viewer: Viewer,
-    factory: DBFactory,
-    client: ClickHouse,
-) -> EngagementOut | JSONResponse:
+    article_id: uuid.UUID, request: Request, viewer: User, factory: DBFactory
+) -> EngagementOut:
     settings = get_settings()
     if not settings.base_url or not settings.allows_request_origin(request.headers.get("origin")):
         raise HTTPException(403, "Invalid request origin")
-    cookie_name = oidc.cookie_name(settings, "visitor")
-    token = request.cookies.get(cookie_name, "")
-    new_visitor = not TOKEN.fullmatch(token)
-    if new_visitor:
-        token = secrets.token_urlsafe(32)
-    # User identity is stable across devices; anonymous identity is an opaque
-    # first-party cookie. Never count prefetches or disclose individual viewers.
-    identity = "user:" + viewer.user_id if viewer else "visitor:" + token
-    viewer_key = hashlib.sha256(identity.encode()).hexdigest()
-    await run_database(factory, _authorize_open, article_id, viewer_key, viewer is None)
-    analytics = ArticleOpenAnalytics(client)
-    cutover = await analytics.write_cutover()
-    opened_at = utcnow()
-    if viewer:
-        await run_database(factory, _record_reading_day, viewer, article_id, opened_at)
-    try:
-        await analytics.record(article_id, viewer_key, opened_at)
-        await analytics.cutover()
-        rows = await run_database(factory, engagement_rows, [article_id], viewer)
-        result = (await _with_opens(rows, analytics, cutover))[0]
-    except AnalyticsUnavailable:
-        # Preserve the newly assigned anonymous identity even if the insert was
-        # acknowledged after a network timeout, so retry does not double count.
-        failure = JSONResponse(status_code=503, content={"detail": "Analytics unavailable"})
-        if new_visitor and not viewer:
-            _set_visitor_cookie(failure, cookie_name, token, settings)
-        return failure
-    if new_visitor and not viewer:
-        _set_visitor_cookie(response, cookie_name, token, settings)
-    return result
-
-
-@router.get("/trending", response_model=FeedPage)
-async def trending(
-    factory: DBFactory,
-    client: ClickHouse,
-    limit: int = Query(24, ge=1, le=100),
-    cursor: int = Query(0, ge=0, le=1_000_000),
-) -> FeedPage:
-    analytics = ArticleOpenAnalytics(client)
-    await analytics.cutover()
-    return await trending_page(
-        factory, analytics, since=utcnow() - timedelta(days=7), limit=limit, cursor=cursor
-    )
+    viewer_key = hashlib.sha256(("user:" + viewer.user_id).encode()).hexdigest()
+    await run_database(factory, _authorize_open, article_id, viewer_key, False)
+    await run_database(factory, _record_reading_day, viewer, article_id, utcnow())
+    rows = await run_database(factory, engagement_rows, [article_id], viewer)
+    return EngagementOut(**rows[0])

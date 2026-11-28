@@ -8,11 +8,8 @@ from sqlalchemy.pool import ConnectionPoolEntry
 
 from devfeed_core import automation_events as _automation_events  # noqa: F401
 from devfeed_core import notifications as _notifications  # noqa: F401
-from devfeed_core.analytics_producer import ApplicationAnalyticsCapture
 from devfeed_core.cache_events import AppSession
 from devfeed_core.config import Settings, get_settings
-
-ApplicationAnalyticsCapture.install(AppSession)
 
 
 @lru_cache
@@ -74,6 +71,14 @@ def configure_connection(
 
 def session_factory() -> sessionmaker[Session]:
     return sessionmaker(get_engine(), class_=AppSession, expire_on_commit=False)
+
+
+def read_session_factory() -> sessionmaker[Session]:
+    """Keep bounded article rows and relationship loads on one public snapshot."""
+    engine = get_engine().execution_options(
+        isolation_level="REPEATABLE READ", postgresql_readonly=True
+    )
+    return sessionmaker(engine, class_=AppSession, expire_on_commit=False)
 
 
 def database_revision(session: Session) -> str | None:

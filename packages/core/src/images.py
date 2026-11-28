@@ -68,11 +68,12 @@ class ImageParser(HTMLParser):
                 elif len(self.opengraph) < 30:
                     self.opengraph.append({"url": (values["content"] or "")[:4096], "method": key})
         elif (
-            tag == "script" and (values.get("type") or "").lower().strip() == "application/ld+json"
+            tag == "script"
+            and (values.get("type") or "").lower().strip() == "application/ld+json"
+            and len(self.documents) < 20
         ):
-            if len(self.documents) < 20:
-                self.script = []
-                self.script_size = 0
+            self.script = []
+            self.script_size = 0
 
     def handle_data(self, data: str) -> None:
         if self.script is not None:

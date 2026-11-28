@@ -15,6 +15,7 @@ from devfeed_core.config import Settings, get_settings
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
+    ArticleRefresh,
     JobPayloadRetention,
     ResearchVerificationJob,
     TopicAnalysisJob,
@@ -27,6 +28,13 @@ logger = logging.getLogger(__name__)
 # This fixed predicate must remain visible to PostgreSQL even for a generic
 # prepared plan, otherwise the partial retention/success indexes cannot apply.
 _SUCCEEDED: ColumnElement[str] = literal_column("'succeeded'")
+_ACTIVE_REFRESH_STATES: tuple[ColumnElement[str], ...] = (
+    literal_column("'active'"),
+    literal_column("'review'"),
+)
+_TERMINAL_REFRESH_STATES: tuple[ColumnElement[str], ...] = tuple(
+    literal_column(f"'{state}'") for state in ("promoted", "superseded", "cancelled")
+)
 
 
 def _eligible_conditions[T: ArticleAnalysisJob | TopicAnalysisJob](
@@ -41,6 +49,24 @@ def _eligible_conditions[T: ArticleAnalysisJob | TopicAnalysisJob](
             newer.c.topic_id == TopicAnalysisJob.topic_id,
         )
     )
+    successor_conditions: list[ColumnElement[bool]] = []
+    if model is ArticleAnalysisJob:
+        # Private successes never replace ordinary/public evidence. A promoted
+        # owner contributes only its exact selected analysis artifact.
+        successor_conditions.append(
+            or_(
+                newer.c.refresh_id.is_(None),
+                select(ArticleRefresh.id)
+                .where(
+                    ArticleRefresh.id == newer.c.refresh_id,
+                    ArticleRefresh.article_id == newer.c.article_id,
+                    ArticleRefresh.status == "promoted",
+                    ArticleRefresh.analysis_job_id == newer.c.id,
+                )
+                .correlate(newer)
+                .exists(),
+            )
+        )
     # A failed or still-active successor cannot replace the last retained success.
     # Partial subject/range indexes also bound probes through long failed histories.
     newer_exists = or_(
@@ -51,6 +77,7 @@ def _eligible_conditions[T: ArticleAnalysisJob | TopicAnalysisJob](
                 subject,
                 newer.c.status == _SUCCEEDED,
                 newer.c.inputs_pruned_at.is_(None),
+                *successor_conditions,
                 tuple_(newer.c.created_at, newer.c.id) > tuple_(model.created_at, model.id),
             )
             .order_by(newer.c.created_at.desc(), newer.c.id.desc())
@@ -69,6 +96,14 @@ def _eligible_conditions[T: ArticleAnalysisJob | TopicAnalysisJob](
         newer_exists,
     ]
     if model is ArticleAnalysisJob:
+        # A maintenance owner may select an ordinary or previously promoted job
+        # without rebinding it. Protect the selected artifact, not only its owner.
+        conditions.append(
+            ~exists().where(
+                ArticleRefresh.analysis_job_id == model.id,
+                ArticleRefresh.status.in_(_ACTIVE_REFRESH_STATES),
+            )
+        )
         conditions.append(
             exists().where(
                 Article.id == ArticleAnalysisJob.article_id,
@@ -237,11 +272,48 @@ def _prune_page[T: ArticleAnalysisJob | TopicAnalysisJob](
     return len(jobs)
 
 
+def _prune_refresh_payloads(
+    session: Session, state: JobPayloadRetention, now: datetime, settings: Settings
+) -> int:
+    """Redact one sparse page, retaining ownership, receipts and public state."""
+    limit = min(settings.job_payload_scan_batch_size, settings.job_payload_prune_batch_size)
+    owners = session.scalars(
+        select(ArticleRefresh)
+        .options(load_only(ArticleRefresh.id))
+        .where(
+            ArticleRefresh.payload_pruned_at.is_(None),
+            ArticleRefresh.completed_at.is_not(None),
+            ArticleRefresh.status.in_(_TERMINAL_REFRESH_STATES),
+            ArticleRefresh.completed_at < now - timedelta(days=settings.job_payload_retention_days),
+        )
+        .order_by(ArticleRefresh.completed_at, ArticleRefresh.id)
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    ).all()
+    for owner in owners:
+        owner.payload = {}
+        owner.payload_pruned_at = now
+    if len(owners) == limit:
+        # Reuse the existing article cadence for an owner backlog; no additional
+        # checkpoint, queue or scheduler is needed. Pruned rows leave the index.
+        state.next_run_at = min(
+            state.next_run_at, now + timedelta(seconds=settings.job_payload_page_interval_seconds)
+        )
+    if owners:
+        session.info["article_refresh_payload_retention_page"] = {
+            "redacted": len(owners),
+            "next_run_at": state.next_run_at.isoformat(),
+        }
+    return len(owners)
+
+
 def prune_job_payloads(factory: sessionmaker[Session]) -> int:
     """Run at most one due page per history; ownership/checkpoint commit together.
 
     Ordinary ticks only probe two primary-key maintenance rows. A process crash
     rolls back the payload rewrites and cursor, without leaving a timed lease.
+    Due article pages also redact old private-owner payloads; the return value
+    counts job inputs only, with owner redactions reported separately.
     """
     settings = get_settings()
     pruned = 0
@@ -262,9 +334,16 @@ def prune_job_payloads(factory: sessionmaker[Session]) -> int:
                 session.execute(text("SET LOCAL lock_timeout = '100ms'"))
                 session.execute(text("SET LOCAL transaction_timeout = '5s'"))
                 pruned += _prune_page(session, model, state, now, settings)
+                if model is ArticleAnalysisJob:
+                    _prune_refresh_payloads(session, state, now, settings)
+                    session.info["job_payload_retention_page"]["next_run_at"] = (
+                        state.next_run_at.isoformat()
+                    )
         if state is not None:
             # A timeout during flush/commit must not report successful progress.
             logger.info(
                 "job_payload_retention_page", extra=session.info.pop("job_payload_retention_page")
             )
+            if progress := session.info.pop("article_refresh_payload_retention_page", None):
+                logger.info("article_refresh_payload_retention_page", extra=progress)
     return pruned

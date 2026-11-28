@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { promptFeatured, promptFeaturedPath } from "./signup-prompts.mjs";
 
 // Run the same modal journey against the website and both built extensions.
-export async function checkFeedOnboarding(page, home, output) {
+export async function checkFeedOnboarding(page, home, output, lastTopic) {
   await mkdir(output, { recursive: true });
   await page.bringToFront();
   const profilePath = "**/api/v1/user/settings/profile";
@@ -46,6 +46,7 @@ export async function checkFeedOnboarding(page, home, output) {
     await dialog.getByRole("checkbox", { name: "TypeScript", exact: true }).check();
     await dialog.getByRole("button", { name: "Try again", exact: true }).click();
     await dialog.getByText("Couldn’t load more topics.").waitFor({ state: "detached" });
+    if (lastTopic) await dialog.getByRole("checkbox", { name: lastTopic, exact: true }).waitFor();
     assert.ok(await dialog.getByRole("checkbox", { name: "TypeScript", exact: true }).isChecked());
     await dialog.getByRole("checkbox", { name: "TypeScript", exact: true }).uncheck();
     await page.screenshot({ path: `${output}/onboarding-desktop.png` });

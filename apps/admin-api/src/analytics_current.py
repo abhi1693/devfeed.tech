@@ -84,8 +84,9 @@ async def current_snapshot(
     *,
     scope: Literal["cards", "queues"],
     generation: str,
+    card_kinds: Sequence[str] = CARD_KINDS,
 ) -> AnalyticsSnapshot:
-    coverage = (await read_reconciliation_status(client, policy))[scope]
+    coverage = (await read_reconciliation_status(client, policy, card_kinds=card_kinds))[scope]
     completed_at = coverage["completed_at"]
     source_at = coverage["source_at"]
     if completed_at is None or source_at is None:
@@ -142,7 +143,12 @@ class CurrentCards:
         if not status.get("ready") or status.get("policy", self.policy) != self.policy:
             raise preparing()
         snapshot = await current_snapshot(
-            self.client, self.policy, self.now, scope="cards", generation=str(status["version"])
+            self.client,
+            self.policy,
+            self.now,
+            scope="cards",
+            generation=str(status["version"]),
+            card_kinds=kinds,
         )
         return CurrentSelection(self.policy, kinds, snapshot)
 

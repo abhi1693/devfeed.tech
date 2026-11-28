@@ -36,7 +36,10 @@ ROOT = REPO_ROOT
 
 def test_partnership_revision_follows_master_schema():
     scripts = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0039"]
+    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0042"]
+    assert scripts.get_revision("0042").down_revision == "0041"
+    assert scripts.get_revision("0041").down_revision == "0040"
+    assert scripts.get_revision("0040").down_revision == "0039"
     assert scripts.get_revision("0039").down_revision == "0038"
     assert scripts.get_revision("0038").down_revision == "0037"
     assert scripts.get_revision("0037").down_revision == "0036"
@@ -55,6 +58,9 @@ def test_partnership_revision_follows_master_schema():
     assert scripts.get_revision("0024").down_revision == "0023"
     assert scripts.get_revision("0023").down_revision == "0022"
     assert [revision.revision for revision in scripts.walk_revisions("0022", "head")] == [
+        "0042",
+        "0041",
+        "0040",
         "0039",
         "0038",
         "0037",
@@ -299,7 +305,8 @@ def expected_metadata():
         Index(f"ix_{table.name}_matching_tokens", table.c.matching_tokens, postgresql_using="gin")
     Base.metadata.tables["topic_relations"].to_metadata(metadata)
     for name, table in Base.metadata.tables.items():
-        if name.startswith("partner_"):
+        # Revision 0041 adds observations after this historical 0024 snapshot.
+        if name.startswith("partner_") and name != "partner_observations":
             table.to_metadata(metadata)
     return metadata
 

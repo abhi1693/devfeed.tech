@@ -15,15 +15,17 @@ import math
 import re
 import time
 import uuid
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, TypedDict
 
+from clickhouse_connect.driver.external import ExternalData
 from psycopg import AsyncConnection, sql
 from psycopg.errors import LockNotAvailable, QueryCanceled
 
+from devfeed_core.analysis import _PreparedCatalog, reuse_candidates
 from devfeed_core.analytics import (
     AnalyticsClient,
     AnalyticsUnavailable,
@@ -31,11 +33,12 @@ from devfeed_core.analytics import (
     SqlRecord,
 )
 from devfeed_core.analytics_audience_refresh import AudienceMetadataRefresh
-from devfeed_core.analytics_direct_cards import CARD_SOURCES, card_identities
+from devfeed_core.analytics_direct_cards import CARD_SOURCES, card_identities, shard_of
 from devfeed_core.analytics_observation import pipeline_policy_version
 from devfeed_core.analytics_overview_direct import _base, _identity
 from devfeed_core.analytics_overview_reconcile import OverviewReconciler
 from devfeed_core.analytics_schema import JOB_KINDS, JOB_TABLES, TABLES
+from devfeed_core.catalog_cache import SnapshotCache, reuse_snapshots
 from devfeed_core.config import Settings
 
 PROGRESS_TABLE = "analytics_reconcile_progress"
@@ -50,6 +53,29 @@ FINAL_GUARDS = (
 )
 type Connections = Callable[[], AbstractAsyncContextManager[AsyncConnection[SqlRecord]]]
 logger = logging.getLogger(__name__)
+
+
+def _queue_identifiers(identifiers: Collection[str]) -> ExternalData:
+    """Send the complete bounded set as a file, never a large HTTP form field.
+
+    ClickHouse's multipart text-field limit is smaller than a valid 20,000-job
+    snapshot. A RowBinary UUID file is at most 320 KB, scoped to this request,
+    and preserves both membership and exclusion semantics, including empty sets.
+    """
+    if len(identifiers) > MAX_ACTIVE_JOBS:
+        raise AnalyticsUnavailable("Current queue identifier set exceeds its bound")
+    data = bytearray()
+    for identity in identifiers:
+        value = uuid.UUID(identity).bytes
+        # ClickHouse UUID RowBinary stores each of the two UInt64 halves little endian.
+        data.extend(value[:8][::-1])
+        data.extend(value[8:][::-1])
+    return ExternalData(
+        file_name="reconcile_queue_ids",
+        data=bytes(data),
+        fmt="RowBinary",
+        structure="id UUID",
+    )
 
 
 def _finished_builder(task: asyncio.Task[list[SqlRecord]]) -> None:
@@ -77,8 +103,20 @@ def _timestamp(value: object) -> datetime | None:
     raise ValueError("Invalid reconciliation timestamp")
 
 
-async def read_reconciliation_status(client: AnalyticsClient, policy: str) -> dict[str, Coverage]:
-    """Read acknowledged whole-set coverage without changing import readiness."""
+def card_scope(kind: str) -> str:
+    if kind not in CARD_KINDS:
+        raise ValueError("Unknown analytical card kind")
+    return "cards:" + kind
+
+
+async def read_reconciliation_status(
+    client: AnalyticsClient, policy: str, *, card_kinds: Sequence[str] = CARD_KINDS
+) -> dict[str, Coverage]:
+    """Combine only independently acknowledged populations requested by a reader."""
+    kinds = tuple(sorted(set(card_kinds)))
+    if not kinds:
+        raise ValueError("Card coverage requires a population")
+    scopes = tuple(card_scope(kind) for kind in kinds)
     settings = client.settings
     bounds = {
         "queues": max(60, math.ceil(2 * settings.analytics_reconcile_poll_seconds)),
@@ -92,8 +130,8 @@ async def read_reconciliation_status(client: AnalyticsClient, policy: str) -> di
         rows = await client.query(
             "/* analytics:reconciliation-status */ SELECT scope,completed_at,source_at,pending "
             f"FROM {PROGRESS_TABLE} FINAL WHERE policy={{policy:String}} "
-            "AND scope IN ('queues','cards')" + FINAL_GUARDS,
-            {"policy": policy},
+            "AND scope IN {scopes:Array(String)}" + FINAL_GUARDS,
+            {"policy": policy, "scopes": ["queues", *scopes]},
         )
     except AnalyticsUnavailable as error:
         cause = error.__cause__
@@ -102,17 +140,32 @@ async def read_reconciliation_status(client: AnalyticsClient, policy: str) -> di
         ):
             return result
         raise
-    seen: set[str] = set()
+    observed: dict[str, Coverage] = {}
     for row in rows:
         scope = row["scope"]
-        if scope not in result or scope in seen or row["pending"] not in (0, 1):
+        if scope not in ("queues", *scopes) or scope in observed or row["pending"] not in (0, 1):
             raise ValueError("Ambiguous reconciliation coverage")
-        seen.add(scope)
-        result[scope] = {
+        observed[scope] = {
             "completed_at": _timestamp(row["completed_at"]),
             "source_at": _timestamp(row["source_at"]),
             "pending": bool(row["pending"]),
-            "max_age_seconds": bounds[scope],
+            "max_age_seconds": bounds["queues" if scope == "queues" else "cards"],
+        }
+    if "queues" in observed:
+        result["queues"] = observed["queues"]
+    populations = [observed.get(scope) for scope in scopes]
+    if all(
+        row is not None and row["completed_at"] is not None and row["source_at"] is not None
+        for row in populations
+    ):
+        covered = [row for row in populations if row is not None]
+        result["cards"] = {
+            "completed_at": max(
+                row["completed_at"] for row in covered if row["completed_at"] is not None
+            ),
+            "source_at": min(row["source_at"] for row in covered if row["source_at"] is not None),
+            "pending": any(row["pending"] for row in covered),
+            "max_age_seconds": bounds["cards"],
         }
     return result
 
@@ -192,8 +245,12 @@ class CurrentStateReconciler:
         self._leader_context: AbstractAsyncContextManager[AsyncConnection[SqlRecord]] | None = None
         self._version = 0
         self._turn = 0
+        self._card_turn = 0
+        self._todo_turn = 0
         self._builder: asyncio.Task[list[SqlRecord]] | None = None
         self._interrupted_page_builder: asyncio.Task[list[SqlRecord]] | None = None
+        self._card_catalogs: SnapshotCache = {}
+        self._card_ranking: list[_PreparedCatalog] = []
         self._audience_metadata = AudienceMetadataRefresh(client, self._source_snapshot)
         self._overview = OverviewReconciler(
             client, settings, self._source_snapshot, policy=self.policy, clock=self.clock
@@ -230,8 +287,18 @@ class CurrentStateReconciler:
 
     async def _load(self) -> None:
         rows = await self.client.query(
-            f"SELECT * FROM {PROGRESS_TABLE} FINAL WHERE policy={{policy:String}}" + FINAL_GUARDS,
-            {"policy": self.policy},
+            f"SELECT * FROM {PROGRESS_TABLE} FINAL WHERE policy={{policy:String}} "
+            "AND scope IN {scopes:Array(String)}" + FINAL_GUARDS,
+            {
+                "policy": self.policy,
+                "scopes": [
+                    "queues",
+                    "cards",
+                    "active-cards",
+                    "sweep",
+                    *(card_scope(kind) for kind in CARD_KINDS),
+                ],
+            },
         )
         self.progress = {row["scope"]: row for row in rows}
         if len(self.progress) != len(rows):
@@ -271,10 +338,13 @@ class CurrentStateReconciler:
     async def _enqueue(self, owners: Sequence[str]) -> None:
         if not owners:
             return
-        state = self._state("cards")
-        state["todo"] = sorted(set(state.get("todo", ())) | set(owners))
+        state = {"todo": sorted(set(self._state("cards").get("todo", ())) | set(owners))}
         if len(state["todo"]) > MAX_ACTIVE_JOBS:
             raise AnalyticsUnavailable("Current-card target set exceeds its bound")
+        kinds = {owner.split(":", 1)[0] for owner in owners}
+        for kind in sorted(kinds):
+            scope = card_scope(kind)
+            await self._save(scope, self._state(scope), pending=1)
         await self._save("cards", state, pending=1)
 
     @asynccontextmanager
@@ -401,9 +471,9 @@ class CurrentStateReconciler:
             return {}
         rows = await self.client.query(
             "SELECT id,revision,deleted,task,status,attempt,created_at "
-            "FROM analytics_pipeline_events FINAL WHERE domain='queue' AND id IN {ids:Array(UUID)}"
-            + FINAL_GUARDS,
-            {"ids": list(identifiers)},
+            "FROM analytics_pipeline_events FINAL WHERE domain='queue' "
+            "AND id IN (SELECT id FROM reconcile_queue_ids)" + FINAL_GUARDS,
+            external_data=_queue_identifiers(identifiers),
         )
         return {str(row["id"]): row for row in rows}
 
@@ -461,7 +531,7 @@ class CurrentStateReconciler:
         rows = await self.client.query(
             "SELECT id FROM analytics_pipeline_events FINAL WHERE domain='queue' "
             "AND deleted=0 AND status IN ('queued','running') AND revision<={fence:UInt64}"
-            " AND id NOT IN {valid:Array(UUID)}"
+            " AND id NOT IN (SELECT id FROM reconcile_queue_ids)"
             + bound
             + " ORDER BY id LIMIT {limit:UInt32}"
             + FINAL_GUARDS,
@@ -469,8 +539,8 @@ class CurrentStateReconciler:
                 "fence": cycle.revision,
                 "cursor": cycle.cursor,
                 "limit": self.batch,
-                "valid": sorted(cycle.valid),
             },
+            external_data=_queue_identifiers(cycle.valid),
         )
         missing = [str(row["id"]) for row in rows if str(row["id"]) not in cycle.valid]
         if missing:
@@ -513,11 +583,18 @@ class CurrentStateReconciler:
     async def _card_targets(self, kind: str, identifiers: Sequence[str]) -> dict[str, SqlRecord]:
         if not identifiers:
             return {}
+        # Canonical inserts validate the UUID-derived shard; keep lookups on the full key.
         rows = await self.client.query(
             "SELECT entity_id,version,semantic_hash,deleted,next_transition_at "
             "FROM analytics_card_canonical FINAL WHERE policy={policy:String} "
-            "AND kind={kind:String} AND entity_id IN {ids:Array(UUID)}" + FINAL_GUARDS,
-            {"policy": self.policy, "kind": kind, "ids": list(identifiers)},
+            "AND kind={kind:String} AND shard IN {shards:Array(UInt16)} "
+            "AND entity_id IN {ids:Array(UUID)}" + FINAL_GUARDS,
+            {
+                "policy": self.policy,
+                "kind": kind,
+                "shards": sorted({shard_of(identity) for identity in identifiers}),
+                "ids": list(identifiers),
+            },
         )
         result = {str(row["entity_id"]): row for row in rows}
         if len(result) != len(rows):
@@ -529,9 +606,19 @@ class CurrentStateReconciler:
 
         if self._builder is not None and not self._builder.done():
             raise ReconciliationBusy("builder_busy")
-        task = asyncio.create_task(
-            asyncio.to_thread(build_cards, self.settings, kind, identifiers, revision)
-        )
+
+        def build() -> list[SqlRecord]:
+            # Revisions are checked inside each source snapshot. A changed catalog
+            # releases its prepared index before loading the replacement generation.
+            with (
+                reuse_snapshots(
+                    retained=self._card_catalogs, on_invalidate=self._card_ranking.clear
+                ),
+                reuse_candidates(retained=self._card_ranking),
+            ):
+                return build_cards(self.settings, kind, identifiers, revision)
+
+        task = asyncio.create_task(asyncio.to_thread(build))
         self._builder = task
         try:
             # Timeout/cancellation cannot stop the native thread. Keep its task
@@ -616,19 +703,36 @@ class CurrentStateReconciler:
         return True
 
     async def _todo(self) -> bool:
-        state = self._state("cards")
-        todo = state.get("todo", [])
+        # Keep the durable dirty-owner ledger across upgrades; whole-population
+        # coverage lives only in the independent cards:<kind> scopes.
+        state = {"todo": self._state("cards").get("todo", [])}
+        todo = state["todo"]
         if not todo:
             return False
-        kind = todo[0].split(":", 1)[0]
-        if kind not in CARD_KINDS:
+        for offset in range(len(CARD_KINDS)):
+            index = (self._todo_turn + offset) % len(CARD_KINDS)
+            kind = CARD_KINDS[index]
+            page = [value for value in todo if value.startswith(kind + ":")][: self.batch]
+            if page:
+                self._todo_turn = (index + 1) % len(CARD_KINDS)
+                break
+        else:
             raise AnalyticsUnavailable("Invalid current card target")
-        page = [value for value in todo if value.startswith(kind + ":")][: self.batch]
         await self._refresh(kind, [value.split(":", 1)[1] for value in page])
         covered = set(page)
         state["todo"] = [value for value in todo if value not in covered]
-        await self._save("cards", state, pending=1)
+        await self._save("cards", state, pending=int(bool(state["todo"])))
         return True
+
+    async def _current_card_page(self) -> bool:
+        for offset in range(len(CARD_KINDS)):
+            index = (self._card_turn + offset) % len(CARD_KINDS)
+            kind = CARD_KINDS[index]
+            scope = card_scope(kind)
+            if self._due(scope, self.settings.analytics_reconcile_sweep_seconds):
+                self._card_turn = (index + 1) % len(CARD_KINDS)
+                return await self._card_page(scope, current_only=True, selected_kind=kind)
+        return False
 
     def _due(self, scope: str, seconds: float) -> bool:
         row = self.progress.get(scope)
@@ -637,9 +741,19 @@ class CurrentStateReconciler:
         completed = _timestamp(row.get("completed_at"))
         return completed is None or (self.clock() - completed).total_seconds() >= seconds
 
-    async def _card_page(self, scope: str, *, current_only: bool, fast: bool = False) -> bool:
+    async def _card_page(
+        self,
+        scope: str,
+        *,
+        current_only: bool,
+        fast: bool = False,
+        selected_kind: str | None = None,
+    ) -> bool:
         from devfeed_core.analytics_reconcile_sources import card_ids
 
+        kinds = (selected_kind,) if selected_kind is not None else CARD_KINDS
+        if selected_kind is not None and scope != card_scope(selected_kind):
+            raise ValueError("Card scope does not match its population")
         state = self._state(scope)
         if "phase" not in state:
             state.update(
@@ -648,9 +762,9 @@ class CurrentStateReconciler:
                 after=None,
                 started_at=self.clock().isoformat(),
             )
-        if state["phase"] not in {"source", "target"} or not 0 <= state["index"] < len(CARD_KINDS):
+        if state["phase"] not in {"source", "target"} or not 0 <= state["index"] < len(kinds):
             raise AnalyticsUnavailable("Invalid current card sweep cursor")
-        kind = CARD_KINDS[state["index"]]
+        kind = kinds[state["index"]]
         started = _timestamp(state["started_at"])
         if started is None:
             raise AnalyticsUnavailable("Current card coverage boundary is missing")
@@ -710,7 +824,7 @@ class CurrentStateReconciler:
         else:
             state["index"] += 1
             state["after"] = None
-            if state["index"] == len(CARD_KINDS):
+            if state["index"] == len(kinds):
                 if state["phase"] == "source":
                     state.update(phase="target", index=0)
                 else:
@@ -719,7 +833,16 @@ class CurrentStateReconciler:
                     await self._save(
                         scope,
                         {"todo": state.get("todo", []), "last_page_at": self.clock().isoformat()},
-                        pending=int(bool(state.get("todo"))),
+                        pending=(
+                            int(
+                                any(
+                                    value.startswith(selected_kind + ":")
+                                    for value in self._state("cards").get("todo", [])
+                                )
+                            )
+                            if selected_kind is not None
+                            else int(bool(state.get("todo")))
+                        ),
                         source_at=started,
                         completed_at=self.clock(),
                     )
@@ -739,6 +862,8 @@ class CurrentStateReconciler:
     async def _step(self, scope: str) -> bool:
         if scope == "todo":
             return await self._todo()
+        if scope == "cards":
+            return await self._current_card_page()
         if scope == "audience-metadata":
             return await self._audience_metadata.once()
         if scope == "overview":
@@ -771,7 +896,10 @@ class CurrentStateReconciler:
                     "active-cards": self._due(
                         "active-cards", self.settings.analytics_reconcile_poll_seconds
                     ),
-                    "cards": self._due("cards", self.settings.analytics_reconcile_sweep_seconds),
+                    "cards": any(
+                        self._due(card_scope(kind), self.settings.analytics_reconcile_sweep_seconds)
+                        for kind in CARD_KINDS
+                    ),
                     "sweep": last_sweep is None
                     or (self.clock() - last_sweep).total_seconds()
                     >= self.settings.analytics_reconcile_sweep_seconds,

@@ -12,7 +12,6 @@ describe("reader feed descriptors", () => {
     ["/sources/publisher/tutorials", "latest", "latest", false],
     ["/search", "search", "search", false],
     ["/read-later", "bookmarks", "bookmarks", false],
-    ["/trending", "trending", "trending", false],
   ] as const)(
     "%s declares its account modes and fallback capability",
     (path, guest, member, fallback) => {
@@ -187,7 +186,7 @@ describe("shared native feed eligibility", () => {
       });
   });
 
-  it("suppresses paginated, bookmarks, and trending placements", () => {
+  it("suppresses paginated, and bookmark placements", () => {
     for (const descriptor of [readerFeeds.home, readerFeeds.latest, readerFeeds.contextual]) {
       expect(feedPlacements(descriptor, parseFilters({ cursor: "next" }))).toBeUndefined();
       expect(
@@ -198,7 +197,7 @@ describe("shared native feed eligibility", () => {
         ),
       ).toBeUndefined();
     }
-    for (const descriptor of [readerFeeds.bookmarks, readerFeeds.trending])
+    for (const descriptor of [readerFeeds.bookmarks])
       for (const section of ["feed", "topics", "sources"] as const)
         expect(
           feedPlacements(descriptor, parseFilters({}), { section, topicId: "topic-id" }),

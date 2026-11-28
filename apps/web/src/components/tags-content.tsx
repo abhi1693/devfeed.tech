@@ -6,7 +6,7 @@ import { useCallback, useState } from "react";
 import { InfiniteScroll } from "./infinite-scroll";
 import { readerRequest } from "@/lib/reader-runtime";
 import { flattenPageItems, uniquePageItems, useInfinitePages } from "@/lib/use-infinite-pages";
-import type { CatalogPage } from "@/lib/catalog-page";
+import { catalogHref, type CatalogPage } from "@/lib/catalog-page";
 import Link from "./reader-link";
 import { useReaderRouter } from "@/lib/reader-navigation";
 import type { Tag } from "@/lib/types";
@@ -16,23 +16,21 @@ export function tagLetter(name: string) {
   const first = name.charAt(0).toUpperCase();
   return alphabet.includes(first) ? first : "#";
 }
-export function tagsHref(query: string, letter: string, offset = 0) {
-  const params = new URLSearchParams();
-  if (query) params.set("q", query);
-  if (letter) params.set("letter", letter);
-  if (offset) params.set("offset", String(offset));
-  return `/tags${params.size ? `?${params}` : ""}`;
+export function tagsHref(query: string, letter: string, offset: number | string = 0) {
+  return catalogHref("tags", { query, letter, offset });
 }
 export function TagsContent({
   tags,
   query = "",
   letter = "",
   nextCursor,
+  offset = 0,
 }: {
   tags: Tag[];
   query?: string;
   letter?: string;
   nextCursor: string | null;
+  offset?: number;
 }) {
   const router = useReaderRouter();
   const [search, setSearch] = useState(query);
@@ -54,6 +52,7 @@ export function TagsContent({
   const groups = [...alphabet, "#"]
     .map((initial) => ({ initial, tags: items.filter((tag) => tagLetter(tag.name) === initial) }))
     .filter((group) => group.tags.length);
+  // Keep the filtered continuation below as the directory's only Next link.
   return (
     <div className="tags-directory">
       <header className="tags-hero">
@@ -103,6 +102,7 @@ export function TagsContent({
         error={!!error}
         onLoadMore={loadMore}
         label="tags"
+        nextHref={undefined}
         endMessage={items.length ? "You’ve seen all matching tags." : ""}
       >
         {groups.map((group) => (
@@ -124,6 +124,15 @@ export function TagsContent({
             </ul>
           </section>
         ))}
+        {cursor !== null && (
+          <Link
+            className="button"
+            rel="next"
+            href={catalogHref("tags", { query, letter, offset: cursor })}
+          >
+            Next page of tags
+          </Link>
+        )}
         {!items.length && (
           <section className="empty-state">
             <Hash size={32} aria-hidden="true" />
@@ -135,6 +144,13 @@ export function TagsContent({
           </section>
         )}
       </InfiniteScroll>
+      {offset > 0 && (
+        <nav className="pagination" aria-label="Tag pages">
+          <Link className="button" href={tagsHref(query, letter, Math.max(0, offset - 60))}>
+            Previous tags
+          </Link>
+        </nav>
+      )}
     </div>
   );
 }

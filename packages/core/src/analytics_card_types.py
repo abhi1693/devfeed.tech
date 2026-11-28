@@ -9,7 +9,7 @@ from pydantic import Field
 from devfeed_core.analytics_observation import AnalyticsSnapshot
 from devfeed_core.article_processing_retry import RetryTarget
 from devfeed_core.json_types import JsonValue
-from devfeed_core.schemas import InputModel, ORMModel
+from devfeed_core.schemas import ContentFormat, ContentType, InputModel, ORMModel
 from devfeed_core.source_types import SourceType
 
 Stage = Literal[
@@ -42,6 +42,45 @@ class PipelineJobs(ORMModel):
     enrichment: PipelineJob | None = None
     analysis: PipelineJob | None = None
     images: PipelineJob | None = None
+
+
+class MaintenanceTopic(ORMModel):
+    id: uuid.UUID
+    name: str
+    role: str
+
+
+class MaintenanceTag(ORMModel):
+    id: uuid.UUID
+    name: str
+
+
+class MaintenancePreview(ORMModel):
+    title: str
+    summary: str
+    description: str | None
+    image_url: str | None
+    language: str | None
+    content_type: ContentType
+    content_format: ContentFormat
+    topics: list[MaintenanceTopic]
+    tags: list[MaintenanceTag]
+
+
+class MaintenanceDetail(ORMModel):
+    id: uuid.UUID
+    article_id: uuid.UUID
+    target: RetryTarget
+    status: Literal["active", "review", "promoted", "superseded", "cancelled"]
+    version: int
+    created_at: datetime
+    completed_at: datetime | None
+    ready: bool
+    reasons: list[str]
+    allowed_actions: list[Literal["approve", "reject"]]
+    jobs: PipelineJobs
+    retry_targets: list[RetryTarget]
+    replacement: MaintenancePreview
 
 
 class PipelineCard(ORMModel):
@@ -116,6 +155,7 @@ class PipelineDetail(ORMModel):
     advance_label: str | None
     analysis_steps: list[AnalysisStepOut] = Field(default_factory=list)
     retry_targets: list[RetryTarget] = Field(default_factory=list)
+    maintenance: MaintenanceDetail | None = None
 
 
 class AdvancePipeline(InputModel):

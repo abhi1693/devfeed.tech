@@ -437,14 +437,10 @@ def test_worker_finishes_or_defers_once(database, pending, monkeypatch, ambiguou
         assert run.status == ("deferred" if ambiguous else "decided")
         assert len(run.state["calls"]) == (5 if ambiguous else 3)
         assert job.usage["inputTokens"] == 100 * len(calls)
-        from sqlalchemy import text
-
-        measured = session.execute(
-            text("SELECT count(*), sum(tokens) FROM topic_decision_calls WHERE proposal_id=:id"),
-            {"id": proposal.id},
-        ).one()
-        assert measured[0] == len(calls)
-        assert measured[1] == len(calls) * 120
+        # The decision checkpoint is retained after the historical PostgreSQL
+        # analytics table is retired; accounting must not depend on that table.
+        assert len(run.state["calls"]) == len(calls)
+        assert sum(total_tokens(call["tokens"]) for call in run.state["calls"]) == len(calls) * 120
     assert schedule_topic_corrections(database) == 0
     assert schedule_verification(database) == 0
     topic_analysis_tasks._analyze(job_id)
@@ -519,11 +515,10 @@ def test_relationship_budget_counts_started_calls_and_prioritizes_topics(
 ):
     import asyncio
 
+    from devfeed_core.inference_ledger import InferenceLedger
     from devfeed_core.inference_usage import call_id
     from devfeed_core.models import TopicDecisionRun, TopicProposal
     from devfeed_core.topic_decision_budget import admit_relationship_call
-
-    from tests.support.inference_analytics import inference_client
 
     monkeypatch.setenv("DEVFEED_AI_BOUNDED_TOPICS_ENABLED", "true")
     monkeypatch.setenv("DEVFEED_RELATIONSHIP_DAILY_CALL_BUDGET", "1")
@@ -546,22 +541,24 @@ def test_relationship_budget_counts_started_calls_and_prioritizes_topics(
     )
 
     async def run():
-        async with inference_client() as client:
-            assert not await admit_relationship_call(values, settings=get_settings(), client=client)
-            with database.begin() as session:
-                proposal = session.get(TopicProposal, uuid.UUID(pending))
-                session.add(
-                    TopicDecisionRun(
-                        proposal_id=proposal.id,
-                        input_hash=snapshot_hash(proposal.proposed),
-                        status="deferred",
-                        state=initial_state(get_settings()),
-                    )
+        async with await InferenceLedger(get_settings()).connect() as conn:
+            await conn.execute("TRUNCATE inference_usage_ledger, inference_quota_cutover")
+            await conn.execute("INSERT INTO inference_quota_cutover VALUES (true,now())")
+        assert not await admit_relationship_call(values, settings=get_settings())
+        with database.begin() as session:
+            proposal = session.get(TopicProposal, uuid.UUID(pending))
+            session.add(
+                TopicDecisionRun(
+                    proposal_id=proposal.id,
+                    input_hash=snapshot_hash(proposal.proposed),
+                    status="deferred",
+                    state=initial_state(get_settings()),
                 )
-            assert await admit_relationship_call(values, settings=get_settings(), client=client)
-            assert not await admit_relationship_call(
-                {**values, "id": call_id()}, settings=get_settings(), client=client
             )
+        assert await admit_relationship_call(values, settings=get_settings())
+        assert not await admit_relationship_call(
+            {**values, "id": call_id()}, settings=get_settings()
+        )
 
     asyncio.run(run())
 

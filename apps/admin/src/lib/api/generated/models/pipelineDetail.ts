@@ -3,9 +3,10 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.1.8
+ * OpenAPI spec version: 0.3.0
  */
 import type { AnalysisStepOut } from './analysisStepOut';
+import type { MaintenanceDetail } from './maintenanceDetail';
 import type { PipelineCheck } from './pipelineCheck';
 import type { PipelineDetailRetryTargetsItem } from './pipelineDetailRetryTargetsItem';
 import type { PipelineDetailStage } from './pipelineDetailStage';
@@ -21,6 +22,7 @@ export interface PipelineDetail {
   checks: PipelineCheck[];
   editorial_revision: number;
   jobs: PipelineJobs;
+  maintenance?: MaintenanceDetail | null;
   retry_targets?: PipelineDetailRetryTargetsItem[];
   stage: PipelineDetailStage;
   state: string;

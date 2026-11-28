@@ -1,3 +1,7 @@
+import {
+  catalogDirectoriesFixture,
+  checkCatalogDirectories,
+} from "../../../scripts/testing/catalog-directories.mjs";
 import { checkAppIcons } from "../../../scripts/testing/app-icons.mjs";
 import { tagsFixture, checkTags, checkTagFollow } from "../../../scripts/testing/tags.mjs";
 import { checkCatalogSharing } from "../../../scripts/testing/catalog-sharing.mjs";
@@ -183,7 +187,6 @@ async function readerFixture(t, imageProfile) {
   imageDiagnostics = await fixtureImageDiagnostics(context);
   const state = {
     engagementPagination: false,
-    trendingPagination: false,
     defaultAll: false,
     compactArticles: false,
     failNextPage: true,
@@ -216,6 +219,7 @@ async function readerFixture(t, imageProfile) {
     topic: { ...article.topics[0], id: "ABCDEF00-0000-4000-8000-000000000001" },
   });
   const domCatalog = readerDomCatalogFixture();
+  const directoryFixture = catalogDirectoriesFixture();
   const routeFixture = readerRoutesFixture(article);
   const feedMode = feedModeFixture(article);
   const readerContext = readerContextFixture(article);
@@ -273,6 +277,7 @@ async function readerFixture(t, imageProfile) {
         ),
       );
     if (domCatalog.handles(url)) return route.fulfill({ json: domCatalog.respond(url) });
+    if (directoryFixture.handles(url)) return route.fulfill(await directoryFixture.respond(url));
     routeFixture.record(url);
     if (routeFixture.handles(url)) return route.fulfill(routeFixture.respond(url));
     const mutationPath = url.pathname.slice("/api".length);
@@ -351,8 +356,6 @@ async function readerFixture(t, imageProfile) {
         json: { url: testMcpEndpoint },
       });
     }
-    if (url.pathname === "/api/v1/leaderboard")
-      return route.fulfill({ json: { longest_streak: [], reading_days: [] } });
     if (url.pathname === "/api/v1/extension/analytics") {
       if (route.request().method() === "POST") {
         analytics.push(route.request().postDataJSON());
@@ -373,27 +376,7 @@ async function readerFixture(t, imageProfile) {
     const tagResponse = tagsFixture(url);
     if (tagResponse) return route.fulfill(tagResponse);
     let json;
-    if (url.pathname === "/api/v1/user/trending") {
-      const cursor = url.searchParams.get("cursor");
-      // The real endpoint declares a bounded integer query. An omitted cursor
-      // defaults to zero; an empty string is invalid and must not become page zero.
-      if (cursor !== null && (!/^\d+$/.test(cursor) || Number(cursor) > 1_000_000))
-        return route.fulfill({ status: 422, json: { detail: "Invalid trending cursor" } });
-      json =
-        state.trendingPagination && cursor === "24"
-          ? {
-              items: [
-                {
-                  ...article,
-                  id: "22222222-2222-4222-8222-222222222222",
-                  slug: "trending-next-page",
-                  title: "Trending next page article",
-                },
-              ],
-              next_cursor: null,
-            }
-          : { items: feedItems, next_cursor: state.trendingPagination ? "24" : null };
-    } else if (url.pathname === "/api/v1/feed") {
+    if (url.pathname === "/api/v1/feed") {
       if (state.defaultAll)
         return route.fulfill({ json: defaultAllFeed(article, url.searchParams) });
       if (
@@ -482,7 +465,7 @@ async function readerFixture(t, imageProfile) {
         },
       };
     } else return route.fulfill({ status: 404, json: {} });
-    if (state.compactArticles && ["/api/v1/feed", "/api/v1/user/trending"].includes(url.pathname))
+    if (state.compactArticles && url.pathname === "/api/v1/feed")
       json = { ...json, items: json.items.map(compactListArticle) };
     return route.fulfill({ json });
   });
@@ -504,6 +487,7 @@ async function readerFixture(t, imageProfile) {
     loginDestinations,
     serverReads,
     domCatalog,
+    directoryFixture,
     topicContext,
     pathFor: (path) => readerBase + path,
   };
@@ -512,6 +496,14 @@ async function readerFixture(t, imageProfile) {
 test("MCP discovery copy and setup work in built new tabs", { timeout: 180000 }, async (t) => {
   const { page } = await readerFixture(t);
   await checkMcp(page, path.resolve(extension, `../${browser}-mcp`));
+});
+
+test("search opens a visible result without sending a warehouse click", async (t) => {
+  const { page, pathFor } = await readerFixture(t);
+  await checkSearchSecurity(
+    page,
+    pathFor(`/search?${new URLSearchParams({ q: searchSecurityQuery })}`),
+  );
 });
 
 test(
@@ -541,49 +533,6 @@ test(
       0,
     );
     await page.locator(".card-open-link").first().waitFor();
-  },
-);
-
-test(
-  "trending omits the initial cursor and preserves the next integer page",
-  { timeout: 60000 },
-  async (t) => {
-    const { page, pathFor, requests, state } = await readerFixture(t);
-    state.trendingPagination = true;
-    await page.setViewportSize({ width: 800, height: 600 });
-    const trendingRequests = () =>
-      requests.filter((url) => url.pathname === "/api/v1/user/trending");
-
-    const firstPage = page.waitForResponse(
-      (response) => new URL(response.url()).pathname === "/api/v1/user/trending",
-    );
-    await page.goto(pathFor("/trending"));
-    assert.equal(
-      (await firstPage).status(),
-      200,
-      "The first page must satisfy the API cursor contract",
-    );
-    await page.locator(".article-card").first().waitFor();
-    assert.ok(trendingRequests().length > 0);
-    assert.ok(trendingRequests().every((url) => !url.searchParams.has("cursor")));
-    assert.equal(await page.locator(".article-card").count(), 24);
-
-    await page.locator(".pagination").scrollIntoViewIfNeeded();
-    await page.getByRole("link", { name: "Trending next page article", exact: true }).waitFor();
-    assert.ok(trendingRequests().some((url) => url.searchParams.get("cursor") === "24"));
-    assert.ok(
-      trendingRequests().every((url) => [null, "24"].includes(url.searchParams.get("cursor"))),
-    );
-    assert.equal(await page.locator(".article-card").count(), 25);
-    assert.equal(await page.locator(".pagination").getAttribute("data-has-more"), "false");
-
-    const beforeDirectPage = trendingRequests().length;
-    await page.goto(pathFor("/trending?cursor=24"));
-    await page.getByRole("link", { name: "Trending next page article", exact: true }).waitFor();
-    const directRequests = trendingRequests().slice(beforeDirectPage);
-    assert.ok(directRequests.length > 0);
-    assert.ok(directRequests.every((url) => url.searchParams.get("cursor") === "24"));
-    assert.equal(await page.locator(".article-card").count(), 1);
   },
 );
 
@@ -796,7 +745,7 @@ test(
       page,
       `${base}#/latest`,
       path.join(extension, `../${browser}-article-view`),
-      [`${base}#/topics/javascript`, `${base}#/sources/publisher`, `${base}#/trending`],
+      [`${base}#/topics/javascript`, `${base}#/sources/publisher`, `${base}#/news`],
       {
         fixture: (active) => {
           state.compactArticles = active;
@@ -1017,19 +966,12 @@ test(
         ["Explore tags", "#/tags"],
         ["Sources", "#/sources"],
         ["Connect your agent", "#/mcp"],
-        ["Leaderboard", "#/leaderboard"],
-        ["What’s new (opens in a new tab)", "https://changelog.devfeed.tech/"],
         ["Star us on GitHub (opens in a new tab)", "https://github.com/abhi1693/devfeed.tech"],
       ],
       "Sidebar preserves every guest destination, including tags",
     );
     await checkSidebarGitHub(page, path.resolve(extension, `../${browser}-sidebar-github.png`));
     await checkMcp(page, path.resolve(extension, `../${browser}-mcp`));
-    const whatsNew = page
-      .locator(".sidebar")
-      .getByRole("link", { name: "What’s new (opens in a new tab)", exact: true });
-    assert.equal(await whatsNew.getAttribute("href"), "https://changelog.devfeed.tech/");
-    assert.equal(await whatsNew.getAttribute("target"), "_blank");
     assert.equal(
       await page.getByRole("link", { name: "Sign in", exact: true }).getAttribute("href"),
       "https://devfeed.tech/login?return_to=%2Fextension%2Flogin-complete",
@@ -1332,3 +1274,18 @@ test("built new tab favicon loads the shared brand asset", async (t) => {
   const { page } = await readerFixture(t);
   await checkAppIcons(page, { apple: false });
 });
+
+test(
+  "directory pages enforce bounded existence and navigation in built new tabs",
+  { timeout: 180000 },
+  async (t) => {
+    const { page, pathFor, directoryFixture } = await readerFixture(t);
+    await checkCatalogDirectories(
+      page,
+      pathFor,
+      directoryFixture,
+      path.resolve(import.meta.dirname, `../../../reports/catalog-directories/${browser}`),
+      true,
+    );
+  },
+);

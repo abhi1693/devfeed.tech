@@ -48,6 +48,7 @@ def test_retry_selection_keeps_only_unresolved_latest_failure_even_with_out_of_o
         "account_id",
         "storage",
         "image_url",
+        "refresh_id",
     ]
     table = Table(
         model.__tablename__,
@@ -58,15 +59,45 @@ def test_retry_selection_keeps_only_unresolved_latest_failure_even_with_out_of_o
             if name in model.__table__.c
         ],
     )
-    if model is models.ArticleImageJob:
+    if model in {models.ArticleAnalysisJob, models.ArticleEnrichmentJob, models.ArticleImageJob}:
         article_table = Table(
             "articles",
             metadata,
             *[
                 Column(name, models.Article.__table__.c[name].type.copy())
-                for name in ("id", "image_url", "canonical_url", "publication_status")
+                for name in (
+                    "id",
+                    "image_url",
+                    "canonical_url",
+                    "publication_status",
+                    "review_status",
+                    "editorial_revision",
+                )
             ],
         )
+        for record, columns in (
+            (
+                models.ArticleRefresh,
+                (
+                    "id",
+                    "article_id",
+                    "status",
+                    "base_revision",
+                    "image_url",
+                    "analysis_job_id",
+                    "enrichment_job_id",
+                    "discovery_job_id",
+                    "storage_job_id",
+                ),
+            ),
+            (models.ArticleOrigin, ("id", "article_id", "source_id")),
+            (models.Source, ("id", "approval_status")),
+        ):
+            Table(
+                record.__tablename__,
+                metadata,
+                *[Column(name, record.__table__.c[name].type.copy()) for name in columns],
+            )
     engine = create_engine("sqlite://")
     metadata.create_all(engine)
     base = {column.name: None for column in table.c}
@@ -133,7 +164,11 @@ def test_retry_selection_keeps_only_unresolved_latest_failure_even_with_out_of_o
         )
         expected.add(uuid.UUID(int=12))
     with engine.begin() as connection:
-        if model is models.ArticleImageJob:
+        if model in {
+            models.ArticleAnalysisJob,
+            models.ArticleEnrichmentJob,
+            models.ArticleImageJob,
+        }:
             connection.execute(
                 article_table.insert(),
                 [

@@ -58,7 +58,6 @@ function pageName(url) {
     "/latest": "Latest",
     "/topics": "Topics",
     "/sources": "Sources",
-    "/leaderboard": "Leaderboard",
   }[pathname];
   return `${name ?? "Reader"} (\`${pathname}\`)`;
 }

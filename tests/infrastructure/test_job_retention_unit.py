@@ -3,13 +3,20 @@
 import uuid
 from collections import namedtuple
 from contextlib import contextmanager
+from copy import deepcopy
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
 
 import pytest
 from devfeed_core import job_retention
-from devfeed_core.models import ArticleAnalysisJob, JobPayloadRetention, TopicAnalysisJob
+from devfeed_core.models import (
+    ArticleAnalysisJob,
+    ArticleRefresh,
+    JobPayloadRetention,
+    TopicAnalysisJob,
+)
+from sqlalchemy.dialects import postgresql
 
 from tests.support.source_readiness import NOW, configuration
 
@@ -22,6 +29,7 @@ def test_not_due_histories_never_select_candidates_or_write_checkpoints(monkeypa
     session.scalar.return_value = None
     page = Mock()
     monkeypatch.setattr(job_retention, "_prune_page", page)
+    monkeypatch.setattr(job_retention, "_prune_refresh_payloads", Mock(return_value=0))
     monkeypatch.setattr(job_retention, "get_settings", configuration)
     monkeypatch.setattr(job_retention, "utcnow", lambda: NOW)
     assert job_retention.prune_job_payloads(factory) == 0
@@ -31,8 +39,9 @@ def test_not_due_histories_never_select_candidates_or_write_checkpoints(monkeypa
 
 
 @pytest.mark.parametrize("commit_fails", [False, True])
+@pytest.mark.parametrize("owner_redactions", [0, 2])
 def test_due_page_reports_progress_only_after_its_owning_transaction_commits(
-    monkeypatch, commit_fails
+    monkeypatch, commit_fails, owner_redactions
 ):
     session = Mock(info={})
     state = JobPayloadRetention(kind="article", next_run_at=NOW)
@@ -53,15 +62,27 @@ def test_due_page_reports_progress_only_after_its_owning_transaction_commits(
         owned_session.info["job_payload_retention_page"] = progress
         return 1
 
+    owner_progress = {"redacted": owner_redactions, "next_run_at": NOW.isoformat()}
+
+    def prune_owners(owned_session, _state, _now, _settings):
+        if owner_redactions:
+            owned_session.info["article_refresh_payload_retention_page"] = owner_progress
+        return owner_redactions
+
     def report_progress(event, *, extra):
-        # Moving the report inside the transaction would claim success before
-        # a failed commit and must fail this contract.
+        # Moving either report inside the transaction would claim success before
+        # a failed commit. Owner counts must not inflate the job-input result.
         assert committed == [True]
-        assert event == "job_payload_retention_page" and extra is progress
+        if event == "job_payload_retention_page":
+            assert extra is progress
+        else:
+            assert event == "article_refresh_payload_retention_page"
+            assert owner_redactions and extra is owner_progress
 
     page = Mock(side_effect=prune_page)
     report = Mock(side_effect=report_progress)
     monkeypatch.setattr(job_retention, "_prune_page", page)
+    monkeypatch.setattr(job_retention, "_prune_refresh_payloads", prune_owners)
     monkeypatch.setattr(job_retention.logger, "info", report)
     monkeypatch.setattr(job_retention, "get_settings", configuration)
     monkeypatch.setattr(job_retention, "utcnow", lambda: NOW)
@@ -74,7 +95,7 @@ def test_due_page_reports_progress_only_after_its_owning_transaction_commits(
         assert session.scalar.call_count == 1
     else:
         assert job_retention.prune_job_payloads(factory) == 1
-        report.assert_called_once()
+        assert report.call_count == 1 + bool(owner_redactions)
         assert committed == [True, True]
         assert session.info == {}
     page.assert_called_once()
@@ -162,3 +183,76 @@ def test_longer_retention_tightens_the_cutoff_of_a_resumed_page():
     settings = configuration(job_payload_retention_days=365, job_payload_scan_batch_size=1)
     assert job_retention._prune_page(session, ArticleAnalysisJob, state, NOW, settings) == 0
     assert state.cutoff == NOW - timedelta(days=365)
+
+
+@pytest.mark.parametrize("scan,prune,count", [(5, 2, 2), (1, 2, 1), (5, 2, 1), (5, 2, 0)])
+def test_private_owner_redaction_keeps_compact_receipts_and_bounded_existing_cadence(
+    scan, prune, count
+):
+    owners = [
+        ArticleRefresh(
+            id=uuid.uuid4(),
+            article_id=uuid.uuid4(),
+            analysis_job_id=uuid.uuid4(),
+            target="analysis",
+            status="promoted",
+            base_hash="a" * 64,
+            source_hash="b" * 64,
+            payload={"private_body": "retained evidence"},
+            image_url="https://images.example/approved.webp",
+            managed_image={"object_key": "approved-key", "sha256": "c" * 64},
+            requested_by={"subject": "operator"},
+            completed_at=NOW - timedelta(days=40),
+        )
+        for _ in range(count)
+    ]
+
+    def compact(owner):
+        return deepcopy(
+            (
+                owner.id,
+                owner.article_id,
+                owner.analysis_job_id,
+                owner.target,
+                owner.status,
+                owner.base_hash,
+                owner.source_hash,
+                owner.image_url,
+                owner.managed_image,
+                owner.requested_by,
+                owner.completed_at,
+            )
+        )
+
+    before = [compact(owner) for owner in owners]
+    session = MagicMock(info={})
+    session.scalars.return_value.all.return_value = owners
+    state = JobPayloadRetention(kind="article", next_run_at=NOW + timedelta(hours=1))
+    assert (
+        job_retention._prune_refresh_payloads(
+            session,
+            state,
+            NOW,
+            configuration(
+                job_payload_scan_batch_size=scan,
+                job_payload_prune_batch_size=prune,
+            ),
+        )
+        == count
+    )
+    assert [compact(owner) for owner in owners] == before
+    assert all(owner.payload == {} and owner.payload_pruned_at == NOW for owner in owners)
+    expected = NOW + (timedelta(seconds=30) if count == min(scan, prune) else timedelta(hours=1))
+    assert state.next_run_at == expected
+    query = session.scalars.call_args.args[0].compile(dialect=postgresql.dialect())
+    statement = str(query)
+    assert "payload_pruned_at IS NULL" in statement and "completed_at IS NOT NULL" in statement
+    assert all(f"'{status}'" in statement for status in ("promoted", "superseded", "cancelled"))
+    assert not any("status" in key for key in query.params)
+    assert query.params["param_1"] == min(scan, prune)
+    assert "FOR UPDATE SKIP LOCKED" in statement
+    assert statement.split("FROM", 1)[0].strip() == "SELECT article_refreshes.id"
+    if count:
+        assert session.info["article_refresh_payload_retention_page"]["redacted"] == count
+    else:
+        assert not session.info

@@ -20,6 +20,7 @@ from devfeed_core.analytics_blockers import (
     automation_blockers as automation_blockers,
 )
 from devfeed_core.article_jobs import approved_sources, request_article_enrichment
+from devfeed_core.article_refresh_jobs import ordinary_job_condition
 from devfeed_core.config import get_settings
 from devfeed_core.json_types import JsonValue
 from devfeed_core.models import (
@@ -169,7 +170,10 @@ def recover(
             raise OperationConflict("Wait for active analysis before evaluating publication")
         job = session.scalar(
             select(ArticleAnalysisJob)
-            .where(ArticleAnalysisJob.article_id == article_id)
+            .where(
+                ArticleAnalysisJob.article_id == article_id,
+                ordinary_job_condition(ArticleAnalysisJob),
+            )
             .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id.desc())
             .limit(1)
         )

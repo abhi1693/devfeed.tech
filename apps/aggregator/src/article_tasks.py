@@ -85,15 +85,8 @@ def reject_missing_article(
     return True
 
 
-def apply_page(
-    session: Session,
-    article: Article,
-    page: PageArticle,
-    *,
-    source_tag_ids: Iterable[uuid.UUID] = (),
-) -> list[str]:
-    """Fill publisher gaps; preserve nonempty publisher-supplied fields."""
-    values = {}
+def page_values(article: Article, page: PageArticle) -> dict[str, object]:
+    values: dict[str, object] = {}
     if page.has_text:
         values = {
             key: value
@@ -120,6 +113,18 @@ def apply_page(
     if (article.classification_provenance or {}).get("origin") in {"ai", "manual"}:
         values.pop("language", None)
         values.pop("content_type", None)
+    return values
+
+
+def apply_page(
+    session: Session,
+    article: Article,
+    page: PageArticle,
+    *,
+    source_tag_ids: Iterable[uuid.UUID] = (),
+) -> list[str]:
+    """Fill publisher gaps; preserve nonempty publisher-supplied fields."""
+    values = page_values(article, page)
     changed = []
     for key, value in values.items():
         if getattr(article, key) != value:
@@ -183,9 +188,15 @@ def _enrich(job_id: str) -> None:
             return
         job, url = claimed
         token, article_id, attempt = job.lease_token, job.article_id, job.attempts
+        refresh_id = job.refresh_id
     with log_context(article_id=article_id, attempt=attempt):
         assert token is not None  # claim_article initialized ownership.
-        _enrich_claimed(factory, identifier, token, article_id, url, started)
+        if refresh_id is not None:
+            _enrich_claimed(
+                factory, identifier, token, article_id, url, started, refresh_id=refresh_id
+            )
+        else:
+            _enrich_claimed(factory, identifier, token, article_id, url, started)
 
 
 def _enrich_claimed(
@@ -195,6 +206,8 @@ def _enrich_claimed(
     article_id: uuid.UUID,
     url: str,
     started: float,
+    *,
+    refresh_id: uuid.UUID | None = None,
 ) -> None:
     fields: dict[str, object]
     logger.info("article_enrichment_started")
@@ -215,6 +228,17 @@ def _enrich_claimed(
         page = extract_article(result, utcnow())
         if len(followed) > 1:
             page.evidence["publisher_redirects"] = followed
+        if refresh_id is not None:
+            from devfeed_aggregator.article_refresh_tasks import apply_refresh_enrichment
+
+            fields = apply_refresh_enrichment(
+                factory, identifier, token, article_id, refresh_id, url, result, page
+            )
+            logger.info(
+                "article_enrichment_completed",
+                extra={**fields, "duration_ms": elapsed_ms(started)},
+            )
+            return
         with factory.begin() as session:
             job = owned_job(session, ArticleEnrichmentJob, identifier, token)
             if job is None:
@@ -295,6 +319,14 @@ def _enrich_claimed(
                 "limit (DEVFEED_ARTICLE_PAGE_MAX_BYTES)."
             )
         with factory.begin() as session:
+            if refresh_id is not None:
+                approved_sources(session, article_id, lock=True)
+                session.scalar(
+                    select(Article)
+                    .options(lazyload("*"))
+                    .where(Article.id == article_id)
+                    .with_for_update(of=Article)
+                )
             job = owned_job(session, ArticleEnrichmentJob, identifier, token)
             if job is None:
                 logger.warning("article_enrichment_lease_lost")
@@ -310,6 +342,7 @@ def _enrich_claimed(
             job.http_status = transport.status if transport else None
             if (
                 job.status == "failed"
+                and refresh_id is None
                 and get_settings().ai_enabled
                 and approved_sources(session, article_id, lock=True)
             ):

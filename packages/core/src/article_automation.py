@@ -31,6 +31,7 @@ from devfeed_core.article_jobs import (
     request_article_enrichment,
 )
 from devfeed_core.article_lifecycle import reconcile_processing
+from devfeed_core.article_refresh_jobs import ordinary_job_condition
 from devfeed_core.catalog_cache import reuse_snapshots, snapshot_current
 from devfeed_core.catalog_cache import snapshot as catalog_snapshot
 from devfeed_core.config import get_settings
@@ -176,7 +177,10 @@ def reject_known_paywalled_articles(factory: sessionmaker[Session]) -> int:
     """Apply the explicit paywall policy to pending records enriched before this policy."""
     latest_enrichment_id = (
         select(ArticleEnrichmentJob.id)
-        .where(ArticleEnrichmentJob.article_id == Article.id)
+        .where(
+            ArticleEnrichmentJob.article_id == Article.id,
+            ordinary_job_condition(ArticleEnrichmentJob),
+        )
         .order_by(ArticleEnrichmentJob.created_at.desc(), ArticleEnrichmentJob.id.desc())
         .limit(1)
         .correlate(Article)
@@ -240,13 +244,19 @@ def _prepare_article_candidates(
             return None
         analysis_status = session.scalar(
             select(ArticleAnalysisJob.status)
-            .where(ArticleAnalysisJob.article_id == identifier)
+            .where(
+                ArticleAnalysisJob.article_id == identifier,
+                ordinary_job_condition(ArticleAnalysisJob),
+            )
             .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id.desc())
             .limit(1)
         )
         enrichment_status = session.scalar(
             select(ArticleEnrichmentJob.status)
-            .where(ArticleEnrichmentJob.article_id == identifier)
+            .where(
+                ArticleEnrichmentJob.article_id == identifier,
+                ordinary_job_condition(ArticleEnrichmentJob),
+            )
             .order_by(ArticleEnrichmentJob.created_at.desc(), ArticleEnrichmentJob.id.desc())
             .limit(1)
         )
@@ -307,7 +317,10 @@ def _schedule_article_automation(factory: sessionmaker[Session]) -> dict[str, in
                     defer(ArticleAnalysisJob.result),
                     defer(ArticleAnalysisJob.usage),
                 )
-                .where(ArticleAnalysisJob.article_id == identifier)
+                .where(
+                    ArticleAnalysisJob.article_id == identifier,
+                    ordinary_job_condition(ArticleAnalysisJob),
+                )
                 .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id.desc())
                 .limit(1)
                 .with_for_update()
@@ -338,7 +351,10 @@ def _schedule_article_automation(factory: sessionmaker[Session]) -> dict[str, in
                 continue  # Includes provider cooldowns; durable retries own this work.
             enrichment = session.scalar(
                 select(ArticleEnrichmentJob)
-                .where(ArticleEnrichmentJob.article_id == identifier)
+                .where(
+                    ArticleEnrichmentJob.article_id == identifier,
+                    ordinary_job_condition(ArticleEnrichmentJob),
+                )
                 .order_by(ArticleEnrichmentJob.created_at.desc(), ArticleEnrichmentJob.id.desc())
                 .limit(1)
             )

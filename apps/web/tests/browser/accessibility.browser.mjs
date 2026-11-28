@@ -6,6 +6,7 @@ import { chromium } from "playwright";
 import AxeBuilder from "@axe-core/playwright";
 import { assertAccessible, fitsViewport } from "./accessibility.mjs";
 import { observeAnimations } from "./animation-recorder.mjs";
+import { checkDefaultAllArticles } from "../../../../scripts/testing/default-all.mjs";
 import { checkNonceCsp } from "../../../../scripts/testing/nonce-csp.mjs";
 
 async function nonceFixture(t, { brokenInitial = false } = {}) {
@@ -135,6 +136,27 @@ test("viewport checks wait for bookmark hydration and retain strict bounds", asy
     await page.locator(".bookmark-button").evaluate((node) => (node.style.width = "24px"));
     await page.evaluate(() => (document.body.style.width = "500px"));
     await assert.rejects(fitsViewport(page), /without page-level horizontal scrolling/);
+  } finally {
+    await browser.close();
+  }
+});
+
+test("default feed checks ignore hidden streaming copies and reject visible duplicates", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(500);
+    const cards = ["article", "news", "tutorial", "release"]
+      .map(
+        (kind) => `<article class="article-card"><h2>Default All fixture: ${kind}</h2></article>`,
+      )
+      .join("");
+    await page.setContent(`<main>${cards}</main><div hidden>${cards}</div>`);
+    await checkDefaultAllArticles(page, null, "mixed feed with hidden streaming copy");
+    await page.locator("div[hidden]").evaluate((node) => node.removeAttribute("hidden"));
+    await assert.rejects(checkDefaultAllArticles(page, null, "visible duplicates"), {
+      name: "TimeoutError",
+    });
   } finally {
     await browser.close();
   }

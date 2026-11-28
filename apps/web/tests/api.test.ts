@@ -8,7 +8,6 @@ import {
   getSources,
   hasUserSession,
   getReaderFeedPreferences,
-  getTrending,
   UserApiError,
 } from "@/lib/api";
 import { catalogRoute } from "@/lib/server/catalog-route";
@@ -134,55 +133,6 @@ it("omits attribution and unrelated cookies from SSR identity and preferences wi
   }
 });
 
-it.each([
-  [undefined, "limit=24"],
-  ["", "limit=24"],
-  ["0", "limit=24&cursor=0"],
-  ["24", "limit=24&cursor=24"],
-  ["1000000", "limit=24&cursor=1000000"],
-])(
-  "requests the Trending page for cursor %s without caching or unrelated parameters",
-  async (cursor, expectedQuery) => {
-    vi.stubEnv("DEVFEED_PUBLIC_API_URL", "http://public-api.internal:8000");
-    vi.stubEnv("DEVFEED_USER_API_URL", "http://user-api.internal:8001");
-    const page = { items: [], next_cursor: "24" };
-    const fetcher = vi.fn().mockResolvedValue(Response.json(page));
-    vi.stubGlobal("fetch", fetcher);
-    expect(await getTrending(cursor)).toEqual(page);
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    const [url, options] = fetcher.mock.calls[0];
-    expect(url.origin).toBe("http://user-api.internal:8001");
-    expect(url.pathname).toBe("/v1/user/trending");
-    expect(url.searchParams.toString()).toBe(expectedQuery);
-    expect(options.headers["Cache-Control"]).toBe("no-store");
-    expect(options.cache).toBe("no-store");
-    expect(options.headers.Cookie).toBeUndefined();
-  },
-);
-
-it("keeps a malformed Trending cursor encoded and exposes the upstream rejection", async () => {
-  vi.stubEnv("DEVFEED_USER_API_URL", "http://user-api.internal:8001");
-  const fetcher = vi
-    .fn()
-    .mockResolvedValue(Response.json({ detail: "Invalid cursor" }, { status: 422 }));
-  vi.stubGlobal("fetch", fetcher);
-  const cursor = "24&limit=1000&cursor=0";
-  await expect(getTrending(cursor)).rejects.toEqual(new UserApiError(422));
-  expect(fetcher).toHaveBeenCalledTimes(1);
-  expect(Object.fromEntries(fetcher.mock.calls[0][0].searchParams)).toEqual({
-    limit: "24",
-    cursor,
-  });
-});
-
-it("reports unavailable private service configuration without using the public API", async () => {
-  vi.stubEnv("DEVFEED_USER_API_URL", "");
-  const fetcher = vi.fn();
-  vi.stubGlobal("fetch", fetcher);
-  await expect(getTrending()).rejects.toEqual(new UserApiError(503));
-  expect(fetcher).not.toHaveBeenCalled();
-});
-
 it("preserves article-count sorting through the topic catalog gateway and pagination", async () => {
   const fetcher = vi.fn().mockResolvedValue(Response.json([]));
   vi.stubGlobal("fetch", fetcher);
@@ -194,6 +144,7 @@ it("preserves article-count sorting through the topic catalog gateway and pagina
   const url = fetcher.mock.calls[0][0];
   expect(url.searchParams.get("sort")).toBe("articles");
   expect(url.searchParams.get("offset")).toBe("60");
+  expect(url.searchParams.get("limit")).toBe("61");
   expect(url.searchParams.get("has_articles")).toBe("true");
 });
 

@@ -4,14 +4,11 @@ from __future__ import annotations
 
 import uuid
 
-from devfeed_core.analytics import AnalyticsUnavailable
-from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.models import PartnerAccount, PartnerConnection
 from devfeed_core.partner_ad_formats import AdFormat
 from devfeed_core.partner_connections import ProviderSlug
 from devfeed_core.partner_credentials import credential_storage_available
 from devfeed_core.text_search import text_search
-from devfeed_http.analytics import analytics_client
 from devfeed_http.dependencies import run_database
 from devfeed_http.pagination import Listing, Page, PageData
 from devfeed_http.partner_analytics_reporting import (
@@ -19,8 +16,8 @@ from devfeed_http.partner_analytics_reporting import (
     ReportingMetrics,
     reporting_assets,
     reporting_metrics,
-    require_partner_history,
 )
+from devfeed_http.partner_measurements import PartnerMeasurements
 from devfeed_http.partner_portal import (
     InventoryPageData,
     SortOrder,
@@ -29,8 +26,9 @@ from devfeed_http.partner_portal import (
     WorkspaceInventoryOut,
     inventory_page,
 )
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Row, func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.selectable import Select
 
@@ -91,7 +89,6 @@ def _dashboard_metadata(
 async def dashboard(
     factory: DBFactory,
     partner: Partner,
-    request: Request,
     account_id: uuid.UUID | None = None,
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(100, ge=1, le=200),
@@ -103,19 +100,17 @@ async def dashboard(
     assets, account_total = await run_database(
         factory, _dashboard_metadata, partner, account_id, ad_format
     )
-    client = analytics_client(request)
     try:
-        await require_partner_history(client)
         metrics = await reporting_metrics(
             assets,
-            DirectEngagementAnalytics(client),
+            PartnerMeasurements(factory),
             days,
             limit,
             offset,
             sort=sort,
             order=order,
         )
-    except AnalyticsUnavailable:
+    except SQLAlchemyError:
         raise HTTPException(503, "Partner analytics is being prepared") from None
     return {**metrics, "account_total": account_total}
 

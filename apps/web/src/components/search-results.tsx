@@ -126,19 +126,6 @@ function ResultSection({
                       result_id: item.id,
                       position,
                     });
-                    void Promise.resolve(
-                      readerRequest("/api/v1/search/analytics/click", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          query,
-                          result_kind: kind,
-                          result_id: item.id,
-                          click_token: item.click_token,
-                        }),
-                        keepalive: true,
-                      }),
-                    ).catch(() => undefined);
                   }}
                 >
                   {kind === "tags" && <span aria-hidden="true">#</span>}

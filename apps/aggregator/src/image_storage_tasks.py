@@ -6,13 +6,15 @@ from collections.abc import Callable, Mapping
 from typing import cast
 
 from devfeed_core.feeds.fetcher import FeedError
-from devfeed_core.image_jobs import thumbnail_maintenance_current
+from devfeed_core.image_jobs import current_refresh_image, thumbnail_maintenance_current
 from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, finish_job
 from devfeed_core.jobs import owned_job
+from devfeed_core.json_types import JsonRecord
 from devfeed_core.managed_images import ARTICLE_THUMBNAIL_LAYOUT, THUMBNAIL_VERSION
 from devfeed_core.models import (
     Article,
     ArticleImageJob,
+    ArticleRefresh,
     PartnerProduct,
     PartnerProductPromotion,
     Source,
@@ -43,9 +45,23 @@ def checkpoint(
     identifier: uuid.UUID,
     token: uuid.UUID,
     asset: Mapping[str, object],
+    *,
+    refresh_id: uuid.UUID | None = None,
+    article_id: uuid.UUID | None = None,
 ) -> bool:
     with factory.begin() as session:
-        job = owned_job(session, ArticleImageJob, identifier, token)
+        job: ArticleImageJob | None
+        if refresh_id is not None:
+            assert article_id is not None
+            current = _refresh_storage_owner(session, article_id, identifier, token, refresh_id)
+            if current is None:
+                return False
+            _, job, _ = current
+            from devfeed_core.article_refresh import validate_refresh_image
+
+            asset = validate_refresh_image(cast(JsonRecord, dict(asset)))
+        else:
+            job = owned_job(session, ArticleImageJob, identifier, token)
         if job is None:
             return False
         marker = (job.storage or {}).get("source_pipeline_request")
@@ -55,6 +71,28 @@ def checkpoint(
             **({"article_refresh": True} if (job.storage or {}).get("article_refresh") else {}),
         }
     return True
+
+
+def _refresh_storage_owner(
+    session: Session,
+    article_id: uuid.UUID,
+    identifier: uuid.UUID,
+    token: uuid.UUID,
+    refresh_id: uuid.UUID,
+) -> tuple[Article, ArticleImageJob, ArticleRefresh] | None:
+    from devfeed_core.article_jobs import approved_sources
+
+    approved_sources(session, article_id, lock=True)
+    article = _lock_subject(session, Article, article_id)
+    job = owned_job(session, ArticleImageJob, identifier, token)
+    if job is None or job.refresh_id != refresh_id:
+        return None
+    candidate = current_refresh_image(session, article, job) if article is not None else None
+    if candidate is None or candidate.image_url != job.image_url:
+        finish_job(job, "already_present", utcnow())
+        return None
+    assert article is not None
+    return article, job, candidate
 
 
 def publish_logo_original[T: LogoSubject](
@@ -220,7 +258,8 @@ def _current_source(
     subject: ImageSubject, job: ArticleImageJob, source_field: str, source: str
 ) -> bool:
     return (
-        (
+        (not isinstance(subject, Article) or job.refresh_id is None)
+        and (
             not isinstance(subject, Article)
             or subject.publication_status != "published"
             or thumbnail_maintenance_current(subject, job)
@@ -333,11 +372,13 @@ def _store_asset(
     variant_store: Callable[[R2Storage], VariantStore],
     method: str,
 ) -> None:
+    refresh_id = None
     try:
         with factory() as session:
             job = session.get(ArticleImageJob, identifier)
             if job is None or job.status != "running" or job.lease_token != token:
                 return
+            refresh_id = job.refresh_id
             # Resume a checkpoint emitted by these typed stores. Persistence
             # preserves this versioned schema; SQLAlchemy exposes a dynamic record.
             asset = cast(
@@ -348,13 +389,18 @@ def _store_asset(
                     if key not in {"article_refresh", "source_pipeline_request"}
                 },
             )
+        checkpoint_options = (
+            {"refresh_id": refresh_id, "article_id": cast(uuid.UUID, subject_id)}
+            if refresh_id is not None
+            else {}
+        )
         with storage_client() as client:
             original = original_store(client)
             variants = variant_store(client)
             imported = not asset
             if imported:
                 asset = original.store(source)
-                if not checkpoint(factory, identifier, token, asset):
+                if not checkpoint(factory, identifier, token, asset, **checkpoint_options):
                     return
             if asset_field == "managed_logo" and not publish_logo_original(
                 factory,
@@ -385,10 +431,22 @@ def _store_asset(
                     **asset,
                     "variants": sorted([*asset["variants"], item], key=lambda item: item["width"]),
                 }
-                if not checkpoint(factory, identifier, token, asset):
+                if not checkpoint(factory, identifier, token, asset, **checkpoint_options):
                     return
         if model is Article and asset.get("thumbnail_version") == THUMBNAIL_VERSION:
             asset = {**asset, "thumbnail_layout": ARTICLE_THUMBNAIL_LAYOUT}
+        if refresh_id is not None:
+            _finish_refresh_storage(
+                factory,
+                identifier,
+                token,
+                cast(uuid.UUID, subject_id),
+                refresh_id,
+                source,
+                asset,
+                method,
+            )
+            return
         with factory.begin() as session:
             subject = _lock_subject(session, model, subject_id)
             job = owned_job(session, ArticleImageJob, identifier, token)
@@ -419,6 +477,24 @@ def _store_asset(
         transport = exc if isinstance(exc, FeedError) else None
         # Client exceptions may contain signed URLs; persist safe categories only.
         reason = transport.reason if transport else type(exc).__name__
+        if refresh_id is not None:
+            with factory.begin() as session:
+                owner = _refresh_storage_owner(
+                    session, cast(uuid.UUID, subject_id), identifier, token, refresh_id
+                )
+                if owner is None:
+                    return
+                _, refresh_job, _ = owner
+                refresh_job.http_status = transport.status if transport else None
+                fail_or_retry(
+                    refresh_job,
+                    f"Image storage failed: {reason}",
+                    utcnow(),
+                    retryable=transport.retryable if transport else True,
+                    retry_after=transport.retry_after if transport else 0,
+                )
+            logger.warning("image_storage_failed", extra={"reason": reason})
+            return
         with factory.begin() as session:
             subject = _lock_subject(session, model, subject_id)
             job = owned_job(session, ArticleImageJob, identifier, token)
@@ -451,3 +527,35 @@ def _store_asset(
                 retry_after=transport.retry_after if transport else 0,
             )
         logger.warning("image_storage_failed", extra={"reason": reason})
+
+
+def _finish_refresh_storage(
+    factory: sessionmaker[Session],
+    identifier: uuid.UUID,
+    token: uuid.UUID,
+    article_id: uuid.UUID,
+    refresh_id: uuid.UUID,
+    source: str,
+    asset: StoredImage,
+    method: str,
+) -> None:
+    from devfeed_core.article_refresh import (
+        touch_refresh,
+        try_promote_refresh,
+        validate_refresh_image,
+    )
+
+    with factory.begin() as session:
+        current = _refresh_storage_owner(session, article_id, identifier, token, refresh_id)
+        if current is None:
+            return
+        _, job, candidate = current
+        if candidate.image_url != source:
+            finish_job(job, "already_present", utcnow())
+            return
+        candidate.managed_image = validate_refresh_image(cast(JsonRecord, dict(asset)))
+        touch_refresh(candidate)
+        job.method, job.storage = method, dict(asset)
+        finish_job(job, "found", utcnow())
+    logger.info("image_storage_completed", extra={"variant_count": len(asset["variants"])})
+    try_promote_refresh(factory, refresh_id)

@@ -99,12 +99,6 @@ def test_lifecycle_always_releases_resources_clients_and_telemetry(failure, monk
 
     monkeypatch.setattr(runtime, "stop_runtime", stop)
 
-    def drain():
-        blocking_threads.append(threading.get_ident())
-        events.append("analytics")
-
-    monkeypatch.setattr(runtime, "drain_analytics", drain)
-
     @asynccontextmanager
     async def resources(app):
         events.append("start")
@@ -133,44 +127,10 @@ def test_lifecycle_always_releases_resources_clients_and_telemetry(failure, monk
             asyncio.run(scenario())
     else:
         asyncio.run(scenario())
-    assert events[-4:] == ["resources", "analytics", "clients", "telemetry"]
-    assert len(blocking_threads) == 3
+    assert events[-3:] == ["resources", "clients", "telemetry"]
+    assert len(blocking_threads) == 2
     logger.info.assert_any_call("test_api_started")
     logger.info.assert_any_call("test_api_stopped")
-
-
-def test_slow_analytics_drain_keeps_the_api_event_loop_responsive(monkeypatch):
-    released = threading.Event()
-    monkeypatch.setattr(runtime, "start_runtime", lambda _: None)
-    monkeypatch.setattr(runtime, "stop_runtime", lambda _: None)
-
-    async def scenario():
-        entered = asyncio.Event()
-        loop = asyncio.get_running_loop()
-
-        def drain(timeout=5):
-            assert timeout == 5  # The work-horse allowance does not affect APIs.
-            loop.call_soon_threadsafe(entered.set)
-            assert released.wait(2)
-
-        monkeypatch.setattr(runtime, "drain_analytics", drain)
-        service = runtime.HTTPService("test-api", Mock(), lambda: None)
-
-        async def lifecycle():
-            async with service.lifespan(FastAPI()):
-                pass
-
-        closing = asyncio.create_task(lifecycle())
-        try:
-            await asyncio.wait_for(entered.wait(), 1)
-            for _ in range(20):
-                await asyncio.sleep(0.001)
-                assert not closing.done()
-        finally:
-            released.set()
-            await asyncio.wait_for(closing, 1)
-
-    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("failure", ["start", "codex"])
@@ -211,33 +171,35 @@ def test_admin_owned_resources_cannot_prevent_process_cleanup(failure, monkeypat
         ]
 
 
-def test_failed_analytics_cleanup_still_closes_admin_shared_clients(monkeypatch):
-    module = importlib.import_module("devfeed_admin_api.main")
-    app = module.create_app()
-    events, shared = [], []
-    monkeypatch.setattr(runtime, "start_runtime", lambda name: None)
-    monkeypatch.setattr(runtime, "stop_runtime", lambda token: events.append("telemetry"))
+def test_user_read_session_closes_before_streaming_response():
+    from devfeed_user_api import dependencies
+    from fastapi.responses import StreamingResponse
+    from fastapi.testclient import TestClient
 
-    async def close(name):
-        events.append(name)
-        if name == "analytics":
-            raise RuntimeError(name)
+    app = FastAPI()
+    events = []
+    session = object()
 
-    def close_shared(getter):
-        events.append("clients")
-        shared.append(getter)
+    def get_read_session():
+        events.append("opened")
+        try:
+            yield session
+        finally:
+            events.append("closed")
 
-    monkeypatch.setattr(module, "close_shared_clients", close_shared)
-    app.state.codex = SimpleNamespace(
-        start=lambda: events.append("start"), close=lambda: close("codex")
-    )
-    app.state.analytics = SimpleNamespace(close=lambda: close("analytics"))
+    @app.get("/read")
+    def read(current: dependencies.ReadDB):
+        assert current is session
+        assert events == ["opened"]
 
-    async def scenario():
-        async with module.lifespan(app):
-            events.append("request")
+        def body():
+            assert events == ["opened", "closed"]
+            yield b"approved article"
 
-    with pytest.raises(RuntimeError, match="analytics"):
-        asyncio.run(scenario())
-    assert events == ["start", "request", "codex", "analytics", "clients", "telemetry"]
-    assert shared == [module.get_redis]
+        return StreamingResponse(body())
+
+    app.dependency_overrides[dependencies.get_read_session] = get_read_session
+    with TestClient(app) as client:
+        response = client.get("/read")
+    assert response.status_code == 200 and response.content == b"approved article"
+    assert events == ["opened", "closed"]

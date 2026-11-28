@@ -57,3 +57,27 @@ For a separately curated snapshot with the same schema:
 ```sh
 python3 scripts/seed_dev.py --file path/to/published.json
 ```
+
+## Verify Hardware Daily alongside DevFeed
+
+From the repository root, run the two-catalog browser check against disposable local
+PostgreSQL, Redis, and Typesense instances. It uses the built reader and Chromium:
+
+```sh
+npm run web:build
+npx playwright install chromium
+uv run python scripts/ci/product_catalogs.py
+```
+
+Each catalog imports an RSS fixture twice and verifies it creates one unpublished article.
+The check supplies simulated enrichment and classification evidence.
+The operator CLI approves and publishes it. Both readers search for the same word
+and each must show only its own article. Add `--serve` to keep the verified readers
+open on the printed loopback URLs until you press Ctrl-C.
+
+For a separate Compose deployment, use its own environment file with
+`DEVFEED_PRODUCT=hardwaredaily`. Compose uses the product as its default project
+name and search collection prefix. Keep the internal database and Redis service
+addresses, generate independent credentials, and assign unused host ports for
+enabled services when running both projects on one machine. An explicit Compose
+project name or external connection URL overrides these isolation defaults.

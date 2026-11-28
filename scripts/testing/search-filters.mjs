@@ -11,7 +11,6 @@ export const searchSecurityEvent = {
   query: searchSecurityQuery,
   result_kind: "articles",
   result_id: "00000000-0000-0000-0000-000000000001",
-  click_token: "opaque-fixture-click-token",
 };
 
 export function searchFixture(query, sort, contentType, section) {
@@ -29,7 +28,6 @@ export function searchFixture(query, sort, contentType, section) {
               image_url: null,
               label: "article",
               published_at: null,
-              click_token: searchSecurityEvent.click_token,
             },
           ],
           next_cursor: null,
@@ -143,20 +141,12 @@ export async function checkSearchSecurity(page, target, { relayClick = false } =
       "Search queries and result text must not create HTML elements",
     );
     assert.equal(await page.evaluate(() => window.__searchInjection ?? null), null);
-    const accepted = page.waitForResponse(
-      (response) =>
-        new URL(response.url()).pathname === "/api/v1/search/analytics/click" &&
-        response.request().method() === "POST",
-    );
     await link.click();
-    assert.equal((await accepted).status(), 204);
-    assert.deepEqual(clicks, [
-      { method: "POST", path: "/api/v1/search/analytics/click", body: searchSecurityEvent },
-    ]);
     await page.locator("#article-preview-title").waitFor();
     await page.getByRole("button", { name: "Close preview", exact: true }).click();
     await page.locator("dialog.article-modal").waitFor({ state: "detached" });
     await link.waitFor();
+    assert.deepEqual(clicks, []);
   } finally {
     await page.unroute(clickPath, intercept);
   }

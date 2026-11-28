@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import Annotated, TypedDict
 
-from devfeed_core.analytics import AnalyticsUnavailable
-from devfeed_core.analytics_direct_engagement import DirectEngagementAnalytics
 from devfeed_core.models import (
     PartnerAccount,
     PartnerAsset,
@@ -49,9 +47,9 @@ from devfeed_http.partner_analytics_reporting import (
     ReportingMetrics,
     reporting_assets,
     reporting_metrics,
-    require_partner_history,
 )
 from devfeed_http.partner_campaigns import CampaignMetadata, CampaignService
+from devfeed_http.partner_measurements import PartnerMeasurements
 from devfeed_http.partner_portal import (
     AccountInput,
     AccountOut,
@@ -98,9 +96,10 @@ from devfeed_http.partner_products import (
     product_detail,
     update_manual_product,
 )
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from devfeed_admin_api.auth import Admin, AdminIdentity, require_admin
@@ -371,24 +370,21 @@ async def dashboard(
     account_id: uuid.UUID,
     factory: DBFactory,
     admin: Superuser,
-    request: Request,
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
     ad_format: AdFormat | None = None,
 ) -> DashboardData:
     account, assets = await run_database(factory, _dashboard_metadata, admin, account_id, ad_format)
-    client = request.app.state.analytics.client
     try:
-        await require_partner_history(client)
         metrics = await reporting_metrics(
             assets,
-            DirectEngagementAnalytics(client),
+            PartnerMeasurements(factory),
             days,
             limit,
             offset,
         )
-    except AnalyticsUnavailable:
+    except SQLAlchemyError:
         raise HTTPException(503, "Partner analytics is being prepared") from None
     return {"account": account, **metrics}
 
@@ -554,17 +550,33 @@ def _prepare_metric_write(
     account_id: uuid.UUID,
     asset_id: uuid.UUID,
     superuser: AdminIdentity,
-    day: date,
-) -> tuple[int, datetime]:
+    payload: MetricInput,
+) -> None:
     account_access(session, superuser, account_id)
     asset_access(session, account_id, asset_id)
-    # Order revisions for one day's replacement, then release this transaction
-    # before ClickHouse I/O. Its version resolves delayed concurrent inserts.
-    lock_name = f"partner-metrics:{asset_id}:{day.isoformat()}"
+    lock_name = f"partner-metrics:{asset_id}:{payload.day.isoformat()}"
     session.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(lock_name, 0))))
     revision = session.scalar(select(func.txid_current()))
     assert revision is not None
-    return int(revision), datetime.now(UTC)
+    session.execute(
+        text("""
+        INSERT INTO partner_observations
+            (asset_id,kind,identity,day,revision,impressions,clicks,updated_at)
+        VALUES (:asset,'partner_import',:identity,:day,:revision,
+                :impressions,:clicks,clock_timestamp())
+        ON CONFLICT (asset_id,kind,identity) DO UPDATE
+        SET (revision,impressions,clicks,updated_at) =
+            (greatest(partner_observations.revision + 1, excluded.revision),
+                 excluded.impressions,excluded.clicks,excluded.updated_at)
+    """),
+        {
+            "asset": asset_id,
+            "identity": str((payload.day - date(1970, 1, 1)).days),
+            **payload.model_dump(),
+            "revision": revision,
+        },
+    )
+    session.commit()
 
 
 @router.put("/{account_id}/assets/{asset_id}/metrics", status_code=204, response_class=Response)
@@ -574,23 +586,10 @@ async def record_metrics(
     payload: MetricInput,
     superuser: Superuser,
     factory: DBFactory,
-    request: Request,
 ) -> Response:
     try:
-        revision, observed = await run_database(
-            factory, _prepare_metric_write, account_id, asset_id, superuser, payload.day
-        )
-        await DirectEngagementAnalytics(request.app.state.analytics.client).partner_totals(
-            [
-                {
-                    "asset_id": asset_id,
-                    **payload.model_dump(),
-                    "revision": revision,
-                    "updated_at": observed,
-                }
-            ]
-        )
-    except AnalyticsUnavailable:
+        await run_database(factory, _prepare_metric_write, account_id, asset_id, superuser, payload)
+    except SQLAlchemyError:
         raise HTTPException(503, "Partner analytics unavailable") from None
     return Response(status_code=204)
 
@@ -616,19 +615,16 @@ async def campaigns(
     account_id: uuid.UUID,
     factory: DBFactory,
     superuser: Superuser,
-    request: Request,
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> CampaignsData:
     metadata = await run_database(factory, _campaign_page, account_id, superuser, limit, offset)
-    client = request.app.state.analytics.client
     try:
-        await require_partner_history(client)
         return {
-            "items": await metadata.reports(DirectEngagementAnalytics(client)),
+            "items": await metadata.reports(PartnerMeasurements(factory)),
             "total": metadata.total,
         }
-    except AnalyticsUnavailable:
+    except SQLAlchemyError:
         raise HTTPException(503, "Partner analytics is being prepared") from None
 
 
@@ -642,14 +638,11 @@ async def campaign(
     campaign_id: uuid.UUID,
     factory: DBFactory,
     superuser: Superuser,
-    request: Request,
 ) -> CampaignOut:
     metadata = await run_database(factory, _campaign_metadata, account_id, campaign_id, superuser)
-    client = request.app.state.analytics.client
     try:
-        await require_partner_history(client)
-        return (await metadata.reports(DirectEngagementAnalytics(client)))[0]
-    except AnalyticsUnavailable:
+        return (await metadata.reports(PartnerMeasurements(factory)))[0]
+    except SQLAlchemyError:
         raise HTTPException(503, "Partner analytics is being prepared") from None
 
 
@@ -693,16 +686,13 @@ async def update_campaign(
     payload: CampaignInput,
     factory: DBFactory,
     superuser: Superuser,
-    request: Request,
 ) -> CampaignOut:
-    client = request.app.state.analytics.client
     try:
-        await require_partner_history(client)
         metadata = await run_database(
             factory, _update_campaign, account_id, campaign_id, payload, superuser
         )
-        return (await metadata.reports(DirectEngagementAnalytics(client)))[0]
-    except AnalyticsUnavailable:
+        return (await metadata.reports(PartnerMeasurements(factory)))[0]
+    except SQLAlchemyError:
         raise HTTPException(503, "Partner analytics is being prepared") from None
 
 

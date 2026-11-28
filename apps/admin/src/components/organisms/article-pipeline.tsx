@@ -20,7 +20,9 @@ import { notify, notifyFailure } from "@/lib/notifications";
 import {
   getArticlePipeline,
   getArticlePipelineColumn,
+  getArticlePipelineDetail,
   retryArticlePipeline,
+  retryArticleMaintenance,
   pipelineLabels,
   pipelineStages,
   pipelineColumnsStorageKey,
@@ -75,16 +77,39 @@ export function ArticlePipeline({ query }: { query: string }) {
     retryPending.current = true;
     setRetrying(article.id);
     try {
-      await retryArticlePipeline(
+      let expectedJobId = article.jobs[target]?.id ?? null;
+      if (article.stage === "published") {
+        const current = await getArticlePipelineDetail(article.id, new AbortController().signal);
+        if (!Object.hasOwn(current, "maintenance")) {
+          notify.error("Published refreshes are unavailable", {
+            description: "Upgrade the admin API before requesting a published article refresh.",
+          });
+          return;
+        }
+        const refresh = current.maintenance;
+        const targets = refresh?.retry_targets ?? current.retry_targets;
+        if (!targets?.includes(target)) {
+          notify.error("Could not retry article processing", {
+            description: refresh
+              ? "Open the article to review the active private refresh before retrying."
+              : "Processing changed. Reload the article before trying again.",
+          });
+          return;
+        }
+        expectedJobId = (refresh?.jobs ?? current.jobs)[target]?.id ?? null;
+      }
+      const requestRetry =
+        article.stage === "published" ? retryArticleMaintenance : retryArticlePipeline;
+      await requestRetry(
         article.id,
         target,
         article.editorial_revision,
         admin.csrf_token,
-        article.jobs[target]?.id ?? null,
+        expectedJobId,
       );
       notify.success(
         article.stage === "published"
-          ? `Unpublished and queued ${pipelineLabels[target]} retry`
+          ? `${pipelineLabels[target]} refresh queued; the published article remains available`
           : `${pipelineLabels[target]} retry queued`,
       );
     } catch (cause) {
@@ -372,7 +397,7 @@ function PipelineCard({
           <BoardCardActions label={`Move back ${article.title}`} disabled={busy}>
             {targets.map((target) => (
               <DropdownMenuItem key={target} onSelect={() => onRetry(article, target)}>
-                {article.stage === "published" ? "Unpublish and retry" : "Retry"}{" "}
+                {article.stage === "published" ? "Refresh" : "Retry"}{" "}
                 {target === "analysis" ? "AI analysis" : pipelineLabels[target].toLowerCase()}
               </DropdownMenuItem>
             ))}

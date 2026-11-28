@@ -12,7 +12,6 @@ from types import SimpleNamespace
 import typer
 from alembic.util.exc import CommandError
 from devfeed_core.analytics_migrations import AnalyticsMigrationError
-from devfeed_core.analytics_producer import shutdown as drain_analytics
 from devfeed_core.cache import CacheUnavailable
 from devfeed_core.config import get_settings
 from devfeed_core.db import get_engine
@@ -205,7 +204,6 @@ def execute(args: SimpleNamespace) -> int:
         print("error: Unexpected command failure; see diagnostic logs.", file=sys.stderr)
         return 1
     finally:
-        drain_analytics()
         if telemetry is not None:
             stop_runtime(telemetry)
         if get_engine.cache_info().currsize:

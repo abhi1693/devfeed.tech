@@ -12,16 +12,18 @@ from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
     ArticleOrigin,
+    ArticleRefresh,
     JobPayloadRetention,
     Source,
     Topic,
     TopicAnalysisJob,
     utcnow,
 )
-from sqlalchemy import event, select, text
+from sqlalchemy import event, insert, select, text
 from sqlalchemy.exc import IntegrityError, InternalError
 
 from tests.support import legacy_migrations
+from tests.support.article_refresh import published_retry_case as published_retry_case
 from tests.support.paths import REPO_ROOT
 from tests.support.source_readiness import configuration
 from tests.support.taxonomy_command_helpers import relationship_proposal
@@ -513,7 +515,32 @@ def test_migration_retry_repairs_an_invalid_concurrent_index_and_preserves_check
         JobPayloadRetention.__table__.create(engine)
         checkpoint_id = uuid.uuid4()
         with database.begin() as session:
-            history(session, retention)
+            # This fixture deliberately exercises 0036, before maintenance
+            # ownership existed. Insert only the historical job columns; the
+            # current ORM would also write its newer nullable refresh_id.
+            article = Article(
+                canonical_url=f"https://retention.example/{uuid.uuid4()}",
+                url_hash=uuid.uuid4().hex,
+                title="Historical migration evidence",
+                review_status="approved",
+            )
+            session.add(article)
+            session.flush()
+            session.execute(
+                insert(ArticleAnalysisJob.__table__),
+                [
+                    {
+                        "article_id": article.id,
+                        "status": "succeeded",
+                        "input_hash": "a" * 64,
+                        "input_snapshot": {"private_evidence": index},
+                        "prompt_version": "historical-analysis-v1",
+                        "created_at": retention.now - timedelta(days=40, seconds=2 - index),
+                        "finished_at": retention.now - timedelta(days=40, seconds=2 - index),
+                    }
+                    for index in range(2)
+                ],
+            )
             session.add(
                 JobPayloadRetention(
                     kind="article",
@@ -555,3 +582,253 @@ def test_migration_retry_repairs_an_invalid_concurrent_index_and_preserves_check
             )
     finally:
         command.upgrade(config, "head")
+
+
+def private_owner(article_id, now, *, status="cancelled", completed_at=None, analysis_job_id=None):
+    return ArticleRefresh(
+        article_id=article_id,
+        target="analysis",
+        status=status,
+        base_revision=0,
+        base_hash="a" * 64,
+        source_hash="b" * 64,
+        version=7,
+        payload={"private_body": "retained source evidence"},
+        requested_by={"subject": "operator"},
+        image_url="https://images.example/approved.webp",
+        managed_image={"object_key": "approved-key", "sha256": "c" * 64},
+        created_at=now - timedelta(days=45),
+        completed_at=completed_at,
+        analysis_job_id=analysis_job_id,
+    )
+
+
+@pytest.mark.parametrize("status", ["active", "review"])
+@pytest.mark.parametrize("binding", ["ordinary", "prior-owner"])
+def test_any_open_owner_protects_its_selected_analysis_inputs(database, retention, status, binding):
+    with database.begin() as session:
+        _, article, jobs = history(session, retention)
+        selected = jobs[0]
+        if binding == "prior-owner":
+            prior = private_owner(
+                article.id,
+                retention.now,
+                status="promoted",
+                completed_at=retention.now - timedelta(days=40),
+            )
+            session.add(prior)
+            session.flush()
+            selected.refresh_id = prior.id
+        owner = private_owner(article.id, retention.now, status=status, analysis_job_id=selected.id)
+        session.add(owner)
+        session.flush()
+        identifier = selected.id
+    assert job_retention.prune_job_payloads(database) == 0
+    with database() as session:
+        selected = session.get(ArticleAnalysisJob, identifier)
+        assert selected.input_snapshot and selected.inputs_pruned_at is None
+        assert selected.catalog_snapshot is not None
+        assert session.get(ArticleRefresh, owner.id).payload
+
+
+@pytest.mark.parametrize("status", ["promoted", "superseded", "cancelled"])
+def test_only_aged_terminal_owner_payloads_are_redacted_without_public_or_receipt_changes(
+    database, client, published_retry_case, retention, status, caplog
+):
+    case = published_retry_case
+    with database.begin() as session:
+        owners = [
+            private_owner(case.article_id, retention.now, status=status, completed_at=stamp)
+            for stamp in (
+                retention.now - timedelta(days=40),
+                retention.now - timedelta(days=29),
+                retention.now - timedelta(days=30),
+                None,
+            )
+        ]
+        session.add_all(owners)
+        session.flush()
+        identifiers = [owner.id for owner in owners]
+        before = (
+            session.execute(
+                text(
+                    "SELECT to_jsonb(owner)-'payload'-'payload_pruned_at' "
+                    "FROM article_refreshes owner ORDER BY id"
+                )
+            )
+            .scalars()
+            .all()
+        )
+    with caplog.at_level("INFO", logger="devfeed_core.job_retention"):
+        assert job_retention.prune_job_payloads(database) == 0
+    with database() as session:
+        redacted = session.get(ArticleRefresh, identifiers[0])
+        assert redacted.payload == {} and redacted.payload_pruned_at == retention.now
+        assert all(
+            session.get(ArticleRefresh, identifier).payload for identifier in identifiers[1:]
+        )
+        after = (
+            session.execute(
+                text(
+                    "SELECT to_jsonb(owner)-'payload'-'payload_pruned_at' "
+                    "FROM article_refreshes owner ORDER BY id"
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert after == before
+    reports = [
+        record
+        for record in caplog.records
+        if record.message == "article_refresh_payload_retention_page"
+    ]
+    assert len(reports) == 1 and reports[0].redacted == 1
+    assert client.get(case.path).json() == case.body
+
+
+def test_private_redaction_rolls_back_with_cadence_and_retries_after_restart(database, retention):
+    with database.begin() as session:
+        _, article, _ = history(session, retention, statuses=("succeeded",))
+        owner = private_owner(
+            article.id, retention.now, completed_at=retention.now - timedelta(days=40)
+        )
+        session.add(owner)
+        session.flush()
+        identifier = owner.id
+        initial_due = session.get(JobPayloadRetention, "article").next_run_at
+    engine = database.kw["bind"]
+
+    def fail_after_redaction(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.startswith("UPDATE article_refreshes"):
+            raise RuntimeError("Interrupted owner redaction commit")
+
+    event.listen(engine, "after_cursor_execute", fail_after_redaction)
+    try:
+        with pytest.raises(RuntimeError, match="Interrupted owner redaction"):
+            job_retention.prune_job_payloads(database)
+    finally:
+        event.remove(engine, "after_cursor_execute", fail_after_redaction)
+    with database() as session:
+        owner = session.get(ArticleRefresh, identifier)
+        assert owner.payload and owner.payload_pruned_at is None
+        assert session.get(JobPayloadRetention, "article").next_run_at == initial_due
+    assert job_retention.prune_job_payloads(database) == 0
+    with database() as session:
+        assert session.get(ArticleRefresh, identifier).payload_pruned_at == retention.now
+
+
+def test_private_redaction_skips_locked_owners_then_revisits_them_in_existing_cadence(
+    database, retention
+):
+    with database.begin() as session:
+        _, article, _ = history(session, retention, statuses=("succeeded",))
+        owners = [
+            private_owner(
+                article.id,
+                retention.now,
+                completed_at=retention.now - timedelta(days=40, seconds=3 - index),
+            )
+            for index in range(3)
+        ]
+        session.add_all(owners)
+        session.flush()
+        identifiers = [owner.id for owner in owners]
+    with database.begin() as writer:
+        writer.scalar(
+            select(ArticleRefresh).where(ArticleRefresh.id == identifiers[0]).with_for_update()
+        )
+        assert job_retention.prune_job_payloads(database) == 0
+        with database() as observer:
+            assert observer.get(ArticleRefresh, identifiers[0]).payload_pruned_at is None
+            assert all(
+                observer.get(ArticleRefresh, identifier).payload_pruned_at == retention.now
+                for identifier in identifiers[1:]
+            )
+            assert observer.get(
+                JobPayloadRetention, "article"
+            ).next_run_at == retention.now + timedelta(seconds=30)
+    retention.now += timedelta(seconds=31)
+    assert job_retention.prune_job_payloads(database) == 0
+    with database() as session:
+        assert all(
+            session.get(ArticleRefresh, identifier).payload_pruned_at is not None
+            for identifier in identifiers
+        )
+
+
+def test_owner_admitted_after_candidate_selection_is_seen_before_input_redaction(
+    database, retention
+):
+    with database.begin() as session:
+        _, article, jobs = history(session, retention)
+        article_id, selected = article.id, jobs[0].id
+    admitted = []
+    engine = database.kw["bind"]
+
+    def admit(_connection, _cursor, statement, _parameters, _context, _many):
+        if (
+            admitted
+            or "FROM article_analysis_jobs" not in statement
+            or "newer" not in statement
+            or "FOR UPDATE" in statement
+        ):
+            return
+        admitted.append(True)
+        with database.begin() as writer:
+            writer.get(Article, article_id, with_for_update=True)
+            writer.add(
+                private_owner(article_id, retention.now, status="active", analysis_job_id=selected)
+            )
+
+    event.listen(engine, "after_cursor_execute", admit)
+    try:
+        assert job_retention.prune_job_payloads(database) == 0
+    finally:
+        event.remove(engine, "after_cursor_execute", admit)
+    assert admitted
+    with database() as session:
+        job = session.get(ArticleAnalysisJob, selected)
+        assert job.input_snapshot and job.inputs_pruned_at is None
+
+
+@pytest.mark.parametrize(
+    "status,selected",
+    [
+        ("active", True),
+        ("review", True),
+        ("cancelled", True),
+        ("superseded", True),
+        ("promoted", False),
+        ("promoted", True),
+    ],
+)
+def test_private_success_cannot_replace_the_last_retained_ordinary_analysis(
+    database, retention, status, selected
+):
+    with database.begin() as session:
+        _, article, ordinary = history(session, retention, statuses=("succeeded",))
+        refresh = private_owner(article.id, retention.now, status=status)
+        session.add(refresh)
+        session.flush()
+        private = ArticleAnalysisJob(
+            article_id=article.id,
+            refresh_id=refresh.id,
+            status="succeeded",
+            input_snapshot={"private": "candidate source evidence"},
+            prompt_version="historical-analysis-v1",
+            created_at=ordinary[0].created_at + timedelta(seconds=1),
+            finished_at=ordinary[0].finished_at + timedelta(seconds=1),
+        )
+        session.add(private)
+        session.flush()
+        if selected:
+            refresh.analysis_job_id = private.id
+        ordinary_id, private_id = ordinary[0].id, private.id
+    promoted = status == "promoted" and selected
+    assert job_retention.prune_job_payloads(database) == int(promoted)
+    with database() as session:
+        previous = session.get(ArticleAnalysisJob, ordinary_id)
+        assert (previous.inputs_pruned_at == retention.now) == promoted
+        assert bool(previous.input_snapshot) != promoted
+        assert session.get(ArticleAnalysisJob, private_id).input_snapshot

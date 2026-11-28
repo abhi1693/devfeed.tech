@@ -1,3 +1,7 @@
+import {
+  catalogDirectoriesFixture,
+  checkCatalogDirectories,
+} from "../../../../scripts/testing/catalog-directories.mjs";
 import { checkAppIcons } from "../../../../scripts/testing/app-icons.mjs";
 import { checkFeaturedOn } from "../../../../scripts/testing/featured-on.mjs";
 import { tagsFixture, checkTags, checkTagFollow } from "../../../../scripts/testing/tags.mjs";
@@ -85,7 +89,7 @@ import {
 import { checkSourceFilter, longFilterSource } from "../../../../scripts/testing/select-menus.mjs";
 import { checkAccessibility } from "./accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../../scripts/testing/must-reads.mjs";
-import { checkLeaderboard, leaderboardProfile } from "./leaderboard.mjs";
+import { readerProfile } from "./reader-profile-fixture.mjs";
 import { checkMcp, testMcpEndpoint } from "../../../../scripts/testing/mcp.mjs";
 import {
   checkReadingStreak,
@@ -139,7 +143,6 @@ import {
   checkSearchInfiniteScroll,
   checkSearchSecurity,
   searchSecurityQuery,
-  searchSecurityEvent,
 } from "../../../../scripts/testing/search-filters.mjs";
 import {
   withManagedImage,
@@ -244,7 +247,12 @@ async function createReaderFixture(
   const readingFixture = readingStreakFixture();
   const mutationFixture = userMutationFixture({ articles: [article], topic });
   const domCatalog = readerDomCatalogFixture();
+  const directoryFixture = catalogDirectoriesFixture();
   const routeFixture = readerRoutesFixture(article);
+  const seoSourceIds = {
+    "seo-populated": "66666666-6666-4666-8666-666666666666",
+    "seo-empty": "66666666-6666-4666-8666-666666666667",
+  };
   const feedMode = feedModeFixture(article);
   const readerContext = readerContextFixture(article);
   const readerDestinations = readerDestinationsFixture(article);
@@ -272,6 +280,16 @@ async function createReaderFixture(
   let rejectTopics = true;
   let onboardingSaved = false;
   let rejectOnboardingPage = true;
+  const choices = onboardingTopics(topic);
+  const onboardingCatalog = [
+    ...choices,
+    ...Array.from({ length: 61 - choices.length }, (_, i) => ({
+      ...topic,
+      id: `extra-${i}`,
+      slug: `extra-${i}`,
+      name: `Extra topic ${i}`,
+    })),
+  ];
   let rejectTopicFollow = true;
   let savedTopicIds = [topic.id];
   let savedSourceIds = [];
@@ -399,6 +417,12 @@ async function createReaderFixture(
       res.end(JSON.stringify(domCatalog.respond(requestUrl)));
       return;
     }
+    if (directoryFixture.handles(requestUrl)) {
+      const result = await directoryFixture.respond(requestUrl);
+      res.writeHead(result.status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result.json));
+      return;
+    }
     routeFixture.record(requestUrl);
     if (routeFixture.handles(requestUrl)) {
       const { status, json } = routeFixture.respond(requestUrl);
@@ -432,12 +456,23 @@ async function createReaderFixture(
       return;
     }
     // Collection indexing fixtures: metadata and page content use the same feed.
-    const collection = requestUrl.searchParams.get("tag") || requestUrl.searchParams.get("topic");
-    if (/^\/v1\/(?:tags|topics)\/seo-/.test(path)) {
+    const collection =
+      requestUrl.searchParams.get("tag") ||
+      requestUrl.searchParams.get("topic") ||
+      Object.entries(seoSourceIds).find(
+        ([, id]) => id === requestUrl.searchParams.get("source_id"),
+      )?.[0];
+    if (/^\/v1\/(?:tags|topics|sources)\/seo-/.test(path)) {
       const slug = path.split("/").at(-1);
       res.writeHead(slug === "seo-missing" ? 404 : 200, { "Content-Type": "application/json" });
       res.end(
-        JSON.stringify(slug === "seo-missing" ? { detail: "Not found" } : { ...topic, slug }),
+        JSON.stringify(
+          slug === "seo-missing"
+            ? { detail: "Not found" }
+            : path.startsWith("/v1/sources/")
+              ? { ...source, id: seoSourceIds[slug], slug }
+              : { ...topic, slug },
+        ),
       );
       return;
     }
@@ -580,7 +615,7 @@ async function createReaderFixture(
             expires_at: sessionExpiresAt,
           }
         : null;
-    else if (path === "/v1/user/profiles/leader-reader") body = leaderboardProfile;
+    else if (path === "/v1/user/profiles/leader-reader") body = readerProfile;
     else if (path === "/v1/user/profiles/leader-reader/reading-heatmap") body = null;
     else if (path === "/v1/user/auth/config") body = { enabled: true, providers: [] };
     else if (path === "/v1/user/settings/profile")
@@ -643,34 +678,21 @@ async function createReaderFixture(
     else if (path === "/v1/topics") {
       if (mode === "onboarding")
         assert.equal(new URL(req.url, "http://localhost").searchParams.get("sort"), "articles");
-      if (mode === "onboarding" && requestUrl.searchParams.get("q")) {
-        body = onboardingTopics(topic).filter((item) =>
-          item.name.toLowerCase().includes(requestUrl.searchParams.get("q").toLowerCase()),
-        );
-      } else if (mode === "onboarding" && requestUrl.searchParams.get("offset") === "60") {
-        if (rejectOnboardingPage) {
+      if (mode === "onboarding") {
+        const query = (requestUrl.searchParams.get("q") ?? "").toLowerCase();
+        const offset = Number(requestUrl.searchParams.get("offset") ?? 0);
+        const limit = Number(requestUrl.searchParams.get("limit") ?? 60);
+        if (!query && offset === 60 && rejectOnboardingPage) {
           rejectOnboardingPage = false;
           await new Promise((resolve) => setTimeout(resolve, 1000));
           res.writeHead(503, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ detail: "Temporary catalog failure" }));
           return;
         }
-        body = [];
-      } else {
-        const choices = onboardingTopics(topic);
-        body =
-          mode === "onboarding"
-            ? [
-                ...choices,
-                ...Array.from({ length: 60 - choices.length }, (_, i) => ({
-                  ...topic,
-                  id: `extra-${i}`,
-                  slug: `extra-${i}`,
-                  name: `Extra topic ${i}`,
-                })),
-              ]
-            : [topic];
-      }
+        body = onboardingCatalog
+          .filter((item) => item.name.toLowerCase().includes(query))
+          .slice(offset, offset + limit);
+      } else body = [topic];
     } else if (path === `/v1/topics/${topic.slug}`) body = topic;
     else if (path === `/v1/sources/${source.slug}`) body = source;
     else if (path === "/v1/sources") body = onboardingSources;
@@ -751,7 +773,6 @@ async function createReaderFixture(
       }
       body = { topic_ids: savedTopicIds };
     } else if (path === "/v1/user/source-preferences") body = { source_ids: [] };
-    else if (path === "/v1/user/trending") body = { items: [article], next_cursor: null };
     else if (path === "/v1/user/bookmarks") body = { items: [], next_cursor: null };
     else if (path === "/v1/user/feed") {
       body = mode.startsWith("onboarding")
@@ -819,7 +840,7 @@ async function createReaderFixture(
     if (
       compactArticles &&
       Array.isArray(body?.items) &&
-      ["/v1/feed", "/v1/user/feed", "/v1/user/trending"].includes(path)
+      ["/v1/feed", "/v1/user/feed"].includes(path)
     )
       body = { ...body, items: body.items.map(compactListArticle) };
     if (stackedFeed && path === "/v1/feed")
@@ -891,7 +912,7 @@ async function createReaderFixture(
   });
   async function runJourney() {
     const seoPage = await browser.newPage();
-    for (const kind of ["tags", "topics"]) {
+    for (const kind of ["tags", "topics", "sources"]) {
       for (const [slug, suffix, empty] of [
         ["seo-populated", "", false],
         ["seo-empty", "", true],
@@ -978,7 +999,7 @@ async function createReaderFixture(
       page,
       `${origin}/latest`,
       `${root}/reports/reader-feed/article-view`,
-      [`${origin}/topics/${topic.slug}`, `${origin}/sources/${source.slug}`, `${origin}/trending`],
+      [`${origin}/topics/${topic.slug}`, `${origin}/sources/${source.slug}`, `${origin}/news`],
       {
         fixture: (active) => {
           compactArticles = active;
@@ -1010,18 +1031,13 @@ async function createReaderFixture(
     await checkReaderNavigation(page, `${root}/reports/mobile-navigation/web`);
     assert.equal(await page.locator(".mobile-nav").getByRole("link", { name: "Legal" }).count(), 0);
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await checkLeaderboard(page, `${root}/reports/reader-feed/leaderboard-guest`);
     await checkDevCardPromo(page, `${root}/reports/reader-feed/dev-card-promo`);
     await checkSignupPrompts(context, origin, `${root}/reports/reader-feed/signup`);
     await page.bringToFront();
     await checkFeaturedOn(page);
     await checkSidebarGitHub(page, `${root}/reports/reader-feed/sidebar-github.png`);
     await checkMcp(page, `${root}/reports/reader-feed/mcp`);
-    const whatsNew = page
-      .locator(".sidebar")
-      .getByRole("link", { name: "What’s new (opens in a new tab)", exact: true });
-    assert.equal(await whatsNew.getAttribute("href"), "https://changelog.devfeed.tech/");
-    assert.equal(await whatsNew.getAttribute("target"), "_blank");
+    assert.equal(await page.getByRole("link", { name: /what’s new/i }).count(), 0);
     await checkExtensionInstall(
       page,
       "chrome",
@@ -1153,7 +1169,9 @@ async function createReaderFixture(
     await checkLanguagePreferences(page, origin);
     assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
     await checkFeedSort(page, origin);
-    await checkSourceFilter(page, `${origin}/latest`, source, `${output}/web-filter`);
+    await checkSourceFilter(page, `${origin}/latest`, source, `${output}/web-filter`, async () => {
+      await page.getByRole("button", { name: /^User menu:/ }).waitFor();
+    });
     await checkFeedSort(page, origin, true);
     // Layout assertions use a settled feed; the refreshing fixture deliberately polls.
     mode = "ready";
@@ -1181,7 +1199,12 @@ async function createReaderFixture(
     // The earlier background-refresh page deliberately overrides hasFocus on every navigation.
     const onboardingPage = await context.newPage();
     await onboardingPage.clock.install();
-    await checkFeedOnboarding(onboardingPage, origin, `${output}/web`);
+    await checkFeedOnboarding(
+      onboardingPage,
+      origin,
+      `${output}/web`,
+      onboardingCatalog.at(-1).name,
+    );
     await onboardingPage.close();
     await page.bringToFront();
     assert.ok(onboardingSaved);
@@ -1250,9 +1273,6 @@ async function createReaderFixture(
       `${root}/reports/reader-feed/mobile-interactions.png`,
       { recover: true },
     );
-    await checkLeaderboard(scrollPage, `${root}/reports/reader-feed/leaderboard-signed-in`, {
-      signedIn: true,
-    });
     await scrollPage.close();
     await checkSearchFilters(page, `${origin}/search?q=microservice`);
     const clicksBeforeSecurity = searchClicks.length;
@@ -1261,7 +1281,7 @@ async function createReaderFixture(
       `${origin}/search?${new URLSearchParams({ q: searchSecurityQuery })}`,
       { relayClick: true },
     );
-    assert.deepEqual(searchClicks.slice(clicksBeforeSecurity), [searchSecurityEvent]);
+    assert.deepEqual(searchClicks.slice(clicksBeforeSecurity), []);
     const edgeContext = await browser.newContext({
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
@@ -1416,6 +1436,7 @@ async function createReaderFixture(
     readingFixture,
     mustReadsFixture,
     domCatalog,
+    directoryFixture,
     renderReads,
     topicContext,
     previewRequests,
@@ -1439,13 +1460,21 @@ async function createReaderFixture(
 
 let readerPageSequence = 0;
 async function withReaderPage(browser, check, options = {}) {
-  const context = await browser.newContext({ reducedMotion: "reduce", ...options });
+  const { livePreferredSource = false, ...contextOptions } = options;
+  const context = await browser.newContext({ reducedMotion: "reduce", ...contextOptions });
   const reportPath = artifactPath(`preferred-source-report-only-${++readerPageSequence}.json`);
   let errors = [];
   let preferredSourceReports = [];
   try {
     await mockManagedImages(context);
     await mockSourceLogos(context);
+    if (!livePreferredSource) {
+      // Remote widget policy reports belong to the dedicated real-SDK journey.
+      // Other reader journeys retain strict console checks without loading that SDK.
+      await context.route("https://news.google.com/swg/js/v1/publisher.js", (route) =>
+        route.fulfill({ contentType: "application/javascript", body: "" }),
+      );
+    }
     const page = await context.newPage();
     ({ errors, preferredSourceReports } = collectReaderPageErrors(page));
     await check(page, context);
@@ -1515,59 +1544,67 @@ test(
   { timeout: 120000 },
   async (t) => {
     const { browser, origin } = await createReaderFixture(t, { analyticsEnabled: true });
-    await withReaderPage(browser, async (page, context) => {
-      await context.route("https://www.googletagmanager.com/gtag/js**", (route) =>
-        route.fulfill({ contentType: "application/javascript", body: "" }),
-      );
-      // Optional offline proof uses an unchanged copy of Google's real SDK, never a mock widget.
-      const sdkPath = process.env.DEVFEED_PREFERRED_SOURCE_SDK_PATH;
-      if (sdkPath) {
-        const sdk = await readFile(sdkPath);
-        await context.route("https://news.google.com/swg/js/v1/publisher.js", (route) =>
-          route.fulfill({ contentType: "application/javascript", body: sdk }),
+    await withReaderPage(
+      browser,
+      async (page, context) => {
+        await context.route("https://www.googletagmanager.com/gtag/js**", (route) =>
+          route.fulfill({ contentType: "application/javascript", body: "" }),
         );
-      }
-      let preferredTheme = "light";
-      await context.route("**/api/v1/user/settings/appearance", (route) => {
-        if (route.request().method() === "PUT")
-          preferredTheme = route.request().postDataJSON().theme;
-        return route.fulfill({ json: { theme: preferredTheme } });
-      });
-      for (const member of [false, true]) {
-        await page.emulateMedia({ colorScheme: member ? "dark" : "light" });
-        if (member)
-          await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
-        await page.goto(`${origin}/latest`);
-        await page.locator(".card-open-link").first().waitFor();
-        if (member) {
-          await page
-            .getByRole("button", { name: "Theme: Light. Switch to dark theme", exact: true })
-            .click();
-          await page.waitForFunction(() => document.documentElement.classList.contains("dark"));
+        // Optional offline proof uses an unchanged copy of Google's real SDK, never a mock widget.
+        const sdkPath = process.env.DEVFEED_PREFERRED_SOURCE_SDK_PATH;
+        if (sdkPath) {
+          const sdk = await readFile(sdkPath);
+          await context.route("https://news.google.com/swg/js/v1/publisher.js", (route) =>
+            route.fulfill({ contentType: "application/javascript", body: sdk }),
+          );
         }
-        assert.equal(
+        let preferredTheme = "light";
+        await context.route("**/api/v1/user/settings/appearance", (route) => {
+          if (route.request().method() === "PUT")
+            preferredTheme = route.request().postDataJSON().theme;
+          return route.fulfill({ json: { theme: preferredTheme } });
+        });
+        for (const member of [false, true]) {
+          await page.emulateMedia({ colorScheme: member ? "dark" : "light" });
+          if (member)
+            await context.addCookies([
+              { name: "devfeed_user_session", value: "valid", url: origin },
+            ]);
+          await page.goto(`${origin}/latest`);
+          await page.locator(".card-open-link").first().waitFor();
+          if (member) {
+            await page
+              .getByRole("button", { name: "Theme: Light. Switch to dark theme", exact: true })
+              .click();
+            await page.waitForFunction(() => document.documentElement.classList.contains("dark"));
+          }
+          assert.equal(
+            await page
+              .locator("[data-google-preferred-source], .google-preferred-source-widget")
+              .count(),
+            0,
+          );
+          await page.locator(".card-open-link").first().click();
+          await page.getByRole("dialog", { name: "Article preview" }).waitFor();
+          await checkGooglePreferredSource(
+            page,
+            `${root}/reports/google-preferred-source/web-${member ? "member" : "guest"}.png`,
+            { analytics: "ga4", measurementId: "G-PREFERREDTEST" },
+          );
+          await page.getByRole("button", { name: "Close preview", exact: true }).click();
           await page
-            .locator("[data-google-preferred-source], .google-preferred-source-widget")
-            .count(),
-          0,
-        );
-        await page.locator(".card-open-link").first().click();
-        await page.getByRole("dialog", { name: "Article preview" }).waitFor();
-        await checkGooglePreferredSource(
-          page,
-          `${root}/reports/google-preferred-source/web-${member ? "member" : "guest"}.png`,
-          { analytics: "ga4", measurementId: "G-PREFERREDTEST" },
-        );
-        await page.getByRole("button", { name: "Close preview", exact: true }).click();
-        await page.getByRole("dialog", { name: "Article preview" }).waitFor({ state: "detached" });
-        assert.equal(
-          await page
-            .locator("[data-google-preferred-source], .google-preferred-source-widget")
-            .count(),
-          0,
-        );
-      }
-    });
+            .getByRole("dialog", { name: "Article preview" })
+            .waitFor({ state: "detached" });
+          assert.equal(
+            await page
+              .locator("[data-google-preferred-source], .google-preferred-source-widget")
+              .count(),
+            0,
+          );
+        }
+      },
+      { livePreferredSource: true },
+    );
   },
 );
 
@@ -2334,7 +2371,7 @@ test(
             routes: [
               `${origin}/topics/typescript`,
               `${origin}/sources/example-source`,
-              `${origin}/trending`,
+              `${origin}/news`,
             ],
           },
         );
@@ -2493,6 +2530,38 @@ test("feed modes declare placement capabilities", { timeout: 180000 }, async (t)
 });
 
 test(
+  "source collection indexing follows the visible public feed",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    for (const agent of ["Mozilla/5.0", "Googlebot"]) {
+      for (const [path, empty] of [
+        ["/sources/seo-populated", false],
+        ["/sources/seo-empty", true],
+        ["/sources/seo-populated/tutorials", true],
+      ]) {
+        const response = await fetch(origin + path, { headers: { "User-Agent": agent } });
+        assert.equal(response.status, 200);
+        const html = await response.text();
+        assert.equal(/<meta name="robots" content="[^"]*noindex/.test(html), empty);
+        assert.ok(html.includes(`rel="canonical" href="${origin}${path}"`));
+      }
+      const missing = await fetch(`${origin}/sources/seo-missing`, {
+        headers: { "User-Agent": agent },
+      });
+      assert.equal(missing.status, 404);
+    }
+    await withReaderPage(browser, async (page) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(`${origin}/sources/seo-populated/tutorials`);
+      await page.getByText("No articles match these filters", { exact: true }).waitFor();
+      assert.equal(await page.locator(".article-card").count(), 0);
+      await page.locator('meta[name="robots"][content*="noindex"]').waitFor({ state: "attached" });
+    });
+  },
+);
+
+test(
   "reader routes validate destinations and recover from missing pages",
   { timeout: 180000 },
   async (t) => {
@@ -2549,20 +2618,6 @@ test("reader sidebar persists and adapts to the viewport", { timeout: 180000 }, 
     { viewport: { width: 1440, height: 900 } },
   );
 });
-
-test(
-  "leaderboard shows named readers without filling anonymous ranks",
-  { timeout: 180000 },
-  async (t) => {
-    const { browser, origin } = await createReaderFixture(t);
-    await withReaderPage(browser, async (page) => {
-      await page.goto(`${origin}/latest`);
-      await page.locator(".article-card").first().waitFor();
-      await mkdir(`${root}/reports/reader-feed`, { recursive: true });
-      await checkLeaderboard(page, `${root}/reports/reader-feed/leaderboard-unclaimed`);
-    });
-  },
-);
 
 test("search security checks use visible article results", { timeout: 180000 }, async (t) => {
   const { browser, origin } = await createReaderFixture(t);
@@ -2806,4 +2861,16 @@ test("Sign out also opens provider SSO logout", { timeout: 180000 }, async (t) =
     await page.waitForURL("https://identity.example/end-session?state=correlated");
     assert.equal(starts.length, 1);
   });
+});
+
+test("directory pages enforce bounded existence and navigation", { timeout: 180000 }, async (t) => {
+  const { browser, origin, directoryFixture } = await createReaderFixture(t);
+  await withReaderPage(browser, (page) =>
+    checkCatalogDirectories(
+      page,
+      (path) => origin + path,
+      directoryFixture,
+      `${root}/reports/catalog-directories/web`,
+    ),
+  );
 });

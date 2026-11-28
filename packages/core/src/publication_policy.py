@@ -15,6 +15,7 @@ from devfeed_core.analysis import (
     source_snapshot,
 )
 from devfeed_core.article_lifecycle import processing_readiness
+from devfeed_core.article_refresh_jobs import ordinary_job_condition
 from devfeed_core.config import get_settings
 from devfeed_core.editorial import (
     EditorialDecision,
@@ -30,6 +31,7 @@ from devfeed_core.models import (
     ArticleEnrichmentJob,
     ArticlePublicationDecision,
     ArticleReview,
+    Source,
 )
 
 
@@ -52,14 +54,8 @@ POLICY_VERSION = "trusted-source-v3"
 ACTOR = "devfeed:automatic-publication"
 
 
-def evaluate_publication(
-    session: Session,
-    article: Article,
-    job: ArticleAnalysisJob | None,
-    *,
-    taxonomy: dict[str, list[CatalogItem]] | None = None,
-) -> PublicationEvaluation:
-    full = get_settings().full_automation
+def publication_source(article: Article, *, full: bool) -> Source | None:
+    """Share the same current source-authority choice across publication subjects."""
     sources = sorted(
         (
             origin.source
@@ -70,7 +66,18 @@ def evaluate_publication(
         ),
         key=lambda source: (source.publication_policy != "auto", str(source.id)),
     )
-    source = sources[0] if sources else None
+    return sources[0] if sources else None
+
+
+def evaluate_publication(
+    session: Session,
+    article: Article,
+    job: ArticleAnalysisJob | None,
+    *,
+    taxonomy: dict[str, list[CatalogItem]] | None = None,
+) -> PublicationEvaluation:
+    full = get_settings().full_automation
+    source = publication_source(article, full=full)
     reasons = [value for value in publication_blockers(article) if value != "not_approved"]
     reasons.extend(processing_readiness(session, article, taxonomy=taxonomy).blockers)
     if source is None:
@@ -84,7 +91,10 @@ def evaluate_publication(
         reasons.append("insufficient_source_text")
     enrichment = session.scalar(
         select(ArticleEnrichmentJob)
-        .where(ArticleEnrichmentJob.article_id == article.id)
+        .where(
+            ArticleEnrichmentJob.article_id == article.id,
+            ordinary_job_condition(ArticleEnrichmentJob),
+        )
         .order_by(ArticleEnrichmentJob.created_at.desc(), ArticleEnrichmentJob.id.desc())
         .limit(1)
     )
@@ -184,7 +194,10 @@ def apply_publication_policy(
         and job.id
         == session.scalar(
             select(ArticleAnalysisJob.id)
-            .where(ArticleAnalysisJob.article_id == article.id)
+            .where(
+                ArticleAnalysisJob.article_id == article.id,
+                ordinary_job_condition(ArticleAnalysisJob),
+            )
             .order_by(ArticleAnalysisJob.created_at.desc(), ArticleAnalysisJob.id.desc())
             .limit(1)
         )

@@ -66,7 +66,7 @@ def load_selection(
     preparing = not state or state.invalidated or not state.ranked_at
     if snapshot is None and not preparing:
         rows = session.execute(
-            select(Article, UserRecommendation)
+            select(Article.id, UserRecommendation)
             .join(UserRecommendation, UserRecommendation.article_id == Article.id)
             .where(
                 UserRecommendation.user_id == user_id,
@@ -79,7 +79,7 @@ def load_selection(
             .limit(5)
         ).all()
         picks = []
-        for article, entry in rows:
+        for article_id, entry in rows:
             topic = session.get(Topic, entry.topic_id) if entry.topic_id else None
             source = session.get(Source, entry.source_id) if entry.source_id else None
             seed = session.get(Topic, entry.seed_topic_id) if entry.seed_topic_id else None
@@ -93,14 +93,14 @@ def load_selection(
                 reason = f"Related to your interest in {seed.name}"
             else:
                 reason = "Selected from your recommendations"
-            picks.append({"id": str(article.id), "reason": reason})
+            picks.append({"id": str(article_id), "reason": reason})
         if picks:
             snapshot = UserMustRead(
                 user_id=user_id, selection_date=day, timezone=timezone, picks=picks
             )
             session.add(snapshot)
             session.flush()
-    articles, reasons, read_ids = read_snapshot(session, snapshot, settings)
+    articles, reasons, read_ids = read_snapshot(session, snapshot, settings, lock_publication=True)
     result = DailySelection(
         date=day,
         timezone=snapshot.timezone if snapshot else timezone,

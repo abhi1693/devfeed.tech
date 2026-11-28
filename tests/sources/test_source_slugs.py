@@ -3,7 +3,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from devfeed_core.models import Source
+from devfeed_core.models import Article, Source
 from devfeed_core.search_records import documents, hit, public_records
 from sqlalchemy import insert, text, update
 from sqlalchemy.exc import IntegrityError
@@ -62,7 +62,9 @@ def test_slug_allocation_is_concurrent_unique_and_stable(database):
 def test_source_slug_lookup_feed_search_and_sitemap_agree(client, database):
     from devfeed_core.sitemaps import refresh_snapshot
 
-    identifier, *_ = seed(database)
+    identifier, _, _, articles = seed(database)
+    with database.begin() as session:
+        session.execute(update(Article).where(Article.id.in_(articles)).values(language="en"))
     refresh_snapshot()
     with database() as session:
         source = session.get(Source, identifier)
@@ -76,9 +78,10 @@ def test_source_slug_lookup_feed_search_and_sitemap_agree(client, database):
     assert by_slug.status_code == by_id.status_code == 200
     assert by_slug.json() == by_id.json()
     assert by_slug.json()["slug"] == slug
-    assert client.get("/v1/feed").json()["items"][0]["sources"][0]["slug"] == slug
-    sitemap = client.get("/v1/sitemaps/sources/1").json()
-    assert sitemap["paths"] == [f"/sources/{slug}"]
+    assert client.get("/v1/feed?languages=en").json()["items"][0]["sources"][0]["slug"] == slug
+    sitemap = client.get("/v1/sitemaps/sources/1")
+    assert sitemap.status_code == 200
+    assert sitemap.json()["paths"] == [f"/sources/{slug}"]
     with database.begin() as session:
         session.execute(
             update(Source).where(Source.id == identifier).values(approval_status="pending")

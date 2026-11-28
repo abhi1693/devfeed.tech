@@ -88,13 +88,13 @@ def job(current, **changes):
 def claim_session(current, queued):
     session = Mock()
     # Subject locks are database operations; only the final admitted job is supplied.
-    session.scalar.side_effect = [None] * 5 + [queued]
+    session.scalar.side_effect = [queued] + [None] * 5 + [queued]
     session.get.return_value = current
     return session
 
 
 @pytest.mark.parametrize("automatic", [False, True])
-def test_published_article_requires_unpublishing_before_new_image_work(settings, automatic):
+def test_published_article_requires_private_maintenance_for_new_image_work(settings, automatic):
     from unittest.mock import patch
 
     with patch("tests.articles.test_article_lifecycle.utcnow", lambda: NOW):
@@ -107,7 +107,7 @@ def test_published_article_requires_unpublishing_before_new_image_work(settings,
     if automatic:
         assert images.request_image(session, current.id, automatic=True) is None
     else:
-        with pytest.raises(OperationConflict, match="Unpublish"):
+        with pytest.raises(OperationConflict, match="article maintenance"):
             images.request_image(session, current.id, refresh=True)
     session.add.assert_not_called()
     assert current.publication_status == "published"

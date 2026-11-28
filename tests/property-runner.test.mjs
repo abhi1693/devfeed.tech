@@ -12,8 +12,8 @@ import { checkPropertyReport, propertySuites } from "../scripts/ci/property-repo
 function report() {
   return {
     success: true,
-    numTotalTests: 14,
-    numPassedTests: 14,
+    numTotalTests: 15,
+    numPassedTests: 15,
     testResults: Object.entries(propertySuites).map(([name, count]) => ({
       name: `/workspace/apps/web/tests/${name}`,
       status: "passed",
@@ -119,7 +119,7 @@ test("failed, skipped and missing properties cannot produce a green gate", () =>
 
 test("empty and nonboolean report success cannot pass the gate", () => {
   for (const value of [null, undefined, {}, { ...report(), success: "true" }])
-    assert.throws(() => checkPropertyReport(value), /Expected 14 passing properties/);
+    assert.throws(() => checkPropertyReport(value), /Expected 15 passing properties/);
 });
 
 test("fast-check options keep pure and stateful budgets separate and preserve replay", () => {

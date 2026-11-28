@@ -10,6 +10,8 @@ from devfeed_core.models import Article, ArticleOrigin, Source, Topic
 from sqlalchemy import event, update
 
 from tests.api.test_public_search_integration import seed as search_seed
+from tests.support import article_refresh as refresh_support
+from tests.support.article_refresh import published_retry_case as published_retry_case
 
 pytestmark = pytest.mark.integration
 
@@ -98,6 +100,70 @@ def test_refresh_keeps_previous_version_readable_and_excludes_withdrawn_content(
     assert second["parts"] == []
     assert client.get(previous_path).json() == old
     assert client.get("/v1/tags/kubernetes").status_code == 404
+
+
+@pytest.mark.parametrize("target", ["enrichment", "analysis", "images"])
+def test_rebuilt_sitemaps_retain_published_articles_during_pending_and_failed_maintenance(
+    client, database, published_retry_case, target
+):
+    from devfeed_core.article_refresh import try_promote_refresh
+    from devfeed_core.editorial import EditorialDecision, decide_article
+    from devfeed_core.models import ArticleRefresh, utcnow
+    from sqlalchemy import select
+
+    case = published_retry_case
+    expected = f"/articles/{case.slug}"
+    generations = []
+
+    def rebuilt_article_paths():
+        storage = get_sitemap_cache()
+        key = storage.namespace + ":sitemaps:v1:manifest"
+        previous = storage.redis.get(key)
+        if previous:
+            storage.redis.set(key, json.dumps(dict(json.loads(previous), built_at=0)), ex=3900)
+        sitemaps.refresh_snapshot()
+        response = client.get("/v1/sitemaps")
+        assert response.status_code == 200
+        manifest = response.json()
+        assert manifest["generation"] not in generations
+        generations.append(manifest["generation"])
+        return {
+            path
+            for part in manifest["parts"]
+            if part["kind"] == "articles"
+            for path in client.get(
+                f"/v1/sitemaps/articles/{part['page']}?v={manifest['generation']}"
+            ).json()["paths"]
+        }
+
+    assert expected in rebuilt_article_paths()
+    with database.begin() as session:
+        case.request(session, target)
+        owner = session.scalar(
+            select(ArticleRefresh).where(ArticleRefresh.article_id == case.article_id)
+        )
+        refresh_id = owner.id
+        job_id = getattr(owner, refresh_support.JOB_SLOTS[target])
+    assert client.get(case.path).status_code == 200
+    assert expected in rebuilt_article_paths()
+    with database.begin() as session:
+        job = session.get(refresh_support.JOB_MODELS[target], job_id)
+        job.status, job.error, job.finished_at = (
+            "failed",
+            "Controlled maintenance failure",
+            utcnow(),
+        )
+    assert try_promote_refresh(database, refresh_id) != "promoted"
+    assert client.get(case.path).status_code == 200
+    assert expected in rebuilt_article_paths()
+    with database.begin() as session:
+        decide_article(
+            session,
+            case.article_id,
+            EditorialDecision(action="unpublish", actor="Editor", note="Explicit withdrawal"),
+        )
+    assert client.get(case.path).status_code == 404
+    assert expected not in rebuilt_article_paths()
 
 
 def test_articles_with_multiple_sources_appear_once(database):
@@ -382,7 +448,7 @@ def test_stale_reads_never_attempt_a_refresh(client, database, monkeypatch):
 def test_collection_sitemaps_match_anonymous_feed_language_and_visibility(client, database):
     from devfeed_core.models import ArticleTag, ArticleTopic, Tag
 
-    source, _, _, articles = seed(database)
+    source_id, _, _, _ = seed(database)
     scenarios = [
         ("english", "en", "published", "primary"),
         ("russian", "ru", "published", "primary"),
@@ -392,10 +458,18 @@ def test_collection_sitemaps_match_anonymous_feed_language_and_visibility(client
         ("empty", None, None, None),
     ]
     with database.begin() as session:
+        seed_source_slug = session.get(Source, source_id).slug
         for slug, language, publication, role in scenarios:
             topic = Topic(name=slug, slug=slug, kind="technology", status="active")
             tag = Tag(name=slug, slug=slug)
-            session.add_all([topic, tag])
+            source = Source(
+                name=slug,
+                slug=slug,
+                feed_url=f"https://{slug}.example/feed",
+                source_type="publisher",
+                approval_status="approved",
+            )
+            session.add_all([topic, tag, source])
             session.flush()
             if language is None:
                 continue
@@ -413,7 +487,7 @@ def test_collection_sitemaps_match_anonymous_feed_language_and_visibility(client
                 [
                     ArticleOrigin(
                         article_id=article.id,
-                        source_id=source,
+                        source_id=source.id,
                         entry_key=slug,
                         original_url=article.canonical_url,
                     ),
@@ -432,11 +506,29 @@ def test_collection_sitemaps_match_anonymous_feed_language_and_visibility(client
     slugs = {kind: {row.slug for row in rows if row.kind == kind} for kind in sitemaps.KINDS}
     assert slugs["topics"] == {"kubernetes", "english"}
     assert slugs["tags"] == {"kubernetes", "english", "incidental"}
+    assert slugs["sources"] == {seed_source_slug, "english", "incidental"}
     # Public non-English article detail pages remain indexable.
     assert len(slugs["articles"]) == 6
+    sitemaps.refresh_snapshot()
+    manifest = client.get("/v1/sitemaps").json()
+    source_paths = {
+        path
+        for part in manifest["parts"]
+        if part["kind"] == "sources"
+        for path in client.get(
+            f"/v1/sitemaps/sources/{part['page']}?v={manifest['generation']}"
+        ).json()["paths"]
+    }
+    assert source_paths == {f"/sources/{slug}" for slug in slugs["sources"]}
     for slug, *_ in scenarios:
-        for kind, key in [("topics", "topic"), ("tags", "tag")]:
-            response = client.get("/v1/feed", params={key: slug, "languages": "en"})
+        source = client.get(f"/v1/sources/{slug}")
+        assert source.status_code == 200
+        for kind, key, value in [
+            ("topics", "topic", slug),
+            ("tags", "tag", slug),
+            ("sources", "source_id", source.json()["id"]),
+        ]:
+            response = client.get("/v1/feed", params={key: value, "languages": "en"})
             assert response.status_code == 200
             assert bool(response.json()["items"]) == (slug in slugs[kind])
     assert client.get("/v1/feed?tag=russian").json()["items"]

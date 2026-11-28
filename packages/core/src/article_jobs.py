@@ -36,8 +36,16 @@ def approved_sources(
 
 
 def request_article_enrichment(
-    session: Session, article_id: uuid.UUID, *, automatic: bool = False
+    session: Session,
+    article_id: uuid.UUID,
+    *,
+    automatic: bool = False,
+    refresh_id: uuid.UUID | None = None,
 ) -> ArticleEnrichmentJob | None:
+    from devfeed_core.article_refresh import refresh_for_article, select_refresh_job
+
+    if refresh_id is not None and not approved_sources(session, article_id, lock=True):
+        raise OperationConflict("Article maintenance requires an approved source origin")
     article = session.scalar(
         select(Article)
         .options(lazyload("*"))
@@ -46,10 +54,13 @@ def request_article_enrichment(
     )
     if article is None:
         raise RecordNotFound("Article not found")
-    if article.publication_status == "published":
+    refresh = refresh_for_article(session, article, refresh_id, lock=True) if refresh_id else None
+    if refresh_id is not None and refresh is None:
+        raise OperationConflict("The maintenance candidate is no longer current")
+    if article.publication_status == "published" and refresh is None:
         if automatic:
             return None
-        raise OperationConflict("Unpublish the article before requesting enrichment")
+        raise OperationConflict("Use article maintenance to refresh a published article")
     # Ingestion inserts the origin before requesting enrichment, in the same transaction.
     if not approved_sources(session, article_id):
         raise OperationConflict("Article enrichment requires an approved source origin")
@@ -60,19 +71,31 @@ def request_article_enrichment(
         )
     )
     if active is not None:
+        if active.refresh_id != refresh_id or (
+            refresh is not None and active.id != refresh.enrichment_job_id
+        ):
+            if automatic:
+                return None
+            raise OperationConflict("Another enrichment task is still running for this article")
         return active
     if automatic and session.scalar(
         select(ArticleEnrichmentJob.id)
-        .where(ArticleEnrichmentJob.article_id == article_id)
+        .where(
+            ArticleEnrichmentJob.article_id == article_id,
+            ArticleEnrichmentJob.refresh_id.is_not_distinct_from(refresh_id),
+        )
         .limit(1)
     ):
         return None  # Never re-fetch failed, empty or completed pages on every RSS poll.
     job = ArticleEnrichmentJob(
         article_id=article_id,
+        refresh_id=refresh_id,
         result={"extraction_version": EXTRACTION_VERSION, "input_url": article.canonical_url},
     )
     session.add(job)
     session.flush()
+    if refresh is not None:
+        select_refresh_job(refresh, "enrichment", job)
     return job
 
 
@@ -81,7 +104,12 @@ def backfill_articles(
 ) -> list[ArticleEnrichmentJob]:
     if not 1 <= limit <= 500:
         raise ValueError("Backfill limit must be between 1 and 500")
-    attempted = select(ArticleEnrichmentJob.id).where(ArticleEnrichmentJob.article_id == Article.id)
+    from devfeed_core.article_refresh_jobs import ordinary_job_condition
+
+    attempted = select(ArticleEnrichmentJob.id).where(
+        ArticleEnrichmentJob.article_id == Article.id,
+        ordinary_job_condition(ArticleEnrichmentJob),
+    )
     origin = (
         select(ArticleOrigin.id)
         .join(Source, Source.id == ArticleOrigin.source_id)
@@ -107,6 +135,19 @@ def backfill_articles(
 
 
 def claim_article(session: Session, job_id: uuid.UUID) -> tuple[ArticleEnrichmentJob, str] | None:
+    from devfeed_core.article_refresh import refresh_for_article, refresh_job_current
+
+    preview = session.scalar(select(ArticleEnrichmentJob).where(ArticleEnrichmentJob.id == job_id))
+    if preview is None:
+        return None
+    if preview.refresh_id is not None:
+        approved_sources(session, preview.article_id, lock=True)
+        session.scalar(
+            select(Article)
+            .options(lazyload("*"))
+            .where(Article.id == preview.article_id)
+            .with_for_update(of=Article)
+        )
     # Wait out the dispatch transaction rather than consuming a still-locked job.
     job = session.scalar(
         select(ArticleEnrichmentJob).where(ArticleEnrichmentJob.id == job_id).with_for_update()
@@ -119,6 +160,14 @@ def claim_article(session: Session, job_id: uuid.UUID) -> tuple[ArticleEnrichmen
         return None
     if not approved_sources(session, article.id):
         finish_job(job, "unapproved", utcnow())
+        return None
+    if job.refresh_id is not None:
+        refresh = refresh_for_article(session, article, job.refresh_id, lock=True)
+        if refresh is None or not refresh_job_current(refresh, article, job, "enrichment"):
+            finish_job(job, "superseded", now)
+            return None
+    elif article.publication_status == "published":
+        finish_job(job, "superseded", now)
         return None
     start_job(job, now, LEASE_SECONDS)
     job.result = {**(job.result or {}), "extraction_version": EXTRACTION_VERSION}
@@ -133,7 +182,7 @@ def retry_article(session: Session, job_id: uuid.UUID) -> ArticleEnrichmentJob |
         raise OperationConflict(
             "Only failed jobs can be retried; use articles enrich for a new lookup"
         )
-    return request_article_enrichment(session, job.article_id)
+    return request_article_enrichment(session, job.article_id, refresh_id=job.refresh_id)
 
 
 def prepare_article_dispatch(session: Session, job_id: uuid.UUID) -> ArticleEnrichmentJob:
