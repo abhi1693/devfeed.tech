@@ -24,3 +24,31 @@ it("keeps catalog summaries free of nested links", () => {
   expect(screen.queryByRole("link")).toBeNull();
   expect(screen.getByText("readable")).toBeTruthy();
 });
+
+it("reuses syntax across full and compact rendering without reusing link policy", async () => {
+  const { markdownParseCache } = await import("../../../packages/ui/src/markdown-cache");
+  markdownParseCache.clear();
+  const text = "[Python](https://python.org) and **delivery**.\n\n![Hidden](https://x.test/a.png)";
+  const first = render(<Markdown>{text}</Markdown>);
+  expect(first.container.querySelector("a")?.getAttribute("href")).toBe("https://python.org");
+  first.unmount();
+  const compact = render(<Markdown compact>{text}</Markdown>);
+  expect(compact.container.querySelector("a, img")).toBeNull();
+  expect(compact.container.querySelector("strong")?.textContent).toBe("delivery");
+  expect(markdownParseCache.stats()).toMatchObject({ misses: 1, hits: 1 });
+});
+
+it("reparses changed text and keeps unsafe content blocked on cache hits", async () => {
+  const { markdownParseCache } = await import("../../../packages/ui/src/markdown-cache");
+  markdownParseCache.clear();
+  const text = "<script>alert(1)</script>\n\n[unsafe](javascript:alert(1))\n\n**Approved**";
+  const first = render(<Markdown>{text}</Markdown>);
+  const expected = first.container.innerHTML;
+  first.unmount();
+  const second = render(<Markdown>{text}</Markdown>);
+  expect(second.container.innerHTML).toBe(expected);
+  expect(second.container.querySelector("script, img, a[href]")).toBeNull();
+  second.rerender(<Markdown>{"**Replacement**"}</Markdown>);
+  expect(second.container.querySelector("strong")?.textContent).toBe("Replacement");
+  expect(markdownParseCache.stats()).toMatchObject({ misses: 2, hits: 1 });
+});

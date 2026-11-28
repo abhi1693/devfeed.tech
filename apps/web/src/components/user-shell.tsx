@@ -5,7 +5,7 @@ import { FeaturedOn } from "./featured-on";
 import { ReadingTools } from "./reading-tools";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav, ReadLaterNav } from "./user-account";
-import { Bot, Compass, House, Hash, Rss, Sparkles } from "lucide-react";
+import { Bot, Compass, House, Hash, Rss } from "lucide-react";
 import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import { SkipToContent } from "./skip-to-content";
@@ -129,17 +129,6 @@ export function UserShell({
             <Bot size={20} aria-hidden="true" />
             <span>Connect your agent</span>
           </Link>
-          <a
-            href="https://changelog.devfeed.tech/"
-            className="nav-item"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="What’s new (opens in a new tab)"
-            title="What’s new"
-          >
-            <Sparkles size={20} aria-hidden="true" />
-            <span>What’s new</span>
-          </a>
           <a
             className="nav-item"
             href="https://github.com/abhi1693/devfeed.tech"

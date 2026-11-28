@@ -124,10 +124,10 @@ def test_outage_keeps_both_job_types_queued_with_heartbeats_then_resumes(
 
 def test_mixed_worker_drains_background_queues_while_analysis_is_paused(database, waiting):
     queues, messages, _ = waiting
-    ingestion, notifications = get_queue(), get_queue("notifications")
+    ingestion, images = get_queue(), get_queue("images")
     first = ingestion.enqueue("builtins.str", "ingest")
-    second = notifications.enqueue("builtins.str", "notify")
-    instance = consumer([ingestion, *queues, notifications])
+    second = images.enqueue("builtins.str", "image")
+    instance = consumer([ingestion, *queues, images])
     instance.codex_readiness = SimpleNamespace(ready=lambda **kw: False, reason="codex_unavailable")
     try:
         assert instance.dequeue_job_and_maintain_ttl(None)[0].id == first.id
@@ -140,11 +140,11 @@ def test_mixed_worker_drains_background_queues_while_analysis_is_paused(database
             "article-analysis",
             "topic-analysis",
             "ingestion",
-            "notifications",
+            "images",
         }
     finally:
         ingestion.connection.close()
-        notifications.connection.close()
+        images.connection.close()
 
 
 def test_jobs_arriving_after_idle_outage_cannot_use_cached_healthy_readiness(database, monkeypatch):

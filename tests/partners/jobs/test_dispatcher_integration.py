@@ -7,6 +7,7 @@ import pytest
 from devfeed_aggregator import partner_sync_tasks
 from devfeed_aggregator.partner_dispatcher import partner_dispatcher
 from devfeed_aggregator.queue import get_queue
+from devfeed_aggregator.scheduler_resources import SchedulerResources
 from devfeed_core.config import get_settings
 
 from tests.partners.jobs.test_pipeline_dispatch import published_count, seed_jobs
@@ -23,14 +24,24 @@ def wait_for_publications(database, expected):
     pytest.fail(f"Independent partner dispatcher did not publish {expected} jobs")
 
 
-def test_refill_progresses_without_a_main_scheduler_cycle(database, monkeypatch):
+@pytest.mark.parametrize("reuse", [False, True])
+def test_refill_progresses_without_a_main_scheduler_cycle(database, monkeypatch, reuse):
     seed_jobs(database, 600)
     batch = get_settings().scheduler_batch_size
     schedule = Mock(side_effect=AssertionError("Fast refill must not schedule source imports"))
     monkeypatch.setattr(partner_sync_tasks, "schedule_partner_syncs", schedule)
     queue = get_queue("partner-pipeline")
     try:
-        with partner_dispatcher(database, interval=0.01):
+        settings = get_settings().model_copy(
+            update={
+                "database_pool_enabled": False,
+                "scheduler_connection_reuse_enabled": reuse,
+            }
+        )
+        with (
+            SchedulerResources(settings) as resources,
+            partner_dispatcher(resources.factory, interval=0.01),
+        ):
             wait_for_publications(database, 2 * batch)
             assert queue.count == 2 * batch
             for _ in range(batch):

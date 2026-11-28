@@ -12,6 +12,7 @@ def runtime_marker(
         "worker-name",
         "analytics-worker",
         "search-heartbeat",
+        "scheduler-heartbeat",
     ],
 ) -> Path:
     directory = Path(gettempdir()) / f"devfeed-runtime-{os.geteuid()}"
