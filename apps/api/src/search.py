@@ -8,33 +8,21 @@ from datetime import UTC, date, datetime, timedelta
 from datetime import time as day_time
 from typing import Literal, TypedDict
 
-from devfeed_core.analytics import AnalyticsUnavailable
-from devfeed_core.config import get_settings
+from devfeed_core.models import Article, ArticleTag, SearchQueryStat, Tag
 from devfeed_core.partner_link_rel import LinkRel, default_link_rel
-from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
-from devfeed_core.schemas import ContentType, DatabaseText, ImageVariant
-from devfeed_core.search_clicks import SearchClickTokens
+from devfeed_core.publication import visible_article
+from devfeed_core.schemas import ContentType, ImageVariant
 from devfeed_core.search_engine import KINDS, MAX_PAGE, PAGE_SIZE, SearchUnavailable, Typesense
 from devfeed_core.search_records import SearchHitData, hit, public_records
-from devfeed_core.search_suggestions import (
-    SearchSuggestionAnalytics,
-    normalize_query,
-    query_hash,
-    record_successful_query,
-)
-from devfeed_http.analytics import analytics_client
-from devfeed_http.body_limits import RequestBodyPolicy
-from devfeed_http.dependencies import run_database
-from fastapi import APIRouter, HTTPException, Query, Request, Response
+from devfeed_core.search_suggestions import normalize_query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from redis.exceptions import RedisError
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import TextClause
 
 from devfeed_api.cache import CachedReadRoute, CachePolicy
-from devfeed_api.dependencies import DB, DBFactory, get_rate_limit_redis
+from devfeed_api.dependencies import DB
 
 router = APIRouter(prefix="/v1/search", tags=["discovery"], route_class=CachedReadRoute)
 
@@ -50,7 +38,6 @@ class SearchHit(BaseModel):
     image_url: str | None
     label: str
     published_at: str | None
-    click_token: str | None = None
 
 
 class SearchSection(BaseModel):
@@ -73,105 +60,46 @@ class SearchResponseData(TypedDict):
     sections: dict[str, SearchSectionData]
 
 
-class SearchClick(BaseModel):
-    query: DatabaseText = Field(max_length=200)
-    result_kind: Literal["articles", "topics", "sources", "tags"]
-    result_id: uuid.UUID
-    click_token: str | None = Field(default=None, max_length=80)
-
-
-def click_tokens() -> SearchClickTokens | None:
-    key = get_settings().search_query_key
-    return SearchClickTokens(key.get_secret_value()) if key else None
-
-
 @router.get(
     "/suggestions",
     response_model=list[str],
     openapi_extra=CachePolicy(
-        namespace="search-suggestions", revision=1, ttl="content", normalize_query=True
+        namespace="search-suggestions", revision=3, ttl="content", normalize_query=True
     ).openapi_extra(),
 )
-async def suggestions(
-    factory: DBFactory,
-    request: Request,
-    q: str = Query("", max_length=200),
-    limit: int = Query(5, ge=1, le=10),
+def suggestions(
+    session: DB, q: str = Query("", max_length=200), limit: int = Query(5, ge=1, le=10)
 ) -> list[str]:
     try:
-        items = await SearchSuggestionAnalytics(analytics_client(request)).rank(
-            factory,
-            prefix=q,
-            status="approved",
-            limit=limit,
-            minimum=get_settings().search_suggestion_min_volume,
+        prefix = normalize_query(q, allow_empty=True)
+        if not prefix:
+            return []
+        statement = (
+            select(SearchQueryStat.query)
+            .where(
+                SearchQueryStat.status == "approved",
+                select(Tag.id)
+                .join(ArticleTag, ArticleTag.tag_id == Tag.id)
+                .join(Article, Article.id == ArticleTag.article_id)
+                .where(func.lower(Tag.name) == SearchQueryStat.query, visible_article())
+                .exists(),
+                SearchQueryStat.query.startswith(prefix, autoescape=True),
+            )
+            .order_by(SearchQueryStat.query)
+            .limit(limit)
         )
-        return [item["query"] for item in items]
+        return list(session.scalars(statement))
     except ValueError:
         raise HTTPException(422, "Invalid search suggestion prefix") from None
-    except (AnalyticsUnavailable, SQLAlchemyError):
+    except SQLAlchemyError:
         raise HTTPException(503, "Search suggestions are temporarily unavailable") from None
-
-
-@router.post(
-    "/analytics/click",
-    status_code=204,
-    response_class=Response,
-    openapi_extra=RequestBodyPolicy(body_limit=4096).openapi_extra(),
-)
-async def successful_click(body: SearchClick, factory: DBFactory, request: Request) -> Response:
-    headers = {"Cache-Control": "no-store"}
-    try:
-        query = normalize_query(body.query)
-    except ValueError:
-        raise HTTPException(422, "Invalid search query", headers=headers) from None
-    # A valid receipt is required before an observation is recorded.
-    if body.click_token is None:
-        return Response(status_code=204, headers=headers)
-    tokens = click_tokens()
-    if tokens is None or not tokens.valid(
-        body.click_token, body.query, body.result_kind, body.result_id
-    ):
-        raise HTTPException(403, "Invalid search event", headers=headers)
-
-    def persist_metadata(session: Session) -> str:
-        digest = query_hash(query)
-        prefix = "devfeed:search-click:"
-        retry = consume_rate_limits(
-            get_rate_limit_redis(),
-            [
-                RateLimitBudget(f"{prefix}anonymous:minute", 120, 60),
-                RateLimitBudget(f"{prefix}anonymous:hour", 1000, 3600),
-                RateLimitBudget(f"{prefix}query:{digest}:minute", 20, 60),
-                RateLimitBudget(f"{prefix}query:{digest}:hour", 100, 3600),
-            ],
-        )
-        if retry:
-            raise HTTPException(
-                429, "Search event limit reached", headers={**headers, "Retry-After": str(retry)}
-            )
-        session.execute(select_timeout(), {"timeout": "500"})
-        if body.result_id not in public_records(session, body.result_kind, [body.result_id]):
-            raise HTTPException(403, "Invalid search event", headers=headers)
-        record_successful_query(session, query)
-        session.commit()
-        return digest
-
-    try:
-        digest = await run_database(factory, persist_metadata)
-        await SearchSuggestionAnalytics(analytics_client(request)).record(digest)
-    except (RedisError, SQLAlchemyError, AnalyticsUnavailable):
-        raise HTTPException(
-            503, "Search analytics unavailable", headers={**headers, "Retry-After": "1"}
-        ) from None
-    return Response(status_code=204, headers=headers)
 
 
 @router.get(
     "",
     response_model=SearchResponse,
     openapi_extra=CachePolicy(
-        namespace="search", revision=1, ttl="content", normalize_query=True
+        namespace="search", revision=2, ttl="content", normalize_query=True
     ).openapi_extra(),
 )
 def search(
@@ -223,7 +151,6 @@ def search(
             content_types=content_types,
         )
         sections: dict[str, SearchSectionData] = {}
-        tokens = click_tokens()
         for kind in kinds:
             remaining = int((deadline - time.monotonic()) * 1000)
             if remaining <= 0:
@@ -233,14 +160,7 @@ def search(
                 dict.fromkeys(uuid.UUID(item["document"]["id"]) for item in matches[kind]["hits"])
             )
             records = public_records(session, kind, ids)
-            items: list[SearchHitData] = [
-                {
-                    **hit(kind, records[value]),
-                    "click_token": tokens.issue(query, kind, value) if tokens else None,
-                }
-                for value in ids
-                if value in records
-            ]
+            items = [hit(kind, records[value]) for value in ids if value in records]
             sections[kind] = {
                 "items": items,
                 "next_cursor": str(page + 1)

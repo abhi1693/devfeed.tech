@@ -27,8 +27,6 @@ from devfeed_core.topic_verification import (
 )
 from sqlalchemy import select
 
-from tests.support.analytics_cards import card_publication as card_publication
-from tests.support.overview import publish_section
 from tests.support.paths import REPO_ROOT
 from tests.taxonomy.test_topic_analysis import pending as pending
 from tests.taxonomy.test_topic_analysis import run_metadata_research
@@ -274,7 +272,6 @@ def test_bad_imported_alias_stays_pending_despite_verified_research(
     pending,
     monkeypatch,
     alias,
-    card_publication,
 ):
     enable(monkeypatch)
     with database.begin() as session:
@@ -296,10 +293,6 @@ def test_bad_imported_alias_stays_pending_despite_verified_research(
         assert proposal.proposed["facts"]
         assert session.get(ResearchVerificationJob, identifier).outcome == "review_required"
         assert session.scalar(select(Topic)) is None
-    publish_section(card_publication)
-    overview = admin_client.get("/v1/admin/overview/charts/attention").json()
-    blockers = overview["data"]["blockers"]
-    assert next(group for group in blockers if group["code"] == "evidence_unverified")["count"] == 1
 
 
 @pytest.mark.integration

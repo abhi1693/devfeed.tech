@@ -13,12 +13,10 @@ from contextvars import ContextVar
 from copy import deepcopy
 from typing import TypedDict, Unpack
 
-from aiohttp import ClientConnectionError, ClientPayloadError, ClientResponseError
-from clickhouse_connect.driver.exceptions import Error as ClickHouseError
-from clickhouse_connect.driver.exceptions import OperationalError
+import psycopg
 
-from devfeed_core.analytics import AnalyticsClient, AnalyticsUnavailable
-from devfeed_core.analytics_inference_store import InferenceStore
+from devfeed_core.config import Settings
+from devfeed_core.inference_ledger import InferenceLedger
 from devfeed_core.json_types import JsonRecord
 
 logger = logging.getLogger(__name__)
@@ -55,62 +53,34 @@ def request_hash(prompt: str, schema: JsonRecord) -> str:
     ).hexdigest()
 
 
-def _cause(error: BaseException) -> BaseException:
-    for _ in range(4):
-        if not isinstance(error, AnalyticsUnavailable) or error.__cause__ is None:
-            break
-        error = error.__cause__
-    return error
-
-
-def _retryable(error: Exception) -> bool:
-    cause = _cause(error)
-    if isinstance(cause, ClientResponseError):
-        return cause.status in {408, 429} or 500 <= cause.status < 600
-    if isinstance(cause, (ClientConnectionError, ClientPayloadError, TimeoutError)):
-        return True
-    if isinstance(cause, OperationalError) and cause.code is None:
-        return True
-    if isinstance(cause, ClickHouseError):
-        return cause.code in {202, 241}
-    return isinstance(cause, AnalyticsUnavailable)
-
-
 def _failure_fields(values: JsonRecord, error: Exception, attempt: int) -> dict[str, object]:
     try:
         identity = str(uuid.UUID(str(values.get("id"))))
     except (ValueError, TypeError, AttributeError):
         identity = "invalid"
-    cause = _cause(error)
-    fields: dict[str, object] = {
-        "inference_id": identity,
-        "attempt": attempt,
-        "error_type": type(error).__name__,
-        "cause_type": type(cause).__name__,
-    }
-    if isinstance(cause, ClickHouseError) and type(cause.code) is int:
-        fields["clickhouse_code"] = cause.code
-    return fields
+    return {"inference_id": identity, "attempt": attempt, "error_type": type(error).__name__}
 
 
-async def record_call(values: JsonRecord, *, client: AnalyticsClient) -> None:
+async def record_call(values: JsonRecord, *, settings: Settings) -> None:
     """Retry one stable observation; paid inference itself is never replayed."""
     attempt = 0
     observation = values
     try:
         observation = deepcopy(values)
-        store = InferenceStore(client)
+        store = InferenceLedger(settings)
         # Retries share the existing single-request budget instead of
         # multiplying the maximum wait by the number of delivery attempts.
-        async with asyncio.timeout(client.settings.clickhouse_timeout_seconds):
+        async with asyncio.timeout(settings.database_connect_timeout_seconds):
             for number, delay in enumerate(PERSISTENCE_DELAYS, 1):
                 if delay:
                     await asyncio.sleep(delay)
                 attempt = number
                 try:
-                    await store.write([observation])
+                    await store.write(observation)
                 except Exception as error:
-                    if attempt == len(PERSISTENCE_DELAYS) or not _retryable(error):
+                    if attempt == len(PERSISTENCE_DELAYS) or not isinstance(
+                        error, (psycopg.OperationalError, TimeoutError)
+                    ):
                         raise
                 else:
                     return

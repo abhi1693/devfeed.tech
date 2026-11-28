@@ -1,3 +1,4 @@
+import { isHardwareDaily, readerName } from "./reader-brand";
 import type { Metadata } from "next";
 import { feedHref, parseFilters, type FeedFilters, type SearchParams } from "./feed-query";
 import { catalogOffset } from "./catalog-page";
@@ -45,6 +46,14 @@ export const SITE_DESCRIPTION =
   "Learn daily. Build better. Stay ahead. Discover developer news, tutorials, and releases organized by topic and source.";
 
 export function socialImage() {
+  if (isHardwareDaily())
+    return {
+      url: canonicalUrl("/hardware-daily/opengraph.jpg"),
+      width: 1200,
+      height: 630,
+      type: "image/jpeg",
+      alt: "Hardware Daily — copper circuit board and integrated circuit",
+    };
   return {
     url: canonicalUrl("/opengraph.png"),
     width: 1672,
@@ -56,11 +65,11 @@ export function socialImage() {
 
 export function socialMetadata(title: string, description: string): Metadata {
   const image = socialImage();
-  const socialTitle = title.startsWith("DevFeed") ? title : `${title} · DevFeed`;
+  const socialTitle = title.startsWith(readerName()) ? title : `${title} · ${readerName()}`;
   return {
     openGraph: {
       type: "website",
-      siteName: "DevFeed",
+      siteName: readerName(),
       locale: "en_US",
       title: socialTitle,
       description,

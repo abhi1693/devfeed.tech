@@ -111,13 +111,7 @@ export async function checkGuestColumnsUnavailable(page, target, output) {
     );
     await layout.getByRole("link", { name: "Sign in to use Columns", exact: true }).waitFor();
     assert.equal(await layout.getByRole("radio", { name: "Grid", exact: true }).isChecked(), true);
-    for (const route of [
-      "/",
-      "/latest",
-      "/trending",
-      "/articles",
-      `/?tag=${catalog.tags[0].slug}`,
-    ]) {
+    for (const route of ["/", "/latest", "/news", "/articles", `/?tag=${catalog.tags[0].slug}`]) {
       await page.goto(readerRouteUrl(target, route));
       await page.locator(".theme-toggle:not([disabled])").waitFor();
       await page.locator(".article-card:visible").first().waitFor();
@@ -572,7 +566,7 @@ export async function checkColumnsWorkspace(
         [`/topics/${catalog.topics[0].slug}/articles`, catalog.topics[0].name],
         [`/latest?source_id=${catalog.sources[0].id}`, catalog.sources[0].name],
         [`/?tag=${encodeURIComponent(catalog.tags[0].slug)}`, null],
-        ["/trending", "Trending"],
+        ["/news", "News"],
         ["/articles", null],
         ...(signedIn ? [["/read-later", "Read later"]] : []),
       ]) {

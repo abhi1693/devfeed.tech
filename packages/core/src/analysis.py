@@ -9,11 +9,12 @@ import re
 import unicodedata
 import uuid
 from collections import OrderedDict
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import timedelta
 from functools import lru_cache
+from itertools import chain, islice
 from typing import TYPE_CHECKING, Literal, NotRequired, Self, TypedDict, cast, overload
 
 from pydantic import Field, model_validator
@@ -65,6 +66,8 @@ ARTICLE_SOURCE_BYTES = 190_000
 CANDIDATE_PROMPT_CACHE_ENTRIES = 2048
 CANDIDATE_PROMPT_CACHE_BYTES = 2 * 1024 * 1024
 ARTICLE_INPUT_RESERVE_BYTES = 32_000
+CANDIDATE_NORMALIZATION_CACHE_ENTRIES = 512
+CANDIDATE_NORMALIZATION_CACHE_CHARS = 128
 VALIDATION_VERSION = "article-validation-v4-specialist-steps"
 TERMINAL_ANALYSIS_ERRORS = frozenset(
     {"ai_not_configured", "unexpected_tool_execution", "unexpected_server_request"}
@@ -396,15 +399,12 @@ def candidate_index(terms: Iterable[tuple[frozenset[str], frozenset[str]]]) -> C
 
 def candidate_description_index(
     descriptions: Iterable[tuple[str | None, str | None]],
+    *,
+    normalize: Callable[[str], str] = candidate_text,
 ) -> tuple[dict[str, int], dict[str, list[int]]]:
     """Build retrieval vocabulary with the same lifetime as its prepared catalog."""
     description_terms = (
-        {
-            word
-            for value in pair
-            if value
-            for word in re.findall(r"[\w+#]{3,}", candidate_text(value))
-        }
+        {word for value in pair if value for word in re.findall(r"[\w+#]{3,}", normalize(value))}
         for pair in descriptions
     )
     document_frequency: dict[str, int] = {}
@@ -414,6 +414,21 @@ def candidate_description_index(
             document_frequency[word] = document_frequency.get(word, 0) + 1
             postings.setdefault(word, []).append(index)
     return document_frequency, postings
+
+
+def _shared_vocabulary(items: Sequence[CatalogItem]) -> bool:
+    # Do not add per-value memo overhead to catalogs whose identifiers/keywords
+    # are mostly unique. This bounded probe only selects an equivalent CPU path.
+    sample = [
+        value.lower().replace("-", " ").replace("_", " ")
+        for item in items[:: max(1, len(items) // 32)][:32]
+        for value in islice(
+            chain((item["name"], item["slug"]), item.get("aliases", []), item.get("keywords", [])),
+            16,
+        )
+        if value and value.isascii() and len(value) <= CANDIDATE_NORMALIZATION_CACHE_CHARS
+    ]
+    return len(sample) >= 8 and len(set(sample)) * 3 <= len(sample) * 2
 
 
 def _candidate_indexes(
@@ -429,8 +444,33 @@ def _candidate_indexes(
         )
         for item in items
     )
+    cached_text = lru_cache(maxsize=CANDIDATE_NORMALIZATION_CACHE_ENTRIES)(candidate_text)
+
+    def normalize(value: str) -> str:
+        # ASCII normalization cannot expand beyond the input plus two spaces.
+        # Keep a small construction-only vocabulary; Unicode/large values retain
+        # the exact uncached path rather than occupying an unbounded byte budget.
+        if value.isascii() and len(value) <= CANDIDATE_NORMALIZATION_CACHE_CHARS:
+            return cached_text(value.lower().replace("-", " ").replace("_", " "))
+        return candidate_text(value)
+
+    memoize = not cache_terms and _shared_vocabulary(items)
+    if memoize:
+        terms = (
+            (
+                frozenset(
+                    normalize(value)
+                    for value in (item["name"], item["slug"], *item.get("aliases", []))
+                    if value
+                ),
+                frozenset(normalize(value) for value in item.get("keywords", []) if value),
+            )
+            for item in items
+        )
     descriptions = ((item.get("description"), item.get("ai_description")) for item in items)
-    frequency, postings = candidate_description_index(descriptions)
+    frequency, postings = candidate_description_index(
+        descriptions, normalize=normalize if memoize else candidate_text
+    )
     return candidate_index(terms), frequency, postings
 
 
@@ -813,13 +853,16 @@ def validate_evidence(
         " ".join(str(snapshot.get(field) or "").split())
         for field in ("title", "source_summary", "text")
     )
+    # A specialist shortlist needs only ID membership. Do not replace the
+    # job's complete retrieval generation just to validate a smaller catalog.
+    prepared = _ranking.get()
     for field, selections in (
         ("topics", result.topics),
         ("tags", result.tags),
     ):
         valid = (
-            _prepared_catalog(cast(AnalysisCatalog, taxonomy)).current(field)
-            if _ranking.get() is not None
+            prepared[0].current(field)
+            if prepared and prepared[0].taxonomy is taxonomy
             else {item["id"] for item in taxonomy[field]}
         )
         for item in selections:

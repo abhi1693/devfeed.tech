@@ -4,17 +4,13 @@ import pytest
 from devfeed_core.models import Article, ArticleOrigin, ArticleTag, Source, Tag
 from sqlalchemy import select
 
-from tests.support.user_analytics import direct_client as direct_client
 from tests.support.user_personalization import user_data as user_data
 
 pytestmark = pytest.mark.integration
 
 
 @pytest.mark.parametrize("status", ["pending", "rejected"])
-def test_public_articles_omit_unapproved_sources_and_origins(
-    database, client, direct_client, status
-):
-    user_client = direct_client[0]
+def test_public_articles_omit_unapproved_sources_and_origins(database, client, user_data, status):
     with database.begin() as session:
         article = session.scalar(select(Article).where(Article.title == "Article 109"))
         hidden = session.scalar(select(Source).where(Source.approval_status == "rejected"))
@@ -29,13 +25,10 @@ def test_public_articles_omit_unapproved_sources_and_origins(
             )
         )
         article_id, hidden_id = str(article.id), str(hidden.id)
-    # Seed genuine activity so the same shared projection is exercised in trending.
-    user_client.put(f"/v1/user/articles/{article_id}/like", json={"liked": True})
     assert client.get(f"/v1/sources/{hidden_id}").status_code == 404
     for http, path in [
         (client, f"/v1/articles/{article_id}"),
         (client, "/v1/feed?limit=100"),
-        (user_client, "/v1/user/trending"),
     ]:
         response = http.get(path)
         assert response.status_code == 200, response.text

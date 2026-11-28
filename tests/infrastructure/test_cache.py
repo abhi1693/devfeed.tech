@@ -852,3 +852,34 @@ def test_query_model_extra_validation_cannot_be_bypassed_by_normalized_cache(
             assert response.headers["x-cache"] == "MISS" and response.json() == {"limit": limit}
         for _ in range(2):
             assert client.get("/catalog?limit=10&unexpected=invalid").status_code == 422
+
+
+@pytest.mark.parametrize("length,compressed", [(4095, False), (4096, True)])
+def test_mixed_format_response_cache(response_cache, monkeypatch, length, compressed):
+    body = b'"' + b"x" * (length - 2) + b'"'
+    store = response_cache
+    lookup = store.lookup("item", "public")
+    monkeypatch.setattr(get_settings(), "cache_compress_writes", True)
+    assert store.publish(lookup, body, 60)
+    assert store.redis.get(lookup.key).startswith(cache.COMPRESSED_PREFIX) is compressed
+    monkeypatch.setattr(get_settings(), "cache_compress_writes", False)
+    assert store.lookup("item", "public").body == body
+    store.redis.now += 60
+    assert store.lookup("item", "public").body is None
+
+
+@pytest.mark.parametrize("fault", ["oversized", "truncated", "trailing", "invalid"])
+def test_invalid_compressed_response_is_a_miss(response_cache, monkeypatch, fault):
+    import zlib
+
+    monkeypatch.setattr(get_settings(), "cache_max_bytes", 4096)
+    lookup = response_cache.lookup("item", "public")
+    compressed = zlib.compress(b'"' + b"x" * 4095 + b'"')
+    invalid = {
+        "oversized": compressed,
+        "truncated": zlib.compress(b"{}")[:-1],
+        "trailing": zlib.compress(b"{}") + b"x",
+        "invalid": b"x",
+    }
+    response_cache.redis.set(lookup.key, cache.COMPRESSED_PREFIX + invalid[fault])
+    assert response_cache.lookup("item", "public").body is None

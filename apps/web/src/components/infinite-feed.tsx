@@ -26,7 +26,6 @@ type Props = {
   initialPage: Page;
   filters?: FeedFilters;
   personal?: boolean;
-  trending?: boolean;
   bookmarks?: boolean;
   excludedIds?: string[];
   endMessage?: string;
@@ -38,7 +37,6 @@ export function InfiniteFeed({
   initialPage,
   filters,
   personal = false,
-  trending = false,
   bookmarks = false,
   excludedIds = noExclusions,
   endMessage,
@@ -53,20 +51,20 @@ export function InfiniteFeed({
   );
   const placementContext = useMemo(
     () =>
-      placements && !filters?.cursor && !bookmarks && !trending && placementArticleIds.length
+      placements && !filters?.cursor && !bookmarks && placementArticleIds.length
         ? {
             ...placements,
             ...(placements.surface === "feed" ? { article_ids: placementArticleIds } : {}),
           }
         : undefined,
-    [placements, filters?.cursor, bookmarks, trending, placementArticleIds],
+    [placements, filters?.cursor, bookmarks, placementArticleIds],
   );
   const fetchPage = useCallback(
     async (cursor: string, signal: AbortSignal): Promise<Page> => {
       let page: Page;
-      if (personal || trending || bookmarks) {
+      if (personal || bookmarks) {
         page = await userRequest<Page>(
-          `${bookmarks ? "bookmarks" : trending ? "trending" : "feed"}?limit=24&${personal && filters ? `${feedParams({ ...filters, cursor: "" })}&` : ""}cursor=${encodeURIComponent(cursor)}`,
+          `${bookmarks ? "bookmarks" : "feed"}?limit=24&${personal && filters ? `${feedParams({ ...filters, cursor: "" })}&` : ""}cursor=${encodeURIComponent(cursor)}`,
           { signal },
         );
       } else {
@@ -83,7 +81,7 @@ export function InfiniteFeed({
       if (page.status === "refreshing" && !page.items.length) throw new AccountError(409);
       return page;
     },
-    [filters, personal, trending, bookmarks],
+    [filters, personal, bookmarks],
   );
   const {
     pages: batches,
@@ -123,10 +121,10 @@ export function InfiniteFeed({
 
   const nextHref =
     cursor !== null
-      ? personal || trending || bookmarks
+      ? personal || bookmarks
         ? personal && filters
           ? personalFeedHref(filters, { cursor })
-          : `/${bookmarks ? "read-later" : trending ? "trending" : ""}?cursor=${encodeURIComponent(cursor)}`
+          : `/${bookmarks ? "read-later" : ""}?cursor=${encodeURIComponent(cursor)}`
         : feedHref(filters!, { cursor })
       : undefined;
   return (
@@ -159,7 +157,7 @@ export function InfiniteFeed({
         articles={articles}
         reasons={reasons}
         waitForPreferences={personal || bookmarks}
-        showDevCard={!personal && !trending && !bookmarks}
+        showDevCard={!personal && !bookmarks}
         placements={placementContext}
         placementArticleCount={placementArticleIds.length}
       />

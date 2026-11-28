@@ -26,7 +26,6 @@ from devfeed_admin_api.overview_charts import CHART_SECTIONS
 from devfeed_admin_api.overview_windows import recent_window
 from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.analytics_audience_refresh import COMPLETE_PHASE
-from devfeed_core.analytics_card_types import PipelineBoard, PipelineColumn
 from devfeed_core.analytics_observation import pipeline_policy_version
 from devfeed_core.analytics_overview_reconcile import OVERVIEW_SOURCES, scope_for
 from devfeed_core.config import get_settings
@@ -678,117 +677,23 @@ async def test_disconnected_reader_does_not_cancel_shared_calculation():
     assert client.status_reads == 1
 
 
-def test_overview_http_never_opens_postgres_and_keeps_all_twelve_chart_contracts():
+def test_retired_boards_and_charts_do_not_open_stores():
     app = FastAPI()
-    app.include_router(overview.router)
-    reads = runtime()
+    for router in (overview.router, article_pipeline.router, source_pipeline.router):
+        app.include_router(router)
     app.dependency_overrides[require_admin] = lambda: SimpleNamespace()
-    app.dependency_overrides[get_analytics] = lambda: reads
-    app.dependency_overrides[get_session] = lambda: pytest.fail("Overview opened PostgreSQL")
+    app.dependency_overrides[get_analytics] = lambda: pytest.fail("Opened warehouse")
+    app.dependency_overrides[get_session] = lambda: pytest.fail("Opened PostgreSQL")
+    app.dependency_overrides[get_session_factory] = lambda: pytest.fail("Opened PostgreSQL")
     with TestClient(app) as http:
-        for chart in CHART_SECTIONS:
-            response = http.get(f"/v1/admin/overview/charts/{chart}?from=2026-10-26&to=2026-10-27")
-            assert response.status_code == 200, response.text
-            assert response.json()["chart"] == chart
-            assert response.json()["start"] == "2026-10-26"
-            assert response.json()["end"] == "2026-10-27"
-        assert http.get("/v1/admin/overview/charts/publication-rate?days=30").status_code == 422
-
-
-def test_overview_http_expired_chart_returns_unavailable_until_clickhouse_recovers(monkeypatch):
-    app = FastAPI()
-    app.include_router(overview.router)
-    time = [NOW]
-    monkeypatch.setattr(overview, "utcnow", lambda: time[0])
-    client = Client()
-    reads = runtime(client, clock=lambda: time[0])
-    app.dependency_overrides[require_admin] = lambda: SimpleNamespace()
-    app.dependency_overrides[get_analytics] = lambda: reads
-    app.dependency_overrides[get_session] = lambda: pytest.fail("Overview opened PostgreSQL")
-    path = "/v1/admin/overview/charts/publication-rate"
-    with TestClient(app) as http:
-        first = http.get(path)
-        assert first.status_code == 200 and first.json()["snapshot"]["status"] == "fresh"
-        client.failed = True
-        time[0] += timedelta(seconds=30)
-        failed = http.get(path)
-        assert failed.status_code == 503
-        assert failed.json()["detail"]["code"] == "analytics_unavailable"
-        assert "retry-after" not in failed.headers
-        assert "data" not in failed.json()
-        client.failed = False
-        recovered = http.get(path)
-        assert recovered.status_code == 200
-        assert recovered.json()["snapshot"]["status"] == "fresh"
-
-
-def test_board_http_reads_only_bounded_current_metadata_after_clickhouse_page_selection():
-    app = FastAPI()
-    app.include_router(article_pipeline.router)
-    app.include_router(source_pipeline.router)
-    app.dependency_overrides[require_admin] = lambda: SimpleNamespace()
-    app.dependency_overrides[get_analytics] = lambda: runtime()
-
-    class Session:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            self.close()
-
-        def execute(self, statement):
-            pytest.fail(f"Empty analytical pages opened PostgreSQL: {statement}")
-
-        def close(self):
-            pass
-
-    app.dependency_overrides[get_session_factory] = lambda: Session
-    with TestClient(app) as http:
-        assert http.get("/v1/admin/article-pipeline").status_code == 200
-        assert http.get("/v1/admin/source-pipeline").status_code == 200
-        assert http.get("/v1/admin/article-pipeline/analysis").status_code == 200
-        assert http.get("/v1/admin/source-pipeline/columns/review").status_code == 200
-
-
-def test_private_source_lookup_loads_only_ids_with_statement_deadline():
-    statements = []
-
-    class Session:
-        def execute(self, statement):
-            statements.append(statement)
-
-        def scalars(self, statement):
-            statements.append(statement)
-            return [uuid.UUID(ID)]
-
-        def close(self):
-            pass
-
-    result = source_pipeline._matching_sources(Session(), SimpleNamespace(q="private/path"))
-    assert result == {"source": [uuid.UUID(ID)], "candidate": [uuid.UUID(ID)]}
-    assert len(statements) == 3
-    assert "set_config" in str(statements[0])
-    for statement in statements[1:]:
-        assert [column.name for column in statement.selected_columns] == ["id"]
-        assert "JOIN" not in str(statement)
-
-
-def test_article_search_normalization_uses_one_literal_without_reading_any_table():
-    statements = []
-
-    class Session:
-        def scalar(self, statement):
-            statements.append(statement)
-            return "istanbul"
-
-        def close(self):
-            pass
-
-    assert article_pipeline._normalized_search(Session(), "İstanbul") == "istanbul"
-    assert article_pipeline._normalized_search(Session(), "") is None
-    assert len(statements) == 1
-    assert statements[0].get_final_froms() == []
-    assert list(statements[0].compile().params.values())[0] == "İstanbul"
+        for path in (
+            *(f"/v1/admin/overview/charts/{chart}" for chart in CHART_SECTIONS),
+            "/v1/admin/article-pipeline",
+            "/v1/admin/article-pipeline/analysis",
+            "/v1/admin/source-pipeline",
+            "/v1/admin/source-pipeline/columns/review",
+        ):
+            assert http.get(path).status_code == 410, path
 
 
 @run_async
@@ -802,38 +707,6 @@ async def test_article_uses_database_normalized_needle_without_renormalizing_it(
         limit=20,
     )
     assert client.queries[0][1]["needle"] == "istanbul"
-
-
-def test_article_clock_hydration_reads_only_returned_ids_and_keeps_completed_cards_terminal():
-    result = PipelineBoard(
-        as_of=NOW,
-        terminal_since=NOW - timedelta(days=7),
-        counts={"analysis": 1},
-        columns=[
-            PipelineColumn(stage="analysis", total=1, next_cursor=None, items=[article_payload()])
-        ],
-    )
-    statements = []
-
-    class Session:
-        def execute(self, statement):
-            statements.append(statement)
-            return SimpleNamespace(all=lambda: [(uuid.UUID(ID), NOW + timedelta(minutes=3))])
-
-        def close(self):
-            pass
-
-    article_pipeline._hydrate_clocks(Session(), result)
-    assert result.columns[0].items[0].next_check_at == NOW + timedelta(minutes=3)
-    assert [column.name for column in statements[0].selected_columns] == [
-        "id",
-        "automation_next_check_at",
-    ]
-    assert list(statements[0].compile().params.values()) == [[uuid.UUID(ID)]]
-    item = result.columns[0].items[0]
-    item.state, item.next_check_at = "complete", None
-    article_pipeline._hydrate_clocks(Session(), result)
-    assert item.next_check_at is None
 
 
 @run_async
@@ -1093,21 +966,6 @@ async def test_large_report_is_returned_without_retaining_or_publishing_an_overs
     second = await reads.section("publishing", window)
     assert first.data == second.data
     assert reads.client.status_reads == 2 and not reads.cache and not writes
-
-
-def test_http_analytics_dependency_reuses_the_application_runtime_and_fresh_calculation():
-    app = FastAPI()
-    app.include_router(overview.router)
-    reads = runtime()
-    app.state.analytics = reads
-    app.dependency_overrides[require_admin] = lambda: SimpleNamespace()
-    with TestClient(app) as http:
-        for _ in range(2):
-            response = http.get("/v1/admin/overview/charts/queue-pressure")
-            assert response.status_code == 200
-            assert response.json()["chart"] == "queue-pressure"
-    assert reads.client.status_reads == 1
-    assert len(reads.client.queries) == 1 and "overview:queues" in reads.client.queries[0][0]
 
 
 @run_async

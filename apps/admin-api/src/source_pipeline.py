@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, TypedDict, Unpack
+from typing import Annotated
 
-from devfeed_core.analytics import AnalyticsUnavailable
 from devfeed_core.analytics_card_types import (
     SourcePipelineAdvance as SourcePipelineAdvance,
 )
@@ -65,17 +63,13 @@ from devfeed_core.source_lifecycle import (
     source_readiness_batch,
 )
 from devfeed_core.source_types import SourceType
-from devfeed_core.text_search import text_search
-from devfeed_http.dependencies import run_database
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from devfeed_admin_api.analytics_current import preparing
-from devfeed_admin_api.analytics_runtime import AnalyticsRuntime, get_analytics
 from devfeed_admin_api.auth import Admin, require_admin
-from devfeed_admin_api.dependencies import DB, DBFactory
+from devfeed_admin_api.dependencies import DB
 
 router = APIRouter(
     prefix="/v1/admin/source-pipeline",
@@ -83,7 +77,6 @@ router = APIRouter(
     dependencies=[Depends(require_admin)],
 )
 MAX_CURSOR = 2**31 - 1
-Analytics = Annotated[AnalyticsRuntime, Depends(get_analytics)]
 
 
 class SourcePipelineQuery:
@@ -159,102 +152,9 @@ def _detail(session: Session, facts: SourceLifecycleFacts) -> SourcePipelineDeta
     )
 
 
-def _matching_sources(
-    session: Session, query: SourcePipelineQuery
-) -> dict[str, list[uuid.UUID]] | None:
-    """Search private identifiers without exporting credentials to ClickHouse.
-
-    Only identity UUIDs cross this boundary. Lifecycle filters/counts and paging
-    still use the frozen analytical generation; no evidence or jobs are loaded.
-    """
-    if not query.q:
-        return None
-    session.execute(select(func.set_config("statement_timeout", "2000", True)))
-    return {
-        "source": list(
-            session.scalars(
-                select(Source.id).where(
-                    text_search(
-                        query.q,
-                        Source.name,
-                        Source.website_url,
-                        Source.feed_url,
-                    )
-                )
-            )
-        ),
-        "candidate": list(
-            session.scalars(
-                select(SourceCandidate.id).where(
-                    SourceCandidate.source_id.is_(None),
-                    text_search(query.q, SourceCandidate.name, SourceCandidate.identity_url),
-                )
-            )
-        ),
-    }
-
-
-def _hydrate_uris(session: Session, result: SourcePipelineBoard) -> SourcePipelineBoard:
-    items = [item for column in result.columns for item in column.items]
-    source_ids = [item.id for item in items if item.kind == "source"]
-    candidate_ids = [item.id for item in items if item.kind == "candidate"]
-    sources = (
-        {
-            row.id: row
-            for row in session.execute(
-                select(
-                    Source.id,
-                    Source.website_url,
-                    Source.feed_url,
-                ).where(Source.id.in_(source_ids))
-            )
-        }
-        if source_ids
-        else {}
-    )
-    candidates = (
-        dict(
-            session.execute(
-                select(SourceCandidate.id, SourceCandidate.identity_url).where(
-                    SourceCandidate.id.in_(candidate_ids)
-                )
-            ).all()
-        )
-        if candidate_ids
-        else {}
-    )
-    for item in items:
-        if item.kind == "source" and (row := sources.get(item.id)) is not None:
-            item.website_url, item.feed_url = row.website_url, row.feed_url
-        elif item.kind == "candidate" and item.id in candidates:
-            item.website_url = candidates[item.id]
-    return result
-
-
-class ReadBoardParameters(TypedDict, total=False):
-    stage: SourcePipelineStage
-    cursor: int
-
-
-async def _read_board(
-    factory: Callable[[], Session],
-    analytics: AnalyticsRuntime,
-    query: SourcePipelineQuery,
-    **parameters: Unpack[ReadBoardParameters],
-) -> SourcePipelineBoard:
-    identifiers = await run_database(factory, _matching_sources, query)
-    try:
-        result = await analytics.source_board(query, matching_ids=identifiers, **parameters)
-    except AnalyticsUnavailable as error:
-        raise preparing() from error
-    return await run_database(factory, _hydrate_uris, result)
-
-
 @router.get("", response_model=SourcePipelineBoard, operation_id="admin_source_pipeline")
-async def board(
-    factory: DBFactory, query: PipelineQuery, analytics: Analytics
-) -> SourcePipelineBoard:
-    return await _read_board(factory, analytics, query)
+async def board(query: PipelineQuery) -> SourcePipelineBoard:
+    raise HTTPException(410, "This analytics report has been retired.")
 
 
 @router.get(
@@ -264,12 +164,10 @@ async def board(
 )
 async def column(
     stage: SourcePipelineStage,
-    factory: DBFactory,
     query: PipelineQuery,
-    analytics: Analytics,
     cursor: int = Query(0, ge=0, le=MAX_CURSOR),
 ) -> SourcePipelineColumn:
-    return (await _read_board(factory, analytics, query, stage=stage, cursor=cursor)).columns[0]
+    raise HTTPException(410, "This analytics report has been retired.")
 
 
 @router.get(

@@ -22,10 +22,6 @@ TYPESENSE = (
     "typesense/typesense:30.2@sha256:"
     "610f2d34b1f93d00762869da2c67736775e5798d19a2c8b91b014b8a0cc1e110"
 )
-CLICKHOUSE = (
-    "clickhouse/clickhouse-server:26.8-alpine@sha256:"
-    "7d2c6c7af374dfaacd6d7aec3403aa43cee5ea334cb2d82400bd3dfa6f62f697"
-)
 
 
 def command(*args, timeout=180, check=True):
@@ -151,7 +147,6 @@ class Smoke:
     def services(self):
         pg = self.prefix + "-pg"
         redis = self.prefix + "-redis"
-        clickhouse = self.prefix + "-clickhouse"
         for name, image, args in (
             (
                 pg,
@@ -166,52 +161,15 @@ class Smoke:
                 ],
             ),
             (redis, "redis:8-alpine", []),
-            (
-                clickhouse,
-                CLICKHOUSE,
-                [
-                    "--cpus",
-                    "2",
-                    "--memory",
-                    "2g",
-                    "-e",
-                    "CLICKHOUSE_USER=ci",
-                    "-e",
-                    "CLICKHOUSE_PASSWORD=disposable-analytics-key",
-                    "-e",
-                    "CLICKHOUSE_DB=fleet_native_test",
-                    "-e",
-                    "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1",
-                ],
-            ),
         ):
             self.containers.append(name)
             command("docker", "run", "-d", "--name", name, "--network", self.network, *args, image)
         self.wait_probe(pg, ["pg_isready", "-U", "ci", "-d", "fleet_native_test"])
         self.wait_probe(redis, ["redis-cli", "-n", "15", "ping"])
-        self.wait_probe(
-            clickhouse,
-            [
-                "clickhouse-client",
-                "--user",
-                "ci",
-                "--password",
-                "disposable-analytics-key",
-                "--database",
-                "fleet_native_test",
-                "--query",
-                "SELECT 1",
-            ],
-            seconds=60,
-        )
         self.redis = redis
         self.env.update(
             DEVFEED_DATABASE_URL=f"postgresql+psycopg://ci:ci@{pg}/fleet_native_test",
             DEVFEED_REDIS_URL=f"redis://{redis}/15",
-            DEVFEED_CLICKHOUSE_URL=f"http://{clickhouse}:8123",
-            DEVFEED_CLICKHOUSE_DATABASE="fleet_native_test",
-            DEVFEED_CLICKHOUSE_USERNAME="ci",
-            DEVFEED_CLICKHOUSE_PASSWORD="disposable-analytics-key",
         )
 
     def schema(self):
@@ -425,24 +383,6 @@ class Smoke:
         self.stop(process)
         print("PASS native Fleet search setup, real Typesense and indexer heartbeat")
 
-    def importer(self):
-        output = self.run(CONTRACTS["backfill"]["command"])
-        assert '"cutover_ready": true' in output
-        self.run(["python", "/fleet/runtime.py", "current-cards"])
-        name = self.start(CONTRACTS["analytics-importer"]["command"])
-        probe = CONTRACTS["analytics-importer"]["probes"]["readinessProbe"]
-        self.wait_probe(name, probe)
-        self.execute(name, "python", "/fleet/runtime.py", "permissions")
-        # Freeze the owner so a new cycle cannot overwrite the stale test marker.
-        command("docker", "kill", "--signal=STOP", name)
-        try:
-            self.execute(name, "python", "/fleet/runtime.py", "heartbeat")
-            assert self.execute(name, *probe, check=False).returncode != 0
-        finally:
-            command("docker", "kill", "--signal=CONT", name)
-        self.stop(name)
-        print("PASS direct Fleet importer; fresh probe passes, stale probe fails")
-
     def frontend(self):
         name = self.start(frontend=True, env={"DEBUG": "next:start-server", "DEBUG_COLORS": "0"})
         probe = ["node", "/fleet/frontend.cjs", "ready", self.component]
@@ -481,7 +421,6 @@ def main():
                 smoke.ca()
             smoke.schema()
             if component == "backend":
-                smoke.importer()
                 smoke.workers()
                 smoke.indexer()
                 smoke.scheduler()

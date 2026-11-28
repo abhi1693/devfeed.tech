@@ -255,21 +255,10 @@ function DefaultsForm() {
                 value={value.landing_page}
                 onChange={(next) => set("landing_page", next as typeof value.landing_page)}
                 items={options([
-                  ["/", "Overview"],
+                  ["/", "Default (articles)"],
                   ["/content/articles", "Articles"],
                   ["/taxonomy/topics", "Topics"],
                   ["/jobs/analysis", "AI analysis"],
-                ])}
-              />
-              <Choice
-                label="Overview date range"
-                value={value.overview_days}
-                onChange={(next) =>
-                  set("overview_days", Number(next) as typeof value.overview_days)
-                }
-                items={options([
-                  ["7", "7 days"],
-                  ["30", "30 days"],
                 ])}
               />
             </div>

@@ -1,40 +1,45 @@
 import { PublicPage } from "@/components/public-page";
+import { CollectionUnavailable } from "@/components/collection-unavailable";
 import { SourcesContent } from "@/components/sources-content";
-import { getSources } from "@/lib/api";
-import { CATALOG_PAGE_SIZE, catalogOffset, catalogPage } from "@/lib/catalog-page";
+import { catalogFilters } from "@/lib/catalog-page";
 import type { SearchParams } from "@/lib/feed-query";
 import { JsonLd } from "@/components/json-ld";
 import { collectionStructuredData } from "@/lib/structured-data";
-import { catalogCanonical, pageMetadata } from "@/lib/metadata";
+import { catalogCanonical } from "@/lib/metadata";
+import { catalogDirectoryMetadata, loadCatalogDirectory } from "@/lib/server/catalog-directory";
 export const dynamic = "force-dynamic";
 export async function generateMetadata({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  return pageMetadata(
-    "Sources",
-    "Discover sources publishing developer news, tutorials, and releases.",
-    catalogCanonical("/sources", await searchParams),
-  );
+  return catalogDirectoryMetadata("sources", await searchParams);
 }
 export default async function Sources({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const query = await searchParams;
-  const offset = catalogOffset(query.offset);
-  return <PublicPage kind="sources" content={Results({ query, offset })} />;
-}
-async function Results({ query, offset }: { query: SearchParams; offset: number }) {
-  const page = catalogPage(await getSources(offset, CATALOG_PAGE_SIZE + 1), offset);
-  const sources = page.items;
+  const params = await searchParams;
+  const { offset, query, letter } = catalogFilters(params, "sources");
+  const page = await loadCatalogDirectory("sources", offset, query, letter);
+  if (!page) return <CollectionUnavailable kind="sources" />;
   return (
-    <SourcesContent sources={sources} offset={offset} initialPage={page} withShell={false}>
-      <JsonLd
-        data={collectionStructuredData(
-          catalogCanonical("/sources", query),
-          "Sources",
-          sources.map((item) => ({
-            name: item.name,
-            path: `/sources/${encodeURIComponent(item.slug)}`,
-          })),
-          { offset },
-        )}
-      />
-    </SourcesContent>
+    <PublicPage
+      kind="sources"
+      content={Promise.resolve(
+        <SourcesContent
+          sources={page.items}
+          offset={offset}
+          query={query}
+          initialPage={page}
+          withShell={false}
+        >
+          <JsonLd
+            data={collectionStructuredData(
+              catalogCanonical("/sources", params),
+              "Sources",
+              page.items.map((item) => ({
+                name: item.name,
+                path: `/sources/${encodeURIComponent(item.slug)}`,
+              })),
+              { offset },
+            )}
+          />
+        </SourcesContent>,
+      )}
+    />
   );
 }

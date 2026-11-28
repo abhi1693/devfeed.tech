@@ -181,8 +181,6 @@ def database(integration_environment, monkeypatch, rss_bytes):
     get_redis.cache_clear()
     # Only the explicitly configured, name-checked test database is modified.
     with get_engine().begin() as connection:
-        # Direct analytics are stored in ClickHouse; source fixtures have no
-        # PostgreSQL capture queues, leases, cursors or reporting snapshots.
         present = set(
             connection.execute(
                 text("SELECT tablename FROM pg_tables WHERE schemaname='public'")

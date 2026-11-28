@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from devfeed_core.ai_capacity import cooldown_key
-from devfeed_core.analytics_producer import shutdown as drain_analytics
 from devfeed_core.config import get_settings
 from devfeed_core.quota_pacing import quota_key, snapshot_pause_reason
 from devfeed_core.redis import configure_redis_io, create_redis
@@ -293,10 +292,6 @@ class AnalysisAwareWorker(Worker):
                     execution_span.set_status(StatusCode.ERROR)
                 return result
         finally:
-            # A work horse exits immediately afterward; its process-local
-            # observations need a budget covering bounded publication retries.
-            # APIs and other process shutdowns retain their shorter default.
-            drain_analytics(timeout=get_settings().analytics_worker_drain_seconds)
             stop_runtime(telemetry)
 
     def admission_snapshot(self) -> AdmissionSnapshot:

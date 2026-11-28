@@ -1,13 +1,12 @@
 import Link from "@/components/reader-link";
-import Image from "next/image";
-import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
+import { ReaderBrandLink } from "./reader-brand";
 import { CollapsibleSidebar } from "@devfeed/ui/sidebar";
 import { FeaturedOn } from "./featured-on";
 import { NotificationInbox } from "./notification-inbox";
 import { ReadingTools } from "./reading-tools";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav, ReadLaterNav } from "./user-account";
-import { Bot, Compass, House, Hash, Rss, Sparkles, Trophy } from "lucide-react";
+import { Bot, Compass, House, Hash, Rss } from "lucide-react";
 import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import { SkipToContent } from "./skip-to-content";
@@ -25,11 +24,9 @@ type ReaderSection =
   | "account"
   | "personal"
   | "bookmarks"
-  | "trending"
   | "search"
   | "legal"
-  | "mcp"
-  | "leaderboard";
+  | "mcp";
 const promptPolicies: Record<ReaderSection, ReaderPromptEligibility> = {
   feed: readerPromptPolicies.browsing,
   topics: readerPromptPolicies.browsing,
@@ -39,11 +36,9 @@ const promptPolicies: Record<ReaderSection, ReaderPromptEligibility> = {
   account: readerPromptPolicies.quiet,
   personal: readerPromptPolicies.browsing,
   bookmarks: readerPromptPolicies.browsing,
-  trending: readerPromptPolicies.browsing,
   search: readerPromptPolicies.browsing,
   legal: readerPromptPolicies.quiet,
   mcp: readerPromptPolicies.quiet,
-  leaderboard: readerPromptPolicies.browsing,
 };
 
 export function UserShell({
@@ -62,17 +57,7 @@ export function UserShell({
       <ReaderSurface promptEligibility={promptPolicies[section]} />
       <SkipToContent />
       <header className="topbar">
-        <Link href="/" className="brand devfeed-brand" aria-label="DevFeed home">
-          <Image
-            className="devfeed-brand-mark"
-            src={brandMark}
-            alt=""
-            width={40}
-            height={40}
-            priority
-          />
-          <span>devfeed.</span>
-        </Link>
+        <ReaderBrandLink />
         <UserSearch filters={filters} query={searchQuery} />
         <HeaderSponsorshipSlot />
         <div className="header-actions">
@@ -146,27 +131,6 @@ export function UserShell({
             <Bot size={20} aria-hidden="true" />
             <span>Connect your agent</span>
           </Link>
-          <Link
-            href="/leaderboard"
-            className={`nav-item ${section === "leaderboard" ? "active" : ""}`}
-            aria-current={section === "leaderboard" ? "page" : undefined}
-            aria-label="Leaderboard"
-            title="Leaderboard"
-          >
-            <Trophy size={20} aria-hidden="true" />
-            <span>Leaderboard</span>
-          </Link>
-          <a
-            href="https://changelog.devfeed.tech/"
-            className="nav-item"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="What’s new (opens in a new tab)"
-            title="What’s new"
-          >
-            <Sparkles size={20} aria-hidden="true" />
-            <span>What’s new</span>
-          </a>
           <a
             className="nav-item"
             href="https://github.com/abhi1693/devfeed.tech"

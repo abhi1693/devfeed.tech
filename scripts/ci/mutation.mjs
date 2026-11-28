@@ -40,7 +40,7 @@ export function selectGroups(files) {
 }
 
 export function comparison(eventName, event, head) {
-  if (["schedule", "workflow_dispatch"].includes(eventName)) return null;
+  if (eventName === "workflow_dispatch") return null;
   const base =
     eventName === "pull_request"
       ? event.pull_request?.base?.sha

@@ -22,7 +22,7 @@ function storage(initial?: object) {
   };
 }
 
-it.each(["my_feed", "latest", "trending", "read_later", "search", "content:news"])(
+it.each(["my_feed", "latest", "read_later", "search", "content:news"])(
   "accepts semantic feed scope %s",
   (scope) => expect(parseFeedViewScope(scope)).toBe(scope),
 );
@@ -43,7 +43,6 @@ it("derives stable feed identity from declared route metadata without pagination
   );
   expect(deriveFeedViewScope({ descriptor: readerFeeds.latest, filters })).toBe("latest");
   expect(deriveFeedViewScope({ descriptor: readerFeeds.bookmarks, filters })).toBe("read_later");
-  expect(deriveFeedViewScope({ descriptor: readerFeeds.trending, filters })).toBe("trending");
 });
 
 it("groups entity content tabs together while keeping each entity and search separate", () => {
@@ -122,7 +121,7 @@ it("freezes the guest legacy baseline on the first save and isolates feed overri
   expect(writeGuestFeedView(`topic:${id}`, "cards", "compact", target)).toBe(true);
   expect(readGuestFeedView("latest", "cards", target).view).toBe("compact");
   expect(readGuestFeedView(`topic:${id}`, "cards", target).view).toBe("cards");
-  expect(readGuestFeedView("trending", "cards", target).view).toBe("stacked");
+  expect(readGuestFeedView("content:news", "cards", target).view).toBe("stacked");
   expect(target.saved()).toEqual({
     version: 1,
     default_view: "stacked",
@@ -141,7 +140,7 @@ it("preserves unknown entries and bounds new overrides while permitting updates 
     default_view: "cards",
     views: { ...views, latest: "stacked" },
   });
-  expect(writeGuestFeedView("trending", "compact", "cards", target)).toBe(false);
+  expect(writeGuestFeedView("content:news", "compact", "cards", target)).toBe(false);
   expect(writeGuestFeedView("latest", "compact", "cards", target)).toBe(true);
   expect(Object.keys(target.saved().views)).toHaveLength(maxFeedViewOverrides);
   expect(target.saved().views["future:0"]).toBe("future-layout");

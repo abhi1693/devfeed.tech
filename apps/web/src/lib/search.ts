@@ -17,7 +17,6 @@ export type SearchHit = {
   logo_variants?: { url: string; width: number }[];
   label: string;
   published_at: string | null;
-  click_token?: string | null;
   sponsor_names?: string[];
   sponsor_link_rel?: AdLinkRel[];
 };

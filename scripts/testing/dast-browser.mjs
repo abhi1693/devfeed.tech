@@ -46,7 +46,7 @@ try {
       const page = await context.newPage();
       checkpoint = "login";
       await page.goto(`${origin}/api/v1/${namespace}/auth/login`);
-      await page.waitForURL(`${origin}/`);
+      await page.waitForURL(origin + (admin ? "/content/articles" : "/"));
       checkpoint = "identity";
       const response = await context.request.get(`${origin}/api/v1/${namespace}/auth/me`);
       assert.equal(response.status(), 200);

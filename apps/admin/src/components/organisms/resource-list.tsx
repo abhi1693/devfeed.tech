@@ -19,8 +19,6 @@ import { type Resource, resources, humanize } from "@/lib/resources";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { loadMatchingRows } from "@/lib/table-selection";
-import { SourcePipeline } from "./source-pipeline";
-import { ArticlePipeline } from "./article-pipeline";
 export function ResourceList({
   resource,
   analysisType,
@@ -29,6 +27,17 @@ export function ResourceList({
   analysisType?: AnalysisType;
 }) {
   const search = useTableQuery(resource);
+  if ((resource === "articles" || resource === "sources") && search.get("view") === "pipeline") {
+    for (const key of [
+      "view",
+      "stage",
+      "source_type",
+      "needs_attention",
+      "terminal_since",
+      "group_by",
+    ])
+      search.delete(key);
+  }
   if (resource === "topics" && search.get("status") === "proposed") {
     search.set("view", "proposals");
     search.set("status", "pending");
@@ -47,18 +56,6 @@ export function ResourceList({
 }
 
 function SourcesScreen({ query }: { query: string }) {
-  const search = new URLSearchParams(query);
-  const pipeline = search.get("view") === "pipeline";
-  function href(view: "list" | "pipeline") {
-    const next = new URLSearchParams(search);
-    next.set("view", view);
-    next.delete("offset");
-    for (const key of view === "list"
-      ? ["stage", "source_type", "needs_attention", "terminal_since"]
-      : ["approval_status", "enabled", "sort"])
-      next.delete(key);
-    return `/content/sources?${next}`;
-  }
   return (
     <section className="min-w-0 space-y-6">
       <ResourceHeading title="Sources" trail={resourceTrail("sources")}>
@@ -72,43 +69,12 @@ function SourcesScreen({ query }: { query: string }) {
           </Link>
         </Button>
       </ResourceHeading>
-      <nav aria-label="Source views" className="flex gap-6 overflow-x-auto border-b">
-        {(["list", "pipeline"] as const).map((view) => (
-          <Link
-            key={view}
-            href={href(view)}
-            prefetch={false}
-            scroll={false}
-            aria-current={(view === "pipeline") === pipeline ? "page" : undefined}
-            className={`shrink-0 border-b-2 px-1 pb-3 text-sm ${(view === "pipeline") === pipeline ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-          >
-            {view === "pipeline" ? "Pipeline" : "List"}
-          </Link>
-        ))}
-      </nav>
-      {pipeline ? (
-        <SourcePipeline query={query} />
-      ) : (
-        <ResourceListTable resource="sources" query={query} embedded />
-      )}
+      <ResourceListTable resource="sources" query={query} embedded />
     </section>
   );
 }
 
 function ArticlesScreen({ query }: { query: string }) {
-  const search = new URLSearchParams(query);
-  const pipeline = search.get("view") === "pipeline";
-  function href(view: "pipeline" | "list") {
-    const params = new URLSearchParams(search);
-    params.set("view", view);
-    params.delete("offset");
-    // View-specific filters must not silently narrow the other view.
-    for (const key of view === "pipeline"
-      ? ["review_status", "publication_status", "sort", "topic_id", "tag_id"]
-      : ["needs_attention", "stage", "group_by"])
-      params.delete(key);
-    return `/content/articles?${params}`;
-  }
   return (
     <section className="min-w-0 space-y-6">
       <ResourceHeading
@@ -122,25 +88,7 @@ function ArticlesScreen({ query }: { query: string }) {
           </Link>
         </Button>
       </ResourceHeading>
-      <nav aria-label="Article views" className="flex gap-6 border-b">
-        {(["pipeline", "list"] as const).map((view) => (
-          <Link
-            key={view}
-            href={href(view)}
-            prefetch={false}
-            scroll={false}
-            aria-current={pipeline === (view === "pipeline") ? "page" : undefined}
-            className={`border-b-2 px-1 pb-3 text-sm ${pipeline === (view === "pipeline") ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-          >
-            {view === "pipeline" ? "Pipeline" : "List"}
-          </Link>
-        ))}
-      </nav>
-      {pipeline ? (
-        <ArticlePipeline query={query} />
-      ) : (
-        <ResourceListTable resource="articles" query={query} embedded />
-      )}
+      <ResourceListTable resource="articles" query={query} embedded />
     </section>
   );
 }

@@ -612,13 +612,7 @@ export async function checkColumnsFeeds(
       node.addEventListener("click", (event) => event.preventDefault(), { once: true }),
     );
     await original.click();
-    await wait(
-      async () =>
-        (await shared
-          .locator('.open-count[aria-label="1 clicks to the original article"]')
-          .count()) === (await shared.count()),
-      "Read counts update every matching column",
-    );
+    assert.equal(await shared.locator(".open-count").count(), 0);
 
     const feedReadCount = fixture.requests.length;
     const previewStates = [];

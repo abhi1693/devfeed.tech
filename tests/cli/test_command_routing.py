@@ -627,10 +627,9 @@ def test_cli_dependency_and_validation_failures_preserve_recovery_code_without_e
 
 
 @pytest.mark.parametrize("fails", [False, True])
-def test_cli_drains_analytics_before_telemetry_and_engine_cleanup(execution, monkeypatch, fails):
+def test_cli_cleans_up_telemetry_and_database_engine(execution, monkeypatch, fails):
     events = []
     engine, _, _, _ = execution
-    monkeypatch.setattr(runtime, "drain_analytics", lambda: events.append("analytics"))
     monkeypatch.setattr(runtime, "stop_runtime", lambda _: events.append("telemetry"))
     engine.dispose.side_effect = lambda: events.append("engine")
 
@@ -639,4 +638,4 @@ def test_cli_drains_analytics_before_telemetry_and_engine_cleanup(execution, mon
             raise RuntimeError("command unavailable")
 
     assert runtime.execute(SimpleNamespace(command="sources", execute=execute)) == int(fails)
-    assert events == ["analytics", "telemetry", "engine"]
+    assert events == ["telemetry", "engine"]

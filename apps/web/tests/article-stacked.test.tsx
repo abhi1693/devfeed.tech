@@ -274,7 +274,7 @@ it.each([false, true])(
     expect(onOpen).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("link", { name: article.title }));
     expect(onOpen).toHaveBeenCalledTimes(1);
-    await screen.findByRole("img", { name: "10 clicks to the original article" });
+    expect(screen.queryByRole("img", { name: /clicks to the original article/ })).toBeNull();
   },
 );
 

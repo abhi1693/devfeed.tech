@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { InfiniteCatalog } from "@/components/infinite-catalog";
 import { InfiniteChoices } from "@/components/infinite-choices";
+import { CatalogContent } from "@/components/catalog-content";
 import { topic, source } from "./fixtures";
 
 vi.mock("@/components/source-follow", () => ({
@@ -69,6 +70,7 @@ it.each(["topics", "sources"] as const)(
     render(
       <InfiniteCatalog kind={kind} initialPage={{ items: first, next_cursor: "server+cursor" }} />,
     );
+    expect(document.querySelectorAll('a[rel="next"]')).toHaveLength(1);
     expect(screen.getByRole("link", { name: `Next page of ${kind}` }).getAttribute("href")).toBe(
       `/${kind}?offset=server%2Bcursor`,
     );
@@ -86,7 +88,6 @@ it.each(["topics", "sources"] as const)(
     expect(screen.getAllByRole("heading", { name: "Item 0" })).toHaveLength(1);
     expect(screen.getAllByRole("heading", { name: "Next item" })).toHaveLength(1);
     expect(screen.getByText(`You’ve seen all ${kind}.`)).toBeDefined();
-    expect(screen.queryByRole("link", { name: `Next page of ${kind}` })).toBeNull();
     expect(screen.queryByRole("link", { name: `More ${kind}` })).toBeNull();
     expect(screen.getByRole("link", { name: /^Next item/ }).getAttribute("href")).toBe(
       `/${kind}/${item.slug}`,
@@ -203,3 +204,60 @@ it("cancels a stale catalog search and retries a failed replacement without old 
   expect(await screen.findByRole("button", { name: "New result" })).toBeDefined();
   expect(fetcher).toHaveBeenCalledTimes(3);
 });
+
+it.each([
+  ["topics", topic],
+  ["sources", source],
+] as const)(
+  "replaces nonempty %s searches at the same offset and cancels the previous page",
+  async (kind, item) => {
+    let staleSignal!: AbortSignal;
+    let finish!: (response: Response) => void;
+    fetcher.mockImplementationOnce((_url, options) => {
+      staleSignal = options.signal;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    });
+    const previous = { ...item, id: "previous", name: "First result" };
+    const replacement = { ...item, id: "replacement", name: "Last result" };
+    const shell = {
+      kind,
+      title: "Directory",
+      offset: 0,
+      withShell: false,
+      emptyIcon: null,
+      emptyAction: null,
+      emptyTitle: { firstPage: "Empty", paginated: "Empty page" },
+    };
+    const view = render(
+      <CatalogContent
+        {...shell}
+        query="First"
+        items={[previous]}
+        initialPage={{ items: [previous], next_cursor: "60" }}
+      />,
+    );
+    await act(async () => intersect());
+    expect(staleSignal.aborted).toBe(false);
+    view.rerender(
+      <CatalogContent
+        {...shell}
+        query="Last"
+        items={[replacement]}
+        initialPage={{ items: [replacement], next_cursor: null }}
+      />,
+    );
+    expect(staleSignal.aborted).toBe(true);
+    expect(screen.getByRole("heading", { name: "Last result" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "First result" })).toBeNull();
+    expect(view.container.querySelector('a[rel="next"]')).toBeNull();
+    await act(async () =>
+      finish(
+        Response.json({ items: [{ ...previous, name: "Stale late result" }], next_cursor: "120" }),
+      ),
+    );
+    expect(screen.queryByRole("heading", { name: "Stale late result" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Last result" })).toBeTruthy();
+  },
+);

@@ -102,7 +102,7 @@ test("compares PR and merge queue bases and runs all modules nightly", () => {
     `${base}...${head}`,
   );
   assert.equal(comparison("push", { before: base }, head), `${base}..${head}`);
-  assert.equal(comparison("schedule", {}, head), null);
+  assert.throws(() => comparison("schedule", {}, head), /valid base/);
   assert.equal(comparison("workflow_dispatch", {}, head), null);
   assert.throws(() => comparison("pull_request", {}, head), /valid base/);
   assert.throws(() => comparison("push", {}, head), /valid base/);
