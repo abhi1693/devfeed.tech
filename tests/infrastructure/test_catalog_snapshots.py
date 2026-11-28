@@ -249,3 +249,151 @@ def test_description_vocabulary_edits_invalidate_cached_catalog(cached, monkeypa
             after = analysis.catalog(session)
             assert after["topics"][0][column] == "Interviewing software developers"
         assert analysis.analysis_candidates(after, evidence)["topics"][0]["name"] == "Career"
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_analysis_job_reuses_catalog_without_holding_connections_over_inference(
+    database, monkeypatch, enabled
+):
+    import weakref
+
+    from devfeed_aggregator import analysis_tasks
+    from devfeed_core import catalog_cache
+    from devfeed_core.models import Article, ArticleAnalysisJob
+    from sqlalchemy import insert
+
+    from tests.support.article_step_helpers import article_step_client
+    from tests.workers.test_automation_integration import enable
+
+    enable(monkeypatch, ANALYSIS_CATALOG_REUSE_ENABLED=enabled, CACHE_ENABLED=True)
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        session.execute(
+            insert(Tag),
+            [{"name": f"Tag {index}", "slug": f"tag-{index}"} for index in range(60000)],
+        )
+        identifier, topic_id = article.id, topic.id
+        job_id = analysis.request_analysis(session, identifier).id
+    monkeypatch.setattr(analysis_tasks, "session_factory", lambda: database)
+    original = analysis._PreparedCatalog
+    references, calls, connections = [], [], set()
+
+    class TrackedCatalog(original):
+        def __init__(self, taxonomy):
+            super().__init__(taxonomy)
+            references.append(weakref.ref(self))
+
+    def checkout(connection, *_):
+        connections.add(id(connection))
+
+    def checkin(connection, *_):
+        connections.discard(id(connection))
+
+    def complete(*_):
+        assert not connections
+        calls.append(True)
+        return _catalog_job_output(topic_id)
+
+    monkeypatch.setattr(analysis, "_PreparedCatalog", TrackedCatalog)
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
+    engine = get_engine()
+    event.listen(engine, "checkout", checkout)
+    event.listen(engine, "checkin", checkin)
+    try:
+        analysis_tasks.analyze_article(str(job_id))
+    finally:
+        event.remove(engine, "checkout", checkout)
+        event.remove(engine, "checkin", checkin)
+    with database() as session:
+        assert session.get(ArticleAnalysisJob, job_id).outcome == "applied"
+        assert session.get(Article, identifier).ai_summary == "Angular routing for developers."
+    assert len(calls) >= 8
+    assert len(references) == (1 if enabled else 2)
+    assert all(reference() is None for reference in references)
+    assert analysis._ranking.get() is None and catalog_cache._snapshots.get() is None
+
+
+def _catalog_job_output(topic_id):
+    return {
+        "outcome": "ready",
+        "developer_relevance": "relevant",
+        "language": "en",
+        "content_type": "tutorial",
+        "content_format": "article",
+        "ai_summary": "Angular routing for developers.",
+        "ai_description": "A guide to Angular routing for application developers.",
+        "ai_title": None,
+        "title_evidence": None,
+        "page_kind": "article",
+        "topics": [
+            {"topic_id": str(topic_id), "role": "primary", "relevance": 0.9, "evidence": "Angular"}
+        ],
+        "tags": [],
+        "reasons": [],
+    }
+
+
+@pytest.mark.parametrize("when", ["inference", "before_locked_apply"])
+def test_job_retained_catalog_rebuilds_after_raw_sql_and_refuses_stale_selection(
+    database, monkeypatch, when
+):
+    import weakref
+
+    from devfeed_aggregator import analysis_tasks
+    from devfeed_core import catalog_cache
+    from devfeed_core.models import Article, ArticleAnalysisJob
+
+    from tests.support.article_step_helpers import article_step_client
+    from tests.workers.test_automation_integration import enable
+
+    enable(monkeypatch, ANALYSIS_CATALOG_REUSE_ENABLED=True, CACHE_ENABLED=True)
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        identifier, topic_id = article.id, topic.id
+        job_id = analysis.request_analysis(session, identifier).id
+    monkeypatch.setattr(analysis_tasks, "session_factory", lambda: database)
+    original = analysis._PreparedCatalog
+    prepare = analysis_tasks._prepare_application
+    references, inference_calls, apply_preparations = [], [], []
+
+    class TrackedCatalog(original):
+        def __init__(self, taxonomy):
+            assert not references or references[-1]() is None
+            super().__init__(taxonomy)
+            references.append(weakref.ref(self))
+
+    def edit():
+        # SQL triggers, rather than ORM hooks, must retire the retained generation.
+        with get_engine().begin() as connection:
+            connection.execute(
+                text("UPDATE topics SET name='Changed identity' WHERE id=:id"), {"id": topic_id}
+            )
+
+    def complete(*_):
+        inference_calls.append(True)
+        if when == "inference" and len(inference_calls) == 1:
+            edit()
+        return _catalog_job_output(topic_id)
+
+    def prepare_application(*args):
+        result = prepare(*args)
+        apply_preparations.append(True)
+        if when == "before_locked_apply" and len(apply_preparations) == 1:
+            edit()
+        return result
+
+    monkeypatch.setattr(analysis, "_PreparedCatalog", TrackedCatalog)
+    monkeypatch.setattr(analysis_tasks, "_prepare_application", prepare_application)
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
+    analysis_tasks.analyze_article(str(job_id))
+    with database() as session:
+        assert session.get(ArticleAnalysisJob, job_id).outcome == "superseded"
+        assert session.get(Article, identifier).ai_summary is None
+    assert len(references) == 2
+    assert len(apply_preparations) == (2 if when == "before_locked_apply" else 1)
+    assert all(reference() is None for reference in references)
+    assert analysis._ranking.get() is None and catalog_cache._snapshots.get() is None

@@ -961,18 +961,12 @@ test(
         ["Explore tags", "#/tags"],
         ["Sources", "#/sources"],
         ["Connect your agent", "#/mcp"],
-        ["What’s new (opens in a new tab)", "https://changelog.devfeed.tech/"],
         ["Star us on GitHub (opens in a new tab)", "https://github.com/abhi1693/devfeed.tech"],
       ],
       "Sidebar preserves every guest destination, including tags",
     );
     await checkSidebarGitHub(page, path.resolve(extension, `../${browser}-sidebar-github.png`));
     await checkMcp(page, path.resolve(extension, `../${browser}-mcp`));
-    const whatsNew = page
-      .locator(".sidebar")
-      .getByRole("link", { name: "What’s new (opens in a new tab)", exact: true });
-    assert.equal(await whatsNew.getAttribute("href"), "https://changelog.devfeed.tech/");
-    assert.equal(await whatsNew.getAttribute("target"), "_blank");
     assert.equal(
       await page.getByRole("link", { name: "Sign in", exact: true }).getAttribute("href"),
       "https://devfeed.tech/login?return_to=%2Fextension%2Flogin-complete",
