@@ -1,4 +1,4 @@
-"""Synthetic records and real Redis sessions for API security and fuzzing tests."""
+"""Synthetic records and real Redis sessions for API security tests."""
 
 import importlib
 import json

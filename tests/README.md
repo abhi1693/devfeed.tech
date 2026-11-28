@@ -78,6 +78,6 @@ or merging files changes shard assignments but must retain cases, parametrizatio
 fixture behavior, and unit/integration selection. The merged unit report enforces
 the configured backend statement and branch coverage minimum.
 
-`fuzz/` has a separate dependency group and invocation. `benchmarks/` contains
+`benchmarks/` contains
 profiling workloads. The root JavaScript `*.test.mjs` files belong to their existing
 Node runners and are independent of this Python layout.
