@@ -4,7 +4,7 @@ import json
 import time
 from collections.abc import Callable, Coroutine
 from contextlib import suppress
-from typing import Literal
+from typing import Literal, get_args
 
 import anyio
 from devfeed_core.cache import CacheUnavailable, get_cache, record_cache_read
@@ -12,12 +12,45 @@ from devfeed_core.config import Settings, get_settings
 from devfeed_core.json_types import JsonValue
 from devfeed_http.body_limits import BodyLimitedRoute
 from fastapi import Request, Response
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi.dependencies.models import Dependant
+from pydantic import AliasChoices, AliasPath, BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 WAIT_SECONDS = 1.0
 POLL_SECONDS = 0.05
 CACHE_POLICY_EXTENSION = "x-devfeed-cache"
+
+
+def query_identity_fields(dependant: Dependant) -> frozenset[str] | None:
+    """Read native query aliases once; unknown model semantics stay conservative."""
+    names: set[str] = set()
+    pending, visited = [dependant], set()
+    while pending:
+        current = pending.pop()
+        if id(current) in visited:
+            continue
+        visited.add(id(current))
+        pending.extend(current.dependencies)
+        for field in current.query_params:
+            annotation = field.field_info.annotation
+            if any(
+                isinstance(candidate, type) and issubclass(candidate, BaseModel)
+                for candidate in (annotation, *get_args(annotation))
+            ):
+                # Query models can reject unknown keys; dropping those keys
+                # could incorrectly turn a validation failure into a cache hit.
+                return None
+            names.update((field.alias, field.name))
+            alias = field.field_info.validation_alias
+            if isinstance(alias, str):
+                names.add(alias)
+            elif isinstance(alias, AliasChoices):
+                if any(not isinstance(choice, str) for choice in alias.choices):
+                    return None
+                names.update(choice for choice in alias.choices if isinstance(choice, str))
+            elif isinstance(alias, AliasPath):
+                return None
+    return frozenset(names)
 
 
 class CachePolicy(BaseModel):
@@ -28,11 +61,12 @@ class CachePolicy(BaseModel):
     namespace: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]*$")
     revision: int = Field(ge=1)
     ttl: Literal["content", "metadata"]
+    normalize_query: bool = False
 
     def openapi_extra(self) -> dict[str, JsonValue]:
         return {CACHE_POLICY_EXTENSION: self.model_dump()}
 
-    def identity(self, request: Request) -> str:
+    def identity(self, request: Request, query_names: frozenset[str] | None = None) -> str:
         # Keep repeated query values in their original order: FastAPI can select
         # different values for ?limit=1&limit=2 and its reverse. Structured fields
         # also keep detail IDs and query values from colliding through delimiters.
@@ -43,7 +77,14 @@ class CachePolicy(BaseModel):
                 "parameters": sorted(
                     (name, str(value)) for name, value in request.path_params.items()
                 ),
-                "query": sorted(request.query_params.multi_items(), key=lambda pair: pair[0]),
+                "query": sorted(
+                    (
+                        (name, value)
+                        for name, value in request.query_params.multi_items()
+                        if query_names is None or name in query_names
+                    ),
+                    key=lambda pair: pair[0],
+                ),
             },
             separators=(",", ":"),
         )
@@ -89,6 +130,7 @@ class CachedReadRoute(BodyLimitedRoute):
         )
         if policy is None:
             return handler
+        query_names = query_identity_fields(self.dependant) if policy.normalize_query else None
 
         async def cached(request: Request) -> Response:
             async def render() -> Response:
@@ -124,7 +166,7 @@ class CachedReadRoute(BodyLimitedRoute):
                 return tagged(request, await render(), "BYPASS", reason, route=self.path)
             ttl = policy.ttl_seconds(settings)
             cache = get_cache()
-            key = policy.identity(request)
+            key = policy.identity(request, query_names)
             deadline = time.monotonic() + WAIT_SECONDS
             try:
                 while True:

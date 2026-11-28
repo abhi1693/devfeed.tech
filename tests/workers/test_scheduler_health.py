@@ -153,3 +153,92 @@ def test_redis_failure_allows_scheduler_and_background_heartbeat_to_recover(hear
         assert "scheduler_heartbeat_unavailable" in caplog.messages
 
     heartbeat.connection.close.assert_called_once_with()
+
+
+def test_local_probe_tracks_redis_and_stall_health_without_importing_service_settings(tmp_path):
+    from devfeed_aggregator.scheduler_probe import healthy
+
+    marker = tmp_path / "heartbeat"
+    clock = Mock(return_value=0)
+    connection = Mock()
+    health = SchedulerHealth(connection, clock, marker=marker)
+    assert not healthy(marker)
+    health.pulse()
+    stamp = marker.stat().st_mtime
+    assert healthy(marker, now=stamp)
+    assert not healthy(marker, now=stamp - 1)
+    assert not healthy(marker, now=stamp + 120)
+    connection.set.side_effect = ConnectionError()
+    health.pulse()
+    assert not marker.exists()
+    connection.set.side_effect = None
+    clock.return_value = 300
+    health.pulse()
+    assert not marker.exists()
+    health.completed()
+    health.pulse()
+    assert healthy(marker)
+
+
+@pytest.mark.parametrize("operation", ["write", "remove"])
+def test_local_marker_failure_is_logged_without_killing_heartbeat(
+    tmp_path, monkeypatch, caplog, operation
+):
+    monkeypatch.setattr(
+        scheduler_health, "write_runtime_marker", Mock(side_effect=OSError("read-only mount"))
+    )
+    connection = Mock()
+    marker = tmp_path / "heartbeat"
+    if operation == "remove":
+        marker = Mock()
+        marker.unlink.side_effect = OSError("read-only mount")
+        connection.set.side_effect = ConnectionError()
+    health = SchedulerHealth(connection, marker=marker)
+    health.pulse()
+    connection.set.assert_called_once()
+    assert "scheduler_heartbeat_marker_unavailable" in caplog.messages
+
+
+@pytest.mark.parametrize("exists", [False, True])
+def test_probe_command_needs_no_database_or_redis_configuration(tmp_path, exists):
+    import os
+    import subprocess
+    import sys
+
+    marker = tmp_path / f"devfeed-runtime-{os.geteuid()}" / "scheduler-heartbeat"
+    marker.parent.mkdir(mode=0o700)
+    if exists:
+        marker.write_text("healthy")
+    result = subprocess.run(
+        [sys.executable, "-m", "devfeed_aggregator.scheduler_probe"],
+        env={
+            **os.environ,
+            "TMPDIR": str(tmp_path),
+            "DEVFEED_DATABASE_URL": "invalid",
+            "DEVFEED_REDIS_URL": "invalid",
+        },
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == (0 if exists else 1)
+    assert result.stdout == result.stderr == ""
+
+
+@pytest.mark.parametrize("state,code", [("healthy", 0), ("missing", 1), ("unowned", 1)])
+def test_probe_cli_reports_unavailable_local_health(tmp_path, monkeypatch, state, code):
+    from devfeed_aggregator import scheduler_probe
+
+    marker = tmp_path / "heartbeat"
+    if state == "healthy":
+        marker.write_text("healthy")
+    if state == "unowned":
+        monkeypatch.setattr(
+            scheduler_probe, "runtime_marker", Mock(side_effect=PermissionError("unowned"))
+        )
+    else:
+        monkeypatch.setattr(scheduler_probe, "runtime_marker", lambda _: marker)
+    with pytest.raises(SystemExit) as failure:
+        scheduler_probe.main()
+    assert failure.value.code == code

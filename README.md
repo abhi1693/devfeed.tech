@@ -115,6 +115,9 @@ A continuation beyond the available results returns HTTP 404. Empty first-page s
 letter filters remain available with `noindex,follow`; populated directory pages retain their
 normalized canonical URLs. Next and previous links preserve the directory filters.
 
+See [scheduler resource budgets and liveness](dev/scheduler-resources.md) for
+Redis-client reuse, measurements, and production canary guidance.
+
 See [Codex health checks](infra/codex/README.md) for the private bridge probe and rollout contract.
 
 The scheduler generates cached sitemaps in the background. Crawler requests serve

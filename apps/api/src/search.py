@@ -64,7 +64,7 @@ class SearchResponseData(TypedDict):
     "/suggestions",
     response_model=list[str],
     openapi_extra=CachePolicy(
-        namespace="search-suggestions", revision=3, ttl="content"
+        namespace="search-suggestions", revision=3, ttl="content", normalize_query=True
     ).openapi_extra(),
 )
 def suggestions(
@@ -98,7 +98,9 @@ def suggestions(
 @router.get(
     "",
     response_model=SearchResponse,
-    openapi_extra=CachePolicy(namespace="search", revision=2, ttl="content").openapi_extra(),
+    openapi_extra=CachePolicy(
+        namespace="search", revision=2, ttl="content", normalize_query=True
+    ).openapi_extra(),
 )
 def search(
     session: DB,

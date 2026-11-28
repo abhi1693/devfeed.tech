@@ -86,9 +86,6 @@ dev = [
   "testcontainers>=4.15.0,<5",
   "pytest-cov>=7.1.0,<8",
 ]
-fuzz = [
-    "schemathesis==4.32.7",
-]
 loadtest = [
     "locust==2.47.0",
 ]

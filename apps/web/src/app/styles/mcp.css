@@ -8,6 +8,12 @@
 .mcp-page p { margin: 0; color: var(--muted-foreground); line-height: 1.6; }
 .mcp-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
 .mcp-page h1 { margin: 0; font-size: 30px; font-weight: 600; letter-spacing: -.035em; line-height: 1.2; }
+.mcp-page .mcp-introduction { max-width: 82ch; margin-top: 12px; }
+.mcp-examples { margin-bottom: 24px; }
+.mcp-examples h2 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+.mcp-examples ul { display: flex; flex-wrap: wrap; gap: 12px 32px; margin: 0; padding: 0; list-style: none; }
+.mcp-examples li { display: grid; gap: 4px; }
+.mcp-examples code { color: var(--muted-foreground); font-size: 11px; }
 .mcp-doc-link { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; color: var(--muted-foreground); font-size: 12px; }
 .mcp-page-header > .mcp-doc-link { margin-top: 6px; }
 .mcp-page a:hover { color: var(--foreground); text-decoration: underline; text-underline-offset: 3px; }

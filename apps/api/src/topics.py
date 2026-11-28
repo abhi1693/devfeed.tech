@@ -22,7 +22,9 @@ router = APIRouter(prefix="/v1/topics", tags=["topics"], route_class=CachedReadR
 @router.get(
     "",
     response_model=list[TopicOut],
-    openapi_extra=CachePolicy(namespace="topics", revision=1, ttl="metadata").openapi_extra(),
+    openapi_extra=CachePolicy(
+        namespace="topics", revision=1, ttl="metadata", normalize_query=True
+    ).openapi_extra(),
 )
 def topics(
     session: DB,
@@ -82,7 +84,9 @@ def topics(
 @router.get(
     "/{slug}",
     response_model=TopicOut,
-    openapi_extra=CachePolicy(namespace="topic", revision=1, ttl="metadata").openapi_extra(),
+    openapi_extra=CachePolicy(
+        namespace="topic", revision=1, ttl="metadata", normalize_query=True
+    ).openapi_extra(),
 )
 def topic(slug: TextInput, session: DB, by_id: bool = False) -> Topic:
     """Read a public topic by canonical slug, or by stable UUID when by_id is true."""
@@ -115,7 +119,7 @@ class RelationData(TypedDict):
     "/{slug}/relations",
     response_model=list[TopicRelationOut],
     openapi_extra=CachePolicy(
-        namespace="topic-relations", revision=1, ttl="metadata"
+        namespace="topic-relations", revision=1, ttl="metadata", normalize_query=True
     ).openapi_extra(),
 )
 def relations(slug: TextInput, session: DB) -> list[RelationData]:
