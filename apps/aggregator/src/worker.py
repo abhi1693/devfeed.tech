@@ -1,5 +1,4 @@
 import argparse
-import importlib.util
 import logging
 import os
 import uuid
@@ -85,14 +84,6 @@ def run(
     telemetry = start_runtime("worker-" + queue_name, profiling=False, tracing=False)
     try:
         names = worker_queues(queue_name, settings=settings)
-        if (
-            configured_queue("notifications", settings) in names
-            and importlib.util.find_spec("devfeed_notifications") is None
-        ):
-            raise OperationConflict(
-                "Notification delivery requires devfeed-aggregator[notifications] "
-                "or devfeed-aggregator[all-workers]"
-            )
         for queue_label in names:
             queues.append(get_queue(queue_label, physical=True))
         worker = Worker(

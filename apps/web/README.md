@@ -159,7 +159,7 @@ Edge. This does not hide content or prevent link crawling. Search engines choose
 their own snippets; after deployment, use Search Console URL Inspection and Bing
 Webmaster Tools to request a recrawl and verify the indexed result.
 
-Reader cards and inbox actions pass `articleDestination(slug)` to navigation;
+Reader cards pass `articleDestination(slug)` to navigation;
 page actions use `pageDestination(href)` with their scroll policy. `ReaderLink`
 serializes these destinations for native links, and `useReaderRouter` forwards
 them through the website or extension adapter. Requested article identity and
@@ -173,8 +173,7 @@ After building web, Chrome, and Edge, run
 `node --test --test-name-pattern="reader navigation" apps/extensions/tests/reader.browser.mjs`
 for the navigation journey. Without a name filter, every named scenario runs with its own fixtures.
 Use `DEVFEED_EXTENSION_BROWSER=edge` for the Edge run. It checks retained feed
-DOM and scroll, direct and intercepted previews, Back/Forward, retry, and inbox
-article and settings navigation. Evidence stays under ignored
+DOM and scroll, direct and intercepted previews, Back/Forward navigation, and retry. Evidence stays under ignored
 `reports/reader-destinations/`.
 
 ## Reader loading and pagination

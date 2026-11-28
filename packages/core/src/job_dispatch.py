@@ -129,8 +129,7 @@ class JobDispatcher:
             )
             job.dispatched_at = self.now
             fields = definition.log_fields(job)
-            if definition.kind != "notifications":
-                fields["rq_job_id"] = delivery.id
+            fields["rq_job_id"] = delivery.id
             logs.append((definition.event, fields))
         return logs
 

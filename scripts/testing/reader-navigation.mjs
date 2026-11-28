@@ -79,7 +79,7 @@ function defects(snapshot, signedIn) {
     }
     if (width <= 800 && overlap(item, search)) issues.push(`${item.name}: overlaps search`);
   }
-  const actionCount = width <= 800 ? 4 : 5;
+  const actionCount = width <= 800 ? 3 : 4;
   if (signedIn && actions.length !== actionCount)
     issues.push(`expected ${actionCount} header actions, got ${actions.length}`);
   if (width <= 520 && wordmark) issues.push("phone header still shows the wordmark");
@@ -257,7 +257,7 @@ export async function checkReaderNavigation(
     if (signedIn) {
       await page.getByRole("button", { name: /^User menu:/ }).waitFor();
       await page.getByRole("button", { name: "Today’s Must Reads", exact: true }).waitFor();
-      await page.getByRole("button", { name: /^Notifications/ }).waitFor();
+      assert.equal(await page.getByRole("button", { name: /^Notifications/ }).count(), 0);
       await page
         .getByRole("button", { name: new RegExp(`^Reading streak: ${streakDays} days`) })
         .waitFor();
@@ -348,7 +348,7 @@ export async function checkReaderNavigation(
     if (signedIn) {
       await page.getByRole("button", { name: /^User menu:/ }).waitFor();
       await page.getByRole("button", { name: "Today’s Must Reads", exact: true }).waitFor();
-      await page.getByRole("button", { name: /^Notifications/ }).waitFor();
+      assert.equal(await page.getByRole("button", { name: /^Notifications/ }).count(), 0);
     } else {
       await page.getByRole("link", { name: "Sign in", exact: true }).waitFor();
     }
@@ -408,7 +408,7 @@ export async function checkReaderNavigation(
     if (signedIn) {
       await page.getByRole("button", { name: /^User menu:/ }).waitFor();
       await page.getByRole("button", { name: "Today’s Must Reads", exact: true }).waitFor();
-      await page.getByRole("button", { name: /^Notifications/ }).waitFor();
+      assert.equal(await page.getByRole("button", { name: /^Notifications/ }).count(), 0);
     } else {
       await page.getByRole("link", { name: "Sign in", exact: true }).waitFor();
     }

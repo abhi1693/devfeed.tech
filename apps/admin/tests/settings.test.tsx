@@ -10,13 +10,11 @@ import { UserMenu } from "@/components/molecules/user-menu";
 import { DateTime } from "@/components/molecules/date-time";
 import { defaultSettings, formatDate, normalizeSettings } from "@/lib/settings";
 import { useTableQuery } from "@/lib/use-table-query";
-import { notificationChoices, notificationPreferences } from "@/lib/notification-preferences";
 import {
   adminSettingsGet,
   adminSettingsProfile,
   adminSettingsAppearance,
   adminSettingsTable,
-  adminNotificationConfig,
 } from "@/lib/api/generated/admin";
 import { useSettings } from "@/lib/use-settings";
 import type { SettingsSection } from "@/lib/settings";
@@ -38,7 +36,6 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminSettingsNotifications: vi.fn(),
   adminSettingsTable: vi.fn(),
   adminSettingsTablesReset: vi.fn(),
-  adminNotificationConfig: vi.fn(),
 }));
 const admin = {
   name: "Alex",
@@ -238,81 +235,6 @@ it("cannot let an old focus response overwrite a newer save", async () => {
   await screen.findByRole("button", { name: "User menu: New" });
   await act(async () => complete(normalizeSettings({ profile: { display_name: "Stale" } })));
   expect(screen.getByRole("button", { name: "User menu: New" })).toBeTruthy();
-});
-
-it("preserves earlier category opt-outs and separates failure, retry and completion preferences", () => {
-  const choices = notificationChoices([
-    { category: "jobs.analysis", channel: "in_app", enabled: false },
-  ]);
-  expect(choices["jobs.analysis.error"]).toBe(false);
-  choices["jobs.analysis.error"] = true;
-  const payload = notificationPreferences(choices);
-  expect(payload.find((row) => row.category === "jobs.analysis")?.enabled).toBe(true);
-  expect(payload.find((row) => row.category === "jobs.analysis.success")?.enabled).toBe(false);
-  expect(payload.find((row) => row.category === "jobs.relationship-research.error")?.enabled).toBe(
-    true,
-  );
-});
-
-it("loads and saves actual Chimely preferences through the session proxy with CSRF", async () => {
-  vi.mocked(adminNotificationConfig).mockResolvedValue({
-    enabled: true,
-    environment: "test",
-    subscriber_id: "admin-fixture",
-  });
-  let payload: { preferences: { category: string; enabled: boolean }[] } | undefined;
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input, init) => {
-      const url = new URL(String(input), location.origin);
-      if (init?.method === "PUT") {
-        expect(new Headers(init.headers).get("X-CSRF-Token")).toBe("test-csrf");
-        payload = JSON.parse(init.body as string);
-      }
-      if (url.pathname.endsWith("/preferences"))
-        return Response.json(payload ?? { preferences: [] });
-      if (url.pathname.endsWith("/counts")) return Response.json({ unread: 0, unseen: 0 });
-      return Response.json({ items: [], next_cursor: null });
-    }),
-  );
-  const { adminSettingsNotifications } = await import("@/lib/api/generated/admin");
-  vi.mocked(adminSettingsNotifications).mockImplementation(async (value) => ({
-    ...settings,
-    notifications: value,
-  }));
-  page("notifications");
-  fireEvent.click(await screen.findByRole("checkbox", { name: "Article analysis: Completions" }));
-  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-  await waitFor(() =>
-    expect(
-      payload?.preferences.find((row) => row.category === "jobs.analysis.success")?.enabled,
-    ).toBe(false),
-  );
-  await waitFor(() =>
-    expect(
-      (screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement).disabled,
-    ).toBe(true),
-  );
-});
-
-it("inherits earlier category opt-outs into missing event choices without overwriting explicit choices", async () => {
-  const { inheritNotificationPreferences } = await import("@/lib/notification-preferences");
-  const existing = [
-    { category: "jobs.topic-analysis", channel: "in_app" as const, enabled: false },
-    { category: "jobs.topic-analysis.error", channel: "in_app" as const, enabled: true },
-  ];
-  const client = {
-    getPreferences: vi.fn().mockResolvedValue(existing),
-    setPreferences: vi.fn().mockResolvedValue(existing),
-  };
-  await inheritNotificationPreferences(client);
-  expect(client.setPreferences).toHaveBeenCalledExactlyOnceWith([
-    { category: "jobs.topic-analysis.warning", channel: "in_app", enabled: false },
-    { category: "jobs.topic-analysis.success", channel: "in_app", enabled: false },
-    { category: "jobs.relationship-research.error", channel: "in_app", enabled: false },
-    { category: "jobs.relationship-research.warning", channel: "in_app", enabled: false },
-    { category: "jobs.relationship-research.success", channel: "in_app", enabled: false },
-  ]);
 });
 
 it("toggles the effective system theme and saves without changing other appearance settings", async () => {

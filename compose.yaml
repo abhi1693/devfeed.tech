@@ -93,13 +93,6 @@ x-core-environment: &core-environment # Use a hex password so it is safe inside 
   DEVFEED_CODEX_AUTH_TOKEN:
   DEVFEED_CODEX_TIMEOUT_SECONDS:
   DEVFEED_JOB_QUEUE_OVERRIDES:
-  DEVFEED_NOTIFICATIONS_ENABLED:
-  DEVFEED_CHIMELY_USER_ENVIRONMENT: ${DEVFEED_CHIMELY_USER_ENVIRONMENT:-devfeed-users}
-
-x-chimely-environment: &chimely-environment
-  DEVFEED_CHIMELY_API_URL: ${DEVFEED_CHIMELY_API_URL:-http://chimely:8080}
-  DEVFEED_CHIMELY_ADMIN_ENVIRONMENT:
-  DEVFEED_CHIMELY_USER_ENVIRONMENT: ${DEVFEED_CHIMELY_USER_ENVIRONMENT:-devfeed-users}
 
 x-host-access: &host-access # Also support host services on Docker Engine for Linux.
   extra_hosts:
@@ -332,8 +325,6 @@ services:
   admin-api:
     <<: [*runtime, *host-access]
     image: ${DEVFEED_ADMIN_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/admin-api:master}
-    entrypoint: [python, /opt/devfeed/chimely-consumer.py, admin]
-    # An explicit command retains the image startup when Compose replaces ENTRYPOINT.
     command:
       [
         uvicorn,
@@ -347,19 +338,13 @@ services:
       ]
     depends_on:
       <<: *ready
-      chimely-provision:
-        condition: service_completed_successfully
     networks: [default, data]
     # Account RPC only; ChatGPT credentials remain private to codex-server.
     # No dependency on the AI profile: admin must stay reachable during an outage.
     volumes:
       - codex-socket:/run/codex:ro
-      - ./infra/chimely/consumer.py:/opt/devfeed/chimely-consumer.py:ro
-      - chimely-admin-credentials:/run/devfeed-chimely:ro
     environment:
-      <<: [*core-environment, *chimely-environment]
-      # The inbox API uses its HMAC secret, never the management API key.
-      DEVFEED_CHIMELY_ADMIN_HMAC_SECRET:
+      <<: *core-environment
       DEVFEED_PARTNER_CREDENTIAL_KEY:
       # Server-only credentials for bounded product ad image uploads.
       DEVFEED_IMAGE_STORAGE_ENDPOINT:
@@ -441,7 +426,6 @@ services:
   user-api:
     <<: [*runtime, *host-access]
     image: ${DEVFEED_USER_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/user-api:master}
-    entrypoint: [python, /opt/devfeed/chimely-consumer.py, user]
     command:
       [
         uvicorn,
@@ -455,18 +439,9 @@ services:
       ]
     depends_on:
       <<: *ready
-      chimely-provision:
-        condition: service_completed_successfully
-    volumes:
-      - ./infra/chimely/consumer.py:/opt/devfeed/chimely-consumer.py:ro
-      - chimely-user-credentials:/run/devfeed-chimely:ro
     networks: [default, data]
     environment:
-      <<: *chimely-environment
       DEVFEED_JOB_QUEUE_OVERRIDES:
-      DEVFEED_NOTIFICATIONS_ENABLED:
-      DEVFEED_CHIMELY_USER_HMAC_SECRET:
-      # Only user inbox signing, persistence and user identity settings.
       DEVFEED_DATABASE_URL: ${DEVFEED_DATABASE_URL:-postgresql+psycopg://devfeed:${POSTGRES_PASSWORD}@postgres:5432/devfeed}
       DEVFEED_REDIS_URL: ${DEVFEED_REDIS_URL:-redis://redis:6379/0}
       DEVFEED_LOG_LEVEL:
@@ -601,87 +576,6 @@ services:
           "fetch('http://127.0.0.1:3000/login', {signal: AbortSignal.timeout(3000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
         ]
 
-  chimely-db-init:
-    <<: *runtime
-    image: *postgres-image
-    restart: "no"
-    user: postgres
-    command: [psql, -X, --no-password, --set, ON_ERROR_STOP=1, --file, /init-chimely.sql]
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      PGHOST: postgres
-      PGUSER: devfeed
-      PGDATABASE: postgres
-      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      # Optional separate database password; defaults to the PostgreSQL password.
-      CHIMELY_POSTGRES_PASSWORD: ${CHIMELY_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}}
-    volumes:
-      - ./infra/postgres/init-chimely.sql:/init-chimely.sql:ro
-    networks: [data]
-
-  chimely:
-    <<: *runtime
-    image: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/dodopayments/chimely:0.2.2@sha256:9a0f49ff99c3f7a587e8e2348379b0645306eb919bdb83ff54bf6cf900526a60
-    depends_on:
-      postgres:
-        condition: service_healthy
-      chimely-db-init:
-        condition: service_completed_successfully
-    networks: [default, data]
-    environment:
-      DATABASE_URL: postgres://chimely:${CHIMELY_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}}@postgres:5432/chimely
-      CHIMELY_LISTEN_ADDR: 0.0.0.0:8080
-      CHIMELY_ADMIN_EMAIL: ${CHIMELY_ADMIN_EMAIL:-}
-      CHIMELY_ADMIN_PASSWORD: ${CHIMELY_ADMIN_PASSWORD:-}
-      CHIMELY_ADMIN_TLS_TERMINATED: ${CHIMELY_ADMIN_TLS_TERMINATED:-false}
-      CHIMELY_IDEMPOTENCY_RETENTION_DAYS: 30
-      CHIMELY_SSE_PING_SECS: 10
-      CHIMELY_LOG_FORMAT: ${DEVFEED_LOG_FORMAT:-json}
-      RUST_LOG: info
-    ports:
-      - target: 8080
-        published: "${CHIMELY_PORT:-8082}"
-        host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
-    healthcheck:
-      <<: *healthcheck
-      test:
-        [
-          CMD,
-          bash,
-          -ec,
-          "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /readyz HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3; read -r status <&3; [[ \"$$status\" == *' 200 '* ]]",
-        ]
-      interval: 5s
-
-  chimely-provision:
-    <<: *runtime
-    image: ${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/docker.io/library/}python:3.12-alpine3.24@sha256:b64631e04e4920160c50fbe8d8df828f7f35f06f425cb44aa09bca53e708a35a
-    restart: "no"
-    # Only this one-off job can write both credential volumes. Files belong to
-    # the app UID; group root lets subsequent provisioning reuse issued keys.
-    user: "0:0"
-    cap_add: [CHOWN]
-    command: [python, /opt/devfeed/provision.py]
-    depends_on:
-      chimely:
-        condition: service_healthy
-    networks: [default]
-    environment:
-      <<: *chimely-environment
-      DEVFEED_NOTIFICATIONS_ENABLED:
-      CHIMELY_ADMIN_EMAIL: ${CHIMELY_ADMIN_EMAIL:-}
-      CHIMELY_ADMIN_PASSWORD: ${CHIMELY_ADMIN_PASSWORD:-}
-      CHIMELY_ADMIN_TLS_TERMINATED: ${CHIMELY_ADMIN_TLS_TERMINATED:-false}
-      DEVFEED_CHIMELY_ADMIN_API_KEY:
-      DEVFEED_CHIMELY_USER_API_KEY:
-    volumes:
-      - ./infra/chimely/provision.py:/opt/devfeed/provision.py:ro
-      - chimely-worker-credentials:/credentials/worker
-      - chimely-admin-credentials:/credentials/admin
-      - chimely-user-credentials:/credentials/user
-
   codex-server:
     <<: [*runtime, *host-access]
     profiles: [ai]
@@ -707,21 +601,13 @@ services:
   high-worker: &priority-worker
     scale: ${DEVFEED_HIGH_WORKER_REPLICAS:-4}
     <<: [*backend, *worker-runtime]
-    entrypoint: [python, /opt/devfeed/chimely-consumer.py, worker]
     environment: &priority-worker-environment
-      <<: [*core-environment, *chimely-environment, *worker-environment]
+      <<: [*core-environment, *worker-environment]
       DEVFEED_WORKER_QUEUE: high
       DEVFEED_PARTNER_CREDENTIAL_KEY:
-      # Per-kind routing can move notification jobs between priority queues.
-      DEVFEED_CHIMELY_ADMIN_API_KEY:
-      DEVFEED_CHIMELY_USER_API_KEY:
     depends_on:
       <<: *ready
-      chimely-provision:
-        condition: service_completed_successfully
     volumes:
-      - ./infra/chimely/consumer.py:/opt/devfeed/chimely-consumer.py:ro
-      - chimely-worker-credentials:/run/devfeed-chimely:ro
       - codex-socket:/run/codex:ro
 
   default-worker:
@@ -796,6 +682,3 @@ volumes:
   redis-data:
   codex-auth:
   codex-socket:
-  chimely-worker-credentials:
-  chimely-admin-credentials:
-  chimely-user-credentials:

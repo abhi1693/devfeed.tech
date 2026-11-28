@@ -43,7 +43,6 @@ class Smoke:
         self.files.chmod(0o755)
         self.env = {
             "DEVFEED_AI_ENABLED": "false",
-            "DEVFEED_NOTIFICATIONS_ENABLED": "false",
             "DEVFEED_METRICS_ENABLED": "false",
             "DEVFEED_CACHE_ENABLED": "false",
             "DEVFEED_IMAGE_STORAGE_ENABLED": "false",
@@ -251,42 +250,10 @@ class Smoke:
         )
         print("PASS native CA init, root:10001 mode0770 volume, uid10001 write/read-only SSL load")
 
-    def inbox(self, role):
-        directory = self.files / role
-        directory.mkdir(exist_ok=True)
-        directory.chmod(0o755)
-        values = {
-            "DEVFEED_CHIMELY_API_URL": "http://chimely:8080",
-            "DEVFEED_CHIMELY_ADMIN_ENVIRONMENT": "devfeed-admin",
-            "DEVFEED_CHIMELY_USER_ENVIRONMENT": "devfeed-user",
-        }
-        suffix = "API_KEY" if role == "worker" else "HMAC_SECRET"
-        for audience in ("ADMIN", "USER") if role == "worker" else (role.upper(),):
-            values[f"DEVFEED_CHIMELY_{audience}_{suffix}"] = "disposable-fake-credential-" * 2
-        path = directory / "credentials.json"
-        path.write_text(json.dumps(values))
-        path.chmod(0o444)
-        mounts = [
-            f"type=bind,src={directory},dst=/run/devfeed-chimely,readonly",
-            f"type=bind,src={ROOT / 'infra/chimely/consumer.py'},"
-            "dst=/opt/devfeed/consumer.py,readonly",
-        ]
-        env = {
-            "DEVFEED_NOTIFICATIONS_ENABLED": "true",
-            "DEVFEED_CHIMELY_API_URL": "http://chimely:8080",
-            "DEVFEED_CHIMELY_ADMIN_ENVIRONMENT": "devfeed-admin",
-            "DEVFEED_CHIMELY_USER_ENVIRONMENT": "devfeed-user",
-        }
-        self.run(CONTRACTS["wait-inbox"]["command"], mounts=mounts)
-        return mounts, env
-
     def api(self):
         key = "api" if self.component == "backend" else self.component
         port = {"api": 8000, "admin-api": 8001, "user-api": 8002, "partner-api": 8004}[key]
         mounts, env = list(getattr(self, "ca_mounts", [])), {}
-        if key in {"admin-api", "user-api"}:
-            inbox_mounts, env = self.inbox("admin" if key == "admin-api" else "user")
-            mounts += inbox_mounts
         name = self.start(CONTRACTS[key]["command"], mounts=mounts, env=env)
         self.wait_probe(
             name, ["python", "/fleet/runtime.py", "ready", f"http://127.0.0.1:{port}/health/ready"]
@@ -334,11 +301,6 @@ class Smoke:
                 env["DEVFEED_SOLVER_SERVICES"] = (
                     '[{"provider":"flaresolverr","url":"http://unused-solver:8191"}]'
                 )
-            if queue == "low":
-                key = "notification-worker"
-                inbox_mounts, inbox_env = self.inbox("worker")
-                mounts += inbox_mounts
-                env.update(inbox_env)
             name = self.start(CONTRACTS[key]["command"], env=env, mounts=mounts)
             probe = ["devfeed-worker-health"]
             self.wait_probe(name, probe)

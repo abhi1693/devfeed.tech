@@ -39,7 +39,6 @@ JobKind = Literal[
     "source-enrichment",
     "analysis",
     "topic-analysis",
-    "notifications",
 ]
 JOB_KINDS = get_args(JobKind)
 MAX_EVENT_BYTES = 16384
@@ -198,10 +197,7 @@ def capture_runtime_logs() -> Iterator[None]:
     """Install only in workers; console level/format remain unchanged."""
     handler = JobLogHandler()
     root = logging.getLogger()
-    namespaces = [
-        logging.getLogger(name)
-        for name in ("devfeed_core", "devfeed_aggregator", "devfeed_notifications")
-    ]
+    namespaces = [logging.getLogger(name) for name in ("devfeed_core", "devfeed_aggregator")]
     previous = [namespace.level for namespace in namespaces]
     root.addHandler(handler)
     for namespace in namespaces:

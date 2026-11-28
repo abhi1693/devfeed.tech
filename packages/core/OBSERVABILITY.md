@@ -243,8 +243,7 @@ records; it does not remove authentication material from existing retained logs.
 ## Frontend telemetry
 
 Node emits `http_server_request_duration_seconds` with `http_request_method`,
-`http_route`, `http_response_status_code`, and `devfeed_request_kind` labels. Known
-Chimely inbox stream paths (including the `/api` proxy prefix) and responses with
+`http_route`, `http_response_status_code`, and `devfeed_request_kind` labels. Responses with
 `Content-Type: text/event-stream` have kind `stream`; ordinary chunked HTML has kind
 `request`. Disconnections are recorded once as 499. Measure request latency and error
 ratios with `devfeed_request_kind="request"` to exclude stream lifetimes.

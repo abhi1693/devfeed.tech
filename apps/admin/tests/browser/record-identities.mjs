@@ -256,7 +256,6 @@ try {
         { label: "Feed ingestion", href: "/jobs/ingestion" },
         ...enrichmentCards,
         { label: "AI analysis", href: "/jobs/analysis" },
-        { label: "Notification delivery", href: "/jobs/notifications" },
       ],
       trail: [],
     },

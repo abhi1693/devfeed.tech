@@ -25,7 +25,6 @@ from devfeed_admin_api import (
     automation,
     ingestion,
     jobs,
-    notifications,
     overview,
     partner_accounts,
     partner_jobs,
@@ -116,7 +115,6 @@ def create_app() -> FastAPI:
         article_maintenance.router,
         topics.router,
         jobs.router,
-        notifications.router,
         workers.router,
     ):
         include_gateway_router(app, router)

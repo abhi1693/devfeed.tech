@@ -2,7 +2,6 @@ import type { AdminIdentity } from "@/lib/api/generated/models";
 import { Brand } from "@/components/molecules/brand";
 import { UserMenu } from "@/components/molecules/user-menu";
 import { SessionLifetime } from "@/components/molecules/session-lifetime";
-import { NotificationInbox } from "@/components/organisms/notification-inbox";
 import { AiConnection } from "@/components/organisms/ai-connection";
 import { ThemeToggle } from "@/components/molecules/theme-toggle";
 
@@ -15,7 +14,6 @@ export function AdminHeader({ admin }: { admin: AdminIdentity }) {
         <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2 sm:gap-4">
           <AiConnection csrfToken={admin.csrf_token} />
           <ThemeToggle />
-          <NotificationInbox csrfToken={admin.csrf_token} />
           <UserMenu admin={admin} />
         </div>
       </div>

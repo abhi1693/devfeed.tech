@@ -13,11 +13,8 @@
     "./info-tip.css": "./src/info-tip.css",
     "./choice-controls": "./src/choice-controls.tsx",
     "./choice-controls.css": "./src/choice-controls.css",
-    "./notifications": "./src/notifications.tsx",
     "./page-activity": "./src/page-activity.ts",
     "./use-polling": "./src/use-polling.ts",
-    "./inbox-fetch": "./src/inbox-fetch.ts",
-    "./use-notification-sound": "./src/use-notification-sound.ts",
     "./combobox": "./src/combobox.tsx",
     "./select": "./src/select.tsx",
     "./product-destination-preview": "./src/product-destination-preview.tsx",
@@ -39,7 +36,6 @@
     "./sign-in": "./src/sign-in.tsx",
     "./sign-in-feedback": "./src/sign-in-feedback.ts",
     "./use-debounced-image-preview": "./src/use-debounced-image-preview.ts",
-    "./notification-events": "./src/notification-events.ts",
     "./dropdown-menu": "./src/dropdown-menu.tsx",
     "./button": "./src/button.tsx",
     "./input": "./src/input.tsx",
@@ -57,8 +53,6 @@
     "next": "^16.4.6"
   },
   "dependencies": {
-    "@chimely/client": "0.2.2",
-    "@chimely/react": "0.2.2",
     "cmdk": "^1.1.1",
     "lucide-react": "^1.61.0",
     "radix-ui": "1.8.1",

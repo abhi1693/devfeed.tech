@@ -345,7 +345,6 @@ export * from './matchDecision';
 export * from './memberInput';
 export * from './memberOut';
 export * from './metricInput';
-export * from './notificationConfig';
 export * from './notificationSettings';
 export * from './overviewChartReport';
 export * from './pageAdminArticleOut';

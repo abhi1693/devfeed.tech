@@ -9,7 +9,6 @@ from unittest.mock import Mock
 
 import pytest
 from devfeed_core.version import SCHEMA_REVISION
-from devfeed_http.inbox import INBOX_OPERATIONS, INBOX_POLICY_EXTENSION
 from devfeed_http.operation_policies import GATEWAY_POLICY_EXTENSION
 from devfeed_http.schemas import ErrorResponse, UnhealthyResponse
 from fastapi import Response
@@ -40,14 +39,6 @@ def test_all_routes_declare_typed_bodies_and_responses(package):
     app = importlib.import_module(f"{package}.main").create_app()
     seen = set()
     for route in api_routes(app.routes):
-        if INBOX_POLICY_EXTENSION in (route.openapi_extra or {}):
-            # Upstream-owned JSON/SSE protocol, forwarded byte-for-byte after bounds checks.
-            prefix = "adminInbox" if package == "devfeed_admin_api" else "userInbox"
-            assert route.operation_id in {prefix + operation.name for operation in INBOX_OPERATIONS}
-            assert not route.include_in_schema
-            assert route.response_class is Response
-            assert route.response_model is None
-            continue
         if route.operation_id in {
             "user_auth_backchannel_logout",
             "admin_auth_backchannel_logout",

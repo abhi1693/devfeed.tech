@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Literal, cast, overload
 
 from sqlalchemy import and_, or_, select, tuple_
@@ -21,13 +20,10 @@ from devfeed_core.models import (
     ArticleAnalysisJob,
     ArticleEnrichmentJob,
     ArticleImageJob,
-    NotificationDelivery,
     SourceEnrichmentJob,
     TopicAnalysisJob,
-    utcnow,
 )
-from devfeed_core.notification_delivery import DELIVERY_POLICY
-from devfeed_core.services import OperationConflict, RecordNotFound, retry_job
+from devfeed_core.services import OperationConflict, retry_job
 from devfeed_core.source_enrichment import request_enrichment
 from devfeed_core.topic_analysis import request_topic_analysis
 from devfeed_core.topic_relationships import (
@@ -41,11 +37,8 @@ def retry_candidate(model: type[Job]) -> ColumnElement[bool]:
 
     Keep historical failures visible, but never offer them again once another run
     exists. An active run also blocks retry even if timestamps are out of order.
-    Notification retries reuse their original row and idempotency key instead.
     """
     failed = model.status == "failed"
-    if model is NotificationDelivery:
-        return failed
     newer: type[Job]
     if model is ArticleImageJob:
         newer = aliased(ArticleImageJob)
@@ -208,28 +201,6 @@ def retry_candidate(model: type[Job]) -> ColumnElement[bool]:
     return eligibility
 
 
-def retry_notification(session: Session, identifier: uuid.UUID) -> NotificationDelivery:
-    job = session.scalar(
-        select(NotificationDelivery)
-        .where(NotificationDelivery.id == identifier)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if job is None:
-        raise RecordNotFound("Notification delivery not found")
-    if job.status != "failed":
-        raise OperationConflict("Only failed deliveries can be retried")
-    if DELIVERY_POLICY.expired(job, utcnow()):
-        raise OperationConflict(
-            "Delivery is beyond the safe retry window; review it before publishing a new event"
-        )
-    # Keep the original delivery ID and event key for Chimely's idempotency check.
-    job.status, job.attempts, job.available_at = "queued", 0, utcnow()
-    job.dispatched_at = job.finished_at = job.lease_until = job.lease_token = job.error = None
-    session.flush()
-    return job
-
-
 def preserve_analysis_steps(previous: ArticleAnalysisJob, successor: ArticleAnalysisJob) -> None:
     """Retain independently validated specialist outputs for the exact same private subject."""
     if (
@@ -316,6 +287,4 @@ def retry_failed_job(
             ),
             actor,
         )
-    if kind == "notifications":
-        return retry_notification(session, job.id)
     raise OperationConflict("Unsupported job type")

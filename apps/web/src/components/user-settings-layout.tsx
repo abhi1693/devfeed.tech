@@ -1,6 +1,6 @@
 import "../app/styles/settings.css";
 import Link from "@/components/reader-link";
-import { Bell, Hash, LayoutGrid, Palette, Rss, UserRound } from "lucide-react";
+import { Hash, LayoutGrid, Palette, Rss, UserRound } from "lucide-react";
 import {
   readerSettingsRoutes,
   type ReaderSettingsSection,
@@ -37,13 +37,6 @@ export function UserSettingsLayout({
         >
           <Palette size={16} aria-hidden />
           Appearance
-        </Link>
-        <Link
-          href={`/settings/${readerSettingsRoutes.notifications}`}
-          aria-current={section === "notifications" ? "page" : undefined}
-        >
-          <Bell size={16} aria-hidden />
-          Notifications
         </Link>
         <Link
           href={`/settings/${readerSettingsRoutes.feed}`}

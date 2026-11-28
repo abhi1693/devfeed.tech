@@ -19,7 +19,6 @@ import {
 } from "@/lib/settings";
 import { useSettings } from "@/lib/use-settings";
 import { notify, notifyFailure } from "@/lib/notifications";
-import { NotificationSettingsForm } from "./notification-settings";
 
 const options = (items: [string, string][]): SelectOption[] =>
   items.map(([value, label]) => ({ value, label }));
@@ -61,9 +60,7 @@ export function SettingsPage({ section }: { section: SettingsSection }) {
       <PageTitle title={`${meta.label} settings`} />
       <p className="text-sm text-muted-foreground">{meta.description}</p>
       <div className="min-w-0">
-        {section === "notifications" ? (
-          <NotificationSettingsForm />
-        ) : section === "profile" ? (
+        {section === "profile" ? (
           <SettingsForm
             key={section}
             initial={settings.profile}

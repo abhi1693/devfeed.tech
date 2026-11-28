@@ -117,7 +117,7 @@ test("page scroll intent is explicit and article links preserve it even through 
   useRouter().push("/articles/rust", { scroll: true });
   assert.deepEqual(calls, []);
   assert.equal(window.history.state.readerNavigation.background.href, "/search?q=rust");
-  navigate(pageDestination("/settings/notifications"));
+  navigate(pageDestination("/settings/appearance"));
   assert.deepEqual(calls, [[0, 0]]);
   assert.deepEqual(plain(window.history.state.readerScroll), [0, 0]);
   assert.equal(window.history.state.readerNavigation.kind, "page");
@@ -136,7 +136,7 @@ test("Back and Forward retain explicit overlay backgrounds and each entry's scro
   const { window, navigate, resolveReaderNavigation, dom } = browser("/topics?offset=60");
   window.scrollY = 680;
   navigate(articleDestination("rust"));
-  navigate(pageDestination("/settings/notifications"));
+  navigate(pageDestination("/settings/appearance"));
   await historyTravel(window, "back");
   const article = resolveReaderNavigation(
     window.location.hash.slice(1),
@@ -162,13 +162,13 @@ test("history hydration rebuilds registered page metadata and rejects foreign ba
     destination,
     background: {
       kind: "page",
-      href: "/settings/notifications",
+      href: "/settings/appearance",
       scroll: "preserve",
       route: { type: "local" },
     },
   };
   const state = resolveReaderNavigation(destination.href, saved);
-  assert.equal(state.background.route.settings, "notifications");
+  assert.equal(state.background.route.settings, "appearance");
   assert.equal(state.background.scroll, "preserve");
   for (const background of [
     { kind: "page", href: "https://outside.test/latest", scroll: "reset" },
@@ -201,10 +201,7 @@ test("only registered same-origin anchors become local destinations", () => {
   const article = resolveExtensionLink("https://devfeed.tech/articles/%72ust?from=inbox");
   assert.equal(article.destination.slug, "rust");
   assert.equal(article.href, "#/articles/%72ust?from=inbox");
-  assert.equal(
-    destinationHref(pageDestination("/settings/notifications")),
-    "#/settings/notifications",
-  );
+  assert.equal(destinationHref(pageDestination("/settings/appearance")), "#/settings/appearance");
   for (const href of [
     "https://outside.test/articles/rust",
     "/legal/privacy",

@@ -30,7 +30,6 @@ export const jobKinds: Partial<Record<Resource, AdminJobOut["kind"]>> = {
   "image-jobs": "images",
   "source-jobs": "source-enrichment",
   "analysis-jobs": "analysis",
-  "notification-jobs": "notifications",
 };
 export function retryRecordJob(resource: Resource, row: RecordData, csrf: string) {
   const kind = (row.kind as AdminJobOut["kind"] | undefined) ?? jobKinds[resource];

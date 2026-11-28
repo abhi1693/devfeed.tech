@@ -36,10 +36,10 @@ it("retains page descriptors and explicit scroll intent", () => {
     scroll: "preserve",
     route: { type: "reader", detail: { kind: "topics", slug: "rust", contentType: "tutorial" } },
   });
-  expect(pageDestination("/settings/notifications")).toMatchObject({
+  expect(pageDestination("/settings/appearance")).toMatchObject({
     kind: "page",
     scroll: "reset",
-    route: { type: "local", page: "settings", settings: "notifications" },
+    route: { type: "local", page: "settings", settings: "appearance" },
   });
   expect(pageDestination("/missing")).toMatchObject({ kind: "page", route: null });
 });

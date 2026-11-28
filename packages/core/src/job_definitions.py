@@ -25,7 +25,6 @@ from devfeed_core.models import (
     ArticleEnrichmentJob,
     ArticleImageJob,
     IngestionJob,
-    NotificationDelivery,
     ResearchVerificationJob,
     SourceEnrichmentJob,
     TopicAnalysisJob,
@@ -39,7 +38,6 @@ Job = (
     | ArticleAnalysisJob
     | TopicAnalysisJob
     | ResearchVerificationJob
-    | NotificationDelivery
 )
 SolverJob = ArticleEnrichmentJob | ArticleImageJob | SourceEnrichmentJob
 PipelineKind = JobKind | Literal["research-verification"]
@@ -144,13 +142,6 @@ JOB_DEFINITIONS = MappingProxyType(
                 "research_verification",
                 timeout=240,
                 admin_visible=False,
-            ),
-            JobDefinition(
-                "notifications",
-                NotificationDelivery,
-                "devfeed_notifications.delivery.deliver_notification",
-                "notifications",
-                "notification",
             ),
         )
     }

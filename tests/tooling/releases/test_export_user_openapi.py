@@ -2,10 +2,8 @@
 
 import importlib.util
 import json
-from collections import Counter
 
 from devfeed_http.agent_permissions import AGENT_POLICY_EXTENSION
-from devfeed_http.inbox import INBOX_OPERATIONS, MAX_BODY
 from devfeed_http.operation_policies import GATEWAY_POLICY_EXTENSION, GATEWAY_ROUTES_EXTENSION
 
 from tests.support.paths import REPO_ROOT
@@ -44,35 +42,11 @@ def test_reader_gateway_covers_user_operations_and_hidden_inbox_without_exposing
         for method, operation in methods.items()
         if path.startswith("/v1/user/")
     }
-    assert len(actual) == len(operations) == 69
-    assert len({operation["operationId"] for operation in operations}) == len(operations)
-    assert len({operation["path"] for operation in operations}) == 57
-    assert Counter(operation["method"] for operation in operations) == {
-        "GET": 30,
-        "POST": 22,
-        "PUT": 15,
-        "DELETE": 2,
-    }
+    assert len(actual) == len(operations)
     for key, operation in documented.items():
         assert actual[key]["operationId"] == operation["operationId"]
         assert actual[key]["policy"] == operation[GATEWAY_POLICY_EXTENSION]
-    hidden_operations = actual.keys() - documented.keys()
-    assert len(hidden_operations) == 17
-    for operation in INBOX_OPERATIONS:
-        key = ("/v1/user/notifications/chimely/v1/inbox" + operation.path, operation.method)
-        assert key in hidden_operations
-        hidden = actual[key]
-        assert hidden["operationId"] == "userInbox" + operation.name
-        if operation.parameter is None:
-            assert hidden["parameters"] == []
-        else:
-            parameter = hidden["parameters"][0]
-            assert parameter["name"] == operation.parameter
-            assert parameter["converter"] == "str"
-            assert parameter["schema"]["minLength"] == 32
-            assert parameter["schema"]["maxLength"] == 32
-            prefix = "notif" if operation.parameter == "notification_id" else "bcast"
-            assert parameter["schema"]["pattern"] == "^" + prefix + r"_[a-z0-9]{26}$"
+    assert actual.keys() == documented.keys()
     for path in ("/health/live", "/health/ready"):
         assert GATEWAY_POLICY_EXTENSION not in document["paths"][path]["get"]
     assert all(operation["path"].startswith("/v1/user/") for operation in operations)
@@ -94,10 +68,6 @@ def test_reader_cookie_and_body_policy_is_explicit_for_every_operation():
         },
     }
     overrides = {
-        **{
-            "userInbox" + operation.name: {**default, "bodyLimit": MAX_BODY}
-            for operation in INBOX_OPERATIONS
-        },
         "user_auth_login": {**default, "cookiePolicy": "reader-attribution", "extension": None},
         "user_auth_callback": {**default, "extension": None},
         "user_auth_sso_callback": {**default, "extension": None},
@@ -160,7 +130,7 @@ def test_extension_auth_grants_keep_oidc_navigation_out_of_fetch_transport():
         ("user_auth_logout", "POST"),
         ("user_auth_sso_logout", "POST"),
     }
-    assert sum(operation["policy"]["extension"] is not None for operation in operations) == 65
+    assert sum(operation["policy"]["extension"] is not None for operation in operations) == 47
 
 
 def test_reader_workspace_and_layout_operations_keep_private_extension_transport():

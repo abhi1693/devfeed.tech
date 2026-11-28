@@ -58,6 +58,4 @@ JOB_FIELDS = {
         "usage",
         "duration_ms",
     ),
-    "notifications": COMMON_FIELDS
-    + ("event_key", "dedup_key", "audience", "subscriber_id", "category", "payload"),
 }

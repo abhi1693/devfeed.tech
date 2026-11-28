@@ -115,7 +115,6 @@ import type {
   MemberInput,
   MemberOut,
   MetricInput,
-  NotificationConfig,
   NotificationSettings,
   OverviewChartReport,
   PageAdminArticleOut,
@@ -1199,7 +1198,7 @@ export const adminAiAnalysisJobsList = async (params?: AdminAiAnalysisJobsListPa
 
 
 
-export const getAdminJobsListUrl = (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const getAdminJobsListUrl = (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis',
     params?: AdminJobsListParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -1218,7 +1217,7 @@ export const getAdminJobsListUrl = (kind: 'ingestion' | 'source-discovery' | 'pa
 /**
  * @summary Jobs
  */
-export const adminJobsList = async (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const adminJobsList = async (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis',
     params?: AdminJobsListParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageAdminJobOut> => {
 
   return adminFetch<PageAdminJobOut>(getAdminJobsListUrl(kind,params),
@@ -1232,7 +1231,7 @@ export const adminJobsList = async (kind: 'ingestion' | 'source-discovery' | 'pa
 
 
 
-export const getAdminJobGetUrl = (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const getAdminJobGetUrl = (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis',
     jobId: string,) => {
 
 
@@ -1244,7 +1243,7 @@ export const getAdminJobGetUrl = (kind: 'ingestion' | 'source-discovery' | 'part
 /**
  * @summary Detail
  */
-export const adminJobGet = async (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const adminJobGet = async (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis',
     jobId: string, options?: Parameters<typeof adminFetch>[1]): Promise<AdminJobOut> => {
 
   return adminFetch<AdminJobOut>(getAdminJobGetUrl(kind,jobId),
@@ -1258,7 +1257,7 @@ export const adminJobGet = async (kind: 'ingestion' | 'source-discovery' | 'part
 
 
 
-export const getAdminJobLogsUrl = (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const getAdminJobLogsUrl = (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis',
     jobId: string,
     params?: AdminJobLogsParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -1278,7 +1277,7 @@ export const getAdminJobLogsUrl = (kind: 'ingestion' | 'source-discovery' | 'par
 /**
  * @summary Runtime Logs
  */
-export const adminJobLogs = async (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const adminJobLogs = async (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis',
     jobId: string,
     params?: AdminJobLogsParams, options?: Parameters<typeof adminFetch>[1]): Promise<AdminJobLogs> => {
 
@@ -1293,7 +1292,7 @@ export const adminJobLogs = async (kind: 'ingestion' | 'source-discovery' | 'par
 
 
 
-export const getAdminJobRetryUrl = (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const getAdminJobRetryUrl = (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis',
     jobId: string,) => {
 
 
@@ -1305,58 +1304,10 @@ export const getAdminJobRetryUrl = (kind: 'ingestion' | 'source-discovery' | 'pa
 /**
  * @summary Retry
  */
-export const adminJobRetry = async (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis' | 'notifications',
+export const adminJobRetry = async (kind: 'ingestion' | 'source-discovery' | 'partner-evaluation' | 'partner-pipeline' | 'article-enrichment' | 'images' | 'source-enrichment' | 'analysis' | 'topic-analysis',
     jobId: string, options?: Parameters<typeof adminFetch>[1]): Promise<AdminJobOut> => {
 
   return adminFetch<AdminJobOut>(getAdminJobRetryUrl(kind,jobId),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
-export const getAdminNotificationConfigUrl = () => {
-
-
-
-
-  return `/v1/admin/notifications/config`
-}
-
-/**
- * @summary Config
- */
-export const adminNotificationConfig = async ( options?: Parameters<typeof adminFetch>[1]): Promise<NotificationConfig> => {
-
-  return adminFetch<NotificationConfig>(getAdminNotificationConfigUrl(),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-export const getAdminNotificationRetryUrl = (identifier: string,) => {
-
-
-
-
-  return `/v1/admin/notifications/deliveries/${identifier}/retry`
-}
-
-/**
- * @summary Retry
- */
-export const adminNotificationRetry = async (identifier: string, options?: Parameters<typeof adminFetch>[1]): Promise<AdminJobOut> => {
-
-  return adminFetch<AdminJobOut>(getAdminNotificationRetryUrl(identifier),
   {
     ...options,
     method: 'POST'

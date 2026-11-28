@@ -96,7 +96,7 @@ import {
   readingStreakFixture,
 } from "../../../../scripts/testing/reading-streak.mjs";
 import { checkReaderNavigation } from "../../../../scripts/testing/reader-navigation.mjs";
-import { checkReaderInteractions, notificationFixture } from "./reader-interactions.mjs";
+import { checkReaderInteractions } from "./reader-interactions.mjs";
 import { checkSidebarGitHub } from "../../../../scripts/testing/sidebar-github.mjs";
 import { checkGooglePreferredSource } from "../../../../scripts/testing/google-preferred-source.mjs";
 import { checkCollapsibleSidebar } from "../../../../scripts/testing/collapsible-sidebar.mjs";
@@ -261,7 +261,6 @@ async function createReaderFixture(
   const renderReads = renderReadFixture(article, topic);
   const topicContext = articleTopicContextFixture(article);
   let mode = "ready";
-  let notificationCount = 1;
   const defaultAllRequests = [];
   let compactArticles = false;
   let articleFeedGate;
@@ -627,17 +626,7 @@ async function createReaderFixture(
     else if (path === "/v1/user/settings/reading-week") body = readingFixture.response();
     else if (path === "/v1/user/settings/appearance") body = { theme: "light" };
     else if (path === "/v1/user/settings/notifications") body = { show_badge: true, sound: false };
-    else if (path === "/v1/user/notifications/config")
-      body = { enabled: true, environment: "users", subscriber_id: "user_a" };
-    else if (path.endsWith("/items") && path.includes("/notifications/chimely/"))
-      body = notificationFixture();
-    else if (path.endsWith("/counts") && path.includes("/notifications/chimely/"))
-      body = { unread: 1, unseen: notificationCount };
-    else if (path.endsWith("/stream") && path.includes("/notifications/chimely/")) {
-      res.writeHead(200, { "Content-Type": "text/event-stream" });
-      res.end(": connected\n\n");
-      return;
-    } else if (["/v1/partner-placements/query", "/v1/user/partner-placements/query"].includes(path))
+    else if (["/v1/partner-placements/query", "/v1/user/partner-placements/query"].includes(path))
       body = { items: [] };
     else if (path === "/v1/user/settings/feed-view") {
       if (!authenticated) {
@@ -1082,23 +1071,11 @@ async function createReaderFixture(
     try {
       mustReadsFixture.enabled = true;
       mustReadsFixture.presented = true;
-      for (const count of [1, 123]) {
-        notificationCount = count;
-        await navigationPage.goto(origin);
-        await navigationPage
-          .getByRole("button", {
-            name: count === 123 ? "Notifications, 99+ new (123 in total)" : "Notifications, 1 new",
-            exact: true,
-          })
-          .waitFor();
-        await checkReaderNavigation(
-          navigationPage,
-          `${root}/reports/mobile-navigation/web/count-${count}`,
-          { signedIn: true },
-        );
-      }
+      await navigationPage.goto(origin);
+      await checkReaderNavigation(navigationPage, `${root}/reports/mobile-navigation/web`, {
+        signedIn: true,
+      });
     } finally {
-      notificationCount = 1;
       Object.assign(mustReadsFixture, navigationMustReads);
       await navigationPage.close();
     }

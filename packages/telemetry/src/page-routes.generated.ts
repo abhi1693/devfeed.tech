@@ -3,134 +3,6 @@
 import type { PageRouteDescriptor } from "./page-routes";
 export const pageRouteCatalogs = {
   web: [
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/archive",
-      label: "/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/archive",
-    },
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/read",
-      label: "/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/read",
-    },
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/unarchive",
-      label: "/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/unarchive",
-    },
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/unread",
-      label: "/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/unread",
-    },
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/notifications/:id/archive",
-      label: "/v1/user/notifications/chimely/v1/inbox/notifications/:id/archive",
-    },
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/notifications/:id/read",
-      label: "/v1/user/notifications/chimely/v1/inbox/notifications/:id/read",
-    },
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/notifications/:id/unarchive",
-      label: "/v1/user/notifications/chimely/v1/inbox/notifications/:id/unarchive",
-    },
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/notifications/:id/unread",
-      label: "/v1/user/notifications/chimely/v1/inbox/notifications/:id/unread",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/archive",
-      label: "/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/archive",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/read",
-      label: "/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/read",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/unarchive",
-      label: "/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/unarchive",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/unread",
-      label: "/v1/user/notifications/chimely/v1/inbox/broadcasts/:id/unread",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/notifications/:id/archive",
-      label: "/v1/user/notifications/chimely/v1/inbox/notifications/:id/archive",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/notifications/:id/read",
-      label: "/v1/user/notifications/chimely/v1/inbox/notifications/:id/read",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/notifications/:id/unarchive",
-      label: "/v1/user/notifications/chimely/v1/inbox/notifications/:id/unarchive",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/notifications/:id/unread",
-      label: "/v1/user/notifications/chimely/v1/inbox/notifications/:id/unread",
-    },
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/archive-all",
-      label: "/v1/user/notifications/chimely/v1/inbox/archive-all",
-    },
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/archive-read",
-      label: "/v1/user/notifications/chimely/v1/inbox/archive-read",
-    },
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/counts",
-      label: "/v1/user/notifications/chimely/v1/inbox/counts",
-    },
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/items",
-      label: "/v1/user/notifications/chimely/v1/inbox/items",
-    },
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/preferences",
-      label: "/v1/user/notifications/chimely/v1/inbox/preferences",
-    },
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/read-all",
-      label: "/v1/user/notifications/chimely/v1/inbox/read-all",
-    },
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/seen-all",
-      label: "/v1/user/notifications/chimely/v1/inbox/seen-all",
-    },
-    {
-      path: "/api/v1/user/notifications/chimely/v1/inbox/stream",
-      label: "/v1/user/notifications/chimely/v1/inbox/stream",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/archive-all",
-      label: "/v1/user/notifications/chimely/v1/inbox/archive-all",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/archive-read",
-      label: "/v1/user/notifications/chimely/v1/inbox/archive-read",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/counts",
-      label: "/v1/user/notifications/chimely/v1/inbox/counts",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/items",
-      label: "/v1/user/notifications/chimely/v1/inbox/items",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/preferences",
-      label: "/v1/user/notifications/chimely/v1/inbox/preferences",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/read-all",
-      label: "/v1/user/notifications/chimely/v1/inbox/read-all",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/seen-all",
-      label: "/v1/user/notifications/chimely/v1/inbox/seen-all",
-    },
-    {
-      path: "/v1/user/notifications/chimely/v1/inbox/stream",
-      label: "/v1/user/notifications/chimely/v1/inbox/stream",
-    },
     { path: "/api/v1/user/auth/sso/callback", label: "/v1/user/auth/sso/callback" },
     { path: "/api/v1/user/auth/sso/logout", label: "/v1/user/auth/sso/logout" },
     { path: "/api/v1/user/settings/columns/starters", label: "/v1/user/settings/columns/starters" },
@@ -159,7 +31,6 @@ export const pageRouteCatalogs = {
     { path: "/api/v1/user/auth/me", label: "/v1/user/auth/me" },
     { path: "/api/v1/user/mcp/connections", label: "/v1/user/mcp/connections" },
     { path: "/api/v1/user/must-reads/presentation", label: "/v1/user/must-reads/presentation" },
-    { path: "/api/v1/user/notifications/config", label: "/v1/user/notifications/config" },
     { path: "/api/v1/user/partner-placements/query", label: "/v1/user/partner-placements/query" },
     { path: "/api/v1/user/preferences/sources", label: "/v1/user/preferences/sources" },
     { path: "/api/v1/user/preferences/tags", label: "/v1/user/preferences/tags" },
@@ -209,7 +80,6 @@ export const pageRouteCatalogs = {
     { path: "/v1/user/auth/me", label: "/v1/user/auth/me" },
     { path: "/v1/user/mcp/connections", label: "/v1/user/mcp/connections" },
     { path: "/v1/user/must-reads/presentation", label: "/v1/user/must-reads/presentation" },
-    { path: "/v1/user/notifications/config", label: "/v1/user/notifications/config" },
     { path: "/v1/user/partner-placements/query", label: "/v1/user/partner-placements/query" },
     { path: "/v1/user/preferences/sources", label: "/v1/user/preferences/sources" },
     { path: "/v1/user/preferences/tags", label: "/v1/user/preferences/tags" },
@@ -286,7 +156,6 @@ export const pageRouteCatalogs = {
     { path: "/preferred-source/widget", label: "/preferred-source/widget" },
     { path: "/settings/appearance", label: "/settings/appearance" },
     { path: "/settings/feed", label: "/settings/feed" },
-    { path: "/settings/notifications", label: "/settings/notifications" },
     { path: "/settings/profile", label: "/settings/profile" },
     { path: "/settings/sources", label: "/settings/sources" },
     { path: "/settings/topics", label: "/settings/topics" },
@@ -331,136 +200,8 @@ export const pageRouteCatalogs = {
   ],
   admin: [
     {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/archive",
-      label: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/archive",
-    },
-    {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/read",
-      label: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/read",
-    },
-    {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/unarchive",
-      label: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/unarchive",
-    },
-    {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/unread",
-      label: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/unread",
-    },
-    {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/notifications/:id/archive",
-      label: "/v1/admin/notifications/chimely/v1/inbox/notifications/:id/archive",
-    },
-    {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/notifications/:id/read",
-      label: "/v1/admin/notifications/chimely/v1/inbox/notifications/:id/read",
-    },
-    {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/notifications/:id/unarchive",
-      label: "/v1/admin/notifications/chimely/v1/inbox/notifications/:id/unarchive",
-    },
-    {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/notifications/:id/unread",
-      label: "/v1/admin/notifications/chimely/v1/inbox/notifications/:id/unread",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/archive",
-      label: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/archive",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/read",
-      label: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/read",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/unarchive",
-      label: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/unarchive",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/unread",
-      label: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/:id/unread",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/notifications/:id/archive",
-      label: "/v1/admin/notifications/chimely/v1/inbox/notifications/:id/archive",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/notifications/:id/read",
-      label: "/v1/admin/notifications/chimely/v1/inbox/notifications/:id/read",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/notifications/:id/unarchive",
-      label: "/v1/admin/notifications/chimely/v1/inbox/notifications/:id/unarchive",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/notifications/:id/unread",
-      label: "/v1/admin/notifications/chimely/v1/inbox/notifications/:id/unread",
-    },
-    {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/archive-all",
-      label: "/v1/admin/notifications/chimely/v1/inbox/archive-all",
-    },
-    {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/archive-read",
-      label: "/v1/admin/notifications/chimely/v1/inbox/archive-read",
-    },
-    {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/counts",
-      label: "/v1/admin/notifications/chimely/v1/inbox/counts",
-    },
-    {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/items",
-      label: "/v1/admin/notifications/chimely/v1/inbox/items",
-    },
-    {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/preferences",
-      label: "/v1/admin/notifications/chimely/v1/inbox/preferences",
-    },
-    {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/read-all",
-      label: "/v1/admin/notifications/chimely/v1/inbox/read-all",
-    },
-    {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/seen-all",
-      label: "/v1/admin/notifications/chimely/v1/inbox/seen-all",
-    },
-    {
-      path: "/api/v1/admin/notifications/chimely/v1/inbox/stream",
-      label: "/v1/admin/notifications/chimely/v1/inbox/stream",
-    },
-    {
       path: "/api/v1/admin/ai/connection/login/cancel",
       label: "/v1/admin/ai/connection/login/cancel",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/archive-all",
-      label: "/v1/admin/notifications/chimely/v1/inbox/archive-all",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/archive-read",
-      label: "/v1/admin/notifications/chimely/v1/inbox/archive-read",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/counts",
-      label: "/v1/admin/notifications/chimely/v1/inbox/counts",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/items",
-      label: "/v1/admin/notifications/chimely/v1/inbox/items",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/preferences",
-      label: "/v1/admin/notifications/chimely/v1/inbox/preferences",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/read-all",
-      label: "/v1/admin/notifications/chimely/v1/inbox/read-all",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/seen-all",
-      label: "/v1/admin/notifications/chimely/v1/inbox/seen-all",
-    },
-    {
-      path: "/v1/admin/notifications/chimely/v1/inbox/stream",
-      label: "/v1/admin/notifications/chimely/v1/inbox/stream",
     },
     {
       path: "/api/v1/admin/articles/:id/maintenance/:id/review",
@@ -505,10 +246,6 @@ export const pageRouteCatalogs = {
     {
       path: "/api/v1/admin/automation/sources/:id/policies",
       label: "/v1/admin/automation/sources/:id/policies",
-    },
-    {
-      path: "/api/v1/admin/notifications/deliveries/:id/retry",
-      label: "/v1/admin/notifications/deliveries/:id/retry",
     },
     {
       path: "/api/v1/admin/partner-accounts/:id/products/promotions",
@@ -727,10 +464,6 @@ export const pageRouteCatalogs = {
       label: "/v1/admin/automation/sources/:id/policies",
     },
     {
-      path: "/v1/admin/notifications/deliveries/:id/retry",
-      label: "/v1/admin/notifications/deliveries/:id/retry",
-    },
-    {
       path: "/v1/admin/partner-accounts/:id/products/promotions",
       label: "/v1/admin/partner-accounts/:id/products/promotions",
     },
@@ -761,7 +494,6 @@ export const pageRouteCatalogs = {
     { path: "/api/v1/admin/ingestion/jobs", label: "/v1/admin/ingestion/jobs" },
     { path: "/api/v1/admin/ingestion/status", label: "/v1/admin/ingestion/status" },
     { path: "/api/v1/admin/jobs/ai-analysis", label: "/v1/admin/jobs/ai-analysis" },
-    { path: "/api/v1/admin/notifications/config", label: "/v1/admin/notifications/config" },
     {
       path: "/api/v1/admin/partner-accounts/audience-topics",
       label: "/v1/admin/partner-accounts/audience-topics",
@@ -1100,7 +832,6 @@ export const pageRouteCatalogs = {
     { path: "/v1/admin/ingestion/jobs", label: "/v1/admin/ingestion/jobs" },
     { path: "/v1/admin/ingestion/status", label: "/v1/admin/ingestion/status" },
     { path: "/v1/admin/jobs/ai-analysis", label: "/v1/admin/jobs/ai-analysis" },
-    { path: "/v1/admin/notifications/config", label: "/v1/admin/notifications/config" },
     {
       path: "/v1/admin/partner-accounts/audience-topics",
       label: "/v1/admin/partner-accounts/audience-topics",
@@ -1182,8 +913,6 @@ export const pageRouteCatalogs = {
     { path: "/jobs/enrichment/sources/:id", label: "/jobs/enrichment/sources/:id" },
     { path: "/jobs/ingestion/:id/details", label: "/jobs/ingestion/:id/details" },
     { path: "/jobs/ingestion/:id/logs", label: "/jobs/ingestion/:id/logs" },
-    { path: "/jobs/notifications/:id/details", label: "/jobs/notifications/:id/details" },
-    { path: "/jobs/notifications/:id/logs", label: "/jobs/notifications/:id/logs" },
     { path: "/partnerships/accounts/:id/campaigns", label: "/partnerships/accounts/:id/campaigns" },
     { path: "/partnerships/accounts/:id/details", label: "/partnerships/accounts/:id/details" },
     { path: "/partnerships/accounts/:id/edit", label: "/partnerships/accounts/:id/edit" },
@@ -1287,7 +1016,6 @@ export const pageRouteCatalogs = {
     { path: "/content/articles/:id", label: "/content/articles/:id" },
     { path: "/content/sources/:id", label: "/content/sources/:id" },
     { path: "/jobs/ingestion/:id", label: "/jobs/ingestion/:id" },
-    { path: "/jobs/notifications/:id", label: "/jobs/notifications/:id" },
     { path: "/partnerships/accounts/:id", label: "/partnerships/accounts/:id" },
     { path: "/partnerships/connections/:id", label: "/partnerships/connections/:id" },
     { path: "/partnerships/evaluations/:id", label: "/partnerships/evaluations/:id" },
@@ -1311,7 +1039,6 @@ export const pageRouteCatalogs = {
     { path: "/jobs/analysis", label: "/jobs/analysis" },
     { path: "/jobs/enrichment", label: "/jobs/enrichment" },
     { path: "/jobs/ingestion", label: "/jobs/ingestion" },
-    { path: "/jobs/notifications", label: "/jobs/notifications" },
     { path: "/partnerships/accounts", label: "/partnerships/accounts" },
     { path: "/partnerships/connections", label: "/partnerships/connections" },
     { path: "/partnerships/evaluations", label: "/partnerships/evaluations" },
@@ -1319,7 +1046,6 @@ export const pageRouteCatalogs = {
     { path: "/partnerships/products", label: "/partnerships/products" },
     { path: "/settings/appearance", label: "/settings/appearance" },
     { path: "/settings/defaults", label: "/settings/defaults" },
-    { path: "/settings/notifications", label: "/settings/notifications" },
     { path: "/settings/profile", label: "/settings/profile" },
     { path: "/taxonomy/relationships", label: "/taxonomy/relationships" },
     { path: "/taxonomy/tags", label: "/taxonomy/tags" },

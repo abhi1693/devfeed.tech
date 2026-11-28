@@ -19,7 +19,6 @@ it.each([
   "/settings/sources",
   "/settings/topics",
   "/settings/feed",
-  "/settings/notifications",
   "/settings/appearance",
   "/news",
   "/tutorials",

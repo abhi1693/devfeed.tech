@@ -49,10 +49,7 @@ import {
   readingStreakFixture,
 } from "../../../scripts/testing/reading-streak.mjs";
 import { checkReaderNavigation } from "../../../scripts/testing/reader-navigation.mjs";
-import {
-  checkReaderInteractions,
-  notificationFixture,
-} from "../../web/tests/browser/reader-interactions.mjs";
+import { checkReaderInteractions } from "../../web/tests/browser/reader-interactions.mjs";
 import {
   checkDevCardPromo,
   checkUnclaimedDevCardPromo,
@@ -156,14 +153,11 @@ async function withAuthenticatedReader(t, check, { hasTouch = false } = {}) {
     rejectFeed: true,
     rejectNextPage: true,
     checkedWrites: 0,
-    authenticatedStreams: 0,
     guestPlacementQueries: 0,
     authenticatedPlacementQueries: 0,
-    interactionChecks: false,
     devCardSettings: undefined,
     profileName: "Reader Profile",
     navigationStreakDays: null,
-    notificationCount: null,
     avatarCheck: undefined,
     feedSettings: { view: "cards", columns: [], content_types: ["news"], languages: ["en"] },
     onboarding: false,
@@ -499,22 +493,6 @@ async function withAuthenticatedReader(t, check, { hasTouch = false } = {}) {
     if (endpoint === "settings/feed") return send(state.feedSettings);
     if (endpoint === "settings/columns")
       return send({ initialized: true, columns: state.feedSettings.columns ?? [] });
-    if (endpoint === "settings/notifications") return send({ show_badge: true, sound: false });
-    if (endpoint === "notifications/config")
-      return send({ enabled: true, environment: "users", subscriber_id: "user_a" });
-    if (endpoint.endsWith("/stream")) {
-      state.authenticatedStreams++;
-      return route.fulfill({ contentType: "text/event-stream", body: ": connected\n\n" });
-    }
-    if (endpoint.endsWith("/counts"))
-      return send({
-        unread: state.interactionChecks ? 1 : 0,
-        unseen: state.notificationCount ?? (state.interactionChecks ? 1 : 0),
-      });
-    if (endpoint.endsWith("/items"))
-      return send(
-        state.interactionChecks ? notificationFixture() : { items: [], next_cursor: null },
-      );
     if (endpoint === "preferences") return send({ topic_ids: state.savedTopicIds });
     if (endpoint.endsWith("/preferences")) return send({ preferences: [] });
     if (endpoint === "preferences/sources") return send({ source_ids: state.savedSourceIds });
@@ -1095,14 +1073,8 @@ test("authenticated navigation works in the built reader extension", { timeout: 
     await signIn();
     for (const days of [2, 123]) {
       state.navigationStreakDays = days;
-      state.notificationCount = days === 123 ? 123 : 1;
       await page.reload();
-      await page
-        .getByRole("button", {
-          name: days === 123 ? "Notifications, 99+ new (123 in total)" : "Notifications, 1 new",
-          exact: true,
-        })
-        .waitFor();
+      await page.getByRole("button", { name: /^User menu:/ }).waitFor();
       await checkReaderNavigation(page, directory, { signedIn: true, streakDays: days });
     }
   }),
@@ -1203,23 +1175,7 @@ test(
         await returningTab.close();
         await page.bringToFront();
 
-        await page.getByRole("button", { name: "Notifications", exact: true }).click();
-        await page.getByText("No notifications", { exact: true }).waitFor();
-        assert.equal(
-          await page.locator(".chimely-header").evaluate((el) => getComputedStyle(el).display),
-          "flex",
-        );
-        assert.equal(
-          await page.locator(".chimely-list").evaluate((el) => getComputedStyle(el).listStyleType),
-          "none",
-        );
-        await page.screenshot({
-          path: path.resolve(extension, "../reader-notifications.png"),
-          animations: "disabled",
-        });
-        await page.getByRole("link", { name: "Notification settings", exact: true }).click();
-        assert.ok(page.url().endsWith("#/settings/notifications"));
-        await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
+        assert.equal(await page.getByRole("button", { name: /^Notifications/ }).count(), 0);
         await page.goto(page.url().split("#")[0] + "#/settings/profile");
         await page
           .getByText(
@@ -1297,7 +1253,6 @@ test(
           path.resolve(extension, `../catalog-${browser}`),
         );
         state.catalogScroll = false;
-        assert.ok(state.authenticatedStreams > 0, "notification streams carry the website session");
         state.rejectFeed = true;
         state.rejectNextPage = true;
         await page.locator(".sidebar").getByRole("link", { name: "My feed", exact: true }).click();
@@ -1481,7 +1436,6 @@ test(
           path.resolve(extension, `../${browser}-onboarding`),
         );
 
-        state.interactionChecks = true;
         const interactions = await chronologicalPage();
         try {
           await checkReaderInteractions(
@@ -1491,7 +1445,6 @@ test(
           );
         } finally {
           await interactions.close();
-          state.interactionChecks = false;
         }
         await page.bringToFront();
 

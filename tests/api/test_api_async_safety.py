@@ -11,7 +11,6 @@ import httpx
 import pytest
 from fastapi.routing import APIRoute
 from sqlalchemy.orm import Session
-from starlette.requests import Request
 
 SERVICES = ("devfeed_api", "devfeed_admin_api", "devfeed_user_api")
 
@@ -128,64 +127,6 @@ def test_lifespan_closes_blocking_clients_outside_the_event_loop(package, monkey
         async with module.lifespan(app):
             pass
         assert len(threads) == 1 and threads[0] != loop_thread
-
-    asyncio.run(scenario())
-
-
-def test_inbox_tls_initialization_does_not_run_on_the_event_loop():
-    from devfeed_http.inbox import INBOX_OPERATIONS, InboxProxy, InboxSession
-
-    async def scenario():
-        loop_thread = threading.get_ident()
-        clients = []
-
-        def factory():
-            assert threading.get_ident() != loop_thread
-            client = httpx.AsyncClient(
-                transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"items": []}))
-            )
-            clients.append(client)
-            return client
-
-        async def receive():
-            return {"type": "http.request", "body": b""}
-
-        request = Request(
-            {"type": "http", "method": "GET", "headers": [], "query_string": b""}, receive
-        )
-        session = InboxSession(
-            api_url="https://inbox.test",
-            environment="test",
-            secret="test-secret",
-            subscriber_id="test-subscriber",
-            expires_at=9999999999,
-            client_factory=factory,
-        )
-        operation = next(operation for operation in INBOX_OPERATIONS if operation.name == "Items")
-        response = await InboxProxy().forward(operation, request, session)
-        assert response.status_code == 200
-        assert clients[0].is_closed
-
-    asyncio.run(scenario())
-
-
-@pytest.mark.parametrize("package", ["devfeed_admin_api", "devfeed_user_api"])
-def test_inbox_settings_file_loading_is_off_the_event_loop(package, monkeypatch):
-    from fastapi import HTTPException
-
-    module = importlib.import_module(f"{package}.notifications")
-
-    async def scenario():
-        loop_thread = threading.get_ident()
-
-        def settings():
-            assert threading.get_ident() != loop_thread
-            return SimpleNamespace(notifications_enabled=False)
-
-        monkeypatch.setattr(module, "get_settings", settings)
-        with pytest.raises(HTTPException) as error:
-            await module.resolve_inbox_session(None)
-        assert error.value.status_code == 503
 
     asyncio.run(scenario())
 

@@ -378,7 +378,6 @@ def main():
         DEVFEED_API_MAX_CONCURRENT_REQUESTS="16",
         DEVFEED_LOG_LEVEL="WARNING",
         DEVFEED_METRICS_ENABLED="false",
-        DEVFEED_NOTIFICATIONS_ENABLED="false",
         DEVFEED_AI_ENABLED="false",
         DEVFEED_FULL_AUTOMATION="false",
     )

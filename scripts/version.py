@@ -21,7 +21,6 @@ MANIFESTS = (
     "apps/partner-api/pyproject.toml",
     "apps/user-api/pyproject.toml",
     "apps/aggregator/pyproject.toml",
-    "apps/notifications/pyproject.toml",
     "apps/cli/pyproject.toml",
     "apps/search-indexer/pyproject.toml",
     "apps/article-enrichment-worker/pyproject.toml",

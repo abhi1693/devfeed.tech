@@ -14,17 +14,12 @@ export type Settings = {
   defaults: Required<DefaultSettings>;
   tables: Record<string, TableSettings>;
 };
-export type SettingsSection = "profile" | "notifications" | "appearance" | "defaults";
+export type SettingsSection = "profile" | "appearance" | "defaults";
 export const settingsSections: { id: SettingsSection; label: string; description: string }[] = [
   {
     id: "profile",
     label: "Profile",
     description: "Personalize how your account appears in DevFeed.",
-  },
-  {
-    id: "notifications",
-    label: "Notifications",
-    description: "Choose the updates you want in your inbox.",
   },
   { id: "appearance", label: "Appearance", description: "Make the admin app comfortable to use." },
   {

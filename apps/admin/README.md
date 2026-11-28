@@ -10,7 +10,7 @@ workers, queues and partnership workflows. The historical Overview, pipeline
 boards and search analytics dashboard have been retired. Bookmarked article and
 source board URLs open the corresponding list and preserve shared filters.
 
-Validate the landing page, notification inbox and AI connection dialog with
+Validate the landing page and AI connection dialog with
 `npm run admin:test` and, after `npm run admin:build`,
 `node apps/admin/tests/browser/overview.mjs`.
 

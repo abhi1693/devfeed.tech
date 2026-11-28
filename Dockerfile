@@ -20,7 +20,6 @@ COPY apps/admin-api/pyproject.toml apps/admin-api/pyproject.toml
 COPY apps/partner-api/pyproject.toml apps/partner-api/pyproject.toml
 COPY apps/user-api/pyproject.toml apps/user-api/pyproject.toml
 COPY apps/aggregator/pyproject.toml apps/aggregator/pyproject.toml
-COPY apps/notifications/pyproject.toml apps/notifications/pyproject.toml
 COPY apps/cli/pyproject.toml apps/cli/pyproject.toml
 COPY apps/search-indexer/pyproject.toml apps/search-indexer/pyproject.toml
 COPY apps/article-enrichment-worker/pyproject.toml apps/article-enrichment-worker/pyproject.toml
@@ -41,7 +40,6 @@ COPY packages/core packages/core
 COPY packages/http packages/http
 COPY apps/api apps/api
 COPY apps/aggregator apps/aggregator
-COPY apps/notifications apps/notifications
 COPY apps/cli apps/cli
 COPY apps/search-indexer apps/search-indexer
 COPY apps/article-enrichment-worker apps/article-enrichment-worker

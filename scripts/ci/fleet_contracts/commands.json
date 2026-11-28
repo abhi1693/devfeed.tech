@@ -75,9 +75,6 @@
     },
     "admin-api": {
       "command": [
-        "python",
-        "/opt/devfeed/consumer.py",
-        "admin",
         "uvicorn",
         "devfeed_admin_api.main:app",
         "--host",
@@ -91,9 +88,6 @@
     },
     "user-api": {
       "command": [
-        "python",
-        "/opt/devfeed/consumer.py",
-        "user",
         "uvicorn",
         "devfeed_user_api.main:app",
         "--host",
@@ -119,7 +113,10 @@
       "probes": {}
     },
     "scheduler": {
-      "command": ["devfeed", "scheduler"],
+      "command": [
+        "devfeed",
+        "scheduler"
+      ],
       "probes": {
         "livenessProbe": [
           "python",
@@ -159,43 +156,51 @@
         "worker_name=\"$HOSTNAME-$(python -c 'import uuid; print(uuid.uuid4().hex)')\"\nprintf %s \"$worker_name\" > /tmp/devfeed-worker-name\nexec devfeed-worker --queue \"$DEVFEED_WORKER_QUEUE\" --name \"$worker_name\""
       ],
       "probes": {
-        "readinessProbe": ["devfeed-worker-health"],
-        "livenessProbe": ["devfeed-worker-health"]
-      }
-    },
-    "notification-worker": {
-      "command": [
-        "python",
-        "/opt/devfeed/consumer.py",
-        "worker",
-        "sh",
-        "-ec",
-        "worker_name=\"$HOSTNAME-$(python -c 'import uuid; print(uuid.uuid4().hex)')\"\nprintf %s \"$worker_name\" > /tmp/devfeed-worker-notification-name\nexec devfeed-worker --queue \"$DEVFEED_WORKER_QUEUE\" --name \"$worker_name\""
-      ],
-      "probes": {
-        "readinessProbe": ["devfeed-worker-health"],
-        "livenessProbe": ["devfeed-worker-health"]
+        "readinessProbe": [
+          "devfeed-worker-health"
+        ],
+        "livenessProbe": [
+          "devfeed-worker-health"
+        ]
       }
     },
     "article-enrichment-worker": {
-      "command": ["devfeed-article-enrichment-worker"],
+      "command": [
+        "devfeed-article-enrichment-worker"
+      ],
       "probes": {
-        "readinessProbe": ["devfeed-worker-health"],
-        "livenessProbe": ["devfeed-worker-health"]
+        "readinessProbe": [
+          "devfeed-worker-health"
+        ],
+        "livenessProbe": [
+          "devfeed-worker-health"
+        ]
       }
     },
     "images-worker": {
-      "command": ["devfeed-images-worker"],
+      "command": [
+        "devfeed-images-worker"
+      ],
       "probes": {
-        "readinessProbe": ["devfeed-worker-health"],
-        "livenessProbe": ["devfeed-worker-health"]
+        "readinessProbe": [
+          "devfeed-worker-health"
+        ],
+        "livenessProbe": [
+          "devfeed-worker-health"
+        ]
       }
     },
     "source-discovery-worker": {
-      "command": ["devfeed-source-discovery-worker"],
+      "command": [
+        "devfeed-source-discovery-worker"
+      ],
       "probes": {
-        "readinessProbe": ["devfeed-worker-health"],
-        "livenessProbe": ["devfeed-worker-health"]
+        "readinessProbe": [
+          "devfeed-worker-health"
+        ],
+        "livenessProbe": [
+          "devfeed-worker-health"
+        ]
       }
     },
     "migrate": {
@@ -220,15 +225,12 @@
         "import time\nfrom sqlalchemy import text\nfrom devfeed_core.db import get_engine\nfrom devfeed_core.version import SCHEMA_REVISION, BACKWARD_COMPATIBLE_SCHEMA_REVISIONS\nfor attempt in range(180):\n    try:\n        with get_engine().connect() as connection:\n            if connection.execute(text(\"SELECT version_num FROM alembic_version\")).scalar() in {SCHEMA_REVISION, *BACKWARD_COMPATIBLE_SCHEMA_REVISIONS}:\n                print(\"Database schema ready\", flush=True)\n                break\n    except Exception:\n        pass\n    time.sleep(5)\nelse:\n    raise SystemExit(\"Timed out waiting for release schema\")\n"
       ]
     },
-    "wait-inbox": {
-      "command": [
-        "python",
-        "-c",
-        "import time; from pathlib import Path\nfor _ in range(180):\n if Path('/run/devfeed-chimely/credentials.json').is_file(): break\n time.sleep(5)\nelse: raise SystemExit('Inbox provisioning not ready')"
-      ]
-    },
     "web-prestop": {
-      "command": ["/bin/sh", "-c", "sleep 15"]
+      "command": [
+        "/bin/sh",
+        "-c",
+        "sleep 15"
+      ]
     }
   }
 }

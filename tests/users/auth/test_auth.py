@@ -689,7 +689,7 @@ def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination)
         "/articles/00000000-0000-4000-8000-000000000001",
         "/articles/optimizing-docker-images-142",
         "/settings/profile",
-        "/settings/notifications",
+        "/settings/appearance",
         "/settings/topics",
         "/settings/appearance",
         "/settings/feed",

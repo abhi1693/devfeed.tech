@@ -12,14 +12,11 @@ The recorded per-file SHA-256 values identify the prepared baseline inputs. The
 migration hook runs the PostgreSQL schema upgrade with a longer statement
 timeout for migration connections. Runtime fixtures have no warehouse service
 or credentials. Coordinate adapted commands with deployed Fleet manifests.
-The consumer wrapper is the byte-identical `infra/chimely/consumer.py` from this
-repository. CI never fetches the private infrastructure repository. Before final
-deployment, compare each invoked command/probe and consumer payload with the
-final Fleet files. Image-pin-only edits need not change command fixtures.
+CI validates the API and worker entrypoints directly.
 
 Generic worker commands use the lean `devfeed-worker` entrypoint with one physical
 queue and unique-name arguments. The default queues are `high`, `default` and
-`low`; notification delivery runs on `low` with its role-scoped inbox wrapper.
+`low`.
 The native fixture also starts the isolated solver and a configured dedicated
 ingestion queue. It avoids importing the administration CLI into each worker
 parent. Dedicated extraction, images and discovery commands retain their existing
@@ -37,7 +34,7 @@ The native executable removes that interpreter startup while preserving marker
 validation. Local probe timings do not establish a production CPU reduction.
 
 The driver owns an internal Docker network and uniquely named containers; it
-removes them in `finally`. PostgreSQL uses `fleet_native_test`; Redis uses database 15. Only generated test certificates and obviously synthetic inbox/search
+removes them in `finally`. PostgreSQL uses `fleet_native_test`; Redis uses database 15. Only generated test certificates and obviously synthetic search
 credentials are supplied. No host `DEVFEED_*` environment, authentication files or
 production URLs are forwarded. Typesense uses the immutable official 30.2 index
 already pinned in `compose.yaml`, covering native AMD64 and ARM64 fixtures.
@@ -67,6 +64,5 @@ CA initialization writes the combined trust bundle as UID/GID 10001 into an owne
 Docker volume prepared as root:10001, mode 0770, matching the group-writable
 emptyDir contract. The application loads it with native OpenSSL from a read-only
 mount and must fail an attempted overwrite with EROFS. The volume is removed
-after its containers. API/notification wrappers read role-scoped fake inbox files and
-replace their process with the actual application command. Codex has its own
+after its containers. Codex has its own
 separate native driver and is not handled here.

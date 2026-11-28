@@ -28,7 +28,6 @@
         "packages/core/**",
         "packages/http/**",
         "apps/aggregator/**",
-        "apps/notifications/**",
         "apps/article-enrichment-worker/**"
       ],
       "platforms": [
@@ -53,7 +52,6 @@
         "packages/core/**",
         "packages/http/**",
         "apps/aggregator/**",
-        "apps/notifications/**",
         "apps/images-worker/**"
       ],
       "platforms": [
@@ -78,7 +76,6 @@
         "packages/core/**",
         "packages/http/**",
         "apps/aggregator/**",
-        "apps/notifications/**",
         "apps/source-discovery-worker/**"
       ],
       "platforms": [

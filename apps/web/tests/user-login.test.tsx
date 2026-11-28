@@ -148,11 +148,11 @@ it("accepts a typed navigation destination without reclassifying its URL in the 
     "fetch",
     vi.fn().mockResolvedValue(Response.json({ enabled: true, providers: ["google"] })),
   );
-  render(<UserLogin returnTo={pageDestination("/settings/notifications")} />);
+  render(<UserLogin returnTo={pageDestination("/settings/appearance")} />);
   const link = await screen.findByRole("link", { name: "Google" });
   expect(
     new URL(link.getAttribute("href")!, "https://devfeed.tech").searchParams.get("return_to"),
-  ).toBe("/settings/notifications");
+  ).toBe("/settings/appearance");
 });
 
 it.each([

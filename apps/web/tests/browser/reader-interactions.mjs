@@ -1,22 +1,5 @@
 import assert from "node:assert/strict";
 
-export function notificationFixture() {
-  return {
-    items: [
-      {
-        id: "notif_" + "a".repeat(26),
-        source: "notification",
-        category: "system.notice",
-        payload: { title: "Account notice", body: "Information only" },
-        occurred_at: "2026-09-30T10:00:00Z",
-        read: false,
-        archived: false,
-      },
-    ],
-    next_cursor: null,
-  };
-}
-
 /** Wait for a stable target before dispatching native touch events. */
 export async function touchReaderTarget(cdp, locator) {
   // Trial actions re-resolve a detached locator without sending a desktop click.
@@ -60,13 +43,8 @@ export async function checkReaderInteractions(
   try {
     await page.goto(destination("/latest"));
     await page.getByRole("button", { name: /^User menu:/ }).waitFor();
-    const bell = page.getByRole("button", { name: /^Notifications/ });
+    assert.equal(await page.getByRole("button", { name: /^Notifications/ }).count(), 0);
     for (let attempt = 0; attempt < 3; attempt++) {
-      await tap(bell);
-      await tap(page.getByText("Account notice", { exact: true }));
-      await page.locator(".devfeed-inbox-panel").waitFor();
-      await tap(bell);
-      await page.locator(".devfeed-inbox-panel").waitFor({ state: "hidden" });
       await free();
       await tap(nav.getByRole("link", { name: "Sources", exact: true }));
       await page.waitForURL(destination("/sources"));

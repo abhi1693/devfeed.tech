@@ -1,10 +1,7 @@
 """Production-shaped regressions on disposable data; no production mutations."""
 
-import json
-import os
 import uuid
 from datetime import timedelta
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -14,9 +11,8 @@ from devfeed_core.article_jobs import approved_sources
 from devfeed_core.db import get_engine
 from devfeed_core.job_definitions import JOB_DEFINITIONS
 from devfeed_core.job_dispatch import dispatch_jobs
-from devfeed_core.models import ArticleAnalysisJob, NotificationDelivery, TopicProposal, utcnow
-from devfeed_notifications.delivery import recover_notifications
-from sqlalchemy import event, select, text
+from devfeed_core.models import ArticleAnalysisJob, TopicProposal, utcnow
+from sqlalchemy import event, text
 from sqlalchemy.exc import OperationalError
 
 from tests.workers.test_automation_integration import seed
@@ -114,19 +110,14 @@ def test_analysis_request_reuses_a_catalog_held_by_the_caller(database, monkeypa
         )
 
 
-@pytest.mark.parametrize("kind", ["analysis", "notifications"])
+@pytest.mark.parametrize("kind", ["analysis"])
 def test_dispatch_and_recovery_preserve_bodies_without_loading_them(database, kind):
     body = {"private_evidence": "evidence " * 8000}
     with database.begin() as session:
-        if kind == "analysis":
-            _, article, _ = seed(session)
-            job = ArticleAnalysisJob(
-                article_id=article.id, input_snapshot=body, catalog_snapshot=body, result=body
-            )
-        else:
-            job = NotificationDelivery(
-                event_key="test", dedup_key="test", audience="admin", category="test", payload=body
-            )
+        _, article, _ = seed(session)
+        job = ArticleAnalysisJob(
+            article_id=article.id, input_snapshot=body, catalog_snapshot=body, result=body
+        )
         session.add(job)
         session.flush()
         identifier = job.id
@@ -150,10 +141,7 @@ def test_dispatch_and_recovery_preserve_bodies_without_loading_them(database, ki
         job.lease_token = uuid.uuid4()
     event.listen(get_engine(), "before_cursor_execute", capture)
     try:
-        if kind == "notifications":
-            assert recover_notifications(database, 10, utcnow()) == 1
-        else:
-            assert recover_jobs(database, 10, utcnow(), kind=kind) == 1
+        assert recover_jobs(database, 10, utcnow(), kind=kind) == 1
     finally:
         event.remove(get_engine(), "before_cursor_execute", capture)
     metadata_reads = [statement for statement in statements if "jsonb_build_object(" in statement]
@@ -167,65 +155,4 @@ def test_dispatch_and_recovery_preserve_bodies_without_loading_them(database, ki
     with database() as session:
         job = session.get(model, identifier)
         assert job.status == "queued" and job.lease_token is None
-        assert (job.result if kind == "analysis" else job.payload) == body
-
-
-def test_recovery_index_skips_large_completed_history(database):
-    engine = get_engine()
-    with engine.begin() as connection:
-        connection.execute(
-            text("""
-            INSERT INTO notification_deliveries
-                (id,event_key,dedup_key,audience,category,payload,status,attempts,
-                 available_at,created_at,finished_at)
-            SELECT gen_random_uuid(), 'history-'||i, md5(i::text), 'admin', 'test',
-                   jsonb_build_object('body',repeat('historical notification ',100)),
-                   'succeeded', 1, now(), now(), now()
-            FROM generate_series(1,50000) i
-        """)
-        )
-        connection.execute(text("ANALYZE notification_deliveries"))
-    sql = str(
-        select(NotificationDelivery)
-        .options(*JOB_DEFINITIONS["notifications"].metadata_options())
-        .where(
-            NotificationDelivery.status == "running", NotificationDelivery.lease_until < utcnow()
-        )
-        .order_by(NotificationDelivery.lease_until)
-        .limit(50)
-        .with_for_update(skip_locked=True)
-        .compile(engine, compile_kwargs={"literal_binds": True})
-    )
-    with engine.connect() as connection:
-        # Remove both recovery-capable indexes only in a rolled-back disposable
-        # transaction to measure the original scan against the same 50,000 rows.
-        connection.execute(text("DROP INDEX ix_notification_deliveries_running_lease"))
-        connection.execute(text("DROP INDEX ix_notification_deliveries_state_metrics"))
-        before = connection.exec_driver_sql(
-            "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) " + sql
-        ).scalar_one()[0]
-        connection.rollback()
-        after = connection.exec_driver_sql(
-            "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) " + sql
-        ).scalar_one()[0]
-    # PostgreSQL may choose the narrow status index when no running rows exist.
-    # The regression contract is indexed recovery without scanning old payloads.
-    assert any(
-        name in json.dumps(after)
-        for name in (
-            "ix_notification_deliveries_running_lease",
-            "ix_notification_deliveries_state_metrics",
-        )
-    )
-    assert after["Plan"]["Actual Rows"] == before["Plan"]["Actual Rows"] == 0
-    assert after["Plan"]["Shared Hit Blocks"] + after["Plan"]["Shared Read Blocks"] < 20
-    report = {
-        "rows": 50000,
-        "before_ms": before["Execution Time"],
-        "after_ms": after["Execution Time"],
-        "before_buffers": before["Plan"]["Shared Hit Blocks"]
-        + before["Plan"]["Shared Read Blocks"],
-        "after_buffers": after["Plan"]["Shared Hit Blocks"] + after["Plan"]["Shared Read Blocks"],
-    }
-    if target := os.environ.get("DEVFEED_HOTSPOT_PROFILE_REPORT"):
-        Path(target).write_text(json.dumps(report, indent=2) + "\n")
+        assert job.result == body

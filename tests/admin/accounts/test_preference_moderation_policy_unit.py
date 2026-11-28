@@ -176,12 +176,6 @@ def test_invalid_table_key_or_cardinality_is_a_safe_validation_error_without_com
             "oidc_organization_scope_template": "org {organization_id}",
         },
         {"oidc_organization_id": "org", "oidc_organization_claim": " "},
-        {
-            "notifications_enabled": True,
-            "chimely_api_url": "https://notifications.example",
-            "chimely_admin_environment": "admin",
-            "chimely_admin_hmac_secret": "replace-me",
-        },
     ],
 )
 def test_admin_configuration_fails_closed_for_unsafe_origin_identity_or_inbox_secret(values):

@@ -10,7 +10,6 @@ import { ProfileSettings } from "../../web/src/components/profile-settings";
 import { DevCardCreator } from "../../web/src/components/dev-card-creator";
 import { AppearanceSettings } from "../../web/src/components/appearance-settings";
 import { FeedSettings } from "../../web/src/components/feed-settings";
-import { NotificationSettings } from "../../web/src/components/notification-settings";
 import { TopicPreferences } from "../../web/src/components/topic-preferences";
 import { SourcePreferences } from "../../web/src/components/source-preferences";
 import { SourceSuggestion } from "../../web/src/components/source-suggestion";
@@ -71,7 +70,7 @@ const settings: Record<SettingsPage, () => ReactNode> = {
   profile: () => <ProfileSettings />,
   appearance: () => <AppearanceSettings />,
   feed: () => <FeedSettings />,
-  notifications: () => <NotificationSettings />,
+
   topics: () => <TopicPreferences />,
   sources: () => <SourcePreferences />,
 };

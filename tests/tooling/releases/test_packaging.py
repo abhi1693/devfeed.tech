@@ -20,7 +20,7 @@ from pathlib import Path
 from rq.utils import import_attribute
 
 names = ('devfeed_core', 'devfeed_api', 'devfeed_admin_api', 'devfeed_aggregator',
-         'devfeed_notifications', 'devfeed_cli', 'devfeed_search_indexer',
+         'devfeed_cli', 'devfeed_search_indexer',
          'devfeed_article_enrichment_worker', 'devfeed_images_worker',
          'devfeed_source_discovery_worker')
 locations = set()
@@ -33,7 +33,6 @@ assert len(locations) == len(names)
 assert callable(import_attribute('devfeed_api.main.app'))
 assert callable(import_attribute('devfeed_admin_api.main.app'))
 assert callable(import_attribute('devfeed_core.feeds.fetcher.fetch_feed'))
-assert callable(import_attribute('devfeed_notifications.delivery.deliver_notification'))
 assert callable(import_attribute('devfeed_search_indexer.runtime.run_indexer'))
 assert callable(import_attribute('devfeed_article_enrichment_worker.main.main'))
 assert callable(import_attribute('devfeed_images_worker.main.main'))

@@ -11,7 +11,6 @@ import {
   userRequest,
   type Appearance,
   type FeedDisplay,
-  type NotificationDisplay,
   type UserProfile,
   type UserStack,
 } from "./user";
@@ -315,13 +314,6 @@ export function uploadAvatar(file: File, options: MutationOptions) {
 
 export function removeAvatar(options: MutationOptions) {
   return mutate<UserProfile>("settings/profile/avatar", undefined, options, { method: "DELETE" });
-}
-
-export function saveNotificationSettings(value: NotificationDisplay, options: MutationOptions) {
-  return mutate<NotificationDisplay>("settings/notifications", value, options, {
-    validate: (result) =>
-      record(result) && typeof result.show_badge === "boolean" && typeof result.sound === "boolean",
-  });
 }
 
 export function claimMustReadsPresentation(

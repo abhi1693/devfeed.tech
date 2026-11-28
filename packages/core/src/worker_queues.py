@@ -8,7 +8,6 @@ if TYPE_CHECKING:
 QueueName = Literal[
     "ingestion",
     "relationships",
-    "notifications",
     "solver",
     "source-discovery",
     "article-analysis-fresh",
@@ -63,7 +62,7 @@ def configured_queue(logical: str, settings: "Settings | None" = None) -> str:
         return logical
     if logical in {"article-analysis-fresh", "article-enrichment-fresh", "recommendations"}:
         return "high"
-    return "low" if logical == "notifications" else "default"
+    return "default"
 
 
 def physical_queues(settings: "Settings | None" = None) -> tuple[str, ...]:

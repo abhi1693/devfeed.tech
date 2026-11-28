@@ -70,7 +70,7 @@ describe("generated concrete reader operations", () => {
     ).toBe(false);
     expect(
       operations.filter(({ operation }) => operation.operationId.startsWith("userInbox")),
-    ).toHaveLength(17);
+    ).toHaveLength(0);
     expect(
       operations
         .filter(({ operation }) => operation.policy.cookiePolicy === "reader-attribution")

@@ -166,7 +166,6 @@ describe("shared colored status pills", () => {
     "image-jobs",
     "source-jobs",
     "analysis-jobs",
-    "notification-jobs",
   ] as const)("uses the same lifecycle colors in %s tables", (resource) => {
     const states = { queued: "warning", running: "info", succeeded: "success", failed: "danger" };
     renderAdmin(

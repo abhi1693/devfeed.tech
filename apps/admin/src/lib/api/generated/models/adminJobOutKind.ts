@@ -19,5 +19,4 @@ export const AdminJobOutKind = {
   'source-enrichment': 'source-enrichment',
   analysis: 'analysis',
   'topic-analysis': 'topic-analysis',
-  notifications: 'notifications',
 } as const;

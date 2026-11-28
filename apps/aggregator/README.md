@@ -375,10 +375,7 @@ docker compose --profile ai up -d
 
 The `ai` profile starts the local Codex server; omit it when using an external
 endpoint. All priority workers use the full backend image, containing discovery,
-enrichment and AI dependencies, a read-only Codex socket and the provisioned
-notification-consumer credentials. Because notification jobs may be overridden to
-any priority queue, all three priority deployments receive notification delivery
-credentials. API authentication and image-storage credentials remain separate.
+enrichment and AI dependencies and a read-only Codex socket. API authentication and image-storage credentials remain separate.
 
 Set each deployment's capacity independently:
 
@@ -389,11 +386,11 @@ DEVFEED_LOW_WORKER_REPLICAS=1
 ```
 
 `DEVFEED_JOB_QUEUE_OVERRIDES` maps logical job lanes to their physical destination.
-For example, move notifications to high and reserve a dedicated queue for both
+For example, reserve a dedicated queue for both
 fresh and routine article analysis:
 
 ```dotenv
-DEVFEED_JOB_QUEUE_OVERRIDES={"notifications":"high","article-analysis-fresh":"article-analysis","article-analysis":"article-analysis"}
+DEVFEED_JOB_QUEUE_OVERRIDES={"article-analysis-fresh":"article-analysis","article-analysis":"article-analysis"}
 ```
 
 Start consumers for the override, for example `devfeed-worker --queue article-analysis`.
@@ -421,7 +418,7 @@ Coordinate the switch on every publisher and consumer: stop dispatch during the
 routing change rather than updating only a subset of publishers. Deploy the
 high/default/low consumers with the same configuration and independent replica
 counts; keep Images and solver consumers separate. Carry over PostgreSQL,
-Valkey, Codex, Chimely and public-fetch network access as required, plus
+Valkey, Codex and public-fetch network access as required, plus
 the native worker-health probes and 1,560-second drain grace. This application PR
 does not change live Kubernetes deployments.
 

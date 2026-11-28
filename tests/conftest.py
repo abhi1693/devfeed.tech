@@ -52,15 +52,11 @@ def unit_test_settings(request, monkeypatch):
     from devfeed_core.config import Settings
     from devfeed_partner_api.config import Settings as PartnerSettings
     from devfeed_user_api.config import Settings as UserSettings
-    from devfeed_user_api.notification_config import Settings as InboxSettings
-    from devfeed_user_api.notification_config import get_settings as inbox_settings
 
     monkeypatch.setitem(Settings.model_config, "env_file", None)
     monkeypatch.setitem(AdminSettings.model_config, "env_file", None)
     monkeypatch.setitem(PartnerSettings.model_config, "env_file", None)
     monkeypatch.setitem(UserSettings.model_config, "env_file", None)
-    monkeypatch.setitem(InboxSettings.model_config, "env_file", None)
-    inbox_settings.cache_clear()
     # Ordinary behavior tests stay independent of cache state. Cache tests opt in
     # explicitly and use an in-memory fake or disposable integration Redis.
     # Lifecycle suites exercise the supported dedicated-queue override topology.

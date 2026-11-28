@@ -273,9 +273,7 @@ def review_source(
         source.next_fetch_at = utcnow()
         request_ingestion(session, source)
     session.flush()
-    from devfeed_core.source_notifications import notify_source_review
 
-    notify_source_review(session, source, review)
     return source
 
 

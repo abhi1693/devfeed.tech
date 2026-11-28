@@ -70,7 +70,6 @@ export type FeedDisplay = {
   content_types: (typeof contentTypes)[number][];
 };
 export type Appearance = DateTimePreferences & { theme: ThemeMode };
-export type NotificationDisplay = { show_badge: boolean; sound: boolean };
 
 export class AccountError extends Error {
   constructor(public status: number) {

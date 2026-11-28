@@ -4,7 +4,6 @@
 import argparse
 import json
 import os
-import secrets
 import subprocess
 import sys
 import tempfile
@@ -116,38 +115,18 @@ def env_line(key: str, value: str) -> str:
     return f"{key}={escaped}"
 
 
-def enable_profiles(*, notifications: bool, ai: bool) -> None:
-    if not notifications and not ai:
+def enable_profiles(*, ai: bool) -> None:
+    if not ai:
         return
     current = interpolation_environment()
     profiles = set(filter(None, current.get("COMPOSE_PROFILES", "").split(",")))
-    values = {}
-    if notifications:
-        values.update(
-            {
-                "CHIMELY_POSTGRES_PASSWORD": current.get("CHIMELY_POSTGRES_PASSWORD")
-                or current["POSTGRES_PASSWORD"],
-                "CHIMELY_ADMIN_EMAIL": current.get("CHIMELY_ADMIN_EMAIL") or "admin@devfeed.local",
-                "CHIMELY_ADMIN_PASSWORD": current.get("CHIMELY_ADMIN_PASSWORD")
-                or secrets.token_hex(32),
-                "DEVFEED_CHIMELY_ADMIN_ENVIRONMENT": current.get(
-                    "DEVFEED_CHIMELY_ADMIN_ENVIRONMENT"
-                )
-                or "devfeed-admin",
-                "DEVFEED_CHIMELY_API_URL": "http://chimely:8080",
-                "DEVFEED_NOTIFICATIONS_ENABLED": "true",
-            }
-        )
-    if ai:
-        profiles.add("ai")
-        values.update(
-            {
-                "DEVFEED_AI_ENABLED": "true",
-                "DEVFEED_WORKER_QUEUE": "background",
-                "DEVFEED_CODEX_APP_SERVER_URL": "unix:///run/codex/app-server.sock",
-                "DEVFEED_CODEX_MODEL": current.get("DEVFEED_CODEX_MODEL") or "gpt-6-sol",
-            }
-        )
+    profiles.add("ai")
+    values = {
+        "DEVFEED_AI_ENABLED": "true",
+        "DEVFEED_WORKER_QUEUE": "background",
+        "DEVFEED_CODEX_APP_SERVER_URL": "unix:///run/codex/app-server.sock",
+        "DEVFEED_CODEX_MODEL": current.get("DEVFEED_CODEX_MODEL") or "gpt-6-sol",
+    }
     values["COMPOSE_PROFILES"] = ",".join(sorted(profiles))
     write_env(values)
 
@@ -160,16 +139,6 @@ def rebuild() -> None:
         targets.extend(("codex-server", "codex-client"))
     print("Building replacement images; current app containers keep running.", flush=True)
     compose("build", *targets)
-    if "chimely" in services:
-        worker_env = services.get("default-worker", {}).get("environment", {})
-        notifications = worker_env.get("DEVFEED_NOTIFICATIONS_ENABLED", "false")
-        endpoint = worker_env.get("DEVFEED_CHIMELY_API_URL", "")
-        if str(notifications).lower() in {"true", "1"} and endpoint == "http://chimely:8080":
-            from compose_notifications import provision
-
-            provision()
-        else:
-            compose("up", "-d", "--wait", "chimely")
     if "codex-server" in services:
         compose("up", "-d", "--wait", "codex-server")
         ai_enabled = services["codex-client"]["environment"].get("DEVFEED_AI_ENABLED", "false")
@@ -250,7 +219,6 @@ def attempt_rebuild() -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--watch", action="store_true", help="Rebuild after source/config edits")
-    parser.add_argument("--notifications", action="store_true", help="Provision bundled Chimely")
     parser.add_argument(
         "--ai", action="store_true", help="Enable bundled Codex and its analysis client"
     )
@@ -261,7 +229,7 @@ def main() -> int:
     try:
         # Keep plain `docker compose` commands on this checkout's local images too.
         write_env({"COMPOSE_FILE": os.pathsep.join(("compose.yaml", "compose.build.yaml"))})
-        enable_profiles(notifications=args.notifications, ai=args.ai)
+        enable_profiles(ai=args.ai)
         if args.watch:
             watch(args.debounce)
             return 0

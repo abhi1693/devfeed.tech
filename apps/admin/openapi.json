@@ -1166,8 +1166,7 @@
               "images",
               "source-enrichment",
               "analysis",
-              "topic-analysis",
-              "notifications"
+              "topic-analysis"
             ],
             "title": "Kind",
             "type": "string"
@@ -8894,41 +8893,6 @@
           "clicks"
         ],
         "title": "MetricInput",
-        "type": "object"
-      },
-      "NotificationConfig": {
-        "properties": {
-          "enabled": {
-            "title": "Enabled",
-            "type": "boolean"
-          },
-          "environment": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Environment"
-          },
-          "subscriber_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Subscriber Id"
-          }
-        },
-        "required": [
-          "enabled"
-        ],
-        "title": "NotificationConfig",
         "type": "object"
       },
       "NotificationSettings": {
@@ -20968,8 +20932,7 @@
                 "images",
                 "source-enrichment",
                 "analysis",
-                "topic-analysis",
-                "notifications"
+                "topic-analysis"
               ],
               "title": "Kind",
               "type": "string"
@@ -21189,8 +21152,7 @@
                 "images",
                 "source-enrichment",
                 "analysis",
-                "topic-analysis",
-                "notifications"
+                "topic-analysis"
               ],
               "title": "Kind",
               "type": "string"
@@ -21283,8 +21245,7 @@
                 "images",
                 "source-enrichment",
                 "analysis",
-                "topic-analysis",
-                "notifications"
+                "topic-analysis"
               ],
               "title": "Kind",
               "type": "string"
@@ -21426,8 +21387,7 @@
                 "images",
                 "source-enrichment",
                 "analysis",
-                "topic-analysis",
-                "notifications"
+                "topic-analysis"
               ],
               "title": "Kind",
               "type": "string"
@@ -21494,140 +21454,6 @@
         "summary": "Retry",
         "tags": [
           "admin-jobs"
-        ],
-        "x-devfeed-gateway": {
-          "bodyLimit": 1000000,
-          "bodyTimeoutMs": 2000,
-          "upstreamTimeoutMs": 45000
-        }
-      }
-    },
-    "/v1/admin/notifications/config": {
-      "get": {
-        "operationId": "admin_notification_config",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NotificationConfig"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed"
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Invalid or unauthorized request"
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service or dependency unavailable"
-          }
-        },
-        "security": [
-          {
-            "APIKeyCookie": []
-          }
-        ],
-        "summary": "Config",
-        "tags": [
-          "admin-notifications"
-        ],
-        "x-devfeed-gateway": {
-          "bodyLimit": 1000000,
-          "bodyTimeoutMs": 2000,
-          "upstreamTimeoutMs": 45000
-        }
-      }
-    },
-    "/v1/admin/notifications/deliveries/{identifier}/retry": {
-      "post": {
-        "operationId": "admin_notification_retry",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "identifier",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Identifier",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AdminJobOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Request validation failed"
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Invalid or unauthorized request"
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service or dependency unavailable"
-          }
-        },
-        "security": [
-          {
-            "APIKeyCookie": []
-          }
-        ],
-        "summary": "Retry",
-        "tags": [
-          "admin-notifications"
         ],
         "x-devfeed-gateway": {
           "bodyLimit": 1000000,
@@ -37288,8 +37114,7 @@
               "images",
               "source-enrichment",
               "analysis",
-              "topic-analysis",
-              "notifications"
+              "topic-analysis"
             ],
             "title": "Kind",
             "type": "string"
@@ -37320,8 +37145,7 @@
               "images",
               "source-enrichment",
               "analysis",
-              "topic-analysis",
-              "notifications"
+              "topic-analysis"
             ],
             "title": "Kind",
             "type": "string"
@@ -37361,8 +37185,7 @@
               "images",
               "source-enrichment",
               "analysis",
-              "topic-analysis",
-              "notifications"
+              "topic-analysis"
             ],
             "title": "Kind",
             "type": "string"
@@ -37402,8 +37225,7 @@
               "images",
               "source-enrichment",
               "analysis",
-              "topic-analysis",
-              "notifications"
+              "topic-analysis"
             ],
             "title": "Kind",
             "type": "string"
@@ -37422,313 +37244,6 @@
       "path": "/v1/admin/jobs/{kind}/{job_id}/logs",
       "policy": {
         "bodyLimit": 1000000,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "GET",
-      "operationId": "admin_notification_config",
-      "parameters": [],
-      "path": "/v1/admin/notifications/config",
-      "policy": {
-        "bodyLimit": 1000000,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "POST",
-      "operationId": "admin_notification_retry",
-      "parameters": [
-        {
-          "converter": "str",
-          "name": "identifier",
-          "schema": {
-            "format": "uuid",
-            "title": "Identifier",
-            "type": "string"
-          }
-        }
-      ],
-      "path": "/v1/admin/notifications/deliveries/{identifier}/retry",
-      "policy": {
-        "bodyLimit": 1000000,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "GET",
-      "operationId": "adminInboxItems",
-      "parameters": [],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/items",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "GET",
-      "operationId": "adminInboxCounts",
-      "parameters": [],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/counts",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "GET",
-      "operationId": "adminInboxPreferencesRead",
-      "parameters": [],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/preferences",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "PUT",
-      "operationId": "adminInboxPreferencesUpdate",
-      "parameters": [],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/preferences",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "GET",
-      "operationId": "adminInboxStream",
-      "parameters": [],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/stream",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "POST",
-      "operationId": "adminInboxReadAll",
-      "parameters": [],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/read-all",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "POST",
-      "operationId": "adminInboxSeenAll",
-      "parameters": [],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/seen-all",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "POST",
-      "operationId": "adminInboxArchiveAll",
-      "parameters": [],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/archive-all",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "POST",
-      "operationId": "adminInboxArchiveRead",
-      "parameters": [],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/archive-read",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "POST",
-      "operationId": "adminInboxNotificationRead",
-      "parameters": [
-        {
-          "converter": "str",
-          "name": "notification_id",
-          "schema": {
-            "maxLength": 32,
-            "minLength": 32,
-            "pattern": "^notif_[a-z0-9]{26}$",
-            "type": "string"
-          }
-        }
-      ],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/notifications/{notification_id}/read",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "POST",
-      "operationId": "adminInboxNotificationUnread",
-      "parameters": [
-        {
-          "converter": "str",
-          "name": "notification_id",
-          "schema": {
-            "maxLength": 32,
-            "minLength": 32,
-            "pattern": "^notif_[a-z0-9]{26}$",
-            "type": "string"
-          }
-        }
-      ],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/notifications/{notification_id}/unread",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "POST",
-      "operationId": "adminInboxNotificationArchive",
-      "parameters": [
-        {
-          "converter": "str",
-          "name": "notification_id",
-          "schema": {
-            "maxLength": 32,
-            "minLength": 32,
-            "pattern": "^notif_[a-z0-9]{26}$",
-            "type": "string"
-          }
-        }
-      ],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/notifications/{notification_id}/archive",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "POST",
-      "operationId": "adminInboxNotificationUnarchive",
-      "parameters": [
-        {
-          "converter": "str",
-          "name": "notification_id",
-          "schema": {
-            "maxLength": 32,
-            "minLength": 32,
-            "pattern": "^notif_[a-z0-9]{26}$",
-            "type": "string"
-          }
-        }
-      ],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/notifications/{notification_id}/unarchive",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "POST",
-      "operationId": "adminInboxBroadcastRead",
-      "parameters": [
-        {
-          "converter": "str",
-          "name": "broadcast_id",
-          "schema": {
-            "maxLength": 32,
-            "minLength": 32,
-            "pattern": "^bcast_[a-z0-9]{26}$",
-            "type": "string"
-          }
-        }
-      ],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/read",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "POST",
-      "operationId": "adminInboxBroadcastUnread",
-      "parameters": [
-        {
-          "converter": "str",
-          "name": "broadcast_id",
-          "schema": {
-            "maxLength": 32,
-            "minLength": 32,
-            "pattern": "^bcast_[a-z0-9]{26}$",
-            "type": "string"
-          }
-        }
-      ],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/unread",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "POST",
-      "operationId": "adminInboxBroadcastArchive",
-      "parameters": [
-        {
-          "converter": "str",
-          "name": "broadcast_id",
-          "schema": {
-            "maxLength": 32,
-            "minLength": 32,
-            "pattern": "^bcast_[a-z0-9]{26}$",
-            "type": "string"
-          }
-        }
-      ],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/archive",
-      "policy": {
-        "bodyLimit": 16384,
-        "bodyTimeoutMs": 2000,
-        "upstreamTimeoutMs": 45000
-      }
-    },
-    {
-      "method": "POST",
-      "operationId": "adminInboxBroadcastUnarchive",
-      "parameters": [
-        {
-          "converter": "str",
-          "name": "broadcast_id",
-          "schema": {
-            "maxLength": 32,
-            "minLength": 32,
-            "pattern": "^bcast_[a-z0-9]{26}$",
-            "type": "string"
-          }
-        }
-      ],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/unarchive",
-      "policy": {
-        "bodyLimit": 16384,
         "bodyTimeoutMs": 2000,
         "upstreamTimeoutMs": 45000
       }

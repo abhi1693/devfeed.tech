@@ -464,9 +464,9 @@ test("repository registry exposes exactly the declared private and public adapte
     ),
   );
   const plan = await extensionOperationPlan(input, declaration);
-  assert.equal(plan.privateOperations.length, 65);
+  assert.equal(plan.privateOperations.length, 47);
   assert.equal(plan.publicOperations.length, 14);
-  assert.equal(plan.privateOperations.length + plan.publicOperations.length, 79);
+  assert.equal(plan.privateOperations.length + plan.publicOperations.length, 61);
   const settingsPaths = new Set([
     "/api/v1/user/settings/columns",
     "/api/v1/user/settings/columns/starters",
@@ -495,52 +495,7 @@ test("repository registry exposes exactly the declared private and public adapte
   );
   const inboxPrefix = "/api/v1/user/notifications/chimely/v1/inbox/";
   const inbox = plan.privateOperations.filter(({ path }) => path.startsWith(inboxPrefix));
-  const inboxOperations = [
-    ["Items", "GET", "items", []],
-    ["Counts", "GET", "counts", []],
-    ["PreferencesRead", "GET", "preferences", []],
-    ["PreferencesUpdate", "PUT", "preferences", []],
-    ["Stream", "GET", "stream", []],
-    ["ReadAll", "POST", "read-all", []],
-    ["SeenAll", "POST", "seen-all", []],
-    ["ArchiveAll", "POST", "archive-all", []],
-    ["ArchiveRead", "POST", "archive-read", []],
-    ...["Notification", "Broadcast"].flatMap((kind) => {
-      const parameter = `${kind.toLowerCase()}_id`;
-      return ["Read", "Unread", "Archive", "Unarchive"].map((action) => [
-        `${kind}${action}`,
-        "POST",
-        `${kind.toLowerCase()}s/{${parameter}}/${action.toLowerCase()}`,
-        [parameter],
-      ]);
-    }),
-  ];
-  assert.equal(inbox.length, 17);
-  assert.deepEqual(
-    inbox.map(({ operationId, method, path, parameters }) => [
-      operationId,
-      method,
-      path,
-      parameters.map(({ name }) => name),
-    ]),
-    inboxOperations.map(([name, method, suffix, parameters]) => [
-      `userInbox${name}`,
-      method,
-      `${inboxPrefix}${suffix}`,
-      parameters,
-    ]),
-  );
-  for (const { parameters } of inbox) {
-    for (const parameter of parameters) {
-      assert.equal(parameter.converter, "str");
-      assert.deepEqual(parameter.schema, {
-        type: "string",
-        minLength: 32,
-        maxLength: 32,
-        pattern: `^${parameter.name === "notification_id" ? "notif" : "bcast"}_[a-z0-9]{26}$`,
-      });
-    }
-  }
+  assert.equal(inbox.length, 0);
   const privateIds = new Set(plan.privateOperations.map(({ operationId }) => operationId));
   for (const item of input["x-devfeed-gateway-routes"].filter(
     ({ policy }) => policy.extension === null,

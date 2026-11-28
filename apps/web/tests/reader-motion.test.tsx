@@ -5,7 +5,6 @@ import { animateReader } from "@/lib/reader-motion";
 import { ReaderDisclosure } from "@/components/reader-disclosure";
 import { LoadingReveal } from "@/components/loading-reveal";
 import { SaveFeedback } from "@/components/motion-icon";
-import { NotificationBell } from "@devfeed/ui/notifications";
 
 afterEach(() => {
   cleanup();
@@ -36,21 +35,6 @@ function animations() {
   vi.spyOn(Element.prototype, "animate").mockImplementation(animate);
   return { animate, effects };
 }
-it.each([
-  [0, "Notifications", null],
-  [1, "Notifications, 1 new", "1"],
-  [99, "Notifications, 99 new", "99"],
-  [100, "Notifications, 99+ new (100 in total)", "99+"],
-  [500, "Notifications, 99+ new (500 in total)", "99+"],
-])(
-  "keeps the visible new-notification badge and exact count in its name: %i",
-  (count, label, badge) => {
-    render(<NotificationBell count={count} />);
-    const button = screen.getByRole("button", { name: label });
-    expect(button.querySelector(".devfeed-notification-count")?.textContent ?? null).toBe(badge);
-  },
-);
-
 it("skips animations when motion is reduced or the browser lacks support", () => {
   const element = document.createElement("div");
   expect(animateReader(element, [])).toBeNull();
@@ -101,20 +85,6 @@ it("shows a check only for confirmed saves", () => {
   view.rerender(<SaveFeedback busy={false} saved />);
   expect(view.container.querySelector(".lucide-check")).toBeTruthy();
 });
-it("pulses badges only for fresh arrivals after hydration, never repeated polls or re-enabling", () => {
-  const { animate } = animations();
-  const view = render(<NotificationBell count={0} loading animateBadge />);
-  view.rerender(<NotificationBell count={3} latest={Date.now() - 100} animateBadge />);
-  view.rerender(<NotificationBell count={3} latest={Date.now() - 100} animateBadge />);
-  view.rerender(<NotificationBell count={4} latest={Date.now() - 100} animateBadge />);
-  expect(animate).not.toHaveBeenCalled();
-  view.rerender(<NotificationBell count={5} latest={Date.now() + 100} animateBadge />);
-  expect(animate).toHaveBeenCalledOnce();
-  view.rerender(<NotificationBell count={0} latest={Date.now() + 100} />);
-  view.rerender(<NotificationBell count={6} latest={Date.now() + 200} animateBadge />);
-  expect(animate).toHaveBeenCalledOnce();
-});
-
 it("preserves the tab indicator origin across a route remount", async () => {
   const { ReaderTabs } = await import("@/components/reader-tabs");
   const { animate } = animations();
