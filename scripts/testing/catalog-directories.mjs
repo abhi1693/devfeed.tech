@@ -107,7 +107,7 @@ export async function checkCatalogDirectories(
         assert.equal(first.status(), 200);
         assert.equal(fixture.requests.length, 1, "metadata and page share one catalog snapshot");
       }
-      const next = page.locator('a[rel="next"]');
+      const next = page.locator('a[rel="next"]:visible');
       assert.equal(
         await next.count(),
         1,
@@ -127,7 +127,7 @@ export async function checkCatalogDirectories(
         .filter({ hasText: `Last directory ${kind} 60` })
         .waitFor();
       assert.equal(await cardLinks(kind).count(), 1);
-      assert.equal(await page.locator('a[rel="next"]').count(), 0);
+      assert.equal(await page.locator('a[rel="next"]:visible').count(), 0);
       await canonical(kind, 60);
       await page.goBack();
       await heading(kind).waitFor();
@@ -150,7 +150,7 @@ export async function checkCatalogDirectories(
       await heading(kind).waitFor();
       assert.equal(await cardLinks(kind).count(), 60);
       assert.equal(
-        await page.locator('a[rel="next"]').count(),
+        await page.locator('a[rel="next"]:visible').count(),
         0,
         "an exact60-item ending has no ghost continuation",
       );

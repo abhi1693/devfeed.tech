@@ -2,6 +2,7 @@ import logging
 import time
 import uuid
 from collections.abc import Sequence
+from contextlib import nullcontext
 from datetime import datetime
 from typing import TypedDict
 
@@ -26,13 +27,19 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.polling import observe, schedule
-from devfeed_core.source_tags import attach_source_tags, resolve_source_tags, source_tag_names
+from devfeed_core.source_tags import (
+    attach_source_tags,
+    prefetch_source_tags,
+    resolve_source_tags,
+    source_tag_names,
+)
 from devfeed_core.source_types import SourceType
 from devfeed_core.taxonomy import classify, classify_tags, detect_content_type
 from devfeed_core.telemetry import current
 from devfeed_core.urls import fingerprint
 from sqlalchemy import case, func, select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session, sessionmaker
 
 from devfeed_aggregator.languages import detect_feed_languages
@@ -277,7 +284,13 @@ def _ingest_claimed(
             if result.status == 200
             else None
         )
-        with factory.begin() as session:
+        labels = (tag for entry in parsed.entries for tag in entry.tags) if parsed else ()
+        prefetch = (
+            nullcontext()
+            if isinstance(getattr(factory, "kw", {}).get("bind"), Connection)
+            else prefetch_source_tags(labels)
+        )
+        with prefetch, factory.begin() as session:
             job = owned_job(session, IngestionJob, identifier, lease_token)
             if job is None:
                 logger.warning("ingestion_lease_lost")
