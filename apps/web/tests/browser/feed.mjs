@@ -1037,11 +1037,7 @@ async function createReaderFixture(
     await checkFeaturedOn(page);
     await checkSidebarGitHub(page, `${root}/reports/reader-feed/sidebar-github.png`);
     await checkMcp(page, `${root}/reports/reader-feed/mcp`);
-    const whatsNew = page
-      .locator(".sidebar")
-      .getByRole("link", { name: "What’s new (opens in a new tab)", exact: true });
-    assert.equal(await whatsNew.getAttribute("href"), "https://changelog.devfeed.tech/");
-    assert.equal(await whatsNew.getAttribute("target"), "_blank");
+    assert.equal(await page.getByRole("link", { name: /what’s new/i }).count(), 0);
     await checkExtensionInstall(
       page,
       "chrome",
